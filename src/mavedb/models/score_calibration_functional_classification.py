@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Column, Enum, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, Enum, Float, ForeignKey, Integer, String, func, select
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, relationship
+from sqlalchemy.orm import Mapped, column_property, relationship
 
 from mavedb.db.base import Base
 from mavedb.lib.validation.utilities import inf_or_float
@@ -56,6 +56,17 @@ class ScoreCalibrationFunctionalClassification(Base):
     variants: Mapped[list["Variant"]] = relationship(
         "Variant",
         secondary=score_calibration_functional_classification_variants_association_table,
+    )
+
+    # Efficient count via correlated subquery — avoids loading all variant objects.
+    variant_count: Mapped[int] = column_property(
+        select(func.count())
+        .where(
+            score_calibration_functional_classification_variants_association_table.c.functional_classification_id
+            == id  # refers to the `id` Column defined above
+        )
+        .correlate_except(score_calibration_functional_classification_variants_association_table)
+        .scalar_subquery()
     )
 
     def score_is_contained_in_range(self, score: float) -> bool:

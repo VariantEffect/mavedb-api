@@ -22,6 +22,7 @@ from mavedb.lib.score_sets import (
     create_variants_data,
     csv_data_to_df,
     fetch_score_set_search_filter_options,
+    variant_to_csv_row,
 )
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import (
@@ -550,3 +551,154 @@ def test_fetch_score_set_search_filter_options_with_no_permitted_score_sets(setu
         "publication_db_names": [],
         "publication_journals": [],
     }
+
+
+class MockVariant:
+    """Lightweight mock for Variant used in variant_to_csv_row tests."""
+
+    def __init__(self, urn="urn:mavedb:00000001-a-1#1", hgvs_nt=None, hgvs_splice=None, hgvs_pro=None, data=None):
+        self.urn = urn
+        self.hgvs_nt = hgvs_nt
+        self.hgvs_splice = hgvs_splice
+        self.hgvs_pro = hgvs_pro
+        self.data = data
+
+
+class TestVariantToCsvRowNullHandling:
+    """Tests that variant_to_csv_row represents missing data as na_rep, not 'None'."""
+
+    def test_score_data_with_none_value_uses_na_rep(self):
+        variant = MockVariant(data={"score_data": {"score": None}})
+        columns = {"scores": ["score"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["score"] == "NA"
+
+    def test_score_data_with_missing_key_uses_na_rep(self):
+        variant = MockVariant(data={"score_data": {}})
+        columns = {"scores": ["score"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["score"] == "NA"
+
+    def test_score_data_with_no_score_data_key_uses_na_rep(self):
+        variant = MockVariant(data={})
+        columns = {"scores": ["score"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["score"] == "NA"
+
+    def test_score_data_with_no_data_uses_na_rep(self):
+        variant = MockVariant(data=None)
+        columns = {"scores": ["score"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["score"] == "NA"
+
+    def test_count_data_with_none_value_uses_na_rep(self):
+        variant = MockVariant(data={"count_data": {"count1": None}})
+        columns = {"counts": ["count1"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["count1"] == "NA"
+
+    def test_count_data_with_missing_key_uses_na_rep(self):
+        variant = MockVariant(data={"count_data": {}})
+        columns = {"counts": ["count1"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["count1"] == "NA"
+
+    def test_count_data_with_no_count_data_key_uses_na_rep(self):
+        variant = MockVariant(data={})
+        columns = {"counts": ["count1"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["count1"] == "NA"
+
+    def test_count_data_with_no_data_uses_na_rep(self):
+        variant = MockVariant(data=None)
+        columns = {"counts": ["count1"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["count1"] == "NA"
+
+    def test_score_data_with_valid_value_preserved(self):
+        variant = MockVariant(data={"score_data": {"score": 1.5}})
+        columns = {"scores": ["score"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["score"] == "1.5"
+
+    def test_count_data_with_valid_value_preserved(self):
+        variant = MockVariant(data={"count_data": {"count1": 42}})
+        columns = {"counts": ["count1"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["count1"] == "42"
+
+    def test_score_data_with_custom_na_rep(self):
+        variant = MockVariant(data={"score_data": {"score": None}})
+        columns = {"scores": ["score"]}
+
+        row = variant_to_csv_row(variant, columns, na_rep="N/A")
+
+        assert row["score"] == "N/A"
+
+    def test_namespaced_score_data_with_none_value_uses_na_rep(self):
+        variant = MockVariant(data={"score_data": {"score": None}})
+        columns = {"scores": ["score"]}
+
+        row = variant_to_csv_row(variant, columns, namespaced=True)
+
+        assert row["scores.score"] == "NA"
+
+    def test_namespaced_count_data_with_none_value_uses_na_rep(self):
+        variant = MockVariant(data={"count_data": {"count1": None}})
+        columns = {"counts": ["count1"]}
+
+        row = variant_to_csv_row(variant, columns, namespaced=True)
+
+        assert row["counts.count1"] == "NA"
+
+    def test_core_columns_with_none_hgvs_uses_na_rep(self):
+        variant = MockVariant(hgvs_nt=None, hgvs_pro=None, hgvs_splice=None, urn="urn:mavedb:00000001-a-1#1")
+        columns = {"core": ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"]}
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["hgvs_nt"] == "NA"
+        assert row["hgvs_pro"] == "NA"
+        assert row["hgvs_splice"] == "NA"
+        assert row["accession"] == "urn:mavedb:00000001-a-1#1"
+
+    def test_mixed_columns_with_missing_data(self):
+        variant = MockVariant(
+            hgvs_nt="g.1A>G",
+            hgvs_pro="p.Met1Val",
+            data={"score_data": {"score": None, "se": 0.1}, "count_data": {"count1": None, "count2": 5}},
+        )
+        columns = {
+            "core": ["hgvs_nt", "hgvs_pro"],
+            "scores": ["score", "se"],
+            "counts": ["count1", "count2"],
+        }
+
+        row = variant_to_csv_row(variant, columns)
+
+        assert row["hgvs_nt"] == "g.1A>G"
+        assert row["hgvs_pro"] == "p.Met1Val"
+        assert row["score"] == "NA"
+        assert row["se"] == "0.1"
+        assert row["count1"] == "NA"
+        assert row["count2"] == "5"

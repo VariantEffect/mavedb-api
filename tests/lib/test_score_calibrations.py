@@ -346,7 +346,7 @@ async def test_create_score_calibration_in_score_set_creates_score_calibration_w
         "MockCalibrationCreate",
         score_set_urn=(str | None, setup_lib_db_with_score_set.urn),
         threshold_sources=(list, []),
-        classification_sources=(list, []),
+        evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
     )
@@ -366,7 +366,7 @@ async def test_create_score_calibration_in_score_set_investigator_provided_set_w
         "MockCalibrationCreate",
         score_set_urn=(str | None, setup_lib_db_with_score_set.urn),
         threshold_sources=(list, []),
-        classification_sources=(list, []),
+        evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
     )
@@ -398,7 +398,7 @@ async def test_create_score_calibration_in_score_set_investigator_provided_set_w
         "MockCalibrationCreate",
         score_set_urn=(str | None, setup_lib_db_with_score_set.urn),
         threshold_sources=(list, []),
-        classification_sources=(list, []),
+        evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
     )
@@ -419,7 +419,7 @@ async def test_create_score_calibration_in_score_set_investigator_provided_not_s
         "MockCalibrationCreate",
         score_set_urn=(str | None, setup_lib_db_with_score_set.urn),
         threshold_sources=(list, []),
-        classification_sources=(list, []),
+        evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
     )
@@ -458,7 +458,7 @@ async def test_create_score_calibration_creates_score_calibration_when_score_set
         "MockCalibrationCreate",
         score_set_urn=(str | None, None),
         threshold_sources=(list, []),
-        classification_sources=(list, []),
+        evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
     )
@@ -493,7 +493,7 @@ async def test_create_score_calibration_propagates_errors_from_publication_find_
                 )()
             ],
         ),
-        classification_sources=(list, []),
+        evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
     )
@@ -522,7 +522,7 @@ async def test_create_score_calibration_propagates_errors_from_publication_find_
     "relation,expected_relation",
     [
         ("threshold_sources", ScoreCalibrationRelation.threshold),
-        ("classification_sources", ScoreCalibrationRelation.classification),
+        ("evidence_sources", ScoreCalibrationRelation.evidence),
         ("method_sources", ScoreCalibrationRelation.method),
     ],
 )
@@ -546,7 +546,7 @@ async def test_create_score_calibration_publication_identifier_associations_crea
         "MockCalibrationCreate",
         score_set_urn=(str | None, score_set_urn),
         threshold_sources=(list, []),
-        classification_sources=(list, []),
+        evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
     )
@@ -582,7 +582,7 @@ async def test_create_score_calibration_user_is_set_as_creator_and_modifier(
         "MockCalibrationCreate",
         score_set_urn=(str | None, score_set_urn),
         threshold_sources=(list, []),
-        classification_sources=(list, []),
+        evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
     )
@@ -731,7 +731,7 @@ async def test_modify_score_calibration_modifies_score_calibration_when_score_se
         score_set_urn=(str | None, setup_lib_db_with_score_set.urn),
         description=(str | None, "Modified description"),
         threshold_sources=(list, []),
-        classification_sources=(list, []),
+        evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
     )
@@ -768,7 +768,7 @@ async def test_modify_score_calibration_clears_existing_publication_identifier_a
         "MockCalibrationModify",
         score_set_urn=(str | None, setup_lib_db_with_score_set.urn),
         threshold_sources=(list, []),
-        classification_sources=(list, []),
+        evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
     )
@@ -784,7 +784,7 @@ async def test_modify_score_calibration_clears_existing_publication_identifier_a
     "relation,expected_relation",
     [
         ("threshold_sources", ScoreCalibrationRelation.threshold),
-        ("classification_sources", ScoreCalibrationRelation.classification),
+        ("evidence_sources", ScoreCalibrationRelation.evidence),
         ("method_sources", ScoreCalibrationRelation.method),
     ],
 )
@@ -815,7 +815,7 @@ async def test_modify_score_calibration_publication_identifier_associations_crea
         "MockCalibrationModify",
         score_set_urn=(str | None, setup_lib_db_with_score_set.urn),
         threshold_sources=(list, []),
-        classification_sources=(list, []),
+        evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
     )
@@ -869,7 +869,7 @@ async def test_modify_score_calibration_retains_existing_publication_relationshi
                 for pub_dict in TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED["threshold_sources"]
             ],
         ),
-        classification_sources=(
+        evidence_sources=(
             list,
             [
                 create_model(
@@ -877,7 +877,7 @@ async def test_modify_score_calibration_retains_existing_publication_relationshi
                     db_name=(str, pub_dict["db_name"]),
                     identifier=(str, pub_dict["identifier"]),
                 )()
-                for pub_dict in TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED["classification_sources"]
+                for pub_dict in TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED["evidence_sources"]
             ],
         ),
         method_sources=(
@@ -935,7 +935,7 @@ async def test_modify_score_calibration_adds_new_publication_association(
                 )()
             ],
         ),
-        classification_sources=(list, []),
+        evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
     )
@@ -976,7 +976,7 @@ async def test_modify_score_calibration_user_is_set_as_modifier(
         "MockCalibrationModify",
         score_set_urn=(str | None, setup_lib_db_with_score_set.urn),
         threshold_sources=(list, []),
-        classification_sources=(list, []),
+        evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
     )
@@ -1026,7 +1026,7 @@ async def test_modify_score_calibration_new_score_set(setup_lib_db_with_score_se
         "MockCalibrationModify",
         score_set_urn=(str | None, new_containing_score_set.urn),
         threshold_sources=(list, []),
-        classification_sources=(list, []),
+        evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
     )
@@ -1062,7 +1062,7 @@ async def test_modify_score_calibration_clears_functional_classifications(
         "MockCalibrationModify",
         score_set_urn=(str | None, setup_lib_db_with_score_set.urn),
         threshold_sources=(list, []),
-        classification_sources=(list, []),
+        evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
     )

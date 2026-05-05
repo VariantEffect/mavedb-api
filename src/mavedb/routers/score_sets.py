@@ -2,7 +2,7 @@ import json
 import logging
 import time
 from datetime import date, datetime
-from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
+from typing import Any, List, Optional, Sequence, TypedDict, Union
 
 import numpy as np
 import pandas as pd
@@ -48,6 +48,7 @@ from mavedb.lib.logging.context import (
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_calibrations import create_score_calibration
 from mavedb.lib.score_sets import (
+    CLINVAR_NS_PATTERN,
     csv_data_to_df,
     fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
@@ -600,6 +601,13 @@ def get_filter_options_for_search(
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
+    # Disallow searches for unpublished score sets via this endpoint, consistent with the main search endpoint.
+    if search.published is False:
+        raise HTTPException(
+            status_code=422,
+            detail="Cannot search for private score sets options except in the context of the current user's data.",
+        )
+    search.published = True
     return fetch_score_set_search_filter_options(db, user_data, None, search)
 
 
@@ -665,6 +673,86 @@ def search_my_score_sets(
     return {"score_sets": enriched_score_sets, "num_score_sets": num_score_sets}
 
 
+RECENTLY_PUBLISHED_SCORE_SETS_MAX_LIMIT = 20
+
+
+@router.get(
+    "/score-sets/recently-published",
+    status_code=200,
+    response_model=list[score_set.ScoreSet],
+    response_model_exclude_none=True,
+    summary="List recently published score sets",
+)
+def list_recently_published_score_sets(
+    limit: int = Query(
+        default=10,
+        ge=1,
+        le=RECENTLY_PUBLISHED_SCORE_SETS_MAX_LIMIT,
+        description=f"Number of score sets to return (maximum {RECENTLY_PUBLISHED_SCORE_SETS_MAX_LIMIT}).",
+    ),
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+) -> Any:
+    """
+    Return the most recently published score sets, ordered by publication date descending.
+    """
+    save_to_logging_context({"requested_resource": "recently-published", "limit": limit})
+
+    items = (
+        db.query(ScoreSet)
+        .filter(ScoreSet.published_date.isnot(None), ScoreSet.private.is_(False))
+        .order_by(ScoreSet.published_date.desc(), ScoreSet.urn.desc())
+        .limit(limit)
+        .all()
+    )
+
+    result = []
+    for item in items:
+        if not has_permission(user_data, item, Action.READ).permitted:
+            continue
+        if (
+            item.superseding_score_set
+            and not has_permission(user_data, item.superseding_score_set, Action.READ).permitted
+        ):
+            item.superseding_score_set = None
+        enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+        result.append(score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment}))
+
+    return result
+
+
+@router.get(
+    "/score-sets/",
+    status_code=200,
+    response_model=list[score_set.ScoreSet],
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    response_model_exclude_none=True,
+    summary="Fetch score sets by URN list",
+)
+async def show_score_sets(
+    *,
+    urns: str = Query(..., description="Comma-separated list of score set URNs"),
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(get_current_user),
+) -> Any:
+    """
+    Fetch score sets identified by a list of URNs.
+    """
+    urn_list = [urn.strip() for urn in urns.split(",") if urn.strip()]
+    if not urn_list:
+        raise HTTPException(status_code=422, detail="At least one URN is required")
+
+    save_to_logging_context({"requested_resource": urn_list})
+    response_items: list[score_set.ScoreSet] = []
+    for urn in urn_list:
+        item = await fetch_score_set_by_urn(db, urn, user_data, None, False)
+        enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
+        response_item = score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
+        response_items.append(response_item)
+
+    return response_items
+
+
 @router.get(
     "/score-sets/{urn}",
     status_code=200,
@@ -707,8 +795,13 @@ def get_score_set_variants_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Maximum number of variants to return"),
-    namespaces: List[Literal["scores", "counts", "vep", "gnomad", "clingen"]] = Query(
-        default=["scores"], description="One or more data types to include: scores, counts, ClinGen, gnomAD, VEP"
+    namespaces: List[str] = Query(
+        default=["scores"],
+        description=(
+            'One or more data types to include: "scores", "counts", "vep", "gnomad", "clingen", '
+            'and/or ClinVar-versioned namespaces of the form "clinvar.YEAR_MONTH" '
+            '(e.g. "clinvar.2024_01" for January 2024).'
+        ),
     ),
     drop_na_columns: Optional[bool] = None,
     include_custom_columns: Optional[bool] = None,
@@ -722,9 +815,6 @@ def get_score_set_variants_csv(
     This differs from get_score_set_scores_csv() in that it returns only the HGVS columns, score column, and mapped HGVS
     string.
 
-    TODO (https://github.com/VariantEffect/mavedb-api/issues/446) We may add another function for ClinVar and gnomAD.
-    export endpoint, with options governing which columns to include.
-
     Parameters
     __________
     urn : str
@@ -733,9 +823,11 @@ def get_score_set_variants_csv(
         The index to start from. If None, starts from the beginning.
     limit : Optional[int]
         The maximum number of variants to return. If None, returns all variants.
-    namespaces: List[Literal["scores", "counts", "vep", "gnomad", "clingen"]]
+    namespaces: List[str]
         The namespaces of all columns except for accession, hgvs_nt, hgvs_pro, and hgvs_splice.
-        We may add ClinVar in the future.
+        Supported values: "scores", "counts", "vep", "gnomad", "clingen", and ClinVar-versioned
+        namespaces of the form "clinvar.YEAR_MONTH" (e.g. "clinvar.2024_01" for January 2024).
+        Multiple ClinVar namespaces with different YEAR_MONTH values may be requested simultaneously.
     drop_na_columns : bool, optional
         Whether to drop columns that contain only NA values. Defaults to False.
     db : Session
@@ -764,6 +856,21 @@ def get_score_set_variants_csv(
     if limit is not None and limit <= 0:
         logger.info(msg="Could not fetch scores with non-positive limit.", extra=logging_context())
         raise HTTPException(status_code=422, detail="Limit must be positive")
+
+    _VALID_STATIC_NAMESPACES = {"scores", "counts", "vep", "gnomad", "clingen"}
+    invalid_namespaces = [
+        ns for ns in namespaces if ns not in _VALID_STATIC_NAMESPACES and not CLINVAR_NS_PATTERN.match(ns)
+    ]
+    if invalid_namespaces:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Invalid namespace(s): {invalid_namespaces}. "
+                'Each namespace must be one of "scores", "counts", "vep", "gnomad", "clingen", '
+                'or a ClinVar-versioned namespace of the form "clinvar.YEAR_MM" '
+                '(e.g. "clinvar.2024_01" for January 2024).'
+            ),
+        )
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -2245,6 +2352,7 @@ async def get_clinical_controls_options_for_score_set(
         select(ClinicalControl.db_name, ClinicalControl.db_version)
         .join(MappedVariant, ClinicalControl.mapped_variants)
         .join(Variant)
+        .where(MappedVariant.current.is_(True))
         .where(Variant.score_set_id == item.id)
     )
 

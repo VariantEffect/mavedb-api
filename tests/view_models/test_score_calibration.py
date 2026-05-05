@@ -8,6 +8,7 @@ from mavedb.models.enums.functional_classification import FunctionalClassificati
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
 from mavedb.view_models.score_calibration import (
     FunctionalClassificationCreate,
+    SavedScoreCalibration,
     ScoreCalibration,
     ScoreCalibrationCreate,
     ScoreCalibrationWithScoreSetUrn,
@@ -290,12 +291,12 @@ def test_can_create_valid_score_calibration(valid_calibration):
     else:
         assert sc.threshold_sources is None
 
-    if valid_calibration.get("classification_sources") is not None:
-        assert len(sc.classification_sources) == len(valid_calibration["classification_sources"])
-        for pub in valid_calibration["classification_sources"]:
-            assert pub["identifier"] in [rs.identifier for rs in sc.classification_sources]
+    if valid_calibration.get("evidence_sources") is not None:
+        assert len(sc.evidence_sources) == len(valid_calibration["evidence_sources"])
+        for pub in valid_calibration["evidence_sources"]:
+            assert pub["identifier"] in [rs.identifier for rs in sc.evidence_sources]
     else:
-        assert sc.classification_sources is None
+        assert sc.evidence_sources is None
 
     if valid_calibration.get("method_sources") is not None:
         assert len(sc.method_sources) == len(valid_calibration["method_sources"])
@@ -340,12 +341,12 @@ def test_can_create_valid_score_calibration_without_functional_classifications(v
     else:
         assert sc.threshold_sources is None
 
-    if valid_calibration.get("classification_sources") is not None:
-        assert len(sc.classification_sources) == len(valid_calibration["classification_sources"])
-        for pub in valid_calibration["classification_sources"]:
-            assert pub["identifier"] in [rs.identifier for rs in sc.classification_sources]
+    if valid_calibration.get("evidence_sources") is not None:
+        assert len(sc.evidence_sources) == len(valid_calibration["evidence_sources"])
+        for pub in valid_calibration["evidence_sources"]:
+            assert pub["identifier"] in [rs.identifier for rs in sc.evidence_sources]
     else:
-        assert sc.classification_sources is None
+        assert sc.evidence_sources is None
 
     if valid_calibration.get("method_sources") is not None:
         assert len(sc.method_sources) == len(valid_calibration["method_sources"])
@@ -491,12 +492,12 @@ def test_can_create_valid_score_calibration_from_attributed_object(valid_calibra
     else:
         assert sc.threshold_sources is None
 
-    if valid_calibration.get("classificationSources") is not None:
-        assert len(sc.classification_sources) == len(valid_calibration["classificationSources"])
-        for pub in valid_calibration["classificationSources"]:
-            assert pub["identifier"] in [rs.identifier for rs in sc.classification_sources]
+    if valid_calibration.get("evidenceSources") is not None:
+        assert len(sc.evidence_sources) == len(valid_calibration["evidenceSources"])
+        for pub in valid_calibration["evidenceSources"]:
+            assert pub["identifier"] in [rs.identifier for rs in sc.evidence_sources]
     else:
-        assert sc.classification_sources is None
+        assert sc.evidence_sources is None
 
     if valid_calibration.get("methodSources") is not None:
         assert len(sc.method_sources) == len(valid_calibration["methodSources"])
@@ -516,7 +517,7 @@ def test_cannot_create_score_calibration_when_publication_information_is_missing
 
     # Add publication identifiers with missing information
     invalid_data.pop("thresholdSources", None)
-    invalid_data.pop("classificationSources", None)
+    invalid_data.pop("evidenceSources", None)
     invalid_data.pop("methodSources", None)
 
     with pytest.raises(ValidationError) as exc_info:
@@ -524,7 +525,7 @@ def test_cannot_create_score_calibration_when_publication_information_is_missing
 
     assert "Field required" in str(exc_info.value)
     assert "thresholdSources" in str(exc_info.value)
-    assert "classificationSources" in str(exc_info.value)
+    assert "evidenceSources" in str(exc_info.value)
     assert "methodSources" in str(exc_info.value)
 
 
@@ -536,9 +537,9 @@ def test_can_create_score_calibration_from_association_style_publication_identif
         dummy_attributed_object_from_dict({"publication": pub, "relation": ScoreCalibrationRelation.threshold})
         for pub in data.pop("thresholdSources", [])
     ]
-    classification_sources = [
-        dummy_attributed_object_from_dict({"publication": pub, "relation": ScoreCalibrationRelation.classification})
-        for pub in data.pop("classificationSources", [])
+    evidence_sources = [
+        dummy_attributed_object_from_dict({"publication": pub, "relation": ScoreCalibrationRelation.evidence})
+        for pub in data.pop("evidenceSources", [])
     ]
     method_sources = [
         dummy_attributed_object_from_dict({"publication": pub, "relation": ScoreCalibrationRelation.method})
@@ -546,7 +547,7 @@ def test_can_create_score_calibration_from_association_style_publication_identif
     ]
 
     # Simulate ORM model by adding required fields that would originate from the DB
-    data["publication_identifier_associations"] = threshold_sources + classification_sources + method_sources
+    data["publication_identifier_associations"] = threshold_sources + evidence_sources + method_sources
     data["id"] = 1
     data["score_set_id"] = 1
 
@@ -572,12 +573,12 @@ def test_can_create_score_calibration_from_association_style_publication_identif
     else:
         assert sc.threshold_sources is None
 
-    if orig_data.get("classificationSources") is not None:
-        assert len(sc.classification_sources) == len(orig_data["classificationSources"])
-        for pub in orig_data["classificationSources"]:
-            assert pub["identifier"] in [rs.identifier for rs in sc.classification_sources]
+    if orig_data.get("evidenceSources") is not None:
+        assert len(sc.evidence_sources) == len(orig_data["evidenceSources"])
+        for pub in orig_data["evidenceSources"]:
+            assert pub["identifier"] in [rs.identifier for rs in sc.evidence_sources]
     else:
-        assert sc.classification_sources is None
+        assert sc.evidence_sources is None
 
     if orig_data.get("methodSources") is not None:
         assert len(sc.method_sources) == len(orig_data["methodSources"])
@@ -621,7 +622,7 @@ def test_can_create_score_calibration_from_non_orm_context():
     assert sc.baseline_score_description == data.get("baselineScoreDescription")
     assert len(sc.functional_classifications) == len(data["functionalClassifications"])
     assert len(sc.threshold_sources) == len(data["thresholdSources"])
-    assert len(sc.classification_sources) == len(data["classificationSources"])
+    assert len(sc.evidence_sources) == len(data["evidenceSources"])
     assert len(sc.method_sources) == len(data["methodSources"])
     assert sc.calibration_metadata == data.get("calibrationMetadata")
 
@@ -695,3 +696,34 @@ def test_score_calibration_with_score_set_urn_can_be_created_from_non_orm_contex
 
     assert sc.title == data["title"]
     assert sc.score_set_urn == data["score_set_urn"]
+
+
+def test_saved_score_calibration_with_empty_publication_sources_and_functional_classifications():
+    """Legacy calibrations with functional classifications but no publication sources should serialize without error.
+
+    The publication source validator lives on ScoreCalibrationModify (write path), not ScoreCalibrationBase,
+    so SavedScoreCalibration can load existing DB data that predates the publication requirement.
+    """
+    data = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    data["thresholdSources"] = []
+    data["evidenceSources"] = []
+    data["methodSources"] = []
+
+    sc = SavedScoreCalibration.model_validate(data)
+
+    assert sc.title == data["title"]
+    assert len(sc.functional_classifications) > 0
+    assert sc.threshold_sources == []
+    assert sc.evidence_sources == []
+    assert sc.method_sources == []
+
+
+def test_create_calibration_with_functional_classifications_requires_publication_sources():
+    """Creating a calibration with functional classifications but no publications should fail."""
+    data = deepcopy(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    data["threshold_sources"] = []
+    data["evidence_sources"] = []
+    data["method_sources"] = []
+
+    with pytest.raises(ValidationError, match="must provide at least one method source publication"):
+        ScoreCalibrationCreate.model_validate(data)

@@ -8,11 +8,14 @@ python3 -m mavedb.scripts.export_public_data
 
 This generates a ZIP archive named `mavedb-dump.zip` in the working directory. the ZIP file has the following contents:
 - main.json: A JSON file providing metadata for all of the published experiment sets, experiments, and score sets
+- LICENSE.txt: The text of the Creative Commons Zero license, which applies to all data included in the dump.
 - variants/
   - [URN].counts.csv (for each variant URN): The score set's variant count columns,
     sorted by variant number
   - [URN].scores.csv (for each variant URN): The score set's variant count columns,
     sorted by variant number
+  - [URN].annotations.csv (for each variant URN with mapped variants): The score set's variant annotations, sorted by
+    variant number. This file is only included for score sets with mapped variants, and includes VEP, gnomAD, and ClinGen annotations.
 
 In the exported JSON metadata, the root object's `experimentSets` property gives an array of experiment sets.
 Experiments are nested in their parent experiment sets, and score sets in their parent experiments.
@@ -20,7 +23,7 @@ Experiments are nested in their parent experiment sets, and score sets in their 
 The variant URNs used in filenames do not include the `urn:mavedb:` scheme identifier, so they look like
 `00000001-a-1.counts.csv` and `00000001-a-1.scores.csv`, for instance.
 
-Unpublished data and data sets licensed other than under the Create Commmons Zero license are not included in the dump,
+Unpublished data and data sets licensed other than under the Creative Commons Zero license are not included in the dump,
 and user details are limited to ORCID IDs and names of contributors to published data sets.
 """
 
@@ -34,16 +37,17 @@ from zipfile import ZipFile
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
-from sqlalchemy.orm import lazyload, Session
+from sqlalchemy.orm import Session, lazyload
 
 from mavedb.lib.score_sets import get_score_set_variants_as_csv
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.license import License
+from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
-from mavedb.view_models.experiment_set import ExperimentSetPublicDump
-
+from mavedb.models.variant import Variant
 from mavedb.scripts.environment import script_environment, with_database_session
+from mavedb.view_models.experiment_set import ExperimentSetPublicDump
 
 logger = logging.getLogger(__name__)
 
@@ -147,12 +151,26 @@ def export_public_data(db: Session):
                 logger.info(f"{i + 1}/{num_score_sets} Exporting variants for score set {score_set.urn}")
                 csv_filename_base = score_set.urn.replace(":", "-")
 
-                csv_str = get_score_set_variants_as_csv(db, score_set, ["scores"])
+                csv_str = get_score_set_variants_as_csv(db, score_set, ["scores"], namespaced=True)
                 zipfile.writestr(f"csv/{csv_filename_base}.scores.csv", csv_str)
 
+                # Only generate the annotations CSV if mapped variants exist in the score set.
+                has_annotations = (
+                    db.scalars(
+                        select(ScoreSet).where(ScoreSet.id == score_set_id).join(Variant).join(MappedVariant).limit(1)
+                    ).one_or_none()
+                    is not None
+                )
+                if has_annotations:
+                    csv_str = get_score_set_variants_as_csv(
+                        db, score_set, ["vep", "gnomad", "clingen"], include_post_mapped_hgvs=True, namespaced=True
+                    )
+                    zipfile.writestr(f"csv/{csv_filename_base}.annotations.csv", csv_str)
+
+                # Only generate the counts CSV if count columns are present.
                 count_columns = score_set.dataset_columns["count_columns"] if score_set.dataset_columns else None
                 if count_columns and len(count_columns) > 0:
-                    csv_str = get_score_set_variants_as_csv(db, score_set, ["counts"])
+                    csv_str = get_score_set_variants_as_csv(db, score_set, ["counts"], namespaced=True)
                     zipfile.writestr(f"csv/{csv_filename_base}.counts.csv", csv_str)
 
 

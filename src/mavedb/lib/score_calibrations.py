@@ -106,15 +106,15 @@ async def _create_score_calibration(
     publication identifier associations.
 
     For each publication source listed in the incoming ScoreCalibrationCreate model
-    (threshold_sources, classification_sources, method_sources), this function
+    (threshold_sources, evidence_sources, method_sources), this function
     ensures a corresponding PublicationIdentifier row exists (via
     find_or_create_publication_identifier) and creates a
     ScoreCalibrationPublicationIdentifierAssociation that links the identifier to
     the new calibration under the appropriate relation type
-    (ScoreCalibrationRelation.threshold / .classification / .method).
+    (ScoreCalibrationRelation.threshold / .evidence / .method).
 
     Fields in calibration_create that represent source lists or audit metadata
-    (threshold_sources, classification_sources, method_sources, created_at,
+    (threshold_sources, evidence_sources, method_sources, created_at,
     created_by, modified_at, modified_by) are excluded when instantiating the
     ScoreCalibration; audit fields created_by and modified_by are explicitly set
     from the provided user_data. The resulting ScoreCalibration object includes
@@ -157,7 +157,7 @@ async def _create_score_calibration(
     """
     relation_sources = (
         (ScoreCalibrationRelation.threshold, calibration_create.threshold_sources or []),
-        (ScoreCalibrationRelation.classification, calibration_create.classification_sources or []),
+        (ScoreCalibrationRelation.evidence, calibration_create.evidence_sources or []),
         (ScoreCalibrationRelation.method, calibration_create.method_sources or []),
     )
 
@@ -182,7 +182,7 @@ async def _create_score_calibration(
             exclude={
                 "functional_classifications",
                 "threshold_sources",
-                "classification_sources",
+                "evidence_sources",
                 "method_sources",
                 "score_set_urn",
             },
@@ -344,7 +344,7 @@ async def modify_score_calibration(
     2. Loads (via SELECT ... WHERE urn = :score_set_urn) the ScoreSet that will contain the calibration.
     3. Reconciles publication identifier associations for three relation categories:
         - threshold_sources  -> ScoreCalibrationRelation.threshold
-        - classification_sources -> ScoreCalibrationRelation.classification
+        - evidence_sources -> ScoreCalibrationRelation.evidence
         - method_sources -> ScoreCalibrationRelation.method
         For each provided source identifier:
           * Calls find_or_create_publication_identifier to obtain (or persist) the identifier row.
@@ -352,7 +352,7 @@ async def modify_score_calibration(
           * Creates a new association if missing.
         Any previously existing associations not referenced in the update are deleted from the session.
     4. Updates mutable scalar fields on the calibration instance from calibration_update, excluding:
-        threshold_sources, classification_sources, method_sources, created_at, created_by,
+        threshold_sources, evidence_sources, method_sources, created_at, created_by,
         modified_at, modified_by.
     5. Reassigns the calibration to the resolved ScoreSet, replaces its association collection,
         and stamps modified_by with the requesting user.
@@ -366,7 +366,7 @@ async def modify_score_calibration(
          The existing calibration ORM instance to be modified (must be persistent or pending).
      calibration_update : score_calibration.ScoreCalibrationModify
          - score_set_urn (required)
-         - threshold_sources, classification_sources, method_sources (iterables of identifier objects)
+         - threshold_sources, evidence_sources, method_sources (iterables of identifier objects)
          - Additional mutable calibration attributes.
      user : User
          Context for the authenticated user; the user to be recorded for audit.
@@ -415,7 +415,7 @@ async def modify_score_calibration(
 
     relation_sources = (
         (ScoreCalibrationRelation.threshold, calibration_update.threshold_sources or []),
-        (ScoreCalibrationRelation.classification, calibration_update.classification_sources or []),
+        (ScoreCalibrationRelation.evidence, calibration_update.evidence_sources or []),
         (ScoreCalibrationRelation.method, calibration_update.method_sources or []),
     )
 
@@ -460,7 +460,7 @@ async def modify_score_calibration(
         if attr not in {
             "functional_classifications",
             "threshold_sources",
-            "classification_sources",
+            "evidence_sources",
             "method_sources",
             "created_at",
             "created_by",

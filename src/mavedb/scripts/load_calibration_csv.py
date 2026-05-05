@@ -363,7 +363,7 @@ def main(db: Session, csv_path: str, delimiter: str, overwrite: bool, purge_publ
                     baseline_score_description=baseline_score_description,
                     threshold_sources=threshold_publications,
                     method_sources=method_publications,
-                    classification_sources=calculation_publications,
+                    evidence_sources=calculation_publications,
                     research_use_only=False,
                     functional_classifications=ranges,
                     notes=calibration_notes,

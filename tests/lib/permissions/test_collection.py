@@ -40,6 +40,7 @@ COLLECTION_UNSUPPORTED_ACTIONS: List[Action] = [
     Action.LOOKUP,
     Action.CHANGE_RANK,
     Action.SET_SCORES,
+    Action.ADD_CALIBRATION,
 ]
 
 COLLECTION_ROLE_MAP = {

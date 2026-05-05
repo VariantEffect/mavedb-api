@@ -1372,7 +1372,7 @@ def test_cannot_create_score_calibration_when_score_set_not_owned_by_user(
     ],
     indirect=["mock_publication_fetch"],
 )
-def test_cannot_create_score_calibration_in_public_score_set_when_score_set_not_owned_by_user(
+def test_can_create_score_calibration_in_public_score_set_as_non_contributor(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
 ):
     experiment = create_experiment(client)
@@ -1396,9 +1396,11 @@ def test_cannot_create_score_calibration_in_public_score_set_when_score_set_not_
             },
         )
 
-    assert response.status_code == 403
-    error = response.json()
-    assert f"insufficient permissions on score set with URN '{score_set['urn']}'" in error["detail"]
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["scoreSetUrn"] == score_set["urn"]
+    assert calibration_response["investigatorProvided"] is False
+    assert calibration_response["private"] is True
 
 
 @pytest.mark.parametrize(
@@ -1716,7 +1718,7 @@ def test_can_create_class_based_score_calibration_form(
     assert calibration_response["scoreSetUrn"] == score_set["urn"]
     assert calibration_response["private"] is True
     assert all(
-        len(classification["variants"]) == 1 for classification in calibration_response["functionalClassifications"]
+        classification["variantCount"] == 1 for classification in calibration_response["functionalClassifications"]
     )
 
 
@@ -2102,9 +2104,10 @@ def test_cannot_update_score_calibration_in_published_score_set_when_score_set_n
             },
         )
 
-    assert response.status_code == 403
-    error = response.json()
-    assert f"insufficient permissions on score set with URN '{score_set['urn']}'" in error["detail"]
+    # The calibration is private and investigator-provided, so the extra user cannot see it.
+    # With published score sets open to any authenticated user, the denial comes from the
+    # calibration-level permission check (hidden as 404) rather than the score set check.
+    assert response.status_code == 404
 
 
 @pytest.mark.parametrize(
@@ -2685,7 +2688,7 @@ def test_can_modify_score_calibration_to_class_based(
     calibration_response = response.json()
     assert calibration_response["urn"] == calibration["urn"]
     assert all(
-        len(classification["variants"]) == 1 for classification in calibration_response["functionalClassifications"]
+        classification["variantCount"] == 1 for classification in calibration_response["functionalClassifications"]
     )
 
 
@@ -3425,9 +3428,11 @@ def test_can_promote_to_primary_if_primary_exists_when_demote_existing_is_true(
     ],
     indirect=["mock_publication_fetch"],
 )
-def test_cannot_promote_to_primary_with_demote_existing_flag_if_user_does_not_have_change_rank_permissions_on_existing_primary(
+def test_score_set_owner_can_promote_to_primary_with_demote_existing_flag_on_community_calibration(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
 ):
+    """Score set owners can change rank of community calibrations, so they can promote
+    their own calibration while demoting an admin-created community primary."""
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
         client,
@@ -3449,16 +3454,15 @@ def test_cannot_promote_to_primary_with_demote_existing_flag_if_user_does_not_ha
         f"/api/v1/score-calibrations/{secondary_calibration['urn']}/promote-to-primary?demoteExistingPrimary=true",
     )
 
-    assert response.status_code == 403
-    promotion_response = response.json()
-    assert "insufficient permissions on score calibration with URN" in promotion_response["detail"]
+    assert response.status_code == 200
+    promoted = response.json()
+    assert promoted["primary"] is True
 
-    # verify the previous primary is still primary
-
+    # verify the previous primary was demoted
     get_response = client.get(f"/api/v1/score-calibrations/{primary_calibration['urn']}")
     assert get_response.status_code == 200
     previous_primary = get_response.json()
-    assert previous_primary["primary"] is True
+    assert previous_primary["primary"] is False
 
 
 ###########################################################
@@ -3914,3 +3918,1099 @@ def test_can_publish_already_published_calibration(
     assert publish_response_2.status_code == 200
     published_calibration_2 = publish_response_2.json()
     assert published_calibration_2["private"] is False
+
+
+###########################################################
+# GET /score-calibrations/{urn}/functional-classifications/{id}/variants
+###########################################################
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_get_functional_classification_variants(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
+    )
+
+    fc = calibration["functionalClassifications"][0]
+    response = client.get(
+        f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
+    )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["functionalClassificationId"] == fc["id"]
+    assert isinstance(result["variants"], list)
+    assert len(result["variants"]) == fc["variantCount"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_get_functional_classification_variants_not_found_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    response = client.get(
+        "/api/v1/score-calibrations/urn:mavedb:calibration-nonexistent/functional-classifications/1/variants",
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_get_functional_classification_variants_not_found_classification(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
+    )
+
+    response = client.get(
+        f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/99999/variants",
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_anonymous_user_cannot_get_variants_for_private_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
+    )
+
+    fc = calibration["functionalClassifications"][0]
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(
+            f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
+        )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_user_without_read_permissions_cannot_get_variants_for_private_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
+    )
+
+    fc = calibration["functionalClassifications"][0]
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(
+            f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
+        )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_user_with_read_permissions_can_get_variants_for_private_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
+    )
+
+    fc = calibration["functionalClassifications"][0]
+
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        EXTRA_USER["username"],
+        EXTRA_USER["first_name"],
+        EXTRA_USER["last_name"],
+    )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(
+            f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
+        )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["functionalClassificationId"] == fc["id"]
+    assert isinstance(result["variants"], list)
+    assert len(result["variants"]) == fc["variantCount"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_admin_user_can_get_variants_for_private_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
+    )
+
+    fc = calibration["functionalClassifications"][0]
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.get(
+            f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
+        )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["functionalClassificationId"] == fc["id"]
+    assert isinstance(result["variants"], list)
+    assert len(result["variants"]) == fc["variantCount"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_anonymous_user_can_get_variants_for_public_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
+    )
+    publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    fc = calibration["functionalClassifications"][0]
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(
+            f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
+        )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["functionalClassificationId"] == fc["id"]
+    assert isinstance(result["variants"], list)
+    assert len(result["variants"]) == fc["variantCount"]
+
+
+###########################################################
+# GET /score-calibrations/{urn}/variants
+###########################################################
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_get_calibration_all_variants(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
+    )
+
+    response = client.get(
+        f"/api/v1/score-calibrations/{calibration['urn']}/variants",
+    )
+
+    assert response.status_code == 200
+    results = response.json()
+    assert isinstance(results, list)
+    assert len(results) == len(calibration["functionalClassifications"])
+    for i, fc_variants in enumerate(results):
+        assert fc_variants["functionalClassificationId"] == calibration["functionalClassifications"][i]["id"]
+        assert isinstance(fc_variants["variants"], list)
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_get_calibration_all_variants_not_found(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    response = client.get(
+        "/api/v1/score-calibrations/urn:mavedb:calibration-nonexistent/variants",
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_anonymous_user_cannot_get_all_variants_for_private_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
+    )
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(
+            f"/api/v1/score-calibrations/{calibration['urn']}/variants",
+        )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_user_without_read_permissions_cannot_get_all_variants_for_private_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
+    )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(
+            f"/api/v1/score-calibrations/{calibration['urn']}/variants",
+        )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_user_with_read_permissions_can_get_all_variants_for_private_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
+    )
+
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        EXTRA_USER["username"],
+        EXTRA_USER["first_name"],
+        EXTRA_USER["last_name"],
+    )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(
+            f"/api/v1/score-calibrations/{calibration['urn']}/variants",
+        )
+
+    assert response.status_code == 200
+    results = response.json()
+    assert isinstance(results, list)
+    assert len(results) == len(calibration["functionalClassifications"])
+    for i, fc_variants in enumerate(results):
+        assert fc_variants["functionalClassificationId"] == calibration["functionalClassifications"][i]["id"]
+        assert isinstance(fc_variants["variants"], list)
+        assert len(fc_variants["variants"]) == calibration["functionalClassifications"][i]["variantCount"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_admin_user_can_get_all_variants_for_private_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
+    )
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.get(
+            f"/api/v1/score-calibrations/{calibration['urn']}/variants",
+        )
+
+    assert response.status_code == 200
+    results = response.json()
+    assert isinstance(results, list)
+    assert len(results) == len(calibration["functionalClassifications"])
+    for i, fc_variants in enumerate(results):
+        assert fc_variants["functionalClassificationId"] == calibration["functionalClassifications"][i]["id"]
+        assert isinstance(fc_variants["variants"], list)
+        assert len(fc_variants["variants"]) == calibration["functionalClassifications"][i]["variantCount"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_anonymous_user_can_get_all_variants_for_public_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
+    )
+    publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(
+            f"/api/v1/score-calibrations/{calibration['urn']}/variants",
+        )
+
+    assert response.status_code == 200
+    results = response.json()
+    assert isinstance(results, list)
+    assert len(results) == len(calibration["functionalClassifications"])
+    for i, fc_variants in enumerate(results):
+        assert fc_variants["functionalClassificationId"] == calibration["functionalClassifications"][i]["id"]
+        assert isinstance(fc_variants["variants"], list)
+        assert len(fc_variants["variants"]) == calibration["functionalClassifications"][i]["variantCount"]
+
+
+###########################################################
+# Independent calibration creation and publication source validation
+###########################################################
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_score_calibration_in_private_score_set_as_non_contributor(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.post(
+            "/api/v1/score-calibrations",
+            json={
+                "scoreSetUrn": score_set["urn"],
+                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+            },
+        )
+
+    assert response.status_code == 404
+    error = response.json()
+    assert f"score set with URN '{score_set['urn']}' not found" in error["detail"]
+
+
+def test_cannot_create_score_calibration_with_classifications_and_no_method_sources(client, setup_router_db):
+    response = client.post(
+        "/api/v1/score-calibrations",
+        json={
+            "scoreSetUrn": "urn:mavedb:00000001-a-1",
+            "title": "Test",
+            "functionalClassifications": [
+                {
+                    "label": "normal",
+                    "functionalClassification": "normal",
+                    "range": [0.0, 5.0],
+                }
+            ],
+            "thresholdSources": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+            "evidenceSources": [],
+            "methodSources": [],
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_cannot_create_score_calibration_with_classifications_and_no_threshold_sources(client, setup_router_db):
+    response = client.post(
+        "/api/v1/score-calibrations",
+        json={
+            "scoreSetUrn": "urn:mavedb:00000001-a-1",
+            "title": "Test",
+            "functionalClassifications": [
+                {
+                    "label": "normal",
+                    "functionalClassification": "normal",
+                    "range": [0.0, 5.0],
+                }
+            ],
+            "thresholdSources": [],
+            "evidenceSources": [],
+            "methodSources": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_cannot_create_score_calibration_with_acmg_classification_and_no_evidence_sources(client, setup_router_db):
+    response = client.post(
+        "/api/v1/score-calibrations",
+        json={
+            "scoreSetUrn": "urn:mavedb:00000001-a-1",
+            "title": "Test",
+            "functionalClassifications": [
+                {
+                    "label": "normal",
+                    "functionalClassification": "normal",
+                    "range": [0.0, 5.0],
+                    "acmgClassification": {"criterion": "BS3", "evidenceStrength": "STRONG"},
+                    "oddspathsRatio": 0.001,
+                }
+            ],
+            "thresholdSources": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+            "evidenceSources": [],
+            "methodSources": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+        },
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_create_baseline_only_calibration_without_publication_sources(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    response = client.post(
+        "/api/v1/score-calibrations",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            "title": "Baseline Only",
+            "baselineScore": 1.0,
+            "baselineScoreDescription": "Wild-type score",
+            "thresholdSources": [],
+            "evidenceSources": [],
+            "methodSources": [],
+        },
+    )
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["scoreSetUrn"] == score_set["urn"]
+
+
+###########################################################
+# Community calibration promotion restrictions
+###########################################################
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_community_calibration_owner_cannot_promote_to_primary(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+
+    # Create community calibration as extra user (non-contributor)
+    with DependencyOverrider(extra_user_app_overrides):
+        calibration = create_test_score_calibration_in_score_set_via_client(
+            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        )
+        assert calibration["investigatorProvided"] is False
+
+        # Publish it
+        publish_test_score_calibration_via_client(client, calibration["urn"])
+
+        # Try to promote as the community calibration owner — should be denied
+        response = client.post(
+            f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary",
+        )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_score_set_owner_can_promote_community_calibration_to_primary(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+
+    # Create community calibration as extra user (non-contributor)
+    with DependencyOverrider(extra_user_app_overrides):
+        calibration = create_test_score_calibration_in_score_set_via_client(
+            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        )
+        assert calibration["investigatorProvided"] is False
+        publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    # Score set owner promotes the community calibration — should succeed
+    response = client.post(
+        f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary",
+    )
+
+    assert response.status_code == 200
+    promotion_response = response.json()
+    assert promotion_response["primary"] is True
+
+
+###########################################################
+# Additional coverage: community calibration lifecycle
+###########################################################
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_non_contributor_can_update_own_community_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    """A non-contributor who creates a community calibration on a published score set can update it."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+
+    with DependencyOverrider(extra_user_app_overrides):
+        calibration = create_test_score_calibration_in_score_set_via_client(
+            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        )
+        assert calibration["investigatorProvided"] is False
+
+        # Update the calibration as the same non-contributor user
+        response = client.put(
+            f"/api/v1/score-calibrations/{calibration['urn']}",
+            json={
+                "scoreSetUrn": score_set["urn"],
+                **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
+            },
+        )
+
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["urn"] == calibration["urn"]
+    assert updated["investigatorProvided"] is False
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_non_contributor_cannot_move_calibration_to_private_score_set(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    """A non-contributor cannot move their community calibration to a private score set they don't own."""
+    experiment = create_experiment(client)
+    published_score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, published_score_set["urn"])
+
+    # Create a second (private) score set on a new experiment
+    experiment_2 = create_experiment(client)
+    private_score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment_2["urn"],
+        data_files / "scores.csv",
+    )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        calibration = create_test_score_calibration_in_score_set_via_client(
+            client, published_score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        )
+
+        # Try to move the calibration to the private score set — should be denied
+        response = client.put(
+            f"/api/v1/score-calibrations/{calibration['urn']}",
+            json={
+                "scoreSetUrn": private_score_set["urn"],
+                **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
+            },
+        )
+
+    # Non-contributor can't see the private score set, so gets 404
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_score_calibration_without_email(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    """Users without an email address cannot create score calibrations."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    # Clear the user's email
+    client.put("api/v1/users/me", json={"email": None})
+
+    response = client.post(
+        "/api/v1/score-calibrations/",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        },
+    )
+
+    assert response.status_code == 403
+    assert "email" in response.json()["detail"].lower()
+
+
+###########################################################
+# GET /score-calibrations/me
+###########################################################
+
+
+def test_anonymous_user_cannot_list_my_calibrations(client, setup_router_db, anonymous_app_overrides):
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get("/api/v1/score-calibrations/me")
+
+    assert response.status_code == 401
+
+
+def test_authenticated_user_with_no_calibrations_returns_empty_list(client, setup_router_db):
+    response = client.get("/api/v1/score-calibrations/me")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_authenticated_user_sees_own_calibrations(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    response = client.get("/api/v1/score-calibrations/me")
+
+    assert response.status_code == 200
+    calibrations = response.json()
+    assert len(calibrations) == 1
+    assert calibrations[0]["urn"] == calibration["urn"]
+    assert calibrations[0]["scoreSetUrn"] == score_set["urn"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_user_does_not_see_other_users_calibrations(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get("/api/v1/score-calibrations/me")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_user_sees_calibrations_across_multiple_score_sets(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set_1 = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    score_set_2 = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    cal_1 = create_test_score_calibration_in_score_set_via_client(
+        client, score_set_1["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    cal_2 = create_test_score_calibration_in_score_set_via_client(
+        client, score_set_2["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    response = client.get("/api/v1/score-calibrations/me")
+
+    assert response.status_code == 200
+    calibrations = response.json()
+    assert len(calibrations) == 2
+    returned_urns = {c["urn"] for c in calibrations}
+    assert cal_1["urn"] in returned_urns
+    assert cal_2["urn"] in returned_urns

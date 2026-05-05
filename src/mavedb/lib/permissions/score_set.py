@@ -20,7 +20,7 @@ def has_permission(user_data: Optional[UserData], entity: ScoreSet, action: Acti
     Args:
         user_data: The user's authentication data and roles. None for anonymous users.
         entity: The ScoreSet entity to check permissions for.
-        action: The action to be performed (READ, UPDATE, DELETE, PUBLISH, SET_SCORES).
+        action: The action to be performed (READ, UPDATE, DELETE, PUBLISH, SET_SCORES, ADD_CALIBRATION).
 
     Returns:
         PermissionResponse: Contains permission result, HTTP status code, and message.
@@ -54,6 +54,7 @@ def has_permission(user_data: Optional[UserData], entity: ScoreSet, action: Acti
         Action.DELETE: _handle_delete_action,
         Action.PUBLISH: _handle_publish_action,
         Action.SET_SCORES: _handle_set_scores_action,
+        Action.ADD_CALIBRATION: _handle_add_calibration_action,
     }
 
     if action not in handlers:
@@ -249,6 +250,45 @@ def _handle_set_scores_action(
     if user_is_owner or user_is_contributor:
         return PermissionResponse(True)
     # Users with these specific roles may set scores.
+    if roles_permitted(active_roles, [UserRole.admin]):
+        return PermissionResponse(True)
+
+    return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner, "score set")
+
+
+def _handle_add_calibration_action(
+    user_data: Optional[UserData],
+    entity: ScoreSet,
+    private: bool,
+    user_is_owner: bool,
+    user_is_contributor: bool,
+    active_roles: list[UserRole],
+) -> PermissionResponse:
+    """
+    Handle ADD_CALIBRATION action permission check for ScoreSet entities.
+
+    Any authenticated user may add a calibration to a published ScoreSet.
+    For private ScoreSets, only owners, contributors, and admins may add calibrations.
+
+    Args:
+        user_data: The user's authentication data.
+        entity: The ScoreSet entity being accessed.
+        private: Whether the ScoreSet is private.
+        user_is_owner: Whether the user owns the ScoreSet.
+        user_is_contributor: Whether the user is a contributor to the ScoreSet.
+        active_roles: List of the user's active roles.
+
+    Returns:
+        PermissionResponse: Permission result with appropriate HTTP status.
+    """
+    ## Allow add calibration access under the following conditions:
+    # Any authenticated user may add a calibration to a published score set.
+    if not private and user_data is not None:
+        return PermissionResponse(True)
+    # The owner or contributors may add a calibration to a private score set.
+    if user_is_owner or user_is_contributor:
+        return PermissionResponse(True)
+    # Admins may add a calibration to any score set.
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
 

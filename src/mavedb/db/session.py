@@ -9,14 +9,15 @@ DB_PORT = os.getenv("DB_PORT") or 5432
 DB_DATABASE_NAME = os.getenv("DB_DATABASE_NAME")
 DB_USERNAME = os.getenv("DB_USERNAME")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
+DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "10"))
 
-# DB_URL = "sqlite:///./sql_app.db"
 DB_URL = f"postgresql://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_DATABASE_NAME}"
 
 engine = create_engine(
-    # For PostgreSQL:
-    DB_URL
-    # For SQLite:
-    # DB_URL, connect_args={"check_same_thread": False}
+    DB_URL,
+    pool_size=DB_POOL_SIZE,
+    max_overflow=DB_MAX_OVERFLOW,
+    pool_pre_ping=True,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

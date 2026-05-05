@@ -35,6 +35,7 @@ EXPERIMENT_SET_UNSUPPORTED_ACTIONS: List[Action] = [
     Action.CHANGE_RANK,
     Action.SET_SCORES,
     Action.PUBLISH,
+    Action.ADD_CALIBRATION,
 ]
 
 

@@ -195,10 +195,18 @@ def get_experiment_score_sets(
         .all()
     )
 
-    filter_superseded_score_set_tails = [
-        find_superseded_score_set_tail(score_set, Action.READ, user_data) for score_set in score_set_result
-    ]
-    filtered_score_sets = [score_set for score_set in filter_superseded_score_set_tails if score_set is not None]
+    # Multiple chain heads can resolve to the same visible ancestor via find_superseded_score_set_tail
+    # (e.g. when several private superseding score sets all trace back to the same published score set).
+    # Deduplicate by ID to avoid returning the same score set more than once.
+    seen_ids: set[int] = set()
+    filtered_score_sets: list[ScoreSet] = []
+    for ss in score_set_result:
+        tail = find_superseded_score_set_tail(ss, Action.READ, user_data)
+        tail_id = tail.id if tail is not None else None
+        if tail is not None and tail_id is not None and tail_id not in seen_ids:
+            seen_ids.add(tail_id)
+            filtered_score_sets.append(tail)
+
     if not filtered_score_sets:
         save_to_logging_context({"associated_resources": []})
         logger.info(msg="No score sets are associated with the requested experiment.", extra=logging_context())

@@ -363,10 +363,9 @@ def test_cannot_create_experiment_that_keywords_has_endogenous_without_method_me
     assert response.status_code == 422
     response_data = response.json()
     assert (
-        response_data["detail"]
-        == "If 'Variant Library Creation Method' is 'Endogenous locus library method', "
-           "both 'Endogenous Locus Library Method System' and 'Endogenous Locus Library Method Mechanism' "
-           "must be present."
+        response_data["detail"] == "If 'Variant Library Creation Method' is 'Endogenous locus library method', "
+        "both 'Endogenous Locus Library Method System' and 'Endogenous Locus Library Method Mechanism' "
+        "must be present."
     )
 
 
@@ -401,10 +400,9 @@ def test_cannot_create_experiment_that_keywords_has_endogenous_without_method_sy
     assert response.status_code == 422
     response_data = response.json()
     assert (
-        response_data["detail"]
-        == "If 'Variant Library Creation Method' is 'Endogenous locus library method', "
-           "both 'Endogenous Locus Library Method System' and 'Endogenous Locus Library Method Mechanism' "
-           "must be present."
+        response_data["detail"] == "If 'Variant Library Creation Method' is 'Endogenous locus library method', "
+        "both 'Endogenous Locus Library Method System' and 'Endogenous Locus Library Method Mechanism' "
+        "must be present."
     )
 
 
@@ -478,10 +476,9 @@ def test_cannot_create_experiment_that_keywords_has_in_vitro_without_method_syst
     assert response.status_code == 422
     response_data = response.json()
     assert (
-        response_data["detail"]
-        == "If 'Variant Library Creation Method' is 'In vitro construct library method', "
-           "both 'In Vitro Construct Library Method System' and 'In Vitro Construct Library Method Mechanism' "
-           "must be present."
+        response_data["detail"] == "If 'Variant Library Creation Method' is 'In vitro construct library method', "
+        "both 'In Vitro Construct Library Method System' and 'In Vitro Construct Library Method Mechanism' "
+        "must be present."
     )
 
 
@@ -516,10 +513,9 @@ def test_cannot_create_experiment_that_keywords_has_in_vitro_without_method_mech
     assert response.status_code == 422
     response_data = response.json()
     assert (
-        response_data["detail"]
-        == "If 'Variant Library Creation Method' is 'In vitro construct library method', "
-           "both 'In Vitro Construct Library Method System' and 'In Vitro Construct Library Method Mechanism' "
-           "must be present."
+        response_data["detail"] == "If 'Variant Library Creation Method' is 'In vitro construct library method', "
+        "both 'In Vitro Construct Library Method System' and 'In Vitro Construct Library Method Mechanism' "
+        "must be present."
     )
 
 
@@ -717,23 +713,28 @@ def test_update_experiment_keywords(session, client, setup_router_db):
     assert response.status_code == 200
     experiment = response.json()
     experiment_post_payload = experiment.copy()
-    experiment_post_payload.update({"keywords": [
+    experiment_post_payload.update(
         {
-            "keyword": {
-                "key": "Phenotypic Assay Profiling Strategy",
-                "label": "Shotgun sequencing",
-                "special": False,
-                "description": "Description"
-            },
-            "description": "Details of phenotypic assay profiling strategy",
-        },
-
-    ]})
+            "keywords": [
+                {
+                    "keyword": {
+                        "key": "Phenotypic Assay Profiling Strategy",
+                        "label": "Shotgun sequencing",
+                        "special": False,
+                        "description": "Description",
+                    },
+                    "description": "Details of phenotypic assay profiling strategy",
+                },
+            ]
+        }
+    )
     updated_response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
     assert updated_response.status_code == 200
     updated_experiment = updated_response.json()
     updated_expected_response = deepcopy(TEST_EXPERIMENT_WITH_UPDATE_KEYWORD_RESPONSE)
-    updated_expected_response.update({"urn": updated_experiment["urn"], "experimentSetUrn": updated_experiment["experimentSetUrn"]})
+    updated_expected_response.update(
+        {"urn": updated_experiment["urn"], "experimentSetUrn": updated_experiment["experimentSetUrn"]}
+    )
     assert sorted(updated_expected_response.keys()) == sorted(updated_experiment.keys())
     for key in updated_experiment:
         assert (key, updated_expected_response[key]) == (key, updated_experiment[key])
@@ -745,12 +746,21 @@ def test_update_experiment_keywords_case_insensitive(session, client, setup_rout
     experiment = create_experiment(client)
     experiment_post_payload = experiment.copy()
     # Test database has Delivery Method. The updating keyword's key is delivery method.
-    experiment_post_payload.update({"keywords": [
+    experiment_post_payload.update(
         {
-            "keyword": {"key": "delivery method", "label": "Other", "special": False, "description": "Description"},
-            "description": "Details of delivery method",
-        },
-    ]})
+            "keywords": [
+                {
+                    "keyword": {
+                        "key": "delivery method",
+                        "label": "Other",
+                        "special": False,
+                        "description": "Description",
+                    },
+                    "description": "Details of delivery method",
+                },
+            ]
+        }
+    )
     response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
     response_data = response.json()
     expected_response = deepcopy(TEST_EXPERIMENT_WITH_KEYWORD_RESPONSE)
@@ -1784,6 +1794,46 @@ def test_non_owner_searches_published_superseding_score_sets_for_experiments(
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["urn"] == published_superseding_score_set["urn"]
+
+
+def test_non_owner_searches_multiple_unpublished_superseding_score_sets_no_duplicates(
+    session, client, setup_router_db, data_files, data_provider
+):
+    """When multiple private score sets supersede the same published score set,
+    a non-owner should see the published score set exactly once (no duplicates)."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    experiment_urn = published_score_set["experiment"]["urn"]
+
+    # Create two unpublished score sets that both supersede the same published score set.
+    superseding_1_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    superseding_1_payload["experimentUrn"] = experiment_urn
+    superseding_1_payload["supersededScoreSetUrn"] = published_score_set["urn"]
+    superseding_1_response = client.post("/api/v1/score-sets/", json=superseding_1_payload)
+    assert superseding_1_response.status_code == 200
+
+    superseding_2_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    superseding_2_payload["experimentUrn"] = experiment_urn
+    superseding_2_payload["supersededScoreSetUrn"] = published_score_set["urn"]
+    superseding_2_response = client.post("/api/v1/score-sets/", json=superseding_2_payload)
+    assert superseding_2_response.status_code == 200
+
+    # Transfer ownership so the requesting user is a non-owner of the superseding score sets.
+    change_ownership(session, superseding_1_response.json()["urn"], ScoreSetDbModel)
+    change_ownership(session, superseding_2_response.json()["urn"], ScoreSetDbModel)
+    change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
+
+    response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+    assert response.status_code == 200
+    response_urns = [ss["urn"] for ss in response.json()]
+    assert len(response_urns) == 1
+    assert response_urns[0] == published_score_set["urn"]
 
 
 def test_search_score_sets_for_contributor_experiments(session, client, setup_router_db, data_files, data_provider):

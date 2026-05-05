@@ -165,9 +165,9 @@ def create_seq_score_set_with_variants(
         count_columns_metadata_json_path,
     )
 
-    assert score_set["numVariants"] == 3, (
-        f"Could not create sequence based score set with variants within experiment {experiment_urn}"
-    )
+    assert (
+        score_set["numVariants"] == 3
+    ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
 
     jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
@@ -196,9 +196,9 @@ def create_acc_score_set_with_variants(
         count_columns_metadata_json_path,
     )
 
-    assert score_set["numVariants"] == 3, (
-        f"Could not create sequence based score set with variants within experiment {experiment_urn}"
-    )
+    assert (
+        score_set["numVariants"] == 3
+    ), f"Could not create sequence based score set with variants within experiment {experiment_urn}"
 
     jsonschema.validate(instance=score_set, schema=ScoreSet.model_json_schema())
     return score_set
@@ -222,6 +222,23 @@ def link_clinical_controls_to_mapped_variants(db, score_set):
 
     db.add(mapped_variants[0])
     db.add(mapped_variants[1])
+    db.commit()
+
+
+def link_clinvar_control_to_mapped_variant(db, score_set):
+    """Link the seeded ClinVar clinical control (id=1) to the first mapped variant of a score set."""
+    mapped_variants = db.scalars(
+        select(MappedVariantDbModel)
+        .join(VariantDbModel)
+        .join(ScoreSetDbModel)
+        .where(ScoreSetDbModel.urn == score_set["urn"])
+    ).all()
+
+    mapped_variants[0].clinical_controls.append(
+        db.scalar(select(ClinicalControlDbModel).where(ClinicalControlDbModel.id == 1))
+    )
+
+    db.add(mapped_variants[0])
     db.commit()
 
 

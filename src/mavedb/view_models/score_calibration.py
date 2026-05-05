@@ -35,10 +35,7 @@ from mavedb.view_models.publication_identifier import (
 from mavedb.view_models.user import SavedUser, User
 
 if TYPE_CHECKING:
-    from mavedb.view_models.variant import (
-        SavedVariantEffectMeasurement,
-        VariantEffectMeasurement,
-    )
+    from mavedb.view_models.variant import VariantEffectMeasurement
 
 ### Functional range models
 
@@ -242,9 +239,10 @@ class FunctionalClassificationCreate(FunctionalClassificationModify):
 class SavedFunctionalClassification(FunctionalClassificationBase):
     """Persisted functional range model (includes record type metadata)."""
 
+    id: int
     record_type: str = None  # type: ignore
     acmg_classification: Optional[SavedACMGClassification] = None
-    variants: Sequence["SavedVariantEffectMeasurement"] = []
+    variant_count: int = 0
 
     _record_type_factory = record_type_validator()(set_record_type)
 
@@ -259,6 +257,12 @@ class FunctionalClassification(SavedFunctionalClassification):
     """Complete functional range model returned by the API."""
 
     acmg_classification: Optional[ACMGClassification] = None
+
+
+class FunctionalClassificationVariants(BaseModel):
+    """Response model for functional classification variant endpoints."""
+
+    functional_classification_id: int
     variants: Sequence["VariantEffectMeasurement"] = []
 
 
@@ -280,7 +284,7 @@ class ScoreCalibrationBase(BaseModel):
 
     functional_classifications: Optional[Sequence[FunctionalClassificationBase]] = None
     threshold_sources: Sequence[PublicationIdentifierBase]
-    classification_sources: Sequence[PublicationIdentifierBase]
+    evidence_sources: Sequence[PublicationIdentifierBase]
     method_sources: Sequence[PublicationIdentifierBase]
     calibration_metadata: Optional[dict] = None
 
@@ -429,8 +433,45 @@ class ScoreCalibrationModify(ScoreCalibrationBase):
 
     functional_classifications: Optional[Sequence[FunctionalClassificationModify]] = None
     threshold_sources: Sequence[PublicationIdentifierCreate]
-    classification_sources: Sequence[PublicationIdentifierCreate]
+    evidence_sources: Sequence[PublicationIdentifierCreate]
     method_sources: Sequence[PublicationIdentifierCreate]
+
+    # TODO#668: Move this validator to ScoreCalibrationBase once legacy calibrations have been
+    # backfilled with publication associations. Currently on the write model only so that existing
+    # calibrations without publications can still be serialized for API read responses.
+    @model_validator(mode="after")
+    def functional_classifications_require_publication_sources(
+        self: "ScoreCalibrationModify",
+    ) -> "ScoreCalibrationModify":
+        """Enforce publication source requirements when functional classifications are present.
+
+        Calibrations with functional classifications must cite method and threshold publications.
+        If any classification includes ACMG evidence, classification publications are also required.
+        Baseline-score-only calibrations (no functional classifications) are exempt.
+        """
+        if not self.functional_classifications:
+            return self
+
+        if not self.method_sources:
+            raise ValidationError(
+                "Calibrations with functional classifications must provide at least one method source publication.",
+                custom_loc=["body", "methodSources"],
+            )
+
+        if not self.threshold_sources:
+            raise ValidationError(
+                "Calibrations with functional classifications must provide at least one threshold source publication.",
+                custom_loc=["body", "thresholdSources"],
+            )
+
+        has_acmg_classification = any(fc.acmg_classification is not None for fc in self.functional_classifications)
+        if has_acmg_classification and not self.evidence_sources:
+            raise ValidationError(
+                "Calibrations with ACMG classifications must provide at least one evidence source publication.",
+                custom_loc=["body", "evidenceSources"],
+            )
+
+        return self
 
 
 class ScoreCalibrationCreate(ScoreCalibrationModify):
@@ -438,7 +479,7 @@ class ScoreCalibrationCreate(ScoreCalibrationModify):
 
     functional_classifications: Optional[Sequence[FunctionalClassificationCreate]] = None
     threshold_sources: Sequence[PublicationIdentifierCreate]
-    classification_sources: Sequence[PublicationIdentifierCreate]
+    evidence_sources: Sequence[PublicationIdentifierCreate]
     method_sources: Sequence[PublicationIdentifierCreate]
 
 
@@ -458,7 +499,7 @@ class SavedScoreCalibration(ScoreCalibrationBase):
 
     functional_classifications: Optional[Sequence[SavedFunctionalClassification]] = None
     threshold_sources: Sequence[SavedPublicationIdentifier]
-    classification_sources: Sequence[SavedPublicationIdentifier]
+    evidence_sources: Sequence[SavedPublicationIdentifier]
     method_sources: Sequence[SavedPublicationIdentifier]
 
     created_by: Optional[SavedUser] = None
@@ -474,7 +515,7 @@ class SavedScoreCalibration(ScoreCalibrationBase):
         from_attributes = True
         arbitrary_types_allowed = True
 
-    @field_validator("threshold_sources", "classification_sources", "method_sources", mode="before")
+    @field_validator("threshold_sources", "evidence_sources", "method_sources", mode="before")
     def publication_identifiers_validator(cls, value: Any) -> Optional[list[PublicationIdentifier]]:
         """Coerce association proxy collections to plain lists."""
         assert isinstance(value, Collection), "Publication identifier lists must be a collection"
@@ -513,7 +554,7 @@ class SavedScoreCalibration(ScoreCalibrationBase):
                     data.publication_identifier_associations
                 )
                 data.__setattr__("threshold_sources", publication_identifiers["threshold_sources"])
-                data.__setattr__("classification_sources", publication_identifiers["classification_sources"])
+                data.__setattr__("evidence_sources", publication_identifiers["evidence_sources"])
                 data.__setattr__("method_sources", publication_identifiers["method_sources"])
             except (AttributeError, KeyError) as exc:
                 raise ValidationError(
@@ -527,7 +568,7 @@ class ScoreCalibration(SavedScoreCalibration):
 
     functional_classifications: Optional[Sequence[FunctionalClassification]] = None
     threshold_sources: Sequence[PublicationIdentifier]
-    classification_sources: Sequence[PublicationIdentifier]
+    evidence_sources: Sequence[PublicationIdentifier]
     method_sources: Sequence[PublicationIdentifier]
     created_by: Optional[User] = None
     modified_by: Optional[User] = None

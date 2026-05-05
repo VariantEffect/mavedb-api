@@ -37,6 +37,18 @@ class CollectionModify(BaseModel):
     badge_name: Optional[str] = Field(
         description="Badge name. Input ignored unless requesting user has MaveDB admin privileges.", default=None
     )
+    score_set_urns: Optional[list[str]] = Field(
+        description="Ordered list of score set URNs. When provided, replaces the full set of score sets and their ordering. "
+        "URNs not currently in the collection will be added; URNs currently in the collection but absent from "
+        "this list will be removed. The list order determines the persisted display order.",
+        default=None,
+    )
+    experiment_urns: Optional[list[str]] = Field(
+        description="Ordered list of experiment URNs. When provided, replaces the full set of experiments and their ordering. "
+        "URNs not currently in the collection will be added; URNs currently in the collection but absent from "
+        "this list will be removed. The list order determines the persisted display order.",
+        default=None,
+    )
 
 
 class CollectionCreate(CollectionBase):
@@ -102,7 +114,11 @@ class SavedCollection(CollectionBase):
     def generate_score_set_urn_list(cls, data: Any):
         if hasattr(data, "score_sets"):
             try:
-                data.__setattr__("score_set_urns", transform_score_set_list_to_urn_list(data.score_sets))
+                # Don't exclude superseded score sets here, since we want to preserve them in the collection context and display them with their superseding score sets in the UI.
+                # Instead, we should include UI indicators of superseded status in the collection context to make this clear to users.
+                data.__setattr__(
+                    "score_set_urns", transform_score_set_list_to_urn_list(data.score_sets, include_superseded=True)
+                )
             except (AttributeError, KeyError) as exc:
                 raise ValidationError(f"Unable to coerce score set urns for {cls.__name__}: {exc}.")
         return data
@@ -139,7 +155,31 @@ class OfficialCollection(BaseModel):
     badge_name: str
     name: str
     urn: str
+    score_set_urns: list[str]
+    experiment_urns: list[str]
 
     class Config:
         arbitrary_types_allowed = True
         from_attributes = True
+
+    # Transform ORM objects to URN lists (same pattern as SavedCollection)
+    @model_validator(mode="before")
+    def generate_score_set_urn_list(cls, data: Any):
+        if hasattr(data, "score_sets"):
+            try:
+                # We allow superseded score sets here, since we want to preserve them in the collection context and display them with their superseding score sets in the UI.
+                data.__setattr__(
+                    "score_set_urns", transform_score_set_list_to_urn_list(data.score_sets, include_superseded=True)
+                )
+            except (AttributeError, KeyError) as exc:
+                raise ValidationError(f"Unable to coerce score set urns for {cls.__name__}: {exc}.")
+        return data
+
+    @model_validator(mode="before")
+    def generate_experiment_urn_list(cls, data: Any):
+        if hasattr(data, "experiments"):
+            try:
+                data.__setattr__("experiment_urns", transform_experiment_list_to_urn_list(data.experiments))
+            except (AttributeError, KeyError) as exc:
+                raise ValidationError(f"Unable to coerce experiment urns for {cls.__name__}: {exc}.")
+        return data
