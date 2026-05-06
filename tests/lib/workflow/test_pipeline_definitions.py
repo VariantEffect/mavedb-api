@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 """Structural / declarative smoke tests for PIPELINE_DEFINITIONS.
 
 These tests treat the pipeline definitions as a specification and verify
@@ -5,11 +6,11 @@ that the data satisfies its own contracts without touching the database or
 any external services.
 """
 
-from __future__ import annotations
+import pytest
+
+pytest.importorskip("arq")
 
 from collections import defaultdict
-
-import pytest
 
 from mavedb.lib.workflow.definitions import PIPELINE_DEFINITIONS
 from mavedb.models.enums.job_pipeline import JobType
