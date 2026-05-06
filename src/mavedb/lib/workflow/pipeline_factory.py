@@ -1,4 +1,5 @@
 import logging
+import uuid
 from typing import Optional
 
 from sqlalchemy import delete, or_, select
@@ -68,7 +69,9 @@ class PipelineFactory:
         jobs = pipeline_def["job_definitions"]
         job_runs: dict[str, JobRun] = {}
 
-        correlation_id = pipeline_params.get("correlation_id", correlation_id_for_context())
+        # Best effort correlation_id for the pipeline. If the correlation id is unavailable in pipeline_params or logging context, generate a new UUID.
+        # This ensures all pipelines have a correlation_id for better traceability in logs and external systems.
+        correlation_id: str = pipeline_params.get("correlation_id") or correlation_id_for_context() or str(uuid.uuid4())
 
         pipeline = Pipeline(
             name=pipeline_name,
