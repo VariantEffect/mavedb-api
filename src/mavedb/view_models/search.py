@@ -70,7 +70,7 @@ class ScoreSetsSearchFilterOptionsResponse(BaseModel):
     publication_author_names: list[ScoreSetsSearchFilterOption]
     publication_db_names: list[ScoreSetsSearchFilterOption]
     publication_journals: list[ScoreSetsSearchFilterOption]
-    controlled_keywords: list[ControlledKeywordFilterOption]
+    keywords: list[ControlledKeywordFilterOption]
 
     class Config:
         from_attributes = True
