@@ -158,7 +158,7 @@ class TestCalibrationMethods:
         """Test that functional calibration IRI is None when no threshold relation publication is present."""
         association = Mock()
         association.publication = mock_publication
-        association.relation = ScoreCalibrationRelation.classification
+        association.relation = ScoreCalibrationRelation.evidence
 
         score_calibration = Mock()
         score_calibration.publication_identifier_associations = [association]
@@ -210,7 +210,7 @@ class TestCalibrationMethods:
         """Test that pathogenicity calibration IRI resolves with classification relation."""
         association = Mock()
         association.publication = mock_publication
-        association.relation = ScoreCalibrationRelation.classification
+        association.relation = ScoreCalibrationRelation.evidence
 
         score_calibration = Mock()
         score_calibration.publication_identifier_associations = [association]
