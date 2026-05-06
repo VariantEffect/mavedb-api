@@ -3,7 +3,7 @@ import json
 import logging
 import time
 from datetime import date, datetime
-from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
+from typing import Any, List, Optional, Sequence, TypedDict, Union
 
 import numpy as np
 import pandas as pd
@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import StreamingResponse
-from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from pydantic import ValidationError
 from sqlalchemy import or_, select
@@ -24,7 +24,7 @@ from mavedb import deps
 from mavedb.data_providers.services import CSV_UPLOAD_S3_BUCKET_NAME, s3_client
 from mavedb.lib.annotation.annotate import (
     variant_functional_impact_statement,
-    variant_pathogenicity_evidence,
+    variant_pathogenicity_statement,
     variant_study_result,
 )
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
@@ -50,6 +50,7 @@ from mavedb.lib.logging.context import (
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_calibrations import create_score_calibration
 from mavedb.lib.score_sets import (
+    CLINVAR_NS_PATTERN,
     csv_data_to_df,
     fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
@@ -881,8 +882,13 @@ def get_score_set_variants_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Maximum number of variants to return"),
-    namespaces: List[Literal["scores", "counts", "vep", "gnomad", "clingen"]] = Query(
-        default=["scores"], description="One or more data types to include: scores, counts, ClinGen, gnomAD, VEP"
+    namespaces: List[str] = Query(
+        default=["scores"],
+        description=(
+            'One or more data types to include: "scores", "counts", "vep", "gnomad", "clingen", '
+            'and/or ClinVar-versioned namespaces of the form "clinvar.YEAR_MONTH" '
+            '(e.g. "clinvar.2024_01" for January 2024).'
+        ),
     ),
     drop_na_columns: Optional[bool] = None,
     include_custom_columns: Optional[bool] = None,
@@ -896,9 +902,6 @@ def get_score_set_variants_csv(
     This differs from get_score_set_scores_csv() in that it returns only the HGVS columns, score column, and mapped HGVS
     string.
 
-    TODO (https://github.com/VariantEffect/mavedb-api/issues/446) We may add another function for ClinVar and gnomAD.
-    export endpoint, with options governing which columns to include.
-
     Parameters
     __________
     urn : str
@@ -907,9 +910,11 @@ def get_score_set_variants_csv(
         The index to start from. If None, starts from the beginning.
     limit : Optional[int]
         The maximum number of variants to return. If None, returns all variants.
-    namespaces: List[Literal["scores", "counts", "vep", "gnomad", "clingen"]]
+    namespaces: List[str]
         The namespaces of all columns except for accession, hgvs_nt, hgvs_pro, and hgvs_splice.
-        We may add ClinVar in the future.
+        Supported values: "scores", "counts", "vep", "gnomad", "clingen", and ClinVar-versioned
+        namespaces of the form "clinvar.YEAR_MONTH" (e.g. "clinvar.2024_01" for January 2024).
+        Multiple ClinVar namespaces with different YEAR_MONTH values may be requested simultaneously.
     drop_na_columns : bool, optional
         Whether to drop columns that contain only NA values. Defaults to False.
     db : Session
@@ -938,6 +943,21 @@ def get_score_set_variants_csv(
     if limit is not None and limit <= 0:
         logger.info(msg="Could not fetch scores with non-positive limit.", extra=logging_context())
         raise HTTPException(status_code=422, detail="Limit must be positive")
+
+    _VALID_STATIC_NAMESPACES = {"scores", "counts", "vep", "gnomad", "clingen"}
+    invalid_namespaces = [
+        ns for ns in namespaces if ns not in _VALID_STATIC_NAMESPACES and not CLINVAR_NS_PATTERN.match(ns)
+    ]
+    if invalid_namespaces:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Invalid namespace(s): {invalid_namespaces}. "
+                'Each namespace must be one of "scores", "counts", "vep", "gnomad", "clingen", '
+                'or a ClinVar-versioned namespace of the form "clinvar.YEAR_MM" '
+                '(e.g. "clinvar.2024_01" for January 2024).'
+            ),
+        )
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -1189,21 +1209,16 @@ def _stream_generated_annotations(mapped_variants, annotation_function):
     )
 
 
-class VariantPathogenicityEvidenceLineResponseType(TypedDict):
-    variant_urn: str
-    annotation: Optional[VariantPathogenicityEvidenceLine]
-
-
 @router.get(
-    "/score-sets/{urn}/annotated-variants/pathogenicity-evidence-line",
+    "/score-sets/{urn}/annotated-variants/pathogenicity-statement",
     status_code=200,
-    response_model=dict[str, Optional[VariantPathogenicityEvidenceLine]],
+    response_model=dict[str, Optional[VariantPathogenicityStatement]],
     response_model_exclude_none=True,
-    summary="Get pathogenicity evidence line annotations for mapped variants within a score set",
+    summary="Get pathogenicity statement annotations for mapped variants within a score set",
     responses={
         200: {
             "content": {"application/x-ndjson": {}},
-            "description": "Stream pathogenicity evidence line annotations for mapped variants.",
+            "description": "Stream pathogenicity statement annotations for mapped variants.",
         },
         **ACCESS_CONTROL_ERROR_RESPONSES,
     },
@@ -1215,7 +1230,7 @@ def get_score_set_annotated_variants(
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
     """
-    Retrieve annotated variants with pathogenicity evidence for a given score set.
+    Retrieve annotated variants with pathogenicity statements for a given score set.
 
     This endpoint streams pathogenicity evidence lines for all current mapped variants
     associated with a specific score set. The response is returned as newline-delimited
@@ -1256,7 +1271,7 @@ def get_score_set_annotated_variants(
         the response.
     """
     save_to_logging_context(
-        {"requested_resource": urn, "resource_property": "annotated-variants/pathogenicity-evidence-line"}
+        {"requested_resource": urn, "resource_property": "annotated-variants/pathogenicity-statement"}
     )
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
@@ -1296,7 +1311,7 @@ def get_score_set_annotated_variants(
         )
 
     return StreamingResponse(
-        _stream_generated_annotations(mapped_variants, variant_pathogenicity_evidence),
+        _stream_generated_annotations(mapped_variants, variant_pathogenicity_statement),
         media_type="application/x-ndjson",
         headers={
             "X-Total-Count": str(len(mapped_variants)),
@@ -1307,13 +1322,8 @@ def get_score_set_annotated_variants(
     )
 
 
-class FunctionalImpactStatementResponseType(TypedDict):
-    variant_urn: str
-    annotation: Optional[Statement]
-
-
 @router.get(
-    "/score-sets/{urn}/annotated-variants/functional-impact-statement",
+    "/score-sets/{urn}/annotated-variants/functional-statement",
     status_code=200,
     response_model=dict[str, Optional[Statement]],
     response_model_exclude_none=True,
@@ -1371,9 +1381,7 @@ def get_score_set_annotated_variants_functional_statement(
         Only current (non-historical) mapped variants are included in the response.
         The function requires appropriate read permissions on the score set.
     """
-    save_to_logging_context(
-        {"requested_resource": urn, "resource_property": "annotated-variants/functional-impact-statement"}
-    )
+    save_to_logging_context({"requested_resource": urn, "resource_property": "annotated-variants/functional-statement"})
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -1423,13 +1431,8 @@ def get_score_set_annotated_variants_functional_statement(
     )
 
 
-class FunctionalStudyResultResponseType(TypedDict):
-    variant_urn: str
-    annotation: Optional[ExperimentalVariantFunctionalImpactStudyResult]
-
-
 @router.get(
-    "/score-sets/{urn}/annotated-variants/functional-study-result",
+    "/score-sets/{urn}/annotated-variants/study-result",
     status_code=200,
     response_model=dict[str, Optional[ExperimentalVariantFunctionalImpactStudyResult]],
     response_model_exclude_none=True,
@@ -1491,9 +1494,7 @@ def get_score_set_annotated_variants_functional_study_result(
         - Eagerly loads related ScoreSet data including publications, users, license, and experiment
         - Logs requests and errors for monitoring and debugging purposes
     """
-    save_to_logging_context(
-        {"requested_resource": urn, "resource_property": "annotated-variants/functional-study-result"}
-    )
+    save_to_logging_context({"requested_resource": urn, "resource_property": "annotated-variants/study-result"})
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -2501,6 +2502,7 @@ async def get_clinical_controls_options_for_score_set(
         select(ClinicalControl.db_name, ClinicalControl.db_version)
         .join(MappedVariant, ClinicalControl.mapped_variants)
         .join(Variant)
+        .where(MappedVariant.current.is_(True))
         .where(Variant.score_set_id == item.id)
     )
 

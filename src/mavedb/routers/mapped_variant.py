@@ -4,7 +4,7 @@ from typing import Annotated, Any, Optional
 from fastapi import APIRouter, Depends, Path
 from fastapi.exceptions import HTTPException
 from ga4gh.core.identifiers import GA4GH_IR_REGEXP
-from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from sqlalchemy import or_, select
 from sqlalchemy.exc import MultipleResultsFound
@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.lib.annotation.annotate import (
     variant_functional_impact_statement,
-    variant_pathogenicity_evidence,
+    variant_pathogenicity_statement,
     variant_study_result,
 )
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
@@ -130,7 +130,7 @@ async def show_mapped_variant_study_result(
 
 # TODO#416: For now, this route supports only one statement per mapped variant. Eventually, we should support the possibility of multiple statements.
 @router.get(
-    "/{urn}/va/functional-impact",
+    "/{urn}/va/functional-statement",
     status_code=200,
     response_model=Statement,
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
@@ -172,15 +172,15 @@ async def show_mapped_variant_functional_impact_statement(
 
 # TODO#416: For now, this route supports only one evidence line per mapped variant. Eventually, we should support the possibility of multiple evidence lines.
 @router.get(
-    "/{urn}/va/clinical-evidence",
+    "/{urn}/va/pathogenicity-statement",
     status_code=200,
-    response_model=VariantPathogenicityEvidenceLine,
+    response_model=VariantPathogenicityStatement,
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Construct a VA-Spec EvidenceLine from a mapped variant",
 )
 async def show_mapped_variant_acmg_evidence_line(
     *, urn: str, db: Session = Depends(deps.get_db), user: Optional[UserData] = Depends(get_current_user)
-) -> VariantPathogenicityEvidenceLine:
+) -> VariantPathogenicityStatement:
     """
     Construct a list of VA-Spec EvidenceLine(s) from a mapped variant by URN.
     """
@@ -189,27 +189,25 @@ async def show_mapped_variant_acmg_evidence_line(
     mapped_variant = await fetch_mapped_variant_by_variant_urn(db, user, urn)
 
     try:
-        pathogenicity_evidence = variant_pathogenicity_evidence(mapped_variant)
+        pathogenicity_statement = variant_pathogenicity_statement(mapped_variant)
     except MappingDataDoesntExistException as e:
         logger.info(
-            msg="Could not construct a pathogenicity evidence line for this mapped variant; No mapping data exists for this score set.",
+            msg="Could not construct a pathogenicity statement for this mapped variant; No mapping data exists for this score set.",
             extra=logging_context(),
         )
-        raise HTTPException(
-            status_code=404, detail=f"No pathogenicity evidence line exists for mapped variant {urn}: {e}"
-        )
+        raise HTTPException(status_code=404, detail=f"No pathogenicity statement exists for mapped variant {urn}: {e}")
 
-    if not pathogenicity_evidence:
+    if not pathogenicity_statement:
         logger.info(
-            msg="Could not construct a pathogenicity evidence line for this mapped variant; Variant does not have sufficient evidence to evaluate its pathogenicity.",
+            msg="Could not construct a pathogenicity statement for this mapped variant; Variant does not have sufficient evidence to evaluate its pathogenicity.",
             extra=logging_context(),
         )
         raise HTTPException(
             status_code=404,
-            detail=f"No pathogenicity evidence line exists for mapped variant {urn}; Variant does not have sufficient evidence to evaluate its pathogenicity.",
+            detail=f"No pathogenicity statement exists for mapped variant {urn}; Variant does not have sufficient evidence to evaluate its pathogenicity.",
         )
 
-    return pathogenicity_evidence
+    return pathogenicity_statement
 
 
 @router.get(
