@@ -1,17 +1,18 @@
-from ga4gh.va_spec.base.core import (
-    ExperimentalVariantFunctionalImpactStudyResult,
-)
-from mavedb.models.mapped_variant import MappedVariant
+from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult
+
 from mavedb.lib.annotation.contribution import (
     mavedb_api_contribution,
+    mavedb_creator_contribution,
+    mavedb_modifier_contribution,
     mavedb_vrs_contribution,
 )
 from mavedb.lib.annotation.dataset import score_set_to_data_set
+from mavedb.lib.annotation.document import mapped_variant_as_iri, variant_as_iri
 from mavedb.lib.annotation.method import (
     publication_identifiers_to_method,
 )
-from mavedb.lib.annotation.document import variant_as_iri, mapped_variant_as_iri
 from mavedb.lib.annotation.util import variation_from_mapped_variant
+from mavedb.models.mapped_variant import MappedVariant
 
 
 def mapped_variant_to_experimental_variant_impact_study_result(
@@ -28,6 +29,8 @@ def mapped_variant_to_experimental_variant_impact_study_result(
         contributions=[
             mavedb_api_contribution(),
             mavedb_vrs_contribution(mapped_variant),
+            mavedb_creator_contribution(mapped_variant.variant, mapped_variant.variant.score_set.created_by),
+            mavedb_modifier_contribution(mapped_variant.variant, mapped_variant.variant.score_set.modified_by),
         ],
         reportedIn=filter(None, [variant_as_iri(mapped_variant.variant), mapped_variant_as_iri(mapped_variant)]),
     )

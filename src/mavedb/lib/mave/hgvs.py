@@ -67,6 +67,6 @@ def validate_hgvs_string(
     return str(variant)
 
 
-validate_nt_variant = partial(validate_hgvs_string, **{"column": "nt"})
-validate_splice_variant = partial(validate_hgvs_string, **{"column": "splice"})
-validate_pro_variant = partial(validate_hgvs_string, **{"column": "p"})
+validate_nt_variant = partial(validate_hgvs_string, **{"column": "nt"})  # type: ignore[arg-type]
+validate_splice_variant = partial(validate_hgvs_string, **{"column": "splice"})  # type: ignore[arg-type]
+validate_pro_variant = partial(validate_hgvs_string, **{"column": "p"})  # type: ignore[arg-type]

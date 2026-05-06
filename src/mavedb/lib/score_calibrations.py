@@ -78,7 +78,7 @@ def create_functional_classification(
         class_=functional_range_create.class_,
         inclusive_lower_bound=functional_range_create.inclusive_lower_bound,
         inclusive_upper_bound=functional_range_create.inclusive_upper_bound,
-        acmg_classification=acmg_classification,
+        acmg_classification=acmg_classification,  # type: ignore[arg-type]
         functional_classification=functional_range_create.functional_classification,
         oddspaths_ratio=functional_range_create.oddspaths_ratio,  # type: ignore[arg-type]
         positive_likelihood_ratio=functional_range_create.positive_likelihood_ratio,  # type: ignore[arg-type]

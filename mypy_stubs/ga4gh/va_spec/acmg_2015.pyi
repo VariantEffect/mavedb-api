@@ -1,12 +1,10 @@
 from enum import Enum
 
-from pydantic import BaseModel
-
-from .base.core import Method, iriReference, VariantPathogenicityProposition
 from ..core.models import MappableConcept
+from .base.core import EvidenceLine, Method, Statement, VariantPathogenicityProposition, iriReference
 
-class VariantPathogenicityEvidenceLine(BaseModel):
-    targetProposition: VariantPathogenicityProposition | None
+class VariantPathogenicityEvidenceLine(EvidenceLine):
+    targetProposition: VariantPathogenicityProposition | None  # type: ignore
     strengthOfEvidenceProvided: MappableConcept | None
     specifiedBy: Method | iriReference | None
 
@@ -41,3 +39,13 @@ class VariantPathogenicityEvidenceLine(BaseModel):
         BP5 = "BP5"
         BP6 = "BP6"
         BP7 = "BP7"
+
+class VariantPathogenicityStatement(Statement):
+    proposition: VariantPathogenicityProposition
+
+class AcmgClassification(str, Enum):
+    PATHOGENIC = "pathogenic"
+    BENIGN = "benign"
+    LIKELY_PATHOGENIC = "likely pathogenic"
+    LIKELY_BENIGN = "likely benign"
+    UNCERTAIN_SIGNIFICANCE = "uncertain significance"
