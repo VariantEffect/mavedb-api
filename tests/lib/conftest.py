@@ -5,6 +5,9 @@ from unittest import mock
 
 import pytest
 
+from mavedb.models.enums import JobStatus
+from mavedb.models.job_run import JobRun
+
 from mavedb.models.acmg_classification import ACMGClassification
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment import Experiment
@@ -47,6 +50,13 @@ from tests.helpers.mocks.factories import (
     create_mock_score_set,
     create_mock_user,
 )
+
+# Attempt to import optional lib level fixtures. If the modules they depend on are not installed,
+# we won't have access to our full fixture suite and only a limited subset of tests can be run.
+try:
+    from .conftest_optional import *  # noqa: F403, F401
+except ImportError:
+    pass
 
 
 @pytest.fixture
@@ -326,3 +336,17 @@ def mocked_gnomad_variant_row():
 def data_files(tmp_path):
     copytree(Path(__file__).absolute().parent / "data", tmp_path / "data")
     return tmp_path / "data"
+
+
+@pytest.fixture
+def job_run(session):
+    """Create a persisted JobRun for use in annotation status tests."""
+    job = JobRun(
+        job_type="test_annotation_job",
+        job_function="test_function",
+        status=JobStatus.RUNNING,
+    )
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    return job

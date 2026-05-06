@@ -22,6 +22,8 @@ from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
+from mavedb.models.job_run import JobRun
+from mavedb.models.pipeline import Pipeline
 from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
@@ -492,7 +494,7 @@ def test_can_patch_score_set_data_before_publication(
     indirect=["mock_publication_fetch"],
 )
 def test_can_patch_score_set_data_with_files_before_publication(
-    client, setup_router_db, form_field, filename, mime_type, data_files, mock_publication_fetch
+    client, setup_router_db, form_field, filename, mime_type, data_files, mock_publication_fetch, mock_s3_client
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -504,7 +506,10 @@ def test_can_patch_score_set_data_with_files_before_publication(
     if form_field == "counts_file" or form_field == "scores_file":
         data_file_path = data_files / filename
         files = {form_field: (filename, open(data_file_path, "rb"), mime_type)}
-        with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        with (
+            patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue,
+            patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+        ):
             response = client.patch(f"/api/v1/score-sets-with-variants/{score_set['urn']}", files=files)
             worker_queue.assert_called_once()
             assert response.status_code == 200
@@ -1064,13 +1069,14 @@ def test_creating_user_can_view_all_score_calibrations_in_score_set(client, setu
 ########################################################################################################################
 
 
-def test_add_score_set_variants_scores_only_endpoint(client, setup_router_db, data_files):
+def test_add_score_set_variants_scores_only_endpoint(client, setup_router_db, data_files, mock_s3_client):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     scores_csv_path = data_files / "scores.csv"
     with (
         open(scores_csv_path, "rb") as scores_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1088,7 +1094,9 @@ def test_add_score_set_variants_scores_only_endpoint(client, setup_router_db, da
     assert score_set == response_data
 
 
-def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setup_router_db, data_files):
+def test_add_score_set_variants_scores_and_counts_endpoint(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     scores_csv_path = data_files / "scores.csv"
@@ -1097,6 +1105,7 @@ def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setu
         open(scores_csv_path, "rb") as scores_file,
         open(counts_csv_path, "rb") as counts_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1118,7 +1127,7 @@ def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setu
 
 
 def test_add_score_set_variants_scores_counts_and_column_metadata_endpoint(
-    session, client, setup_router_db, data_files
+    session, client, setup_router_db, data_files, mock_s3_client
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -1132,6 +1141,7 @@ def test_add_score_set_variants_scores_counts_and_column_metadata_endpoint(
         open(score_columns_metadata_path, "rb") as score_columns_metadata_file,
         open(count_columns_metadata_path, "rb") as count_columns_metadata_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         score_columns_metadata = json.load(score_columns_metadata_file)
         count_columns_metadata = json.load(count_columns_metadata_file)
@@ -1158,13 +1168,14 @@ def test_add_score_set_variants_scores_counts_and_column_metadata_endpoint(
     assert score_set == response_data
 
 
-def test_add_score_set_variants_scores_only_endpoint_utf8_encoded(client, setup_router_db, data_files):
+def test_add_score_set_variants_scores_only_endpoint_utf8_encoded(client, setup_router_db, data_files, mock_s3_client):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     scores_csv_path = data_files / "scores_utf8_encoded.csv"
     with (
         open(scores_csv_path, "rb") as scores_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1182,7 +1193,9 @@ def test_add_score_set_variants_scores_only_endpoint_utf8_encoded(client, setup_
     assert score_set == response_data
 
 
-def test_add_score_set_variants_scores_and_counts_endpoint_utf8_encoded(session, client, setup_router_db, data_files):
+def test_add_score_set_variants_scores_and_counts_endpoint_utf8_encoded(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     scores_csv_path = data_files / "scores_utf8_encoded.csv"
@@ -1191,6 +1204,7 @@ def test_add_score_set_variants_scores_and_counts_endpoint_utf8_encoded(session,
         open(scores_csv_path, "rb") as scores_file,
         open(counts_csv_path, "rb") as counts_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1266,7 +1280,9 @@ def test_anonymous_cannot_add_scores_to_other_user_score_set(
     assert "Could not validate credentials" in response_data["detail"]
 
 
-def test_contributor_can_add_scores_to_other_user_score_set(session, client, setup_router_db, data_files):
+def test_contributor_can_add_scores_to_other_user_score_set(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
@@ -1283,6 +1299,7 @@ def test_contributor_can_add_scores_to_other_user_score_set(session, client, set
     with (
         open(scores_csv_path, "rb") as scores_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1320,7 +1337,9 @@ def test_contributor_can_add_scores_to_other_user_score_set(session, client, set
     assert score_set == response_data
 
 
-def test_contributor_can_add_scores_and_counts_to_other_user_score_set(session, client, setup_router_db, data_files):
+def test_contributor_can_add_scores_and_counts_to_other_user_score_set(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
@@ -1339,6 +1358,7 @@ def test_contributor_can_add_scores_and_counts_to_other_user_score_set(session, 
         open(scores_csv_path, "rb") as scores_file,
         open(counts_csv_path, "rb") as counts_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1380,7 +1400,7 @@ def test_contributor_can_add_scores_and_counts_to_other_user_score_set(session, 
 
 
 def test_admin_can_add_scores_to_other_user_score_set(
-    session, client, setup_router_db, data_files, admin_app_overrides
+    session, client, setup_router_db, data_files, mock_s3_client, admin_app_overrides
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -1390,6 +1410,7 @@ def test_admin_can_add_scores_to_other_user_score_set(
         open(scores_csv_path, "rb") as scores_file,
         DependencyOverrider(admin_app_overrides),
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1407,7 +1428,9 @@ def test_admin_can_add_scores_to_other_user_score_set(
     assert score_set == response_data
 
 
-def test_admin_can_add_scores_and_counts_to_other_user_score_set(session, client, setup_router_db, data_files):
+def test_admin_can_add_scores_and_counts_to_other_user_score_set(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     scores_csv_path = data_files / "scores.csv"
@@ -1416,6 +1439,7 @@ def test_admin_can_add_scores_and_counts_to_other_user_score_set(session, client
         open(scores_csv_path, "rb") as scores_file,
         open(counts_csv_path, "rb") as counts_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1437,6 +1461,121 @@ def test_admin_can_add_scores_and_counts_to_other_user_score_set(session, client
 
 
 ########################################################################################################################
+# Score set variant upload error handling
+########################################################################################################################
+
+
+def test_upload_score_set_variant_data_returns_500_and_resets_processing_state_when_enqueue_job_fails(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception("queue failure")),
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+
+    assert response.status_code == 500
+
+    db_score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    session.refresh(db_score_set)
+    assert db_score_set.processing_state == ProcessingState.failed
+
+    pipelines = session.scalars(select(Pipeline).where(Pipeline.name == "validate_map_annotate_score_set")).all()
+    assert pipelines == []
+
+
+def test_upload_score_set_variant_data_deletes_s3_files_and_pipeline_when_enqueue_job_fails(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+    counts_csv_path = data_files / "counts.csv"
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        open(counts_csv_path, "rb") as counts_file,
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception("queue failure")),
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={
+                "scores_file": (scores_csv_path.name, scores_file, "text/csv"),
+                "counts_file": (counts_csv_path.name, counts_file, "text/csv"),
+            },
+        )
+
+    assert response.status_code == 500
+    # Both uploaded S3 keys should be passed to delete_objects for cleanup.
+    mock_s3_client.delete_objects.assert_called_once()
+    delete_call_kwargs = mock_s3_client.delete_objects.call_args.kwargs
+    deleted_keys = {obj["Key"] for obj in delete_call_kwargs["Delete"]["Objects"]}
+    assert len(deleted_keys) == 2
+    assert all("scores.csv" in k or "counts.csv" in k for k in deleted_keys)
+
+    pipelines = session.scalars(select(Pipeline).where(Pipeline.name == "validate_map_annotate_score_set")).all()
+    assert pipelines == []
+
+
+def test_upload_score_set_variant_data_deletes_s3_files_when_pipeline_creation_fails(
+    client, setup_router_db, data_files, mock_s3_client
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch("mavedb.routers.score_sets.PipelineFactory.create_pipeline", side_effect=Exception("pipeline failure")),
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+
+    assert response.status_code == 500
+    mock_s3_client.delete_objects.assert_called_once()
+    delete_call_kwargs = mock_s3_client.delete_objects.call_args.kwargs
+    deleted_keys = {obj["Key"] for obj in delete_call_kwargs["Delete"]["Objects"]}
+    assert len(deleted_keys) == 1
+    assert any("scores.csv" in k for k in deleted_keys)
+
+
+def test_patch_score_set_with_variants_returns_500_and_resets_processing_state_when_enqueue_job_fails(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception("queue failure")),
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.patch(
+            f"/api/v1/score-sets-with-variants/{score_set['urn']}",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+
+    assert response.status_code == 500
+
+    db_score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    session.refresh(db_score_set)
+    assert db_score_set.processing_state == ProcessingState.failed
+
+
+########################################################################################################################
 # Score set publication
 ########################################################################################################################
 
@@ -1449,6 +1588,35 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         published_score_set = publish_score_set(client, score_set["urn"])
         worker_queue.assert_called_once()
+
+    enqueue_args, enqueue_kwargs = worker_queue.call_args
+    assert enqueue_args[0] == "start_pipeline"
+    assert isinstance(enqueue_args[1], int)
+    assert "_job_id" in enqueue_kwargs
+
+    entrypoint_job = session.get(JobRun, enqueue_args[1])
+    assert entrypoint_job is not None
+    assert entrypoint_job.job_function == "start_pipeline"
+    publish_pipeline = session.get(Pipeline, entrypoint_job.pipeline_id)
+    assert publish_pipeline is not None
+    assert publish_pipeline.name == "publish_score_set"
+
+    refresh_job = session.scalars(
+        select(JobRun).where(
+            JobRun.pipeline_id == publish_pipeline.id,
+            JobRun.job_function == "refresh_published_variants_view",
+        )
+    ).one()
+    publish_job_functions = session.scalars(
+        select(JobRun.job_function).where(JobRun.pipeline_id == publish_pipeline.id)
+    ).all()
+    assert sorted(publish_job_functions) == ["refresh_published_variants_view", "start_pipeline"]
+
+    db_score_set = session.scalars(
+        select(ScoreSetDbModel).where(ScoreSetDbModel.urn == published_score_set["urn"])
+    ).one()
+    assert refresh_job.job_params["correlation_id"] is not None
+    assert refresh_job.job_params["score_set_id"] == db_score_set.id
 
     assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(published_score_set["urn"]), re.Match)
     assert isinstance(MAVEDB_EXPERIMENT_URN_RE.fullmatch(published_score_set["experiment"]["urn"]), re.Match)
@@ -1478,6 +1646,27 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
         select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
     ).scalars()
     assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_variants])
+
+
+def test_publish_score_set_discards_pipeline_when_entrypoint_enqueue_fails(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with (
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception("queue failure")) as worker_queue,
+        patch("mavedb.routers.score_sets.send_slack_error") as mock_slack,
+    ):
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+        mock_slack.assert_called_once()
+
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(published_score_set["urn"]), re.Match)
+
+    pipelines = session.scalars(select(Pipeline).where(Pipeline.name == "publish_score_set")).all()
+    assert pipelines == []
 
 
 def test_publish_multiple_score_sets(session, data_provider, client, setup_router_db, data_files):

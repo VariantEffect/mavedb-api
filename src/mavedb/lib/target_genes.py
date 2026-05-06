@@ -187,3 +187,67 @@ def search_target_genes(
     )
 
     return target_genes
+
+
+def get_target_coding_info(score_set: ScoreSet) -> tuple[bool, Optional[str]]:
+    """Extract target coding status and transcript accession for a single-target score set.
+
+    Determines whether the score set target is protein-coding and identifies
+    the transcript accession to use for HGVS lookups. For accession-based targets,
+    uses the accession if it's an NM or ENST transcript. For sequence-based targets,
+    prefers cDNA accession from post-mapped metadata.
+
+    Args:
+        score_set: The ScoreSet to analyze.
+
+    Returns:
+        Tuple of (target_is_coding, transcript_accession). transcript_accession
+        may be None even for coding targets if no transcript could be determined.
+
+    Raises:
+        NotImplementedError: If the score set has multiple targets.
+        ValueError: If ambiguous cDNA accessions are found in post-mapped metadata.
+    """
+    # TODO#712: Support multi-target score sets. Each variant's hgvs prefix
+    # (e.g. "TARGET_NAME:c.1A>G") identifies which target it belongs to.
+    # This function should return a dict[str, tuple[bool, Optional[str]]]
+    # keyed by target name, and the job loop should resolve per-variant.
+    if len(score_set.target_genes) != 1:
+        raise NotImplementedError("Populating mapped HGVS for multi-target score sets is not yet supported.")
+
+    target = score_set.target_genes[0]
+    if target.category != "protein_coding":
+        return False, None
+
+    transcript_accession: Optional[str] = None
+
+    # Accession-based: use transcript accession if it's an NM or ENST transcript
+    if target.target_accession and target.target_accession.accession:
+        if target.target_accession.accession.startswith(("NM", "ENST")):
+            transcript_accession = target.target_accession.accession
+
+    # Sequence-based: prefer cDNA accession from post-mapped metadata
+    if target.post_mapped_metadata:
+        assert isinstance(target.post_mapped_metadata, dict)
+        cdna_accessions = target.post_mapped_metadata.get("cdna", {}).get("sequence_accessions")
+        if cdna_accessions:
+            if len(cdna_accessions) == 1:
+                transcript_accession = cdna_accessions[0]
+            else:
+                raise ValueError(
+                    f"Multiple cDNA accessions found in post-mapped metadata for target {target.name} "
+                    f"in score set {score_set.urn}. Cannot determine which to use."
+                )
+        else:
+            logger.warning(
+                f"No cDNA accession found in post-mapped metadata for target {target.name} in score set "
+                f"{score_set.urn}. If variants are at the nucleotide level, will assume MANE transcript "
+                f"from ClinGen."
+            )
+    else:
+        logger.warning(
+            f"No post-mapped metadata for target {target.name} in score set {score_set.urn}. "
+            f"Will assume MANE transcript from ClinGen for coding variant."
+        )
+
+    return True, transcript_accession

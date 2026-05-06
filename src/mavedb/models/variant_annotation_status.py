@@ -1,0 +1,121 @@
+"""
+SQLAlchemy models for variant annotation status.
+"""
+
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.mutable import MutableDict
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from mavedb.db.base import Base
+from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus
+
+if TYPE_CHECKING:
+    from mavedb.models.job_run import JobRun
+    from mavedb.models.variant import Variant
+
+
+class VariantAnnotationStatus(Base):
+    """
+    Tracks annotation status for individual variants.
+
+    Allows us to see which variants failed annotation and why.
+
+    NOTE: JSONB fields are automatically tracked as mutable objects in this class via MutableDict.
+          This tracker only works for top-level mutations. If you mutate nested objects, you must call
+          `flag_modified(instance, "metadata_")` to ensure changes are persisted.
+    """
+
+    __tablename__ = "variant_annotation_status"
+
+    # Primary key
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    variant_id: Mapped[int] = mapped_column(Integer, ForeignKey("variants.id", ondelete="CASCADE"), nullable=False)
+    annotation_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, comment="Type of annotation: vrs, clinvar, gnomad, etc."
+    )
+
+    # Source version
+    version: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True, comment="Version of the annotation source used (if applicable)"
+    )
+
+    # Status tracking
+    status: Mapped[AnnotationStatus] = mapped_column(String(50), nullable=False, comment="success, failed, skipped")
+
+    # Error information
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    failure_category: Mapped[Optional[AnnotationFailureCategory]] = mapped_column(String(100), nullable=True)
+
+    # Annotation metadata (flexible JSONB for annotation results)
+    annotation_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        MutableDict.as_mutable(JSONB), nullable=True, comment="Structured metadata for the annotation result"
+    )
+
+    # Current flag
+    current: Mapped[bool] = mapped_column(
+        nullable=False,
+        server_default="true",
+        comment="Whether this is the current status for the variant and annotation type",
+    )
+
+    # Job tracking
+    job_run_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("job_runs.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    variant: Mapped["Variant"] = relationship("Variant")
+    job_run: Mapped[Optional["JobRun"]] = relationship("JobRun")
+
+    # Indexes
+    __table_args__ = (
+        # Indexes should be kept minimal to reduce write overhead on this large, append-only table.
+        # The 'current' flag is included in the index to optimize queries that filter for current=True,
+        # which is the common case when looking up annotation status for a variant.
+        Index(
+            "ix_variant_annotation_status_variant_type_version_current",
+            "variant_id",
+            "annotation_type",
+            "version",
+            "current",
+        ),
+        # FK index for job_run_id — needed for CASCADE deletes on job_runs
+        Index("ix_variant_annotation_status_job_run_id", "job_run_id"),
+        CheckConstraint(
+            "annotation_type IN ('vrs_mapping', 'clingen_allele_id', 'mapped_hgvs', 'variant_translation', 'gnomad_allele_frequency', 'clinvar_control', 'vep_functional_consequence', 'ldh_submission')",
+            name="ck_variant_annotation_type_valid",
+        ),
+        CheckConstraint(
+            "status IN ('success', 'failed', 'skipped')",
+            name="ck_variant_annotation_status_valid",
+        ),
+        CheckConstraint(
+            "failure_category IS NULL OR failure_category IN ('missing_identifier', 'unsupported_identifier', 'external_api_error', 'external_service_rejected', 'external_reference_not_found', 'no_linked_allele', 'unknown')",
+            name="ck_variant_annotation_failure_category_valid",
+        ),
+        ## Although un-enforced at the DB level, we should ensure only one 'current' record per (variant_id, annotation_type, version)
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<VariantAnnotationStatus("
+            f"id={self.id}, "
+            f"variant_id={self.variant_id}, "
+            f"type='{self.annotation_type}', "
+            f"version={self.version!r}, "
+            f"status='{self.status}', "
+            f"current={self.current}, "
+            f"created_at={self.created_at}"
+            f")>"
+        )

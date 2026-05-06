@@ -9,6 +9,8 @@ ANNOTATION_LAYERS = {
     "c": "cdna",
 }
 
+EXCLUDED_PREMAPPED_ANNOTATION_KEYS = {"sequence"}
+
 
 class VRSMap:
     url: str

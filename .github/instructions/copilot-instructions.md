@@ -38,9 +38,17 @@ src/mavedb/
 ├── models/                 # SQLAlchemy ORM models
 ├── view_models/            # Pydantic request/response models
 ├── routers/                # API endpoint handlers
-├── worker/                 # ARQ background jobs
-│   ├── jobs.py             # Job implementations
-│   └── settings.py         # Worker config, function registry, cron jobs
+├── worker/                 # ARQ background worker system
+│   ├── jobs/               # Job function implementations (by category)
+│   │   ├── registry.py     # Central registry of all jobs, cron definitions
+│   │   ├── variant_processing/  # Variant creation and mapping
+│   │   ├── external_services/   # ClinGen, ClinVar, gnomAD, UniProt
+│   │   ├── pipeline_management/ # Pipeline entrypoint (start_pipeline)
+│   │   └── system/         # Cron maintenance (cleanup stalled jobs)
+│   ├── lib/                # Infrastructure layer
+│   │   ├── decorators/     # @with_pipeline_management, @with_job_management
+│   │   └── managers/       # JobManager, PipelineManager state management
+│   └── settings/           # ARQ worker config, lifecycle hooks
 ├── lib/                    # Shared utilities
 │   ├── authentication.py   # ORCID JWT + API key auth
 │   ├── authorization.py    # Permission checks
@@ -94,7 +102,7 @@ Do not comment obvious operations, variable assignments, or code that is self-ex
 - **Structured logging**: Use `logger` with `extra=logging_context()` for correlation IDs via starlette-context
 - **HTTP exceptions**: FastAPI `HTTPException` with appropriate status codes
 - **Domain exceptions**: `src/mavedb/lib/exceptions.py` — `MixedTargetError`, `NonexistentOrcidError`, etc.
-- **Worker errors**: `send_slack_error()` + full logging context
+- **Worker errors**: `send_slack_job_error()` or `send_slack_job_error()` + full logging context
 - **Validation errors**: Two distinct classes exist:
   - `src/mavedb/lib/validation/exceptions.py` — validation package exceptions
   - `src/mavedb/lib/exceptions.py` — legacy `ValidationError` (Django-style, used in some older code)
@@ -140,3 +148,109 @@ poetry run python -m mavedb.scripts.<script_name>
 - [server_main.py](src/mavedb/server_main.py) — App setup and dependency injection
 - [authentication.py](src/mavedb/lib/authentication.py) — Auth patterns
 - [conftest.py](tests/conftest.py) — Test fixtures and database setup
+
+### Naming Conventions
+- **Variables & functions**: `snake_case` (e.g., `score_set_id`, `create_variants_for_score_set`)
+- **Classes**: `PascalCase` (e.g., `ScoreSet`, `UserData`, `ProcessingState`)
+- **Constants**: `UPPER_SNAKE_CASE` (e.g., `MAPPING_QUEUE_NAME`, `DEFAULT_LDH_SUBMISSION_BATCH_SIZE`)
+- **Enum values**: `snake_case` (e.g., `ProcessingState.success`, `MappingState.incomplete`)
+- **Database tables**: `snake_case` with descriptive association table names (e.g., `scoreset_contributors`, `experiment_set_doi_identifiers`)
+- **API endpoints**: kebab-case paths (e.g., `/score-sets`, `/experiment-sets`)
+
+### Documentation Conventions
+*For general Python documentation standards, see `.github/instructions/python.instructions.md`. The following are MaveDB-specific additions:*
+
+- **Algorithm explanations**: Include comments explaining complex logic, especially URN generation and bioinformatics operations
+- **Design decisions**: Comment on why certain architectural choices were made
+- **External dependencies**: Explain purpose of external bioinformatics libraries (HGVS, SeqRepo, etc.)
+- **Bioinformatics context**: Document biological reasoning behind genomic data processing patterns
+
+### Commenting Guidelines
+**Core Principle: Write self-explanatory code. Comment only to explain WHY, not WHAT.**
+
+**✅ WRITE Comments For:**
+- **Complex bioinformatics algorithms**: Variant mapping algorithms, external service interactions
+- **Business logic**: Why specific validation rules exist, regulatory requirements
+- **External API constraints**: Rate limits, data format requirements
+- **Non-obvious calculations**: Score normalization, statistical methods
+- **Configuration values**: Why specific timeouts, batch sizes, or thresholds were chosen
+
+**❌ AVOID Comments For:**
+- **Obvious operations**: Variable assignments, simple loops, basic conditionals
+- **Redundant descriptions**: Comments that repeat what the code clearly shows
+- **Outdated information**: Comments that don't match current implementation
+
+### Error Handling Conventions
+- **Structured logging**: Always use `logger` with `extra=logging_context()` for correlation IDs
+- **HTTP exceptions**: Use FastAPI `HTTPException` with appropriate status codes and descriptive messages
+- **Custom exceptions**: Define domain-specific exceptions in `src/mavedb/lib/exceptions.py`
+- **Worker job errors**: Send Slack notifications via `send_slack_job_error()` or `send_slack_job_failure()` and log with full context
+- **Validation errors**: Use Pydantic validators and raise `ValueError` with clear messages
+
+### Code Style and Organization Conventions
+*For general Python style conventions, see `.github/instructions/python.instructions.md`. The following are MaveDB-specific patterns:*
+
+- **Async patterns**: Use `async def` for I/O operations, regular functions for CPU-bound work
+- **Database operations**: Use SQLAlchemy 2.0 style with `session.scalars(select(...)).one()`
+- **Pydantic models**: Separate request/response models with clear inheritance hierarchies
+- **Bioinformatics data flow**: Structure code to clearly show genomic data transformations
+
+### Testing Conventions
+*For testing philosophy, mocking boundaries, and conventions see `.github/instructions/testing.instructions.md`. For general Python testing standards, see `.github/instructions/python.instructions.md`. The following are MaveDB-specific patterns:*
+
+- **Test function naming**: Use descriptive names that reflect bioinformatics operations (e.g., `test_cannot_publish_score_set_without_variants`)
+- **Fixtures**: Use `conftest.py` for shared fixtures, especially database and worker setup
+- **Mocking**: Mock only at system boundaries (external services, Redis/ARQ, Slack). Do not mock internal helpers or `update_progress`
+- **Constants**: Define test data including genomic sequences and variants in `tests/helpers/constants.py`
+- **Integration testing**: Test full bioinformatics workflows including external service interactions
+
+## Codebase Conventions
+
+### URN Validation
+- Use regex patterns from `src/mavedb/lib/validation/urn_re.py`
+- Validate URNs in Pydantic models with `@field_validator`
+- URN generation logic in `src/mavedb/lib/urns.py` and `temp_urns.py`
+
+### Worker Jobs (ARQ/Redis)
+- **Two-layer architecture**: Infrastructure (decorators + managers) handles lifecycle/state; business layer (jobs/) implements domain logic
+- **Job registry**: All jobs registered in `src/mavedb/worker/jobs/registry.py` — `BACKGROUND_FUNCTIONS`, `BACKGROUND_CRONJOBS`, `STANDALONE_JOB_DEFINITIONS`
+- **Job function signature**: `async def job_name(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutionOutcome` — `job_manager` is injected by the decorator, not passed by callers
+- **Decorators**: `@with_pipeline_management` (most jobs), `@with_job_management` (standalone), `@with_guaranteed_job_run_record` (cron/auto-created JobRun)
+- **Pipeline system**: `PipelineFactory.create_pipeline()` creates Pipeline + JobRun + JobDependency records from definitions in `src/mavedb/lib/workflow/definitions.py`
+- **Session management**: Task-local DB sessions via `ContextVar` prevent concurrent ARQ jobs from sharing sessions
+- **Commit discipline**: Decorators commit lifecycle state changes; `update_progress()` commits as a checkpoint; job code should NOT commit
+- **Key job types**:
+  - `create_variants_for_score_set` - Parse uploaded CSV, create variant records
+  - `map_variants_for_score_set` - Map variants via DCD Mapping / VRS
+  - `submit_score_set_mappings_to_car/ldh` - Submit to ClinGen services
+  - `cleanup_stalled_jobs` - Cron job for recovering stuck jobs
+- **Enqueueing pipelines**: Routers call `PipelineFactory.create_pipeline()` then `ArqRedis.enqueue_job("start_pipeline", ...)` with the pipeline's entrypoint JobRun ID
+- **Detailed documentation**: See `src/mavedb/worker/README.md` and `.github/instructions/worker.instructions.md`
+
+### View Models (Pydantic)
+- **Base model** (`src/mavedb/view_models/base/base.py`) converts empty strings to None and uses camelCase aliases
+- **Inheritance patterns**: `Base` → `Create` → `Modify` → `Saved` model hierarchy
+- **Field validation**: Use `@field_validator` for single fields, `@model_validator(mode="after")` for cross-field validation
+- **URN validation**: Validate URNs with regex patterns from `urn_re.py` in field validators
+- **Transform functions**: Use functions in `validation/transform.py` for complex data transformations
+- **Separate models**: Request (`Create`, `Modify`) vs response (`Saved`) models with different field requirements
+
+### External Integrations
+- **HGVS/SeqRepo** for genomic sequence operations
+- **DCD Mapping** for variant mapping and VRS transformation
+- **CDOT** for transcript/genomic coordinate conversion
+- **GA4GH VRS** for variant representation standardization
+- **ClinGen services** for allele registry and linked data hub submissions
+
+## Key Files to Reference
+- `src/mavedb/models/score_set.py` - Primary data model patterns
+- `src/mavedb/routers/score_sets.py` - Complex router with worker integration
+- `src/mavedb/worker/jobs/registry.py` - Job registration and available functions
+- `src/mavedb/worker/jobs/variant_processing/creation.py` - Reference pipeline job implementation
+- `src/mavedb/lib/workflow/definitions.py` - Pipeline and job definitions
+- `src/mavedb/view_models/score_set.py` - Pydantic model hierarchy examples
+- `src/mavedb/server_main.py` - Application setup and dependency injection
+- `src/mavedb/data_providers/services.py` - External service integration patterns
+- `src/mavedb/lib/authentication.py` - Authentication and authorization patterns
+- `tests/conftest.py` - Test fixtures and database setup
+- `docker-compose-dev.yml` - Service architecture and dependencies

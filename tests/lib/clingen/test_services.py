@@ -3,7 +3,6 @@
 import os
 from datetime import datetime
 from unittest.mock import MagicMock, patch
-from urllib import parse
 
 import pytest
 import requests
@@ -12,16 +11,13 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
-from mavedb.lib.clingen.constants import GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD, LDH_MAVE_ACCESS_ENDPOINT
+from mavedb.lib.clingen.constants import GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD
 from mavedb.lib.clingen.services import (
     ClinGenAlleleRegistryService,
     ClinGenLdhService,
-    clingen_allele_id_from_ldh_variation,
     get_allele_registry_associations,
-    get_clingen_variation,
 )
 from mavedb.lib.utils import batched
-from tests.helpers.constants import VALID_CLINGEN_CA_ID
 
 TEST_CLINGEN_URL = "https://pytest.clingen.com"
 TEST_CAR_URL = "https://pytest.car.clingen.com"
@@ -217,66 +213,6 @@ class TestClinGenLdhService:
                 json=submission,
                 headers={"Authorization": "Bearer test_jwt_token", "Content-Type": "application/json"},
             )
-
-
-@patch("mavedb.lib.clingen.services.requests.get")
-def test_get_clingen_variation_success(mock_get):
-    mocked_response_json = {"data": {"ldFor": {"Variant": [{"id": "variant_1", "name": "Test Variant"}]}}}
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = mocked_response_json
-    mock_get.return_value = mock_response
-
-    urn = "urn:example:variant"
-    result = get_clingen_variation(urn)
-
-    assert result == mocked_response_json
-    mock_get.assert_called_once_with(
-        f"{LDH_MAVE_ACCESS_ENDPOINT}/{parse.quote_plus(urn)}",
-        headers={"Accept": "application/json"},
-    )
-
-
-@patch("mavedb.lib.clingen.services.requests.get")
-def test_get_clingen_variation_failure(mock_get):
-    mock_response = MagicMock()
-    mock_response.status_code = 404
-    mock_response.text = "Not Found"
-    mock_get.return_value = mock_response
-
-    urn = "urn:example:nonexistent_variant"
-    result = get_clingen_variation(urn)
-
-    assert result is None
-    mock_get.assert_called_once_with(
-        f"{LDH_MAVE_ACCESS_ENDPOINT}/{parse.quote_plus(urn)}",
-        headers={"Accept": "application/json"},
-    )
-
-
-def test_clingen_allele_id_from_ldh_variation_success():
-    variation = {"data": {"ldFor": {"Variant": [{"entId": VALID_CLINGEN_CA_ID}]}}}
-    result = clingen_allele_id_from_ldh_variation(variation)
-    assert result == VALID_CLINGEN_CA_ID
-
-
-def test_clingen_allele_id_from_ldh_variation_missing_key():
-    variation = {"data": {"ldFor": {"Variant": []}}}
-
-    result = clingen_allele_id_from_ldh_variation(variation)
-    assert result is None
-
-
-def test_clingen_allele_id_from_ldh_variation_no_variation():
-    result = clingen_allele_id_from_ldh_variation(None)
-    assert result is None
-
-
-def test_clingen_allele_id_from_ldh_variation_key_error():
-    variation = {"data": {}}
-
-    result = clingen_allele_id_from_ldh_variation(variation)
-    assert result is None
 
 
 class TestClinGenAlleleRegistryService:
