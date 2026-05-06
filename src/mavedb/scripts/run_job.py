@@ -248,7 +248,7 @@ async def _run_locally(
             correlation_id=correlation_id,
             pipeline_params=pipeline_params,
         )
-        db.flush()
+        db.commit()
 
         resource = f"score_set_{score_set_id}" if score_set_id else "standalone"
         click.echo(f"Running {job_def['function']} for {resource} (job_run={job_run.id})...")

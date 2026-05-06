@@ -30,6 +30,7 @@ __all__ = [
     "score_calibration",
     "score_set",
     "target_gene",
+    "target_gene_mapping",
     "target_sequence",
     "taxonomy",
     "uniprot_identifier",

@@ -1295,11 +1295,11 @@ TEST_CODING_LAYER = {
 
 TEST_MAPPING_SCAFFOLD = {
     "metadata": {},
+    "mapped_date": datetime.isoformat(datetime.now()),
     "reference_sequences": {},
     "mapped_scores": [],
-    "vrs_version": "2.0",
-    "dcd_mapping_version": "pytest.0.0",
-    "mapped_date_utc": datetime.isoformat(datetime.now()),
+    "target_mappings": [],
+    "error_message": None,
 }
 
 
