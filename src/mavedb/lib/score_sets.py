@@ -422,7 +422,7 @@ def fetch_score_set_search_filter_options(
         "publication_author_names": score_set_search_filter_options_from_counter(publication_author_name_counter),
         "publication_db_names": score_set_search_filter_options_from_counter(publication_db_name_counter),
         "publication_journals": score_set_search_filter_options_from_counter(publication_journal_counter),
-        "controlled_keywords": controlled_keywords_counter_list,
+        "keywords": controlled_keywords_counter_list,
     }
 
 
