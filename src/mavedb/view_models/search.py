@@ -4,13 +4,18 @@ from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.score_set import ShortScoreSet
 
 
+class ControlledKeywordSearch(BaseModel):
+    key: str
+    label: str
+
+
 class ExperimentsSearch(BaseModel):
     published: Optional[bool] = None
     authors: Optional[list[str]] = None
     databases: Optional[list[str]] = None
     journals: Optional[list[str]] = None
     publication_identifiers: Optional[list[str]] = None
-    keywords: Optional[list[str]] = None
+    keywords: Optional[list[ControlledKeywordSearch]] = None
     text: Optional[str] = None
     meta_analysis: Optional[bool] = None
 
@@ -25,7 +30,7 @@ class ScoreSetsSearch(BaseModel):
     databases: Optional[list[str]] = None
     journals: Optional[list[str]] = None
     publication_identifiers: Optional[list[str]] = None
-    keywords: Optional[list[str]] = None
+    keywords: Optional[list[ControlledKeywordSearch]] = None
     text: Optional[str] = None
     include_experiment_score_set_urns_and_count: Optional[bool] = True
     offset: Optional[int] = None
@@ -35,6 +40,15 @@ class ScoreSetsSearch(BaseModel):
 class ScoreSetsSearchResponse(BaseModel):
     score_sets: list[ShortScoreSet]
     num_score_sets: int
+
+    class Config:
+        from_attributes = True
+
+
+class ControlledKeywordFilterOption(BaseModel):
+    key: str
+    value: str
+    count: int
 
     class Config:
         from_attributes = True
@@ -56,6 +70,7 @@ class ScoreSetsSearchFilterOptionsResponse(BaseModel):
     publication_author_names: list[ScoreSetsSearchFilterOption]
     publication_db_names: list[ScoreSetsSearchFilterOption]
     publication_journals: list[ScoreSetsSearchFilterOption]
+    keywords: list[ControlledKeywordFilterOption]
 
     class Config:
         from_attributes = True

@@ -2170,7 +2170,9 @@ TEST_POPULATED_EXPERIMENT_SEARCH = {
     "databases": ["uniprot"],
     "journals": ["biomed"],
     "publication_identifiers": ["12345678"],
-    "keywords": ["keyword"],
+    "keywords": [
+        {"key": "keyword_key", "label": "keyword_label"}
+    ],
     "text": "testtesttest",
 }
 
@@ -2184,7 +2186,9 @@ TEST_POPULATED_SCORE_SET_SEARCH = {
     "databases": ["uniprot"],
     "journals": ["biomed"],
     "publication_identifiers": ["12345678"],
-    "keywords": ["keyword"],
+    "keywords": [
+        {"key": "keyword_key", "label": "keyword_label"}
+    ],
     "text": "testtesttest",
 }
 
