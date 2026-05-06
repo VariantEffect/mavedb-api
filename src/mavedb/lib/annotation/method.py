@@ -138,7 +138,7 @@ def pathogenicity_score_calibration_as_iri(score_calibration: ScoreCalibration) 
     the context of VA-Spec, this IRI can be used interchangeably with an equivalent method object for brevity.
     """
     publication = _calibration_publication_for_publication_relationship(
-        score_calibration, ScoreCalibrationRelation.classification
+        score_calibration, ScoreCalibrationRelation.evidence
     )
     return publication_as_iri(publication) if publication else None
 
