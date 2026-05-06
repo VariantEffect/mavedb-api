@@ -95,7 +95,7 @@ async def run_variant_recoder(missing_hgvs: Sequence[str]) -> dict[str, list[str
             url=f"{ENSEMBL_API_URL}/variant_recoder/human",
             headers=headers,
             json={"ids": list(missing_hgvs)},
-            timeout=30,
+            timeout=300,  # Variant Recoder can be very slow for large batches and 504s are common; generous timeout and backoff retries are needed
         ),
     )
     hgvs_to_genomic: dict[str, list[str]] = {}
@@ -156,7 +156,7 @@ async def get_functional_consequence(hgvs_strings: Sequence[str]) -> dict[str, O
             url=f"{ENSEMBL_API_URL}/vep/human/hgvs",
             headers=headers,
             json={"hgvs_notations": list(hgvs_strings)},
-            timeout=30,
+            timeout=60,  # VEP can be slow for large batches.
         ),
     )
 
