@@ -18,6 +18,9 @@ async def get_clingen_allele_data(clingen_allele_id: str) -> Optional[dict]:
     """Retrieve full allele data from the ClinGen Allele Registry.
 
     Results are automatically cached for 24 hours using aiocache with configurable backend.
+    If the cache backend is unavailable, aiocache falls through to the real API call rather
+    than raising — cache read failures are treated as misses, write failures are logged and
+    ignored. The function always returns a result as long as the ClinGen API itself is reachable.
 
     Args:
         clingen_allele_id: ClinGen allele ID to query (e.g., CA123456 or PA123456).

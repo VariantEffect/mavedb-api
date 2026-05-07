@@ -11,6 +11,7 @@ import requests
 from mavedb.lib.clingen.allele_registry import (
     get_associated_clinvar_allele_id,
     get_canonical_pa_ids,
+    get_clingen_allele_data,
     get_matching_registered_ca_ids,
 )
 
@@ -451,3 +452,62 @@ class TestCachingBehavior:
         assert result1 == ["PA99999"]
         assert result2 == "888888"
         assert mock_request.call_count == 1  # Only one API call for both functions
+
+
+@pytest.mark.unit
+@mock.patch("mavedb.lib.clingen.allele_registry.requests.get")
+class TestCacheBackendFailure:
+    """Verify cache backend failures are bypassed rather than surfaced as errors.
+
+    aiocache's cached decorator wraps cache reads and writes in try/except internally,
+    returning None on read failure (treated as a cache miss) and silently logging write
+    failures. These tests document that contract so a future aiocache upgrade or backend
+    change doesn't silently break it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cache_read_failure_falls_through_to_api(self, mock_request, clear_cache):
+        """A failing cache read is treated as a cache miss — the real API is called."""
+        mock_response = mock.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"externalRecords": {"ClinVarAlleles": [{"alleleId": "111111"}]}}
+        mock_request.return_value = mock_response
+
+        with mock.patch.object(get_clingen_allele_data.cache, "get", side_effect=Exception("Redis unavailable")):  # type: ignore
+            result = await get_associated_clinvar_allele_id("CA_CACHE_READ_FAIL")
+
+        assert result == "111111"
+        assert mock_request.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_cache_write_failure_still_returns_result(self, mock_request, clear_cache):
+        """A failing cache write does not propagate — the API result is still returned."""
+        mock_response = mock.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"externalRecords": {"ClinVarAlleles": [{"alleleId": "222222"}]}}
+        mock_request.return_value = mock_response
+
+        with mock.patch.object(get_clingen_allele_data.cache, "set", side_effect=Exception("Redis unavailable")):  # type: ignore
+            result = await get_associated_clinvar_allele_id("CA_CACHE_WRITE_FAIL")
+
+        assert result == "222222"
+        assert mock_request.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_cache_fully_down_calls_api_every_time(self, mock_request, clear_cache):
+        """When both reads and writes fail, every call goes to the API (no caching)."""
+        mock_response = mock.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"externalRecords": {"ClinVarAlleles": [{"alleleId": "333333"}]}}
+        mock_request.return_value = mock_response
+
+        with (
+            mock.patch.object(get_clingen_allele_data.cache, "get", side_effect=Exception("Redis unavailable")),  # type: ignore
+            mock.patch.object(get_clingen_allele_data.cache, "set", side_effect=Exception("Redis unavailable")),  # type: ignore
+        ):
+            result1 = await get_associated_clinvar_allele_id("CA_CACHE_DOWN")
+            result2 = await get_associated_clinvar_allele_id("CA_CACHE_DOWN")
+
+        assert result1 == "333333"
+        assert result2 == "333333"
+        assert mock_request.call_count == 2  # No caching — both calls hit the API
