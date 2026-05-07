@@ -574,6 +574,62 @@ class TestRefreshClinvarControlsUnit:
         assert result.status == JobStatus.FAILED
         assert result.failure_category == FailureCategory.DEPENDENCY_FAILURE
 
+    async def test_upsert_does_not_create_duplicate_control_when_row_already_exists(
+        self,
+        mock_worker_ctx,
+        session,
+        with_refresh_clinvar_controls_job,
+        sample_refresh_clinvar_controls_job_run,
+        setup_sample_variants_with_caid,
+    ):
+        """Test that the upsert handles a pre-existing ClinicalControl row without creating a duplicate.
+
+        This covers the concurrent-job race condition where two refresh_clinvar_controls
+        jobs run simultaneously for different score sets and both try to insert a
+        ClinicalControl for the same (db_name, db_identifier, db_version). The second
+        job's upsert must hit ON CONFLICT DO UPDATE rather than inserting a second row.
+        """
+        # Simulate the state left by a concurrent job: the ClinicalControl row
+        # for this identifier/version already exists in the DB with stale data.
+        pre_existing_control = ClinicalControl(
+            db_name="ClinVar",
+            db_identifier="VCV000000123",
+            db_version="01_2026",
+            gene_symbol="OLD_SYMBOL",
+            clinical_significance="likely pathogenic",
+            clinical_review_status="criteria provided, single submitter",
+        )
+        session.add(pre_existing_control)
+        session.commit()
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
+                return_value="VCV000000123",
+            ),
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
+            ),
+        ):
+            result = await refresh_clinvar_controls(
+                mock_worker_ctx,
+                sample_refresh_clinvar_controls_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+
+        # Only one row should exist — the upsert must not have inserted a second one.
+        controls = session.query(ClinicalControl).filter_by(db_identifier="VCV000000123", db_version="01_2026").all()
+        assert len(controls) == 1
+
+        # The upsert should have updated the stale data from the concurrent job.
+        session.refresh(controls[0])
+        assert controls[0].gene_symbol == "TEST"
+        assert controls[0].clinical_significance == "benign"
+        assert controls[0].clinical_review_status == "reviewed by expert panel"
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio

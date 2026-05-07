@@ -18,6 +18,7 @@ from datetime import datetime
 
 import requests
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.clingen.allele_registry import get_associated_clinvar_allele_id
@@ -214,26 +215,32 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
             variant_data = tsv_data[clinvar_allele_id]
             identifier = str(clinvar_allele_id)
 
-            clinvar_variant = job_manager.db.scalars(
-                select(ClinicalControl).where(
-                    ClinicalControl.db_identifier == identifier,
-                    ClinicalControl.db_version == clinvar_version,
-                    ClinicalControl.db_name == "ClinVar",
-                )
-            ).one_or_none()
-            if clinvar_variant is None:
-                clinvar_variant = ClinicalControl(
+            # Atomic upsert — avoids a check-then-act race when two
+            # refresh_clinvar_controls jobs run concurrently for different
+            # score sets and encounter the same (db_name, db_identifier,
+            # db_version) tuple. ON CONFLICT DO UPDATE is guaranteed to
+            # return exactly one row regardless of concurrent inserts.
+            upsert_stmt = (
+                pg_insert(ClinicalControl)
+                .values(
                     db_identifier=identifier,
+                    db_version=clinvar_version,
+                    db_name="ClinVar",
                     gene_symbol=variant_data.get("GeneSymbol"),
                     clinical_significance=variant_data.get("ClinicalSignificance"),
                     clinical_review_status=variant_data.get("ReviewStatus"),
-                    db_version=clinvar_version,
-                    db_name="ClinVar",
                 )
-            else:
-                clinvar_variant.gene_symbol = variant_data.get("GeneSymbol")
-                clinvar_variant.clinical_significance = variant_data.get("ClinicalSignificance")
-                clinvar_variant.clinical_review_status = variant_data.get("ReviewStatus")
+                .on_conflict_do_update(
+                    constraint="uq_clinical_controls_db_name_identifier_version",
+                    set_={
+                        "gene_symbol": variant_data.get("GeneSymbol"),
+                        "clinical_significance": variant_data.get("ClinicalSignificance"),
+                        "clinical_review_status": variant_data.get("ReviewStatus"),
+                    },
+                )
+                .returning(ClinicalControl)
+            )
+            clinvar_variant = job_manager.db.scalars(upsert_stmt).one()
 
             job_manager.db.add(clinvar_variant)
             job_manager.db.flush()
