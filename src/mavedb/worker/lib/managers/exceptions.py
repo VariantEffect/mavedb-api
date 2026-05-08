@@ -61,3 +61,9 @@ class DatabaseConnectionError(JobStateError):
     """Database connection issues preventing any operations."""
 
     pass
+
+
+class JobManagerInitializationError(JobManagerError):
+    """JobManager failed to initialize properly, preventing job state management."""
+
+    pass

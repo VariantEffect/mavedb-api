@@ -19,6 +19,7 @@ from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.worker.lib.decorators.utils import ensure_ctx, ensure_job_id, ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers import JobManager
 from mavedb.worker.lib.managers.constants import TERMINAL_JOB_STATUSES
+from mavedb.worker.lib.managers.exceptions import JobManagerInitializationError
 from mavedb.worker.lib.managers.utils import classify_exception
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,10 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
         logger.critical(f"Failed to initialize job management context: {e}")
         send_slack_error(e)
         raise
+
+    arq_job_id: str | None = ctx.get("job_id")
+    result: JobExecutionOutcome | None = None
+    job_manager: JobManager | None = None
 
     try:
         # Initialize JobManager
@@ -147,6 +152,10 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
             # Build errored result — this is an unhandled exception
             result = JobExecutionOutcome.errored(exception=e, failure_category=classify_exception(e))
 
+            if job_manager is None:
+                logger.critical(f"JobManager not initialized; cannot mark job as errored for job_id={job_id}")
+                raise JobManagerInitializationError("JobManager failed to initialize for error handling") from e
+
             # Mark job as errored
             job_manager.error_job(result=result)
             db_session.commit()
@@ -173,6 +182,10 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
             # the next attempt may succeed and no human action is required.
             if not will_retry:
                 try:
+                    if job_manager is None:
+                        logger.critical(f"JobManager not initialized; cannot mark job as errored for job_id={job_id}")
+                        raise JobManagerInitializationError("JobManager failed to initialize for error handling") from e
+
                     job = job_manager.get_job()
                     send_slack_job_error(
                         job_urn=job.urn,
@@ -190,3 +203,9 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
             # We don't mind that we lose ARQs built in job marking, since we perform our own job
             # lifecycle management via with_job_management.
             return result
+
+    finally:
+        # Flush the job manager's accumulated context into ctx["state"] so that
+        # log_job (after_job_end hook) can emit it as the canonical worker job log.
+        if job_manager is not None and arq_job_id and isinstance(ctx.get("state"), dict):
+            ctx["state"][arq_job_id] = job_manager.context
