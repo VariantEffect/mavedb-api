@@ -1271,7 +1271,10 @@ def get_score_set_annotated_variants(
         the response.
     """
     save_to_logging_context(
-        {"requested_resource": urn, "resource_property": "annotated-variants/pathogenicity-statement"}
+        {
+            "requested_resource": urn,
+            "resource_property": "annotated-variants/pathogenicity-statement",
+        }
     )
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
@@ -1974,14 +1977,19 @@ async def upload_score_set_variant_data(
             worker=worker,
             db=db,
         )
-    except Exception:
+    except Exception as e:
         logger.error(
             msg="Failed to enqueue variant creation pipeline; resetting score set processing state.",
             extra=logging_context(),
+            exc_info=e,
         )
         try:
             db.rollback()
             item.processing_state = ProcessingState.failed
+            item.processing_errors = {
+                "exception": "Failed to create variant processing pipeline. Please try uploading the variant data again",
+                "detail": None,
+            }
             db.add(item)
             db.commit()
         except Exception:
@@ -1989,7 +1997,10 @@ async def upload_score_set_variant_data(
                 msg="Failed to reset score set processing state after pipeline enqueue failure.",
                 extra=logging_context(),
             )
-        raise HTTPException(status_code=500, detail="Failed to enqueue variant processing pipeline.")
+        raise HTTPException(
+            status_code=500,
+            detail="Could not update variants for this score set at this time. Failed to create variant processing pipeline.",
+        )
 
     db.add(item)
     db.commit()
@@ -2158,14 +2169,19 @@ async def update_score_set_with_variants(
                 else existing_count_columns_metadata,
                 db=db,
             )
-        except Exception:
+        except Exception as e:
             logger.error(
                 msg="Failed to enqueue variant creation pipeline; resetting score set processing state.",
                 extra=logging_context(),
+                exc_info=e,
             )
             try:
                 db.rollback()
                 updatedItem.processing_state = ProcessingState.failed
+                updatedItem.processing_errors = {
+                    "exception": "Failed to create variant processing pipeline. Please try uploading the variant data again",
+                    "detail": None,
+                }
                 db.add(updatedItem)
                 db.commit()
             except Exception:
@@ -2173,7 +2189,10 @@ async def update_score_set_with_variants(
                     msg="Failed to reset score set processing state after pipeline enqueue failure.",
                     extra=logging_context(),
                 )
-            raise HTTPException(status_code=500, detail="Failed to enqueue variant processing pipeline.")
+            raise HTTPException(
+                status_code=500,
+                detail="Could not update variants for this score set at this time. Failed to create variant processing pipeline.",
+            )
 
     db.add(updatedItem)
     db.commit()
@@ -2227,14 +2246,19 @@ async def update_score_set(
                 worker=worker,
                 db=db,
             )
-        except Exception:
+        except Exception as e:
             logger.error(
                 msg="Failed to enqueue variant creation pipeline; resetting score set processing state.",
                 extra=logging_context(),
+                exc_info=e,
             )
             try:
                 db.rollback()
                 updatedItem.processing_state = ProcessingState.failed
+                updatedItem.processing_errors = {
+                    "exception": "Failed to create variant processing pipeline. Please try uploading the variant data again",
+                    "detail": None,
+                }
                 db.add(updatedItem)
                 db.commit()
             except Exception:
@@ -2242,7 +2266,10 @@ async def update_score_set(
                     msg="Failed to reset score set processing state after pipeline enqueue failure.",
                     extra=logging_context(),
                 )
-            raise HTTPException(status_code=500, detail="Failed to enqueue variant processing pipeline.")
+            raise HTTPException(
+                status_code=500,
+                detail="Could not update this score set at this time. Failed to create variant processing pipeline.",
+            )
 
         db.add(updatedItem)
         db.commit()
