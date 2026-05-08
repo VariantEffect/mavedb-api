@@ -94,10 +94,21 @@ def upgrade():
         """
     )
 
-    op.create_unique_constraint(
-        "uq_clinical_controls_db_name_identifier_version",
-        "clinical_controls",
-        ["db_name", "db_identifier", "db_version"],
+    # CREATE UNIQUE INDEX CONCURRENTLY must run outside a transaction.
+    # autocommit_block() commits the cleanup steps above, then builds the index
+    # without holding an AccessExclusiveLock for the full duration.
+    with op.get_context().autocommit_block():
+        op.execute(
+            "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "
+            "uq_clinical_controls_db_name_identifier_version "
+            "ON clinical_controls (db_name, db_identifier, db_version)"
+        )
+
+    # Promote the index to a named constraint (brief catalog update only).
+    op.execute(
+        "ALTER TABLE clinical_controls "
+        "ADD CONSTRAINT uq_clinical_controls_db_name_identifier_version "
+        "UNIQUE USING INDEX uq_clinical_controls_db_name_identifier_version"
     )
 
 
