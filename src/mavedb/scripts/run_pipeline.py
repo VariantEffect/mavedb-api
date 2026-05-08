@@ -90,19 +90,22 @@ async def main(
         click.echo("--score-set-urn is required.", err=True)
         sys.exit(1)
 
-    if not updater_id:
-        click.echo("--updater-id is required.", err=True)
-        sys.exit(1)
-
     db = SessionLocal()
     score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one_or_none()
     if not score_set:
         click.echo(f"Score set not found: {score_set_urn}", err=True)
         sys.exit(1)
 
-    user = db.scalars(select(User).where(User.id == updater_id)).one_or_none()
+    resolved_updater_id = updater_id or score_set.modified_by_id or score_set.created_by_id
+    if resolved_updater_id is None:
+        click.echo(
+            "--updater-id is required (score set has no existing modifier or creator to fall back to).", err=True
+        )
+        sys.exit(1)
+
+    user = db.scalars(select(User).where(User.id == resolved_updater_id)).one_or_none()
     if not user:
-        click.echo(f"User not found: {updater_id}", err=True)
+        click.echo(f"User not found: {resolved_updater_id}", err=True)
         sys.exit(1)
 
     correlation_id = f"{pipeline_name}_{score_set.urn}_{user.id}_{datetime.datetime.now().isoformat()}"

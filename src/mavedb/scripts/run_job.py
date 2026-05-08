@@ -149,14 +149,16 @@ async def main(
 
     # Resolve user if needed
     if needs_updater:
-        if not updater_id:
-            click.echo("--updater-id is required for this job.", err=True)
+        if updater_id:
+            user = db.scalars(select(User).where(User.id == updater_id)).one_or_none()
+            if not user:
+                click.echo(f"User not found: {updater_id}", err=True)
+                sys.exit(1)
+            updater_id = user.id
+        elif not needs_score_set:
+            click.echo("--updater-id is required for this job (no score set to fall back to).", err=True)
             sys.exit(1)
-        user = db.scalars(select(User).where(User.id == updater_id)).one_or_none()
-        if not user:
-            click.echo(f"User not found: {updater_id}", err=True)
-            sys.exit(1)
-        updater_id = user.id
+        # If updater_id is None and needs_score_set, each score set will fall back to its existing modifier.
 
     correlation_id = f"{job_name}_{datetime.datetime.now().isoformat()}"
     redis = await create_pool(RedisWorkerSettings)
@@ -203,8 +205,12 @@ async def _enqueue_jobs(
             pipeline_params = {"correlation_id": correlation_id, **extra_params}
             if score_set_id is not None:
                 pipeline_params["score_set_id"] = score_set_id
-            if updater_id is not None:
-                pipeline_params["updater_id"] = updater_id
+            resolved_updater_id = updater_id
+            if resolved_updater_id is None and score_set_id is not None:
+                score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one_or_none()
+                resolved_updater_id = score_set.modified_by_id or score_set.created_by_id if score_set else None
+            if resolved_updater_id is not None:
+                pipeline_params["updater_id"] = resolved_updater_id
 
             job_run = job_factory.create_job_run(
                 job_def=job_def,
@@ -239,8 +245,12 @@ async def _run_locally(
         pipeline_params = {"correlation_id": correlation_id, **extra_params}
         if score_set_id is not None:
             pipeline_params["score_set_id"] = score_set_id
-        if updater_id is not None:
-            pipeline_params["updater_id"] = updater_id
+        resolved_updater_id = updater_id
+        if resolved_updater_id is None and score_set_id is not None:
+            score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one_or_none()
+            resolved_updater_id = score_set.modified_by_id or score_set.created_by_id if score_set else None
+        if resolved_updater_id is not None:
+            pipeline_params["updater_id"] = resolved_updater_id
 
         job_run = job_factory.create_job_run(
             job_def=job_def,
