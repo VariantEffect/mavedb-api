@@ -1,0 +1,940 @@
+"""Job lifecycle management for individual job state transitions.
+
+This module provides the JobManager class for managing individual job state transitions
+with atomic operations and explicit error handling to ensure data consistency.
+Pipeline coordination is handled separately by the PipelineManager.
+
+Example usage:
+    >>> from mavedb.worker.lib.job_manager import JobManager
+    >>>
+    >>> # Initialize with database and Redis connections
+    >>> job_manager = JobManager(db_session, redis_client, job_id=123)
+    >>>
+    >>> # Start job execution
+    >>> job_manager.start_job()
+    >>>
+    >>> # Update progress during execution
+    >>> job_manager.update_progress(50, 100, "Processing variants...")
+    >>>
+    >>> # Complete job (pipeline coordination handled separately)
+    >>> job_manager.complete_job(
+    ...     status=JobStatus.SUCCEEDED,
+    ...     result={"variants_processed": 1000}
+    ... )
+
+Error Handling:
+    The JobManager uses specific exception types to distinguish between different
+    failure modes, allowing callers to implement appropriate recovery strategies:
+
+    - DatabaseConnectionError: Database connectivity issues
+    - JobStateError: Critical state persistence failures
+    - JobTransitionError: Invalid state transitions
+"""
+
+import logging
+import traceback
+from datetime import datetime
+from typing import Any, Optional
+
+from arq import ArqRedis
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
+
+from mavedb.lib.logging.context import format_raised_exception_info_as_dict
+from mavedb.lib.types.workflow import JobExecutionOutcome
+from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
+from mavedb.models.job_run import JobRun
+from mavedb.worker.lib.managers.base_manager import BaseManager
+from mavedb.worker.lib.managers.constants import (
+    CANCELLED_JOB_STATUSES,
+    RETRYABLE_FAILURE_CATEGORIES,
+    RETRYABLE_JOB_STATUSES,
+    STARTABLE_JOB_STATUSES,
+    TERMINAL_JOB_STATUSES,
+    TERMINAL_PROGRESS_MESSAGES,
+)
+from mavedb.worker.lib.managers.exceptions import (
+    DatabaseConnectionError,
+    JobStateError,
+    JobTransitionError,
+)
+from mavedb.worker.lib.managers.types import RetryHistoryEntry
+from mavedb.worker.lib.managers.utils import classify_exception
+
+logger = logging.getLogger(__name__)
+
+
+class JobManager(BaseManager):
+    """Manages individual job lifecycle with atomic state transitions.
+
+    The JobManager provides a high-level interface for managing individual job execution
+    while ensuring database consistency. It handles job state transitions, progress updates,
+    and retry logic. Pipeline coordination is handled separately by the PipelineManager.
+
+    Key Features:
+    - Atomic state transitions with rollback on failure
+    - Explicit exception handling for different failure modes
+    - Progress tracking and retry mechanisms
+    - Automatic session cleanup on object manipulation failures
+    - Focus on individual job lifecycle only
+
+    Note:
+        To avoid persisting inconsistent job state to the database, any failures
+        during job manipulation (e.g., fetching job, updating fields) will result
+        in a safe rollback of the current transaction. This ensures that partial
+        updates do not corrupt job state. This manager DOES NOT COMMIT database
+        changes, only flushes them. Commit responsibility lies with the caller.
+
+    Usage Patterns:
+
+        Basic job execution:
+        >>> manager = JobManager(db, redis, job_id=123)
+        >>> manager.start_job()
+        >>> manager.update_progress(25, message="Starting validation")
+        >>> manager.succeed_job(result={"count": 100})
+
+        Progress tracking convenience:
+        >>> manager.set_progress_total(1000, "Processing 1000 records")
+        >>> for record in records:
+        ...     process_record(record)
+        ...     manager.increment_progress()  # Increment by 1
+        ...     if manager.is_cancelled():
+        ...         break
+
+        Job failure handling:
+        >>> try:
+        ...     process_data()
+        ... except ValidationError as e:
+        ...     manager.fail_job(error=e, result={"partial_results": partial_data})
+
+        Direct completion control:
+        >>> manager.complete_job(status=JobStatus.SUCCEEDED, result=data)
+
+        Error handling:
+        >>> try:
+        ...     manager.complete_job(status=JobStatus.SUCCEEDED, result=data)
+        ... except JobStateError as e:
+        ...     logger.critical(f"Critical state failure: {e}")
+        ...     # Job completion failed - state not saved
+
+        Job retry:
+        >>> try:
+        ...     manager.retry_job(reason="Transient network error")
+        ... except JobTransitionError as e:
+        ...     logger.error(f"Cannot retry job in current state: {e}")
+
+    Exception Hierarchy:
+    - DatabaseConnectionError: Cannot connect to database
+    - JobStateError: Critical state persistence failures
+    - JobTransitionError: Invalid state transitions (e.g., start already running job)
+
+    Thread Safety:
+        JobManager is not thread-safe. Each instance should be used by a single
+        worker thread and should not be shared across concurrent operations.
+    """
+
+    def __init__(self, db: Session, redis: Optional[ArqRedis], job_id: int):
+        """Initialize JobManager for a specific job.
+
+        Args:
+            db: Active SQLAlchemy session for database operations. Session should
+                be configured for the appropriate database and have proper
+                transaction isolation.
+            redis: ARQ Redis client for job queue operations. Must be connected
+                   and ready for enqueue operations. Optional; can be None if Redis is not used.
+            job_id: Unique identifier of the job to manage. Must correspond to
+                    an existing JobRun record in the database.
+
+        Raises:
+            DatabaseConnectionError: If the job cannot be fetched from database,
+                indicating connectivity issues or invalid job_id.
+
+        Example:
+            >>> db_session = get_database_session()
+            >>> redis_client = get_arq_redis_client()
+            >>> manager = JobManager(db_session, redis_client, 12345)
+            >>> # Manager is now ready to handle job 12345
+        """
+        super().__init__(db, redis)
+
+        self.context: dict[str, Any] = {}
+        self.job_id = job_id
+        job = self.get_job()
+        self.pipeline_id = job.pipeline_id if job else None
+
+        self.save_to_context(
+            {"job_id": str(self.job_id), "pipeline_id": str(self.pipeline_id) if self.pipeline_id else None}
+        )
+
+    def save_to_context(self, ctx: dict) -> dict[str, Any]:
+        for k, v in ctx.items():
+            self.context[k] = v
+
+        return self.context
+
+    def logging_context(self) -> dict[str, Any]:
+        return self.context
+
+    def start_job(self) -> None:
+        """Mark job as started and initialize execution tracking. This method does
+        not flush or commit the database session; the caller is responsible for persisting changes.
+
+        Transitions job from QUEUED, PENDING, or RUNNING to RUNNING state, setting start
+        timestamp and a default progress message. This method should be called
+        once at the beginning of job execution.
+
+        If the job is already RUNNING (stale from a crashed worker that ARQ re-delivered),
+        a warning is logged and the start timestamp is reset.
+
+        State Changes:
+        - Sets status to JobStatus.RUNNING
+        - Records started_at timestamp
+        - Initializes progress to 0/100
+        - Sets progress_message to "Job began execution"
+
+        Raises:
+            DatabaseConnectionError: Cannot fetch job from database
+            JobStateError: Cannot save job start state to database
+            JobTransitionError: Job not in valid state to start (must be QUEUED, PENDING, or RUNNING)
+
+        Example:
+            >>> manager = JobManager(db, redis, 123)
+            >>> manager.start_job()  # Job 123 now marked as RUNNING
+            >>> # Proceed with job execution logic...
+        """
+        job_run = self.get_job()
+        if job_run.status not in STARTABLE_JOB_STATUSES:
+            self.save_to_context({"job_status": str(job_run.status)})
+            logger.error(
+                "Invalid job start attempt: status not in STARTABLE_JOB_STATUSES", extra=self.logging_context()
+            )
+            raise JobTransitionError(f"Cannot start job {self.job_id} from status {job_run.status}")
+
+        # Recovery path: job is already RUNNING from a previous worker that crashed.
+        # ARQ re-delivered the job, so we reset the timestamp and proceed.
+        if job_run.status == JobStatus.RUNNING:
+            logger.warning(
+                f"Job {self.job_id} already RUNNING (previous worker likely crashed) — resetting start time",
+                extra=self.logging_context(),
+            )
+
+        try:
+            job_run.status = JobStatus.RUNNING
+            job_run.started_at = datetime.now()
+            job_run.progress_message = "Job began execution"
+        except (AttributeError, TypeError, KeyError, ValueError) as e:
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug("Encountered an unexpected error while updating job start state", extra=self.logging_context())
+            raise JobStateError(f"Failed to update job start state: {e}")
+
+        self.save_to_context({"job_status": str(job_run.status)})
+        logger.info("Job marked as started", extra=self.logging_context())
+
+    def complete_job(self, status: JobStatus, result: JobExecutionOutcome) -> None:
+        """Mark job as completed with the specified final status. This method does
+        not flush or commit the database session; the caller is responsible for persisting changes.
+
+        Transitions job to a terminal status (SUCCEEDED, FAILED, ERRORED, CANCELLED, SKIPPED),
+        recording the finished_at timestamp, result data, and error details if applicable.
+
+        Args:
+            status: Final job status - must be a terminal status.
+            result: JobExecutionOutcome containing status, data, error, and exception.
+
+        Raises:
+            DatabaseConnectionError: Cannot fetch job or connect to database
+            JobStateError: Cannot save job completion state - critical error
+            JobTransitionError: Invalid terminal status provided
+        """
+        # Validate terminal status
+        if status not in TERMINAL_JOB_STATUSES:
+            self.save_to_context({"job_status": str(status)})
+            logger.error("Invalid job completion status: not in TERMINAL_JOB_STATUSES", extra=self.logging_context())
+            raise JobTransitionError(
+                f"Cannot complete job to status: {status}. Must complete to a terminal status: {TERMINAL_JOB_STATUSES}"
+            )
+
+        job_run = self.get_job()
+        try:
+            job_run.status = status
+            job_run.metadata_["result"] = {
+                "status": result.status.value,
+                "data": result.data,
+                "error": result.error,
+                "exception_details": format_raised_exception_info_as_dict(result.exception)
+                if result.exception
+                else None,
+            }
+            job_run.finished_at = datetime.now()
+
+            if status in (JobStatus.FAILED, JobStatus.ERRORED):
+                if result.failure_category:
+                    job_run.failure_category = result.failure_category
+                elif result.exception:
+                    job_run.failure_category = classify_exception(result.exception)
+                else:
+                    job_run.failure_category = FailureCategory.UNKNOWN
+
+            if result.error:
+                job_run.error_message = result.error
+
+            if result.exception:
+                job_run.error_message = str(result.exception)
+                job_run.error_traceback = traceback.format_exc()
+
+            if job_run.failure_category:
+                self.save_to_context({"failure_category": str(job_run.failure_category)})
+
+            # For consistency, the job manager is responsible for setting terminal progress messages,
+            # not jobs themselves.
+            if status in TERMINAL_PROGRESS_MESSAGES:
+                job_run.progress_message = TERMINAL_PROGRESS_MESSAGES[status]
+
+            # SUCCEEDED jobs will always be fully complete;
+            # CANCELLED/SKIPPED null the numeric fields because those jobs never completed (or were cut off);
+            # FAILED/ERRORED leave numeric fields intact so the UI can show how far the job progressed.
+            if status == JobStatus.SUCCEEDED:
+                job_run.progress_current = job_run.progress_total
+            elif status in (JobStatus.CANCELLED, JobStatus.SKIPPED):
+                job_run.progress_current = None
+                job_run.progress_total = None
+
+        except (AttributeError, TypeError, KeyError, ValueError) as e:
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug(
+                "Encountered an unexpected error while updating job completion state", extra=self.logging_context()
+            )
+            raise JobStateError(f"Failed to update job completion state: {e}")
+
+        self.save_to_context({"job_status": str(job_run.status)})
+        logger.info("Job marked as completed", extra=self.logging_context())
+
+    def fail_job(self, result: JobExecutionOutcome) -> None:
+        """Mark job as failed (controlled business logic failure).
+
+        Use this for failures where the job determined the outcome was unsuccessful
+        but no unhandled exception occurred (e.g., validation errors, missing data).
+
+        Args:
+            result: JobExecutionOutcome with status=FAILED and a reason string.
+
+        Raises:
+            DatabaseConnectionError: Cannot fetch job or connect to database
+            JobStateError: Cannot save job completion state - critical error
+        """
+        self.complete_job(status=JobStatus.FAILED, result=result)
+
+    def error_job(self, result: JobExecutionOutcome) -> None:
+        """Mark job as errored (unhandled exception / system crash).
+
+        Use this for failures caused by unhandled exceptions where the job crashed
+        rather than gracefully determining failure (e.g., DB connection lost, unexpected TypeError).
+
+        Args:
+            result: JobExecutionOutcome with status=ERRORED, an exception, and an error string.
+
+        Raises:
+            DatabaseConnectionError: Cannot fetch job or connect to database
+            JobStateError: Cannot save job completion state - critical error
+        """
+        self.complete_job(status=JobStatus.ERRORED, result=result)
+
+    def succeed_job(self, result: JobExecutionOutcome) -> None:
+        """Mark job as succeeded and record results.
+
+        Args:
+            result: JobExecutionOutcome with status=SUCCEEDED and optional data payload.
+
+        Raises:
+            DatabaseConnectionError: Cannot fetch job or connect to database
+            JobStateError: Cannot save job completion state - critical error
+        """
+        self.complete_job(status=JobStatus.SUCCEEDED, result=result)
+
+    def cancel_job(self, result: JobExecutionOutcome) -> None:
+        """Mark job as cancelled.
+
+        Args:
+            result: JobExecutionOutcome with cancellation details.
+
+        Raises:
+            DatabaseConnectionError: Cannot fetch job or connect to database
+            JobStateError: Cannot save job completion state - critical error
+        """
+        self.complete_job(status=JobStatus.CANCELLED, result=result)
+
+    def skip_job(self, result: JobExecutionOutcome) -> None:
+        """Mark job as skipped (intentionally not executed).
+
+        Args:
+            result: JobExecutionOutcome with status=SKIPPED and optional reason in data.
+
+        Raises:
+            DatabaseConnectionError: Cannot fetch job or connect to database
+            JobStateError: Cannot save job completion state - critical error
+        """
+        self.complete_job(status=JobStatus.SKIPPED, result=result)
+
+    async def prepare_retry(self, reason: str = "retry_requested") -> None:
+        """Prepare a failed job for retry by resetting state to PENDING. This method does
+        not flush or commit the database session; the caller is responsible for persisting changes.
+
+        Resets a failed job back to PENDING status so it can be re-enqueued
+        by the pipeline coordination system. This is similar to job completion
+        but transitions to PENDING instead of a terminal state.
+
+        Args:
+            reason: Human-readable reason for the retry (e.g., "transient_network_error",
+                   "memory_limit_exceeded"). Used for debugging and audit trails.
+
+        State Changes:
+        - Increments retry_count
+        - Resets status from FAILED, SKIPPED, CANCELLED to PENDING
+        - Clears error_message, error_traceback, failure_category
+        - Clears finished_at timestamp
+        - Adds retry attempt to metadata history
+
+        Raises:
+            DatabaseConnectionError: Cannot fetch job from database
+            JobTransitionError: Job not in FAILED state (cannot retry)
+            JobStateError: Cannot save retry state changes
+
+        Examples:
+            Basic retry preparation:
+            >>> try:
+            ...     manager.prepare_retry("network_timeout")
+            ... except JobTransitionError:
+            ...     logger.error("Cannot retry job - not in failed state")
+
+            Conditional retry with limits:
+            >>> job = manager.get_job()
+            >>> if job and job.retry_count < 3:
+            ...     manager.prepare_retry(f"attempt_{job.retry_count + 1}")
+            ...     # PipelineManager will handle enqueueing
+            ... else:
+            ...     logger.error("Max retries exceeded")
+
+        Retry History:
+            Each retry attempt is recorded in job metadata with:
+            - retry_attempt: Sequential attempt number
+            - timestamp: When retry was initiated
+            - result: Previous execution results (for debugging)
+            - reason: Provided retry reason
+
+        Note:
+            After calling this method, use PipelineManager.enqueue_ready_jobs()
+            to actually enqueue the job for execution.
+        """
+        job_run = self.get_job()
+        if job_run.status not in RETRYABLE_JOB_STATUSES:
+            self.save_to_context({"job_status": str(job_run.status)})
+            logger.error("Invalid job retry status: status not in RETRYABLE_JOB_STATUSES", extra=self.logging_context())
+            raise JobTransitionError(f"Cannot retry job {self.job_id} due to invalid state ({job_run.status})")
+
+        try:
+            # Snapshot error state before clearing for retry history
+            current_result: dict = job_run.metadata_.get("result", {})
+            previous_error_message = job_run.error_message or ""
+
+            job_run.status = JobStatus.PENDING
+            job_run.retry_count = (job_run.retry_count or 0) + 1
+            job_run.progress_message = "Job retry prepared"
+            job_run.error_message = None
+            job_run.error_traceback = None
+            job_run.failure_category = None
+            job_run.finished_at = None
+            job_run.started_at = None
+
+            # Add summary-only retry history entry.
+            retry_history: list[RetryHistoryEntry] = job_run.metadata_.setdefault("retry_history", [])
+            retry_history.append(
+                {
+                    "attempt": job_run.retry_count,
+                    "timestamp": datetime.now().isoformat(),
+                    "status": current_result.get("status", "unknown"),
+                    "error_message": previous_error_message,
+                    "reason": reason,
+                }
+            )
+            job_run.metadata_.pop("result", None)  # Clear previous result
+            flag_modified(job_run, "metadata_")
+
+        except (AttributeError, TypeError, KeyError, ValueError) as e:
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug("Encountered an unexpected error while updating job retry state", extra=self.logging_context())
+            raise JobStateError(f"Failed to update job retry state: {e}")
+
+        self.save_to_context({"job_status": str(job_run.status), "retry_attempt": job_run.retry_count})
+        logger.info("Job successfully prepared for retry", extra=self.logging_context())
+
+    def prepare_queue(self) -> None:
+        """Prepare job for enqueueing by setting QUEUED status. This method does
+        not flush or commit the database session; the caller is responsible for persisting changes.
+
+        Transitions job from PENDING to QUEUED status before ARQ enqueueing.
+        This ensures proper state tracking and validates the transition.
+
+        Raises:
+            JobTransitionError: Job not in PENDING state
+            JobStateError: Cannot save state change
+        """
+        job_run = self.get_job()
+        if job_run.status != JobStatus.PENDING:
+            self.save_to_context({"job_status": str(job_run.status)})
+            logger.error("Invalid job queue attempt: status not PENDING", extra=self.logging_context())
+            raise JobTransitionError(f"Cannot queue job {self.job_id} from status {job_run.status}")
+
+        try:
+            job_run.status = JobStatus.QUEUED
+            job_run.progress_message = "Job queued for execution"
+        except (AttributeError, TypeError, KeyError, ValueError) as e:
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug("Encountered an unexpected error while updating job queue state", extra=self.logging_context())
+            raise JobStateError(f"Failed to update job queue state: {e}")
+
+        self.save_to_context({"job_status": str(job_run.status)})
+        logger.debug("Job successfully prepared for queueing", extra=self.logging_context())
+
+    def reset_job(self) -> None:
+        """Reset job to initial state for re-execution. This method does
+        not flush or commit the database session; the caller is responsible for persisting changes.
+
+        Resets all job state fields to their initial values, allowing the job
+        to be re-executed from scratch. This is useful for testing or manual
+        re-runs of jobs without retaining any prior execution history.
+
+        State Changes:
+        - Sets status to PENDING
+        - Clears started_at and finished_at timestamps
+        - Resets progress to 0/100 with default message
+        - Clears error details and failure category
+        - Resets retry_count to 0
+        - Clears metadata
+
+        Raises:
+            DatabaseConnectionError: Cannot fetch job from database
+            JobStateError: Cannot save reset state changes
+        Examples:
+            Basic job reset:
+            >>> manager.reset_job()
+            >>> # Job is now reset to initial state for re-execution
+        """
+        job_run = self.get_job()
+        try:
+            job_run.status = JobStatus.PENDING
+            job_run.started_at = None
+            job_run.finished_at = None
+            job_run.progress_current = None
+            job_run.progress_total = None
+            job_run.progress_message = None
+            job_run.error_message = None
+            job_run.error_traceback = None
+            job_run.failure_category = None
+            job_run.retry_count = 0
+            job_run.metadata_ = {}
+
+        except (AttributeError, TypeError, KeyError, ValueError) as e:
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug("Encountered an unexpected error while resetting job state", extra=self.logging_context())
+            raise JobStateError(f"Failed to reset job state: {e}")
+
+        self.save_to_context({"job_status": str(job_run.status), "retry_attempt": job_run.retry_count})
+        logger.info("Job successfully reset to initial state", extra=self.logging_context())
+
+    def update_progress(
+        self, current: int, total: int = 100, message: Optional[str] = None, *, commit: bool = True
+    ) -> None:
+        """Update job progress information during execution and optionally commit immediately.
+
+        Provides real-time progress updates for long-running jobs. By default, commits
+        the progress update immediately to the database for real-time visibility, acting
+        as a checkpoint operation. This commits ALL pending changes in the current session,
+        so progress updates should only be called at safe transaction boundaries.
+
+        Args:
+            current: Current progress value (e.g., records processed so far)
+            total: Total expected progress value (default: 100 for percentage)
+            message: Optional human-readable progress description
+            commit: Whether to commit progress immediately to database (default: True).
+                   Set to False for jobs with complex multi-step transactions where
+                   progress should only be committed at job completion.
+
+        Examples:
+            Checkpoint-style progress (default - commits immediately):
+            >>> for i, record in enumerate(records):
+            ...     process_record(record)
+            ...     if i % 100 == 0:  # Checkpoint every 100 records
+            ...         manager.update_progress(
+            ...             current=i,
+            ...             total=len(records),
+            ...             message=f"Processed {i}/{len(records)} records"
+            ...         )  # Commits progress + all pending work
+
+            Progress without commit (complex transactions):
+            >>> manager.update_progress(25, 100, "Validating input", commit=False)
+            >>> # Progress must be committed later by caller after transaction is complete
+
+            Handling progress failures:
+            >>> try:
+            ...     manager.update_progress(75, message="Almost done")
+            ... except DatabaseConnectionError:
+            ...     logger.debug("Progress update failed, continuing job")
+            ...     # Job continues normally
+
+        Important:
+            When commit=True (default), this commits ALL pending changes in the database
+            session, not just the progress update. Only call update_progress() at points
+            where it's safe to commit accumulated work (e.g., after processing a batch
+            of independent records). This checkpoint pattern reduces transaction size and
+            provides real-time visibility into job progress.
+
+        Note:
+            Progress updates are best-effort operations. If a progress update or commit
+            fails, the job may choose to continue execution normally. Failed progress
+            updates are logged at debug level.
+        """
+        job_run = self.get_job()
+        try:
+            job_run.progress_current = current
+            job_run.progress_total = total
+            if message:
+                job_run.progress_message = message
+
+        except (AttributeError, TypeError, KeyError, ValueError) as e:
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug("Encountered an unexpected error while updating job progress", extra=self.logging_context())
+            raise JobStateError(f"Failed to update job progress state: {e}")
+
+        self.save_to_context(
+            {
+                "job_progress_current": current,
+                "job_progress_total": total,
+                "job_progress_message": message,
+                "commit": commit,
+            }
+        )
+
+        if commit:
+            try:
+                self.db.commit()
+                logger.debug("Updated progress and committed checkpoint for job", extra=self.logging_context())
+            except SQLAlchemyError as e:
+                self.save_to_context(format_raised_exception_info_as_dict(e))
+                logger.error("Failed to commit progress checkpoint", extra=self.logging_context())
+                # Rollback to avoid inconsistent state
+                self.db.rollback()
+                raise JobStateError(f"Failed to commit progress checkpoint: {e}")
+        else:
+            logger.debug("Updated progress successfully for job (no commit)", extra=self.logging_context())
+
+    def update_status_message(self, message: str, *, commit: bool = True) -> None:
+        """Update job status message and optionally commit immediately.
+
+        Convenience method for updating the progress message while keeping
+        current progress values unchanged. Useful for status updates during
+        long-running operations. By default, commits the update immediately
+        as a checkpoint operation.
+
+        Args:
+            message: Human-readable status message describing current activity
+            commit: Whether to commit message immediately to database (default: True).
+                   Set to False for jobs with complex multi-step transactions.
+
+        Raises:
+            DatabaseConnectionError: Cannot fetch job from database
+            JobStateError: Cannot save status message update or commit checkpoint
+
+        Examples:
+            Update with checkpoint (default):
+            >>> manager.update_status_message("Connecting to external API...")
+            >>> # Do API work
+            >>> manager.update_status_message("Processing API response...")
+
+            Update without commit:
+            >>> manager.update_status_message("Starting...", commit=False)
+
+        Important:
+            When commit=True (default), this commits ALL pending changes in the database
+            session. Only call at safe transaction boundaries.
+        """
+        job_run = self.get_job()
+        try:
+            job_run.progress_message = message
+        except (AttributeError, TypeError, KeyError, ValueError) as e:
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug(
+                "Encountered an unexpected error while updating job status message", extra=self.logging_context()
+            )
+            raise JobStateError(f"Failed to update job status message state: {e}")
+
+        self.save_to_context({"job_progress_message": message, "commit": commit})
+
+        if commit:
+            try:
+                self.db.commit()
+                logger.debug("Updated status message and committed checkpoint for job", extra=self.logging_context())
+            except SQLAlchemyError as e:
+                self.save_to_context(format_raised_exception_info_as_dict(e))
+                logger.error("Failed to commit progress checkpoint", extra=self.logging_context())
+                self.db.rollback()
+                raise JobStateError(f"Failed to commit progress checkpoint: {e}")
+        else:
+            logger.debug("Updated status message successfully for job (no commit)", extra=self.logging_context())
+
+    def increment_progress(self, amount: int = 1, message: Optional[str] = None, *, commit: bool = True) -> None:
+        """Increment job progress by a specified amount and optionally commit immediately.
+
+        Convenience method for incrementing progress without needing to track
+        the current progress value. Useful for batch processing where you want
+        to increment by 1 for each item processed. By default, commits the progress
+        update immediately as a checkpoint operation.
+
+        Args:
+            amount: Amount to increment progress by (default: 1)
+            message: Optional message to update along with progress
+            commit: Whether to commit progress immediately to database (default: True).
+                   Set to False for jobs with complex multi-step transactions.
+
+        Raises:
+            DatabaseConnectionError: Cannot fetch job from database
+            JobStateError: Cannot save progress update or commit checkpoint
+
+        Examples:
+            Checkpoint-style increments (default - commits immediately):
+            >>> for item in items:
+            ...     process_item(item)
+            ...     manager.increment_progress()  # Increment and commit checkpoint
+
+            Process in batches with checkpoints:
+            >>> for batch in batches:
+            ...     process_batch(batch)
+            ...     manager.increment_progress(len(batch), f"Processed batch {i}")
+
+            Increment without commit:
+            >>> manager.increment_progress(1, commit=False)  # No commit
+
+        Important:
+            When commit=True (default), this commits ALL pending changes in the database
+            session. Only call at safe transaction boundaries.
+        """
+        job_run = self.get_job()
+        try:
+            current = job_run.progress_current or 0
+            new_current = current + amount
+            job_run.progress_current = new_current
+            if message:
+                job_run.progress_message = message
+        except (AttributeError, TypeError, KeyError, ValueError) as e:
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug(
+                "Encountered an unexpected error while incrementing job progress", extra=self.logging_context()
+            )
+            raise JobStateError(f"Failed to increment job progress state: {e}")
+
+        self.save_to_context(
+            {
+                "job_progress_current": new_current,
+                "job_progress_total": job_run.progress_total,
+                "job_progress_message": message or "",
+                "commit": commit,
+            }
+        )
+
+        if commit:
+            try:
+                self.db.commit()
+                logger.debug("Incremented progress and committed checkpoint for job", extra=self.logging_context())
+            except SQLAlchemyError as e:
+                self.save_to_context(format_raised_exception_info_as_dict(e))
+                logger.error("Failed to commit progress checkpoint", extra=self.logging_context())
+                self.db.rollback()
+                raise JobStateError(f"Failed to commit progress checkpoint: {e}")
+        else:
+            logger.debug("Incremented progress successfully for job (no commit)", extra=self.logging_context())
+
+    def set_progress_total(self, total: int, message: Optional[str] = None, *, commit: bool = True) -> None:
+        """Update the total progress value and optionally commit immediately.
+
+        Convenience method for updating progress total when it's discovered during
+        job execution (e.g., after counting records to process). By default, commits
+        the update immediately as a checkpoint operation.
+
+        Args:
+            total: New total progress value
+            message: Optional message to update along with total
+            commit: Whether to commit progress immediately to database (default: True).
+                   Set to False for jobs with complex multi-step transactions.
+
+        Raises:
+            DatabaseConnectionError: Cannot fetch job from database
+            JobStateError: Cannot save progress total update or commit checkpoint
+
+        Examples:
+            Set total with checkpoint (default):
+            >>> records = load_all_records()  # Discovers actual count
+            >>> manager.set_progress_total(len(records), f"Processing {len(records)} records")
+
+            Set total without commit:
+            >>> manager.set_progress_total(1000, commit=False)
+
+        Important:
+            When commit=True (default), this commits ALL pending changes in the database
+            session. Only call at safe transaction boundaries.
+        """
+        job_run = self.get_job()
+        try:
+            job_run.progress_total = total
+            if message:
+                job_run.progress_message = message
+        except (AttributeError, TypeError, KeyError, ValueError) as e:
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug(
+                "Encountered an unexpected error while updating job progress total", extra=self.logging_context()
+            )
+            raise JobStateError(f"Failed to update job progress total state: {e}")
+
+        self.save_to_context({"job_progress_total": total, "job_progress_message": message, "commit": commit})
+
+        if commit:
+            try:
+                self.db.commit()
+                logger.debug("Updated progress total and committed checkpoint for job", extra=self.logging_context())
+            except SQLAlchemyError as e:
+                self.save_to_context(format_raised_exception_info_as_dict(e))
+                logger.error("Failed to commit progress checkpoint", extra=self.logging_context())
+                self.db.rollback()
+                raise JobStateError(f"Failed to commit progress checkpoint: {e}")
+        else:
+            logger.debug("Updated progress total successfully for job (no commit)", extra=self.logging_context())
+
+    def is_cancelled(self) -> bool:
+        """Check if job has been cancelled or should stop execution. This method does
+        not flush or commit the database session; the caller is responsible for persisting changes.
+
+        Convenience method for checking if the job should stop execution due to
+        cancellation, pipeline failure, or other termination conditions. Jobs
+        can use this for graceful shutdown.
+
+        Returns:
+            bool: True if job should stop execution, False if it can continue
+
+        Raises:
+            DatabaseConnectionError: Cannot fetch job status from database
+
+        Example:
+            >>> for item in large_dataset:
+            ...     if manager.is_cancelled():
+            ...         logger.info("Job cancelled, stopping gracefully")
+            ...         break
+            ...     process_item(item)
+        """
+        return self.get_job_status() in CANCELLED_JOB_STATUSES
+
+    def should_retry(self) -> bool:
+        """Check if job should be retried based on error type and retry count. This method does
+        not flush or commit the database session; the caller is responsible for persisting changes.
+
+        Convenience method that implements common retry logic. Checks current
+        retry count against maximum and evaluates if the error type is retryable.
+
+        Returns:
+            bool: True if job should be retried, False otherwise
+
+        Raises:
+            DatabaseConnectionError: Cannot fetch job info from database
+
+        Examples:
+            >>> try:
+            ...     result = do_work()
+            ... except NetworkError as e:
+            ...     manager.fail_job(e, result)
+            ...     if manager.should_retry():
+            ...         manager.retry_job()
+            ...     else:
+            ...         manager.fail_job(e, result)
+        """
+        job_run = self.get_job()
+        try:
+            self.save_to_context(
+                {
+                    "job_retry_count": job_run.retry_count,
+                    "job_max_retries": job_run.max_retries,
+                    "job_failure_category": str(job_run.failure_category) if job_run.failure_category else None,
+                    "job_status": str(job_run.status),
+                }
+            )
+
+            # Check if job is in a failure state (FAILED or ERRORED)
+            if job_run.status not in (JobStatus.FAILED, JobStatus.ERRORED):
+                logger.debug("Job cannot be retried: not in a failure state", extra=self.logging_context())
+                return False
+
+            # Check retry count
+            current_retries = job_run.retry_count or 0
+            if current_retries >= job_run.max_retries:
+                logger.debug("Job cannot be retried: max retries reached", extra=self.logging_context())
+                return False
+
+            # Check if failure category is retryable
+            if job_run.failure_category not in RETRYABLE_FAILURE_CATEGORIES:
+                logger.debug("Job cannot be retried: failure category not retryable", extra=self.logging_context())
+                return False
+
+            logger.debug("Job is retryable", extra=self.logging_context())
+            return True
+
+        except (AttributeError, TypeError, KeyError, ValueError) as e:
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug("Unexpected error checking retry eligibility", extra=self.logging_context())
+            raise JobStateError(f"Failed to check retry eligibility state: {e}")
+
+    def get_job_status(self) -> JobStatus:  # pragma: no cover
+        """Get current job status for monitoring and debugging.
+
+        Provides non-blocking access to job status without affecting job
+        execution. Used by decorators and monitoring systems to check job state.
+
+        Returns:
+            JobStatus: Current job status (QUEUED, RUNNING, SUCCEEDED,
+                                 FAILED, etc.).
+
+        Raises:
+            DatabaseConnectionError: Cannot connect to database, SQL query failed,
+                                   or job not found (indicates data inconsistency)
+
+        Examples:
+            >>> status = manager.get_job_status()
+            >>> if status == JobStatus.RUNNING:
+            ...     logger.info("Job is currently executing")
+        """
+        return self.get_job().status
+
+    def get_job(self) -> JobRun:
+        """Get complete job information for monitoring and debugging.
+
+        Retrieves full JobRun instance with all fields populated. Used by
+        decorators and monitoring systems that need access to job metadata,
+        progress, error details, or other comprehensive job information.
+
+        Returns:
+            JobRun: Complete job instance with all fields.
+
+        Raises:
+            DatabaseConnectionError: Cannot connect to database, SQL query failed,
+                                   or job not found (indicates data inconsistency)
+
+        Example:
+            >>> job = manager.get_job()
+            >>> if job:
+            ...     logger.info(f"Job {job.urn} progress: {job.progress_current}/{job.progress_total}")
+            ...     if job.error_message:
+            ...         logger.error(f"Job error: {job.error_message}")
+        """
+        try:
+            return self.db.execute(select(JobRun).where(JobRun.id == self.job_id)).scalar_one()
+        except SQLAlchemyError as e:
+            self.save_to_context(format_raised_exception_info_as_dict(e))
+            logger.debug("Unexpected error fetching job info", extra=self.logging_context())
+            raise DatabaseConnectionError(f"Failed to fetch job {self.job_id}: {e}")

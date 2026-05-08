@@ -225,6 +225,23 @@ def link_clinical_controls_to_mapped_variants(db, score_set):
     db.commit()
 
 
+def link_clinvar_control_to_mapped_variant(db, score_set):
+    """Link the seeded ClinVar clinical control (id=1) to the first mapped variant of a score set."""
+    mapped_variants = db.scalars(
+        select(MappedVariantDbModel)
+        .join(VariantDbModel)
+        .join(ScoreSetDbModel)
+        .where(ScoreSetDbModel.urn == score_set["urn"])
+    ).all()
+
+    mapped_variants[0].clinical_controls.append(
+        db.scalar(select(ClinicalControlDbModel).where(ClinicalControlDbModel.id == 1))
+    )
+
+    db.add(mapped_variants[0])
+    db.commit()
+
+
 def link_gnomad_variants_to_mapped_variants(db, score_set):
     mapped_variants = db.scalars(
         select(MappedVariantDbModel)

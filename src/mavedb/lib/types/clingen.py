@@ -1,6 +1,6 @@
 from typing import Any, Literal, Optional, TypedDict
 
-from typing_extensions import NotRequired
+from typing_extensions import NotRequired, TypeGuard
 
 # See: https://ldh.genome.network/docs/ldh/submit.html#content-submission-body
 
@@ -164,3 +164,7 @@ ClinGenSubmissionError = TypedDict(
         "position": str,
     },
 )
+
+
+def is_car_submission_error(err: ClinGenAllele | ClinGenSubmissionError) -> TypeGuard[ClinGenSubmissionError]:
+    return "errorType" in err and "hgvs" in err

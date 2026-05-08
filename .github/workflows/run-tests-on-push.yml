@@ -1,6 +1,7 @@
-name: Run Tests (On Push)
+name: Run Tests
 on:
   push:
+    # Run all tests on main, fast tests on other branches
 
 env:
   LOG_CONFIG: test
@@ -50,7 +51,12 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev
-    - run: poetry run pytest tests/
+    - name: Run fast tests on non-main branches
+      if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+      run: poetry run pytest tests/ -m "not network and not slow"
+    - name: Run full tests on main
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: poetry run pytest tests/
 
   run-tests-3_11:
     runs-on: ubuntu-latest
@@ -66,7 +72,12 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev --extras server
-    - run: poetry run pytest tests/ --show-capture=stdout --cov=src
+    - name: Run fast tests on non-main branches
+      if: github.ref != 'refs/heads/main'
+      run: poetry run pytest tests/ -m "not network and not slow" --show-capture=stdout
+    - name: Run all tests with coverage on main branch
+      if: github.ref == 'refs/heads/main'
+      run: poetry run pytest tests/ --show-capture=stdout --cov=src
 
   run-tests-3_12-core-dependencies:
     runs-on: ubuntu-latest
@@ -80,7 +91,12 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev
-    - run: poetry run pytest tests/
+    - name: Run fast tests on non-main branches
+      if: github.ref != 'refs/heads/main'
+      run: poetry run pytest tests/ -m "not network and not slow"
+    - name: Run all tests on main branch
+      if: github.ref == 'refs/heads/main'
+      run: poetry run pytest tests/
 
   run-tests-3_12:
     runs-on: ubuntu-latest
@@ -96,4 +112,9 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev --extras server
-    - run: poetry run pytest tests/ --show-capture=stdout --cov=src
+    - name: Run fast tests on non-main branches
+      if: github.ref != 'refs/heads/main'
+      run: poetry run pytest tests/ -m "not network and not slow" --show-capture=stdout
+    - name: Run all tests with coverage on main branch
+      if: github.ref == 'refs/heads/main'
+      run: poetry run pytest tests/ --show-capture=stdout --cov=src

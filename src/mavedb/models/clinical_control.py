@@ -1,7 +1,7 @@
 from datetime import date
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Column, Date, Integer, String
+from sqlalchemy import Column, Date, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
@@ -13,6 +13,11 @@ if TYPE_CHECKING:
 
 class ClinicalControl(Base):
     __tablename__ = "clinical_controls"
+    __table_args__ = (
+        UniqueConstraint(
+            "db_name", "db_identifier", "db_version", name="uq_clinical_controls_db_name_identifier_version"
+        ),
+    )
 
     id = Column(Integer, primary_key=True)
 

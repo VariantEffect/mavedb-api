@@ -1,8 +1,9 @@
+import io
 import json
 import logging
 import time
 from datetime import date, datetime
-from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
+from typing import Any, List, Optional, Sequence, TypedDict, Union
 
 import numpy as np
 import pandas as pd
@@ -12,7 +13,7 @@ from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import StreamingResponse
-from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from pydantic import ValidationError
 from sqlalchemy import or_, select
@@ -20,9 +21,10 @@ from sqlalchemy.exc import MultipleResultsFound
 from sqlalchemy.orm import Session, contains_eager
 
 from mavedb import deps
+from mavedb.data_providers.services import CSV_UPLOAD_S3_BUCKET_NAME, s3_client
 from mavedb.lib.annotation.annotate import (
     variant_functional_impact_statement,
-    variant_pathogenicity_evidence,
+    variant_pathogenicity_statement,
     variant_study_result,
 )
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
@@ -48,6 +50,7 @@ from mavedb.lib.logging.context import (
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_calibrations import create_score_calibration
 from mavedb.lib.score_sets import (
+    CLINVAR_NS_PATTERN,
     csv_data_to_df,
     fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
@@ -58,6 +61,7 @@ from mavedb.lib.score_sets import (
 from mavedb.lib.score_sets import (
     search_score_sets as _search_score_sets,
 )
+from mavedb.lib.slack import send_slack_error
 from mavedb.lib.target_genes import find_or_create_target_gene_by_accession, find_or_create_target_gene_by_sequence
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.types.authentication import UserData
@@ -66,6 +70,7 @@ from mavedb.lib.urns import (
     generate_experiment_urn,
     generate_score_set_urn,
 )
+from mavedb.lib.workflow.pipeline_factory import PipelineFactory
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
@@ -73,6 +78,7 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
@@ -94,12 +100,44 @@ from mavedb.view_models.publication_identifier import PublicationIdentifierCreat
 from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 from mavedb.view_models.search import ScoreSetsSearch, ScoreSetsSearchFilterOptionsResponse, ScoreSetsSearchResponse
 from mavedb.view_models.target_gene import TargetGeneCreate
+from mavedb.worker.lib.managers.utils import arq_job_id
 
 TAG_NAME = "Score Sets"
 logger = logging.getLogger(__name__)
 
 SCORE_SET_SEARCH_MAX_LIMIT = 100
 SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS = 40
+
+
+async def enqueue_pipeline_entrypoint(
+    *,
+    db: Session,
+    worker: ArqRedis,
+    pipeline_name: str,
+    creating_user: Any,
+    pipeline_params: dict[str, Any],
+) -> None:
+    pipeline_factory = PipelineFactory(session=db)
+    pipeline: Optional[Pipeline] = None
+
+    try:
+        pipeline, pipeline_entrypoint = pipeline_factory.create_pipeline(
+            pipeline_name=pipeline_name,
+            creating_user=creating_user,
+            pipeline_params=pipeline_params,
+        )
+        job = await worker.enqueue_job(
+            pipeline_entrypoint.job_function, pipeline_entrypoint.id, _job_id=arq_job_id(pipeline_entrypoint)
+        )
+    except Exception:
+        pipeline_factory.discard_pipeline(pipeline)
+        raise
+
+    if job is None:
+        logger.info(msg=f"Pipeline entrypoint for {pipeline_name} has already been enqueued.", extra=logging_context())
+    else:
+        save_to_logging_context({"worker_job_id": job.job_id})
+        logger.info(msg=f"Enqueued pipeline entrypoint for {pipeline_name}.", extra=logging_context())
 
 
 async def enqueue_variant_creation(
@@ -111,6 +149,7 @@ async def enqueue_variant_creation(
     new_score_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
     new_count_columns_metadata: Optional[dict[str, DatasetColumnMetadata]] = None,
     worker: ArqRedis,
+    db: Session,
 ) -> None:
     assert item.dataset_columns is not None
 
@@ -136,25 +175,74 @@ async def enqueue_variant_creation(
             variants_to_csv_rows(item.variants, columns=count_columns, namespaced=False)
         ).replace("NA", np.NaN)
 
-    # Await the insertion of this job into the worker queue, not the job itself.
-    # Uses provided score and counts dataframes and metadata files, or falls back to existing data on the score set if not provided.
-    job = await worker.enqueue_job(
-        "create_variants_for_score_set",
-        correlation_id_for_context(),
-        item.id,
-        user_data.user.id,
-        existing_scores_df if new_scores_df is None else new_scores_df,
-        existing_counts_df if new_counts_df is None else new_counts_df,
-        item.dataset_columns.get("score_columns_metadata")
-        if new_score_columns_metadata is None
-        else new_score_columns_metadata,
-        item.dataset_columns.get("count_columns_metadata")
-        if new_count_columns_metadata is None
-        else new_count_columns_metadata,
-    )
-    if job is not None:
-        save_to_logging_context({"worker_job_id": job.job_id})
-        logger.info(msg="Enqueued variant creation job.", extra=logging_context())
+    scores_file_to_upload = existing_scores_df if new_scores_df is None else new_scores_df
+    counts_file_to_upload = existing_counts_df if new_counts_df is None else new_counts_df
+
+    scores_file_key = None
+    counts_file_key = None
+    if scores_file_to_upload is not None or counts_file_to_upload is not None:
+        timestamp = date.today().isoformat()
+        unique_id = str(int(time.time() * 1000))
+        user_id = user_data.user.id
+        score_set_id = item.id
+
+        s3 = s3_client()
+
+        if scores_file_to_upload is not None:
+            save_to_logging_context({"num_scores": len(scores_file_to_upload)})
+            scores_file_key = f"{score_set_id}/{user_id}/{timestamp}-{unique_id}-scores.csv"
+            s3.upload_fileobj(
+                Fileobj=io.BytesIO(scores_file_to_upload.to_csv(index=False).encode("utf-8")),
+                Bucket=CSV_UPLOAD_S3_BUCKET_NAME,
+                Key=scores_file_key,
+            )
+
+        if counts_file_to_upload is not None:
+            save_to_logging_context({"num_counts": len(counts_file_to_upload)})
+            counts_file_key = f"{score_set_id}/{user_id}/{timestamp}-{unique_id}-counts.csv"
+            s3.upload_fileobj(
+                Fileobj=io.BytesIO(counts_file_to_upload.to_csv(index=False).encode("utf-8")),
+                Bucket=CSV_UPLOAD_S3_BUCKET_NAME,
+                Key=counts_file_key,
+            )
+
+    try:
+        await enqueue_pipeline_entrypoint(
+            db=db,
+            worker=worker,
+            pipeline_name="validate_map_annotate_score_set",
+            creating_user=user_data.user,
+            pipeline_params={
+                "correlation_id": correlation_id_for_context(),
+                "score_set_id": item.id,
+                "updater_id": user_data.user.id,
+                "scores_file_key": scores_file_key,
+                "counts_file_key": counts_file_key,
+                "score_columns_metadata": item.dataset_columns.get("score_columns_metadata")
+                if new_score_columns_metadata is None
+                else new_score_columns_metadata,
+                "count_columns_metadata": item.dataset_columns.get("count_columns_metadata")
+                if new_count_columns_metadata is None
+                else new_count_columns_metadata,
+            },
+        )
+
+    except Exception:
+        # Clean up any S3 files uploaded during this call to avoid orphaned objects when the
+        # pipeline could not be created or enqueued.
+        keys_to_delete = [k for k in [scores_file_key, counts_file_key] if k is not None]
+        if keys_to_delete:
+            try:
+                s3_client().delete_objects(
+                    Bucket=CSV_UPLOAD_S3_BUCKET_NAME,
+                    Delete={"Objects": [{"Key": k} for k in keys_to_delete]},
+                )
+            except Exception:
+                logger.error(
+                    msg="Failed to clean up orphaned S3 files after pipeline enqueue failure.",
+                    extra=logging_context(),
+                )
+        raise
 
 
 class ScoreSetUpdateResult(TypedDict):
@@ -794,8 +882,13 @@ def get_score_set_variants_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Maximum number of variants to return"),
-    namespaces: List[Literal["scores", "counts", "vep", "gnomad", "clingen"]] = Query(
-        default=["scores"], description="One or more data types to include: scores, counts, ClinGen, gnomAD, VEP"
+    namespaces: List[str] = Query(
+        default=["scores"],
+        description=(
+            'One or more data types to include: "scores", "counts", "vep", "gnomad", "clingen", '
+            'and/or ClinVar-versioned namespaces of the form "clinvar.YEAR_MONTH" '
+            '(e.g. "clinvar.2024_01" for January 2024).'
+        ),
     ),
     drop_na_columns: Optional[bool] = None,
     include_custom_columns: Optional[bool] = None,
@@ -809,9 +902,6 @@ def get_score_set_variants_csv(
     This differs from get_score_set_scores_csv() in that it returns only the HGVS columns, score column, and mapped HGVS
     string.
 
-    TODO (https://github.com/VariantEffect/mavedb-api/issues/446) We may add another function for ClinVar and gnomAD.
-    export endpoint, with options governing which columns to include.
-
     Parameters
     __________
     urn : str
@@ -820,9 +910,11 @@ def get_score_set_variants_csv(
         The index to start from. If None, starts from the beginning.
     limit : Optional[int]
         The maximum number of variants to return. If None, returns all variants.
-    namespaces: List[Literal["scores", "counts", "vep", "gnomad", "clingen"]]
+    namespaces: List[str]
         The namespaces of all columns except for accession, hgvs_nt, hgvs_pro, and hgvs_splice.
-        We may add ClinVar in the future.
+        Supported values: "scores", "counts", "vep", "gnomad", "clingen", and ClinVar-versioned
+        namespaces of the form "clinvar.YEAR_MONTH" (e.g. "clinvar.2024_01" for January 2024).
+        Multiple ClinVar namespaces with different YEAR_MONTH values may be requested simultaneously.
     drop_na_columns : bool, optional
         Whether to drop columns that contain only NA values. Defaults to False.
     db : Session
@@ -851,6 +943,21 @@ def get_score_set_variants_csv(
     if limit is not None and limit <= 0:
         logger.info(msg="Could not fetch scores with non-positive limit.", extra=logging_context())
         raise HTTPException(status_code=422, detail="Limit must be positive")
+
+    _VALID_STATIC_NAMESPACES = {"scores", "counts", "vep", "gnomad", "clingen"}
+    invalid_namespaces = [
+        ns for ns in namespaces if ns not in _VALID_STATIC_NAMESPACES and not CLINVAR_NS_PATTERN.match(ns)
+    ]
+    if invalid_namespaces:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Invalid namespace(s): {invalid_namespaces}. "
+                'Each namespace must be one of "scores", "counts", "vep", "gnomad", "clingen", '
+                'or a ClinVar-versioned namespace of the form "clinvar.YEAR_MM" '
+                '(e.g. "clinvar.2024_01" for January 2024).'
+            ),
+        )
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -1102,21 +1209,16 @@ def _stream_generated_annotations(mapped_variants, annotation_function):
     )
 
 
-class VariantPathogenicityEvidenceLineResponseType(TypedDict):
-    variant_urn: str
-    annotation: Optional[VariantPathogenicityEvidenceLine]
-
-
 @router.get(
-    "/score-sets/{urn}/annotated-variants/pathogenicity-evidence-line",
+    "/score-sets/{urn}/annotated-variants/pathogenicity-statement",
     status_code=200,
-    response_model=dict[str, Optional[VariantPathogenicityEvidenceLine]],
+    response_model=dict[str, Optional[VariantPathogenicityStatement]],
     response_model_exclude_none=True,
-    summary="Get pathogenicity evidence line annotations for mapped variants within a score set",
+    summary="Get pathogenicity statement annotations for mapped variants within a score set",
     responses={
         200: {
             "content": {"application/x-ndjson": {}},
-            "description": "Stream pathogenicity evidence line annotations for mapped variants.",
+            "description": "Stream pathogenicity statement annotations for mapped variants.",
         },
         **ACCESS_CONTROL_ERROR_RESPONSES,
     },
@@ -1128,7 +1230,7 @@ def get_score_set_annotated_variants(
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
     """
-    Retrieve annotated variants with pathogenicity evidence for a given score set.
+    Retrieve annotated variants with pathogenicity statements for a given score set.
 
     This endpoint streams pathogenicity evidence lines for all current mapped variants
     associated with a specific score set. The response is returned as newline-delimited
@@ -1169,7 +1271,10 @@ def get_score_set_annotated_variants(
         the response.
     """
     save_to_logging_context(
-        {"requested_resource": urn, "resource_property": "annotated-variants/pathogenicity-evidence-line"}
+        {
+            "requested_resource": urn,
+            "resource_property": "annotated-variants/pathogenicity-statement",
+        }
     )
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
@@ -1209,7 +1314,7 @@ def get_score_set_annotated_variants(
         )
 
     return StreamingResponse(
-        _stream_generated_annotations(mapped_variants, variant_pathogenicity_evidence),
+        _stream_generated_annotations(mapped_variants, variant_pathogenicity_statement),
         media_type="application/x-ndjson",
         headers={
             "X-Total-Count": str(len(mapped_variants)),
@@ -1220,13 +1325,8 @@ def get_score_set_annotated_variants(
     )
 
 
-class FunctionalImpactStatementResponseType(TypedDict):
-    variant_urn: str
-    annotation: Optional[Statement]
-
-
 @router.get(
-    "/score-sets/{urn}/annotated-variants/functional-impact-statement",
+    "/score-sets/{urn}/annotated-variants/functional-statement",
     status_code=200,
     response_model=dict[str, Optional[Statement]],
     response_model_exclude_none=True,
@@ -1284,9 +1384,7 @@ def get_score_set_annotated_variants_functional_statement(
         Only current (non-historical) mapped variants are included in the response.
         The function requires appropriate read permissions on the score set.
     """
-    save_to_logging_context(
-        {"requested_resource": urn, "resource_property": "annotated-variants/functional-impact-statement"}
-    )
+    save_to_logging_context({"requested_resource": urn, "resource_property": "annotated-variants/functional-statement"})
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -1336,13 +1434,8 @@ def get_score_set_annotated_variants_functional_statement(
     )
 
 
-class FunctionalStudyResultResponseType(TypedDict):
-    variant_urn: str
-    annotation: Optional[ExperimentalVariantFunctionalImpactStudyResult]
-
-
 @router.get(
-    "/score-sets/{urn}/annotated-variants/functional-study-result",
+    "/score-sets/{urn}/annotated-variants/study-result",
     status_code=200,
     response_model=dict[str, Optional[ExperimentalVariantFunctionalImpactStudyResult]],
     response_model_exclude_none=True,
@@ -1404,9 +1497,7 @@ def get_score_set_annotated_variants_functional_study_result(
         - Eagerly loads related ScoreSet data including publications, users, license, and experiment
         - Logs requests and errors for monitoring and debugging purposes
     """
-    save_to_logging_context(
-        {"requested_resource": urn, "resource_property": "annotated-variants/functional-study-result"}
-    )
+    save_to_logging_context({"requested_resource": urn, "resource_property": "annotated-variants/study-result"})
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -1875,15 +1966,41 @@ async def upload_score_set_variant_data(
 
     logger.info(msg="Enqueuing variant creation job.", extra=logging_context())
 
-    await enqueue_variant_creation(
-        item=item,
-        user_data=user_data,
-        new_scores_df=score_set_variants_data["scores_df"],
-        new_counts_df=score_set_variants_data["counts_df"],
-        new_score_columns_metadata=dataset_column_metadata.get("score_columns_metadata", {}),
-        new_count_columns_metadata=dataset_column_metadata.get("count_columns_metadata", {}),
-        worker=worker,
-    )
+    try:
+        await enqueue_variant_creation(
+            item=item,
+            user_data=user_data,
+            new_scores_df=score_set_variants_data["scores_df"],
+            new_counts_df=score_set_variants_data["counts_df"],
+            new_score_columns_metadata=dataset_column_metadata.get("score_columns_metadata", {}),
+            new_count_columns_metadata=dataset_column_metadata.get("count_columns_metadata", {}),
+            worker=worker,
+            db=db,
+        )
+    except Exception as e:
+        logger.error(
+            msg="Failed to enqueue variant creation pipeline; resetting score set processing state.",
+            extra=logging_context(),
+            exc_info=e,
+        )
+        try:
+            db.rollback()
+            item.processing_state = ProcessingState.failed
+            item.processing_errors = {
+                "exception": "Failed to create variant processing pipeline. Please try uploading the variant data again",
+                "detail": None,
+            }
+            db.add(item)
+            db.commit()
+        except Exception:
+            logger.error(
+                msg="Failed to reset score set processing state after pipeline enqueue failure.",
+                extra=logging_context(),
+            )
+        raise HTTPException(
+            status_code=500,
+            detail="Could not update variants for this score set at this time. Failed to create variant processing pipeline.",
+        )
 
     db.add(item)
     db.commit()
@@ -2037,19 +2154,45 @@ async def update_score_set_with_variants(
         updatedItem.processing_state = ProcessingState.processing
         logger.info(msg="Enqueuing variant creation job.", extra=logging_context())
 
-        await enqueue_variant_creation(
-            item=updatedItem,
-            user_data=user_data,
-            worker=worker,
-            new_scores_df=score_set_variants_data["scores_df"],
-            new_counts_df=score_set_variants_data["counts_df"],
-            new_score_columns_metadata=dataset_column_metadata.get("score_columns_metadata")
-            if did_score_columns_metadata_change
-            else existing_score_columns_metadata,
-            new_count_columns_metadata=dataset_column_metadata.get("count_columns_metadata")
-            if did_count_columns_metadata_change
-            else existing_count_columns_metadata,
-        )
+        try:
+            await enqueue_variant_creation(
+                item=updatedItem,
+                user_data=user_data,
+                worker=worker,
+                new_scores_df=score_set_variants_data["scores_df"],
+                new_counts_df=score_set_variants_data["counts_df"],
+                new_score_columns_metadata=dataset_column_metadata.get("score_columns_metadata")
+                if did_score_columns_metadata_change
+                else existing_score_columns_metadata,
+                new_count_columns_metadata=dataset_column_metadata.get("count_columns_metadata")
+                if did_count_columns_metadata_change
+                else existing_count_columns_metadata,
+                db=db,
+            )
+        except Exception as e:
+            logger.error(
+                msg="Failed to enqueue variant creation pipeline; resetting score set processing state.",
+                extra=logging_context(),
+                exc_info=e,
+            )
+            try:
+                db.rollback()
+                updatedItem.processing_state = ProcessingState.failed
+                updatedItem.processing_errors = {
+                    "exception": "Failed to create variant processing pipeline. Please try uploading the variant data again",
+                    "detail": None,
+                }
+                db.add(updatedItem)
+                db.commit()
+            except Exception:
+                logger.error(
+                    msg="Failed to reset score set processing state after pipeline enqueue failure.",
+                    extra=logging_context(),
+                )
+            raise HTTPException(
+                status_code=500,
+                detail="Could not update variants for this score set at this time. Failed to create variant processing pipeline.",
+            )
 
     db.add(updatedItem)
     db.commit()
@@ -2096,7 +2239,37 @@ async def update_score_set(
         updatedItem.processing_state = ProcessingState.processing
 
         logger.info(msg="Enqueuing variant creation job.", extra=logging_context())
-        await enqueue_variant_creation(item=updatedItem, user_data=user_data, worker=worker)
+        try:
+            await enqueue_variant_creation(
+                item=updatedItem,
+                user_data=user_data,
+                worker=worker,
+                db=db,
+            )
+        except Exception as e:
+            logger.error(
+                msg="Failed to enqueue variant creation pipeline; resetting score set processing state.",
+                extra=logging_context(),
+                exc_info=e,
+            )
+            try:
+                db.rollback()
+                updatedItem.processing_state = ProcessingState.failed
+                updatedItem.processing_errors = {
+                    "exception": "Failed to create variant processing pipeline. Please try uploading the variant data again",
+                    "detail": None,
+                }
+                db.add(updatedItem)
+                db.commit()
+            except Exception:
+                logger.error(
+                    msg="Failed to reset score set processing state after pipeline enqueue failure.",
+                    extra=logging_context(),
+                )
+            raise HTTPException(
+                status_code=500,
+                detail="Could not update this score set at this time. Failed to create variant processing pipeline.",
+            )
 
         db.add(updatedItem)
         db.commit()
@@ -2233,15 +2406,20 @@ async def publish_score_set(
     db.commit()
     db.refresh(item)
 
-    # await the insertion of this job into the worker queue, not the job itself.
-    job = await worker.enqueue_job("refresh_published_variants_view", correlation_id_for_context())
-    if job is not None:
-        save_to_logging_context({"worker_job_id": job.job_id})
-        logger.info(msg="Enqueud published variant materialized view refresh job.", extra=logging_context())
-    else:
-        logger.warning(
-            msg="Failed to enqueue published variant materialized view refresh job.", extra=logging_context()
+    try:
+        await enqueue_pipeline_entrypoint(
+            db=db,
+            worker=worker,
+            pipeline_name="publish_score_set",
+            creating_user=user_data.user,
+            pipeline_params={"correlation_id": correlation_id_for_context(), "score_set_id": item.id},
         )
+    except Exception as exc:
+        logger.warning(
+            msg="Failed to enqueue publish_score_set pipeline.",
+            extra=logging_context(),
+        )
+        send_slack_error(err=exc)
 
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
     return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
@@ -2351,6 +2529,7 @@ async def get_clinical_controls_options_for_score_set(
         select(ClinicalControl.db_name, ClinicalControl.db_version)
         .join(MappedVariant, ClinicalControl.mapped_variants)
         .join(Variant)
+        .where(MappedVariant.current.is_(True))
         .where(Variant.score_set_id == item.id)
     )
 

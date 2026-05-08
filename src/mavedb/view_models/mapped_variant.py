@@ -7,8 +7,10 @@ from typing import TYPE_CHECKING, Any, Optional, Sequence
 from pydantic import model_validator
 
 from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.models.enums.annotation_layer import AnnotationLayer
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
+from mavedb.view_models.target_gene_mapping import SavedTargetGeneMapping, TargetGeneMapping
 
 if TYPE_CHECKING:
     from mavedb.view_models.clinical_control import ClinicalControl, ClinicalControlBase, SavedClinicalControl
@@ -24,6 +26,11 @@ class MappedVariantBase(BaseModel):
     mapped_date: date
     mapping_api_version: str
     current: bool
+
+    # Per-mapping QC annotations/warnings.
+    alignment_level: Optional[AnnotationLayer] = None
+    at_mismatched_locus: Optional[bool] = None
+    near_gap: Optional[bool] = None
 
     # Generated via model validators. On update/create classes, the input should be
     # a dict. On saved classes, the input should be a model instance.
@@ -72,6 +79,17 @@ class SavedMappedVariant(MappedVariantBase):
         return data
 
 
+class SavedMappedVariantWithMappingDetails(SavedMappedVariant):
+    """Saved mapped variant including the per-(target, alignment_level) QC record.
+
+    Many ``MappedVariant`` rows share the same ``TargetGeneMapping`` row, so this
+    payload is heavy under list responses (every entry would carry an identical copy
+    of the same QC blob). Use this view model only for single-variant fetches.
+    """
+
+    target_gene_mapping: Optional[SavedTargetGeneMapping] = None
+
+
 class SavedMappedVariantWithControls(SavedMappedVariant):
     clinical_controls: Sequence["SavedClinicalControl"]
     gnomad_variants: Sequence["SavedGnomADVariant"]
@@ -80,6 +98,12 @@ class SavedMappedVariantWithControls(SavedMappedVariant):
 # Properties to return to non-admin clients
 class MappedVariant(SavedMappedVariant):
     pass
+
+
+class MappedVariantWithMappingDetails(SavedMappedVariantWithMappingDetails):
+    """Client-facing variant of :class:`SavedMappedVariantWithMappingDetails`."""
+
+    target_gene_mapping: Optional[TargetGeneMapping] = None
 
 
 class MappedVariantWithControls(SavedMappedVariantWithControls):

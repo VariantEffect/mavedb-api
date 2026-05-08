@@ -35,9 +35,9 @@ def transform_score_set_list_to_urn_list(
         return [score_set.urn for score_set in score_sets]
     else:
         return [
-          score_set.urn
-          for score_set in score_sets
-          if score_set.superseding_score_set is None or score_set.superseding_score_set.published_date is None
+            score_set.urn
+            for score_set in score_sets
+            if score_set.superseding_score_set is None or score_set.superseding_score_set.published_date is None
         ]
 
 

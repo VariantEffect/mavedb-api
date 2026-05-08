@@ -445,15 +445,15 @@ class TestValidateHgvsGenomicColumn(GenomicColumnValidationTestCase):
             )  # type: ignore
 
 
-@unittest.skipUnless(HGVS_INSTALLED, "HGVS module not installed")
 @pytest.fixture
-def patched_data_provider_class_attr(request, data_provider):
+def patched_data_provider_class_attr(request):
     """
     Sets the `human_data_provider` attribute on the class from the requesting
     test context to the `data_provider` fixture. This allows fixture use across
     the `unittest.TestCase` class.
     """
-    request.cls.patched_human_data_provider = data_provider
+    if HGVS_INSTALLED:
+        request.cls.patched_human_data_provider = request.getfixturevalue("data_provider")
 
 
 @unittest.skipUnless(HGVS_INSTALLED, "HGVS module not installed")

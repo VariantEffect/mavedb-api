@@ -56,3 +56,34 @@ def deepcamelize(data: Any) -> Any:
         return [deepcamelize(item) for item in data]
     else:
         return data
+
+
+def create_failing_side_effect(exception, original_method, fail_on_call=1):
+    """
+    Create a side effect function that fails on a specific call number, then delegates to original method.
+
+    Args:
+        exception: The exception to raise on the failing call
+        original_method: The original method to delegate to after the failure
+        fail_on_call: Which call number should fail (1-indexed, defaults to first call)
+
+    Returns:
+        A callable that can be used as a side_effect in mock.patch
+
+    Example:
+        with patch.object(session, "execute", side_effect=create_failing_side_effect(
+            SQLAlchemyError("DB Error"), session.execute
+        )):
+            # First call will raise SQLAlchemyError, subsequent calls work normally
+            pass
+    """
+    call_count = 0
+
+    def side_effect_function(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == fail_on_call:
+            raise exception
+        return original_method(*args, **kwargs)
+
+    return side_effect_function

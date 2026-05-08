@@ -14,6 +14,7 @@ from mavedb.models.target_sequence import TargetSequence
 if TYPE_CHECKING:
     from mavedb.models.ensembl_offset import EnsemblOffset
     from mavedb.models.refseq_offset import RefseqOffset
+    from mavedb.models.target_gene_mapping import TargetGeneMapping
     from mavedb.models.uniprot_offset import UniprotOffset
 
 # TODO Reformat code without removing dependencies whose use is not detected.
@@ -56,3 +57,9 @@ class TargetGene(Base):
     ensembl_offset: Mapped["EnsemblOffset"] = relationship(back_populates="target_gene", cascade="all, delete-orphan")
     refseq_offset: Mapped["RefseqOffset"] = relationship(back_populates="target_gene", cascade="all, delete-orphan")
     uniprot_offset: Mapped["UniprotOffset"] = relationship(back_populates="target_gene", cascade="all, delete-orphan")
+
+    target_gene_mappings: Mapped[list["TargetGeneMapping"]] = relationship(
+        "TargetGeneMapping",
+        back_populates="target_gene",
+        cascade="all, delete-orphan",
+    )

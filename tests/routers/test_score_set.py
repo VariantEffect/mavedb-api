@@ -22,6 +22,9 @@ from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
+from mavedb.models.job_run import JobRun
+from mavedb.models.pipeline import Pipeline
+from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.orcid import OrcidUser
@@ -37,10 +40,11 @@ from tests.helpers.constants import (
     TEST_BIORXIV_IDENTIFIER,
     TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED,
     TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+    TEST_CLINVAR_CONTROL,
     TEST_CROSSREF_IDENTIFIER,
-    TEST_EXPERIMENT_WITH_KEYWORD,
     TEST_GNOMAD_DATA_VERSION,
     TEST_INACTIVE_LICENSE,
+    TEST_KEYWORDS,
     TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION,
     TEST_MAPPED_VARIANT_WITH_HGVS_P_EXPRESSION,
     TEST_MINIMAL_ACC_SCORESET,
@@ -76,6 +80,7 @@ from tests.helpers.util.score_set import (
     create_seq_score_set_with_mapped_variants,
     create_seq_score_set_with_variants,
     link_clinical_controls_to_mapped_variants,
+    link_clinvar_control_to_mapped_variant,
     link_gnomad_variants_to_mapped_variants,
     publish_score_set,
 )
@@ -489,7 +494,7 @@ def test_can_patch_score_set_data_before_publication(
     indirect=["mock_publication_fetch"],
 )
 def test_can_patch_score_set_data_with_files_before_publication(
-    client, setup_router_db, form_field, filename, mime_type, data_files, mock_publication_fetch
+    client, setup_router_db, form_field, filename, mime_type, data_files, mock_publication_fetch, mock_s3_client
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -501,7 +506,10 @@ def test_can_patch_score_set_data_with_files_before_publication(
     if form_field == "counts_file" or form_field == "scores_file":
         data_file_path = data_files / filename
         files = {form_field: (filename, open(data_file_path, "rb"), mime_type)}
-        with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        with (
+            patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue,
+            patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+        ):
             response = client.patch(f"/api/v1/score-sets-with-variants/{score_set['urn']}", files=files)
             worker_queue.assert_called_once()
             assert response.status_code == 200
@@ -875,7 +883,9 @@ def test_show_score_sets_anonymous_can_fetch_public_score_sets(
     assert response_data[0]["urn"] == published_score_set["urn"]
 
 
-def test_show_score_sets_anonymous_cannot_fetch_private_score_sets(session, client, setup_router_db, anonymous_app_overrides):
+def test_show_score_sets_anonymous_cannot_fetch_private_score_sets(
+    session, client, setup_router_db, anonymous_app_overrides
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     # Score set is private (not published); change ownership so it belongs to another user
@@ -927,7 +937,9 @@ def test_show_score_sets_mixed_public_and_private_returns_404(
 ):
     experiment = create_experiment(client)
     public_score_set = create_seq_score_set(client, experiment["urn"])
-    public_score_set = mock_worker_variant_insertion(client, session, data_provider, public_score_set, data_files / "scores.csv")
+    public_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, public_score_set, data_files / "scores.csv"
+    )
     private_score_set = create_seq_score_set(client, experiment["urn"])
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
         published_score_set = publish_score_set(client, public_score_set["urn"])
@@ -1057,13 +1069,14 @@ def test_creating_user_can_view_all_score_calibrations_in_score_set(client, setu
 ########################################################################################################################
 
 
-def test_add_score_set_variants_scores_only_endpoint(client, setup_router_db, data_files):
+def test_add_score_set_variants_scores_only_endpoint(client, setup_router_db, data_files, mock_s3_client):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     scores_csv_path = data_files / "scores.csv"
     with (
         open(scores_csv_path, "rb") as scores_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1081,7 +1094,9 @@ def test_add_score_set_variants_scores_only_endpoint(client, setup_router_db, da
     assert score_set == response_data
 
 
-def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setup_router_db, data_files):
+def test_add_score_set_variants_scores_and_counts_endpoint(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     scores_csv_path = data_files / "scores.csv"
@@ -1090,6 +1105,7 @@ def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setu
         open(scores_csv_path, "rb") as scores_file,
         open(counts_csv_path, "rb") as counts_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1111,7 +1127,7 @@ def test_add_score_set_variants_scores_and_counts_endpoint(session, client, setu
 
 
 def test_add_score_set_variants_scores_counts_and_column_metadata_endpoint(
-    session, client, setup_router_db, data_files
+    session, client, setup_router_db, data_files, mock_s3_client
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -1125,6 +1141,7 @@ def test_add_score_set_variants_scores_counts_and_column_metadata_endpoint(
         open(score_columns_metadata_path, "rb") as score_columns_metadata_file,
         open(count_columns_metadata_path, "rb") as count_columns_metadata_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         score_columns_metadata = json.load(score_columns_metadata_file)
         count_columns_metadata = json.load(count_columns_metadata_file)
@@ -1151,13 +1168,14 @@ def test_add_score_set_variants_scores_counts_and_column_metadata_endpoint(
     assert score_set == response_data
 
 
-def test_add_score_set_variants_scores_only_endpoint_utf8_encoded(client, setup_router_db, data_files):
+def test_add_score_set_variants_scores_only_endpoint_utf8_encoded(client, setup_router_db, data_files, mock_s3_client):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     scores_csv_path = data_files / "scores_utf8_encoded.csv"
     with (
         open(scores_csv_path, "rb") as scores_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1175,7 +1193,9 @@ def test_add_score_set_variants_scores_only_endpoint_utf8_encoded(client, setup_
     assert score_set == response_data
 
 
-def test_add_score_set_variants_scores_and_counts_endpoint_utf8_encoded(session, client, setup_router_db, data_files):
+def test_add_score_set_variants_scores_and_counts_endpoint_utf8_encoded(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     scores_csv_path = data_files / "scores_utf8_encoded.csv"
@@ -1184,6 +1204,7 @@ def test_add_score_set_variants_scores_and_counts_endpoint_utf8_encoded(session,
         open(scores_csv_path, "rb") as scores_file,
         open(counts_csv_path, "rb") as counts_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1259,7 +1280,9 @@ def test_anonymous_cannot_add_scores_to_other_user_score_set(
     assert "Could not validate credentials" in response_data["detail"]
 
 
-def test_contributor_can_add_scores_to_other_user_score_set(session, client, setup_router_db, data_files):
+def test_contributor_can_add_scores_to_other_user_score_set(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
@@ -1276,6 +1299,7 @@ def test_contributor_can_add_scores_to_other_user_score_set(session, client, set
     with (
         open(scores_csv_path, "rb") as scores_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1313,7 +1337,9 @@ def test_contributor_can_add_scores_to_other_user_score_set(session, client, set
     assert score_set == response_data
 
 
-def test_contributor_can_add_scores_and_counts_to_other_user_score_set(session, client, setup_router_db, data_files):
+def test_contributor_can_add_scores_and_counts_to_other_user_score_set(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
@@ -1332,6 +1358,7 @@ def test_contributor_can_add_scores_and_counts_to_other_user_score_set(session, 
         open(scores_csv_path, "rb") as scores_file,
         open(counts_csv_path, "rb") as counts_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1373,7 +1400,7 @@ def test_contributor_can_add_scores_and_counts_to_other_user_score_set(session, 
 
 
 def test_admin_can_add_scores_to_other_user_score_set(
-    session, client, setup_router_db, data_files, admin_app_overrides
+    session, client, setup_router_db, data_files, mock_s3_client, admin_app_overrides
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -1383,6 +1410,7 @@ def test_admin_can_add_scores_to_other_user_score_set(
         open(scores_csv_path, "rb") as scores_file,
         DependencyOverrider(admin_app_overrides),
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1400,7 +1428,9 @@ def test_admin_can_add_scores_to_other_user_score_set(
     assert score_set == response_data
 
 
-def test_admin_can_add_scores_and_counts_to_other_user_score_set(session, client, setup_router_db, data_files):
+def test_admin_can_add_scores_and_counts_to_other_user_score_set(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     scores_csv_path = data_files / "scores.csv"
@@ -1409,6 +1439,7 @@ def test_admin_can_add_scores_and_counts_to_other_user_score_set(session, client
         open(scores_csv_path, "rb") as scores_file,
         open(counts_csv_path, "rb") as counts_file,
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
@@ -1430,6 +1461,121 @@ def test_admin_can_add_scores_and_counts_to_other_user_score_set(session, client
 
 
 ########################################################################################################################
+# Score set variant upload error handling
+########################################################################################################################
+
+
+def test_upload_score_set_variant_data_returns_500_and_resets_processing_state_when_enqueue_job_fails(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception("queue failure")),
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+
+    assert response.status_code == 500
+
+    db_score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    session.refresh(db_score_set)
+    assert db_score_set.processing_state == ProcessingState.failed
+
+    pipelines = session.scalars(select(Pipeline).where(Pipeline.name == "validate_map_annotate_score_set")).all()
+    assert pipelines == []
+
+
+def test_upload_score_set_variant_data_deletes_s3_files_and_pipeline_when_enqueue_job_fails(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+    counts_csv_path = data_files / "counts.csv"
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        open(counts_csv_path, "rb") as counts_file,
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception("queue failure")),
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={
+                "scores_file": (scores_csv_path.name, scores_file, "text/csv"),
+                "counts_file": (counts_csv_path.name, counts_file, "text/csv"),
+            },
+        )
+
+    assert response.status_code == 500
+    # Both uploaded S3 keys should be passed to delete_objects for cleanup.
+    mock_s3_client.delete_objects.assert_called_once()
+    delete_call_kwargs = mock_s3_client.delete_objects.call_args.kwargs
+    deleted_keys = {obj["Key"] for obj in delete_call_kwargs["Delete"]["Objects"]}
+    assert len(deleted_keys) == 2
+    assert all("scores.csv" in k or "counts.csv" in k for k in deleted_keys)
+
+    pipelines = session.scalars(select(Pipeline).where(Pipeline.name == "validate_map_annotate_score_set")).all()
+    assert pipelines == []
+
+
+def test_upload_score_set_variant_data_deletes_s3_files_when_pipeline_creation_fails(
+    client, setup_router_db, data_files, mock_s3_client
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch("mavedb.routers.score_sets.PipelineFactory.create_pipeline", side_effect=Exception("pipeline failure")),
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+
+    assert response.status_code == 500
+    mock_s3_client.delete_objects.assert_called_once()
+    delete_call_kwargs = mock_s3_client.delete_objects.call_args.kwargs
+    deleted_keys = {obj["Key"] for obj in delete_call_kwargs["Delete"]["Objects"]}
+    assert len(deleted_keys) == 1
+    assert any("scores.csv" in k for k in deleted_keys)
+
+
+def test_patch_score_set_with_variants_returns_500_and_resets_processing_state_when_enqueue_job_fails(
+    session, client, setup_router_db, data_files, mock_s3_client
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception("queue failure")),
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.patch(
+            f"/api/v1/score-sets-with-variants/{score_set['urn']}",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+
+    assert response.status_code == 500
+
+    db_score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    session.refresh(db_score_set)
+    assert db_score_set.processing_state == ProcessingState.failed
+
+
+########################################################################################################################
 # Score set publication
 ########################################################################################################################
 
@@ -1442,6 +1588,35 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         published_score_set = publish_score_set(client, score_set["urn"])
         worker_queue.assert_called_once()
+
+    enqueue_args, enqueue_kwargs = worker_queue.call_args
+    assert enqueue_args[0] == "start_pipeline"
+    assert isinstance(enqueue_args[1], int)
+    assert "_job_id" in enqueue_kwargs
+
+    entrypoint_job = session.get(JobRun, enqueue_args[1])
+    assert entrypoint_job is not None
+    assert entrypoint_job.job_function == "start_pipeline"
+    publish_pipeline = session.get(Pipeline, entrypoint_job.pipeline_id)
+    assert publish_pipeline is not None
+    assert publish_pipeline.name == "publish_score_set"
+
+    refresh_job = session.scalars(
+        select(JobRun).where(
+            JobRun.pipeline_id == publish_pipeline.id,
+            JobRun.job_function == "refresh_published_variants_view",
+        )
+    ).one()
+    publish_job_functions = session.scalars(
+        select(JobRun.job_function).where(JobRun.pipeline_id == publish_pipeline.id)
+    ).all()
+    assert sorted(publish_job_functions) == ["refresh_published_variants_view", "start_pipeline"]
+
+    db_score_set = session.scalars(
+        select(ScoreSetDbModel).where(ScoreSetDbModel.urn == published_score_set["urn"])
+    ).one()
+    assert refresh_job.job_params["correlation_id"] is not None
+    assert refresh_job.job_params["score_set_id"] == db_score_set.id
 
     assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(published_score_set["urn"]), re.Match)
     assert isinstance(MAVEDB_EXPERIMENT_URN_RE.fullmatch(published_score_set["experiment"]["urn"]), re.Match)
@@ -1471,6 +1646,27 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
         select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
     ).scalars()
     assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_variants])
+
+
+def test_publish_score_set_discards_pipeline_when_entrypoint_enqueue_fails(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with (
+        patch.object(arq.ArqRedis, "enqueue_job", side_effect=Exception("queue failure")) as worker_queue,
+        patch("mavedb.routers.score_sets.send_slack_error") as mock_slack,
+    ):
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+        mock_slack.assert_called_once()
+
+    assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(published_score_set["urn"]), re.Match)
+
+    pipelines = session.scalars(select(Pipeline).where(Pipeline.name == "publish_score_set")).all()
+    assert pipelines == []
 
 
 def test_publish_multiple_score_sets(session, data_provider, client, setup_router_db, data_files):
@@ -2677,15 +2873,10 @@ def test_search_score_sets_reports_correct_total_count_with_limit(
 def test_search_score_sets_not_affected_by_experiment_metadata(
     session, data_provider, client, setup_router_db, data_files
 ):
-    """Experiments with multiple keywords should not reduce the number of score sets returned by search.
-
-    This is a regression test for a bug where joinedload on one-to-many experiment relationships caused row
-    multiplication in the main SQL query. The LIMIT clause was applied to the multiplied rows rather than unique
-    score sets, resulting in fewer results than expected.
-    """
+    """Experiments with multiple keywords should not reduce the number of score sets returned by search."""
     num_score_sets = 3
     for i in range(num_score_sets):
-        experiment = create_experiment(client, {**TEST_EXPERIMENT_WITH_KEYWORD, "title": f"Experiment {i}"})
+        experiment = create_experiment(client, {"keywords": TEST_KEYWORDS, "title": f"Experiment {i}"})
         score_set = create_seq_score_set(client, experiment["urn"], update={"title": f"Score Set {i}"})
         score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
 
@@ -2697,6 +2888,44 @@ def test_search_score_sets_not_affected_by_experiment_metadata(
     assert response.status_code == 200
     assert len(response.json()["scoreSets"]) == 2
     assert response.json()["numScoreSets"] == num_score_sets
+
+
+def test_search_score_sets_not_affected_by_multiple_superseding_versions(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """Multiple unpublished superseding versions of the same score set should not reduce search page size.
+
+    Regression test for a bug where the superseding score set filter used a LEFT OUTER JOIN
+    (scoresets LEFT JOIN scoresets AS s ON scoresets.id = s.replaces_id). Since replaces_id has
+    no uniqueness constraint, a score set with N superseding versions produces N rows, all inside
+    the LIMIT boundary. This consumed extra row budget and caused paginated searches to return
+    fewer unique score sets than the requested limit.
+    """
+    num_published = 3
+    published_urns = []
+    for i in range(num_published):
+        experiment = create_experiment(client, {"title": f"Experiment {i}"})
+        score_set = create_seq_score_set(client, experiment["urn"], update={"title": f"Score Set {i}"})
+        score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+        with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+            published = publish_score_set(client, score_set["urn"])
+        published_urns.append(published["urn"])
+
+    # Create multiple unpublished superseding versions for the first score set.
+    # These share the same replaces_id, which caused row multiplication with the old LEFT JOIN filter.
+    for j in range(3):
+        create_seq_score_set(
+            client,
+            create_experiment(client, {"title": f"Superseding Experiment {j}"})["urn"],
+            update={"title": f"Superseding {j}", "supersededScoreSetUrn": published_urns[0]},
+        )
+
+    search_payload = {"limit": 2}
+    response = client.post("/api/v1/score-sets/search", json=search_payload)
+    assert response.status_code == 200
+    assert len(response.json()["scoreSets"]) == 2
+    assert response.json()["numScoreSets"] == num_published
 
 
 ########################################################################################################################
@@ -3342,7 +3571,7 @@ def test_download_vep_file_in_variant_data_path(session, data_provider, client, 
         worker_queue.assert_called_once()
 
     response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=vep&include_post_mapped_hgvs=true&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=vep&drop_na_columns=true"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -3371,7 +3600,7 @@ def test_download_clingen_file_in_variant_data_path(session, data_provider, clie
         worker_queue.assert_called_once()
 
     response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=clingen&include_post_mapped_hgvs=true&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=clingen&drop_na_columns=true"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -3382,10 +3611,6 @@ def test_download_clingen_file_in_variant_data_path(session, data_provider, clie
 
 def test_download_gnomad_file_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(
-        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
-    )
     # Link a gnomAD variant to the first mapped variant (version may not match export filter)
     score_set = create_seq_score_set_with_mapped_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -3402,6 +3627,197 @@ def test_download_gnomad_file_in_variant_data_path(session, data_provider, clien
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
     assert "gnomad.gnomad_af" in reader.fieldnames
+
+
+def test_download_clingen_and_vep_file_in_variant_data_path(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    # Create mapped variants with VEP consequence populated
+    create_mapped_variants_for_score_set(session, score_set["urn"], TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION)
+    db_score_set = session.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set["urn"]).one()
+    first_mapped_variant = db_score_set.variants[0].mapped_variants[0]
+    first_mapped_variant.clingen_allele_id = VALID_CLINGEN_CA_ID
+    session.add(first_mapped_variant)
+    session.commit()
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=clingen&namespaces=vep&drop_na_columns=true"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    assert "vep.vep_functional_consequence" in reader.fieldnames
+    assert "clingen.clingen_allele_id" in reader.fieldnames
+    rows = list(reader)
+    assert any(row.get("vep.vep_functional_consequence") == "missense_variant" for row in rows)
+    assert rows[0].get("clingen.clingen_allele_id") == VALID_CLINGEN_CA_ID
+
+
+def test_download_clingen_and_scores_file_in_variant_data_path(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    # Create mapped variants with VEP consequence populated
+    create_mapped_variants_for_score_set(session, score_set["urn"], TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION)
+    db_score_set = session.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set["urn"]).one()
+    first_mapped_variant = db_score_set.variants[0].mapped_variants[0]
+    first_mapped_variant.clingen_allele_id = VALID_CLINGEN_CA_ID
+    session.add(first_mapped_variant)
+    session.commit()
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&namespaces=clingen&drop_na_columns=true"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    assert "clingen.clingen_allele_id" in reader.fieldnames
+    rows = list(reader)
+    assert rows[0].get("clingen.clingen_allele_id") == VALID_CLINGEN_CA_ID
+    download_multiple_data_csv = response.text
+    reader = csv.DictReader(StringIO(download_multiple_data_csv))
+    assert sorted(reader.fieldnames) == sorted(
+        [
+            "accession",
+            "clingen.clingen_allele_id",
+            "hgvs_nt",
+            "hgvs_pro",
+            "scores.score",
+        ]
+    )
+
+
+def test_download_clinvar_namespace_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
+    """ClinVar namespace returns clinical_significance and clinical_review_status columns with correct values."""
+    # The ClinVar control seeded in setup_router_db has db_version="11_2024", mapping to namespace clinvar.2024_11.
+    clinvar_namespace = "clinvar.2024_11"
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinvar_control_to_mapped_variant(session, score_set)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data"
+        f"?namespaces={clinvar_namespace}&drop_na_columns=false"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    assert f"{clinvar_namespace}.clinical_significance" in reader.fieldnames
+    assert f"{clinvar_namespace}.clinical_review_status" in reader.fieldnames
+
+    rows = list(reader)
+    # The first variant is linked to the ClinVar control; check its values.
+    assert rows[0][f"{clinvar_namespace}.clinical_significance"] == TEST_CLINVAR_CONTROL["clinical_significance"]
+    assert rows[0][f"{clinvar_namespace}.clinical_review_status"] == TEST_CLINVAR_CONTROL["clinical_review_status"]
+    # Other variants have no linked control for this version; they should be NA.
+    assert all(row[f"{clinvar_namespace}.clinical_significance"] == "NA" for row in rows[1:])
+    assert all(row[f"{clinvar_namespace}.clinical_review_status"] == "NA" for row in rows[1:])
+
+
+def test_download_clinvar_namespace_with_no_matching_version(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """When no controls match the requested ClinVar version, all rows return NA."""
+    # clinvar.2023_01 does not match the seeded control (11_2024), so all rows should be NA.
+    clinvar_namespace = "clinvar.2023_01"
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinvar_control_to_mapped_variant(session, score_set)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data"
+        f"?namespaces={clinvar_namespace}&drop_na_columns=false"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    assert f"{clinvar_namespace}.clinical_significance" in reader.fieldnames
+    assert f"{clinvar_namespace}.clinical_review_status" in reader.fieldnames
+
+    rows = list(reader)
+    assert all(row[f"{clinvar_namespace}.clinical_significance"] == "NA" for row in rows)
+    assert all(row[f"{clinvar_namespace}.clinical_review_status"] == "NA" for row in rows)
+
+
+def test_download_multiple_clinvar_namespaces_in_variant_data_path(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """Multiple ClinVar namespaces produce distinct column sets; only the matching version has real data."""
+    matching_ns = "clinvar.2024_11"  # matches db_version="11_2024" seeded in setup_router_db
+    non_matching_ns = "clinvar.2023_01"  # no controls with this version
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinvar_control_to_mapped_variant(session, score_set)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data"
+        f"?namespaces={matching_ns}&namespaces={non_matching_ns}&drop_na_columns=false"
+    )
+    assert response.status_code == 200
+    reader = csv.DictReader(StringIO(response.text))
+    fieldnames = reader.fieldnames
+    # Both namespaces produce columns.
+    assert f"{matching_ns}.clinical_significance" in fieldnames
+    assert f"{matching_ns}.clinical_review_status" in fieldnames
+    assert f"{non_matching_ns}.clinical_significance" in fieldnames
+    assert f"{non_matching_ns}.clinical_review_status" in fieldnames
+
+    rows = list(reader)
+    # Matching version: first variant has data.
+    assert rows[0][f"{matching_ns}.clinical_significance"] == TEST_CLINVAR_CONTROL["clinical_significance"]
+    assert rows[0][f"{matching_ns}.clinical_review_status"] == TEST_CLINVAR_CONTROL["clinical_review_status"]
+    # Non-matching version: all rows are NA.
+    assert all(row[f"{non_matching_ns}.clinical_significance"] == "NA" for row in rows)
+    assert all(row[f"{non_matching_ns}.clinical_review_status"] == "NA" for row in rows)
+
+
+def test_invalid_clinvar_namespace_returns_422(client, setup_router_db, data_files):
+    """A clinvar namespace with an out-of-range month (13) is rejected with 422."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants/data?namespaces=clinvar.2024_13")
+    assert response.status_code == 422
+
+
+def test_unrecognized_namespace_returns_422(client, setup_router_db, data_files):
+    """An entirely unrecognized namespace string is rejected with 422."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants/data?namespaces=unknown_namespace")
+    assert response.status_code == 422
 
 
 ########################################################################################################################
@@ -3522,14 +3938,34 @@ def test_can_fetch_current_clinical_control_options_for_score_set(
         )
 
 
+def test_clinical_control_options_exclude_non_current(client, setup_router_db, session, data_provider, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    link_clinical_controls_to_mapped_variants(session, score_set)
+
+    # Mark all mapped variants as non-current to simulate stale mapping data.
+    mapped_variants = session.scalars(
+        select(MappedVariantDbModel)
+        .join(VariantDbModel)
+        .join(ScoreSetDbModel)
+        .where(ScoreSetDbModel.urn == score_set["urn"])
+    ).all()
+    for mv in mapped_variants:
+        mv.current = False
+    session.commit()
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
+    assert response.status_code == 404
+
+
 ########################################################################################################################
 # Fetching annotated variants for a score set
 ########################################################################################################################
 
 
-@pytest.mark.parametrize(
-    "annotation_type", ["pathogenicity-evidence-line", "functional-impact-statement", "functional-study-result"]
-)
+@pytest.mark.parametrize("annotation_type", ["pathogenicity-statement", "functional-statement", "study-result"])
 def test_cannot_get_annotated_variants_for_nonexistent_score_set(client, setup_router_db, annotation_type):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -3541,9 +3977,7 @@ def test_cannot_get_annotated_variants_for_nonexistent_score_set(client, setup_r
     assert f"score set with URN {score_set['urn'] + 'xxx'} not found" in response_data["detail"]
 
 
-@pytest.mark.parametrize(
-    "annotation_type", ["pathogenicity-evidence-line", "functional-impact-statement", "functional-study-result"]
-)
+@pytest.mark.parametrize("annotation_type", ["pathogenicity-statement", "functional-statement", "study-result"])
 def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
     client, session, data_provider, data_files, setup_router_db, annotation_type
 ):
@@ -3610,7 +4044,7 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
     )
 
     # The contents of the annotated variants objects should be tested in more detail elsewhere.
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3619,7 +4053,7 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
     for annotation_response in response_data:
         variant_urn = annotation_response.get("variant_urn")
         annotated_variant = annotation_response.get("annotation")
-        assert f"Pathogenicity evidence line {variant_urn}" in annotated_variant.get("description")
+        assert f"Variant pathogenicity statement for {variant_urn}" in annotated_variant.get("description", "")
 
 
 @pytest.mark.parametrize(
@@ -3639,7 +4073,7 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thre
         data_files / "scores.csv",
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3662,7 +4096,7 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_cali
         data_files / "scores.csv",
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3700,7 +4134,7 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_vari
 
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-evidence-line")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3712,7 +4146,7 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_vari
         if variant_urn == first_var.urn:
             assert annotated_variant is None
         else:
-            assert f"Pathogenicity evidence line {variant_urn}" in annotated_variant.get("description")
+            assert f"Variant pathogenicity statement for {variant_urn}" in annotated_variant.get("description", "")
 
 
 @pytest.mark.parametrize(
@@ -3740,7 +4174,7 @@ def test_get_annotated_functional_impact_statement_for_score_set(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3772,7 +4206,7 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_calib
         },
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3795,7 +4229,7 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_thres
         data_files / "scores.csv",
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3833,7 +4267,7 @@ def test_get_annotated_functional_impact_statement_for_score_set_when_some_varia
 
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-impact-statement")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3865,7 +4299,7 @@ def test_get_annotated_functional_study_result_for_score_set(
         data_files / "scores.csv",
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3897,7 +4331,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
         },
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3929,7 +4363,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_ranges_not_
         },
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3952,7 +4386,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
         data_files / "scores.csv",
     )
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
@@ -3986,7 +4420,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_some_varian
 
     first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-study-result")
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200

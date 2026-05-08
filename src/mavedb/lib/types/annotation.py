@@ -1,4 +1,4 @@
-from typing import Sequence, Union
+from typing import NamedTuple, Sequence, Union
 
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
@@ -15,3 +15,10 @@ PublicationIdentifierAssociations = Union[
     Sequence[ScoreSetPublicationIdentifierAssociation],
     Sequence[ExperimentPublicationIdentifierAssociation],
 ]
+
+
+class SequenceFeature(NamedTuple):
+    """Identifier and coding system for a mapped sequence feature."""
+
+    identifier: str
+    system: str

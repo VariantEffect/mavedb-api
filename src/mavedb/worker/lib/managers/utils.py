@@ -1,0 +1,157 @@
+"""Utility functions for job and pipeline management.
+
+This module provides helper functions for common operations in job and pipeline
+management, such as creating standardized result structures, data formatting, and
+dependency checking.
+"""
+
+import logging
+from datetime import datetime
+from typing import Literal, Optional, Union
+
+import redis.exceptions
+import requests.exceptions
+import sqlalchemy.exc
+
+from mavedb.lib.types.workflow import JobExecutionOutcome
+from mavedb.models.enums.job_pipeline import DependencyType, FailureCategory, JobStatus
+from mavedb.models.job_run import JobRun
+from mavedb.worker.lib.managers.constants import COMPLETED_JOB_STATUSES
+
+logger = logging.getLogger(__name__)
+
+
+# Exception-to-failure-category mapping for automatic classification of unhandled exceptions.
+# Job authors can always pass an explicit category on the outcome for domain-specific failures.
+# This mapping only covers infrastructure-level exceptions that the decorator can reasonably classify.
+#
+# Order matters: classify_exception() returns on the first isinstance() match, so more
+# specific types must appear before their parents (e.g. requests.Timeout before OSError).
+EXCEPTION_TO_FAILURE_CATEGORY: dict[type[Exception], FailureCategory] = {
+    # requests — all inherit from OSError, so these must come first to get precise categories.
+    requests.exceptions.Timeout: FailureCategory.TIMEOUT,
+    requests.exceptions.ConnectionError: FailureCategory.NETWORK_ERROR,
+    # SQLAlchemy — independent hierarchy, not caught by builtins.
+    sqlalchemy.exc.OperationalError: FailureCategory.NETWORK_ERROR,
+    sqlalchemy.exc.DisconnectionError: FailureCategory.NETWORK_ERROR,
+    sqlalchemy.exc.InterfaceError: FailureCategory.NETWORK_ERROR,
+    # Redis — independent hierarchy (redis.ConnectionError != builtins.ConnectionError).
+    redis.exceptions.TimeoutError: FailureCategory.TIMEOUT,
+    redis.exceptions.ConnectionError: FailureCategory.NETWORK_ERROR,
+    # Builtins — catch-all for anything not matched above (e.g. raw socket errors).
+    ConnectionError: FailureCategory.NETWORK_ERROR,
+    TimeoutError: FailureCategory.TIMEOUT,
+    OSError: FailureCategory.NETWORK_ERROR,
+}
+
+
+def classify_exception(exc: Exception) -> FailureCategory:
+    """Map an exception to a FailureCategory. Uses isinstance to match parent classes."""
+    for exc_type, category in EXCEPTION_TO_FAILURE_CATEGORY.items():
+        if isinstance(exc, exc_type):
+            return category
+    return FailureCategory.UNKNOWN
+
+
+def arq_job_id(job: JobRun) -> str:
+    """Compute the ARQ job id for the current attempt of a JobRun.
+
+    ARQ uses the job id as a Redis key (``arq:job:<id>`` while queued, ``arq:in-progress:<id>`` while running,
+    ``arq:result:<id>`` after completion). Because those keys also act as a deduplication check at enqueue
+    time, reusing the same id across retries is unsafe: the in-flight attempt's teardown can clobber
+    or be blocked by the next attempt. Embedding ``retry_count`` guarantees each attempt occupies a disjoint key
+    namespace while staying deterministic — any caller that holds the JobRun can recompute the id.
+    """
+    return f"{job.urn}#{job.retry_count or 0}"
+
+
+def construct_bulk_cancellation_result(reason: str) -> JobExecutionOutcome:
+    """Construct a standardized JobExecutionOutcome for bulk job cancellations.
+
+    Args:
+        reason: Human-readable reason for the cancellation
+
+    Returns:
+        JobExecutionOutcome with cancellation metadata
+    """
+    return JobExecutionOutcome(
+        status=JobStatus.CANCELLED,
+        data={
+            "reason": reason,
+            "timestamp": datetime.now().isoformat(),
+        },
+        error=reason,
+        exception=None,
+    )
+
+
+def job_dependency_is_met(dependency_type: Optional[DependencyType], dependent_job_status: JobStatus) -> bool:
+    """Check if a job dependency is met based on the dependency type and the status of the dependent job.
+
+    Args:
+        dependency_type: Type of dependency ('hard' or 'soft')
+        dependent_job_status: Status of the dependent job
+
+    Returns:
+        bool: True if the dependency is met, False otherwise
+
+    Notes:
+        - For 'hard' dependencies, the dependent job must have succeeded.
+        - For 'soft' dependencies, the dependent job must be in a terminal state.
+        - If no dependency type is specified, the dependency is considered met.
+    """
+    if not dependency_type:
+        logger.debug("No dependency type specified; assuming dependency is met.")
+        return True
+
+    if dependency_type == DependencyType.SUCCESS_REQUIRED:
+        if dependent_job_status != JobStatus.SUCCEEDED:
+            logger.debug(f"Dependency not met: dependent job did not succeed ({dependent_job_status}).")
+            return False
+
+    if dependency_type == DependencyType.COMPLETION_REQUIRED:
+        if dependent_job_status not in COMPLETED_JOB_STATUSES:
+            logger.debug(
+                f"Dependency not met: dependent job has not reached a completed status ({dependent_job_status})."
+            )
+            return False
+
+    return True
+
+
+def job_should_be_skipped_due_to_unfulfillable_dependency(
+    dependency_type: Optional[DependencyType], dependent_job_status: JobStatus
+) -> Union[tuple[Literal[False], None], tuple[Literal[True], str]]:
+    """Determine if a job should be skipped due to an unfulfillable dependency.
+
+    Args:
+        dependency_type: Type of dependency ('hard' or 'soft')
+        dependent_job_status: Status of the dependent job
+
+    Returns:
+        Union[tuple[Literal[False], None], tuple[Literal[True], str]]: Tuple indicating
+            if the job should be skipped and the reason
+
+    Notes:
+        - A job should be skipped if it has a 'hard' dependency and the dependent job did not succeed.
+    """
+
+    # If dependency must have SUCCEEDED but is in a terminal non-success state, skip.
+    if dependency_type == DependencyType.SUCCESS_REQUIRED:
+        if dependent_job_status in (JobStatus.FAILED, JobStatus.ERRORED, JobStatus.SKIPPED, JobStatus.CANCELLED):
+            logger.debug(
+                f"Job should be skipped due to unfulfillable 'success_required' dependency "
+                f"({dependent_job_status})."
+            )
+            return True, f"Dependency did not succeed ({dependent_job_status})"
+
+    # If dependency requires 'completion' and you want CANCELLED to NOT qualify, skip here too.
+    if dependency_type == DependencyType.COMPLETION_REQUIRED:
+        if dependent_job_status in (JobStatus.CANCELLED, JobStatus.SKIPPED):
+            logger.debug(
+                f"Job should be skipped due to unfulfillable 'completion_required' dependency "
+                f"({dependent_job_status})."
+            )
+            return True, f"Dependency was not completed successfully ({dependent_job_status})"
+
+    return False, None
