@@ -25,7 +25,7 @@ from mavedb.worker.settings.redis import RedisWorkerSettings
 # driver, enabling incremental migration of job functions without touching
 # the FastAPI layer. Once all jobs use async sessions, raise MAX_JOBS to 10+.
 MAX_JOBS = 2
-JOB_TIMEOUT_SECONDS = 2 * 60 * 60  # 2 hours — matches RUNNING_TIMEOUT_MINUTES (90 min) with buffer
+JOB_TIMEOUT_SECONDS = 3 * 60 * 60  # 3 hours — matches RUNNING_TIMEOUT_MINUTES (150 min) with buffer
 
 
 class ArqWorkerSettings:
