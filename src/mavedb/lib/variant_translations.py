@@ -5,7 +5,10 @@ which stores relationships between protein allele (PA) and nucleotide allele (CA
 ClinGen IDs.
 """
 
-from sqlalchemy import select
+from typing import cast
+
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from mavedb.models.variant_translation import VariantTranslation
@@ -14,22 +17,25 @@ from mavedb.models.variant_translation import VariantTranslation
 def upsert_variant_translations(db: Session, translations: list[tuple[str, str]]) -> tuple[int, int]:
     """Insert VariantTranslation rows for (aa, nt) pairs that don't already exist.
 
+    Uses INSERT ... ON CONFLICT DO NOTHING to avoid race conditions between
+    concurrent jobs and duplicate pairs accumulating within a single session
+    before a commit.
+
     Returns (created, existing) counts.
     """
-    created = 0
-    existing = 0
-    for aa_clingen_id, nt_clingen_id in translations:
-        found = db.scalars(
-            select(VariantTranslation).where(
-                VariantTranslation.aa_clingen_id == aa_clingen_id,
-                VariantTranslation.nt_clingen_id == nt_clingen_id,
-            )
-        ).one_or_none()
+    if not translations:
+        return 0, 0
 
-        if found:
-            existing += 1
-        else:
-            db.add(VariantTranslation(aa_clingen_id=aa_clingen_id, nt_clingen_id=nt_clingen_id))
-            created += 1
+    unique = list({(aa, nt) for aa, nt in translations})
+    rows = [{"aa_clingen_id": aa, "nt_clingen_id": nt} for aa, nt in unique]
 
+    stmt = (
+        insert(VariantTranslation)
+        .values(rows)
+        .on_conflict_do_nothing(index_elements=["aa_clingen_id", "nt_clingen_id"])
+    )
+    result = cast(CursorResult, db.execute(stmt))
+
+    created = result.rowcount
+    existing = len(unique) - created
     return created, existing
