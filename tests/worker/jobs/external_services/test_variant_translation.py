@@ -10,6 +10,8 @@ from sqlalchemy import select
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus, PipelineStatus
+from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.variant import Variant
 from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 from mavedb.models.variant_translation import VariantTranslation
 from mavedb.worker.jobs.external_services.variant_translation import populate_variant_translations_for_score_set
@@ -346,6 +348,72 @@ class TestPopulateVariantTranslationsUnit:
                 )
 
         assert str(exc_info.value) == "Test exception"
+
+    async def test_multiple_alleles_sharing_pa_no_duplicate_error(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_variant_translations_job,
+        mock_worker_ctx,
+        sample_populate_variant_translations_run,
+        setup_sample_variants_with_caid_for_translation,
+    ):
+        """Test that two CA alleles mapping to the same PA don't cause a UniqueViolation.
+
+        This is a regression test for a bug where the SELECT-then-INSERT upsert pattern
+        failed to detect in-session duplicates: both alleles' iterations called
+        upsert_variant_translations with overlapping (PA, CA) pairs, the SELECT found
+        no committed row, both staged db.add() for the same pair, and the subsequent
+        update_progress commit raised a UniqueViolation.
+        """
+        # Add a second variant with a different CA allele under the same score set.
+        score_set_id = sample_populate_variant_translations_run.job_params["score_set_id"]
+
+        variant2 = Variant(
+            urn="urn:variant:test-second-ca-allele",
+            score_set_id=score_set_id,
+            hgvs_nt="NM_000000.1:c.2T>G",
+            hgvs_pro="NP_000000.1:p.Val2Gly",
+            data={},
+        )
+        session.add(variant2)
+        session.commit()
+        mapped_variant2 = MappedVariant(
+            variant_id=variant2.id,
+            clingen_allele_id="CA_SECOND",
+            current=True,
+            mapped_date="2024-01-01T00:00:00Z",
+            mapping_api_version="1.0.0",
+        )
+        session.add(mapped_variant2)
+        session.commit()
+
+        # Both CA alleles resolve to the same PA. The PA then returns the same set of
+        # registered CAs for both iterations, producing fully overlapping translation pairs.
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.variant_translation.get_canonical_pa_ids",
+                return_value=["PA_SHARED"],
+            ),
+            patch(
+                "mavedb.worker.jobs.external_services.variant_translation.get_matching_registered_ca_ids",
+                return_value=["CA9765210", "CA_SECOND"],
+            ),
+        ):
+            result = await populate_variant_translations_for_score_set(
+                mock_worker_ctx,
+                1,
+                JobManager(session, mock_worker_ctx["redis"], sample_populate_variant_translations_run.id),
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+
+        translations = session.scalars(select(VariantTranslation)).all()
+        pairs = {(t.aa_clingen_id, t.nt_clingen_id) for t in translations}
+        # PA_SHARED paired with each CA: CA9765210 (original from allele 1),
+        # CA_SECOND (original from allele 2), plus both as registered CAs.
+        assert ("PA_SHARED", "CA9765210") in pairs
+        assert ("PA_SHARED", "CA_SECOND") in pairs
 
     async def test_total_api_failure_returns_failed(
         self,
