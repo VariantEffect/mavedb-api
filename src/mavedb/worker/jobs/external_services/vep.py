@@ -9,6 +9,7 @@ to the VEP API with fallback to Variant Recoder when necessary.
 
 import asyncio
 import logging
+import os
 from datetime import date
 
 from sqlalchemy import select
@@ -29,8 +30,8 @@ from mavedb.worker.lib.managers.job_manager import JobManager
 logger = logging.getLogger(__name__)
 
 _VEP_BATCH_SIZE = 200
-_RECODER_BATCH_SIZE = 25
-_RECODER_CONCURRENCY = 5
+_RECODER_BATCH_SIZE = int(os.getenv("RECODER_BATCH_SIZE", "25"))
+_RECODER_CONCURRENCY = int(os.getenv("RECODER_CONCURRENCY", "5"))
 
 
 @with_pipeline_management

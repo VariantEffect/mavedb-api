@@ -3,13 +3,14 @@
 import asyncio
 import functools
 import logging
+import os
 from typing import Optional, Sequence
 
 from mavedb.lib.utils import request_with_backoff
 
 logger = logging.getLogger(__name__)
 
-ENSEMBL_API_URL = "https://rest.ensembl.org"
+ENSEMBL_API_URL = os.environ.get("ENSEMBL_API_URL", "https://rest.ensembl.org")
 
 # List of all possible VEP consequences, in order from most to least severe
 VEP_CONSEQUENCES = [
@@ -95,7 +96,7 @@ async def run_variant_recoder(missing_hgvs: Sequence[str]) -> dict[str, list[str
             url=f"{ENSEMBL_API_URL}/variant_recoder/human",
             headers=headers,
             json={"ids": list(missing_hgvs)},
-            timeout=300,  # Variant Recoder can be very slow for large batches and 504s are common; generous timeout and backoff retries are needed
+            timeout=600,  # Variant Recoder can be very slow for large batches and 504s are common; generous timeout and backoff retries are needed
         ),
     )
     hgvs_to_genomic: dict[str, list[str]] = {}
