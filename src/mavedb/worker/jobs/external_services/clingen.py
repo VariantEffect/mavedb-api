@@ -26,9 +26,7 @@ from mavedb.lib.clingen.content_constructors import construct_ldh_submission
 from mavedb.lib.clingen.services import (
     ClinGenAlleleRegistryService,
     ClinGenLdhService,
-    get_allele_registry_associations,
 )
-from mavedb.lib.types.clingen import is_car_submission_error
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.enums.annotation_type import AnnotationType
@@ -134,14 +132,34 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
     )
 
     # Build HGVS strings for submission. Don't do duplicate submissions-- store mapped variant IDs by HGVS.
+    # Variants that can't produce an HGVS string are annotated as failures immediately.
+    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
     variant_post_mapped_hgvs: dict[str, list[int]] = {}
+    no_hgvs_count = 0
     for mapped_variant_id, post_mapped in variant_post_mapped_objects:
         hgvs_for_post_mapped = get_hgvs_from_post_mapped(post_mapped)
 
         if not hgvs_for_post_mapped:
+            no_hgvs_count += 1
             logger.warning(
                 msg=f"Could not construct a valid HGVS string for mapped variant {mapped_variant_id}. Skipping submission of this variant.",
                 extra=job_manager.logging_context(),
+            )
+
+            mapped_variant = job_manager.db.scalars(
+                select(MappedVariant).where(MappedVariant.id == mapped_variant_id)
+            ).one()
+            annotation_manager.add_annotation(
+                variant_id=mapped_variant.variant_id,  # type: ignore
+                annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
+                version=None,
+                status=AnnotationStatus.FAILED,
+                failure_category=AnnotationFailureCategory.MISSING_IDENTIFIER,
+                annotation_data={
+                    "error_message": "Could not extract a valid HGVS string from post-mapped variant data.",
+                    "annotation_metadata": {},
+                },
+                current=True,
             )
             continue
 
@@ -155,143 +173,113 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
 
     # Do submission
     car_service = ClinGenAlleleRegistryService(url=CAR_SUBMISSION_ENDPOINT)
-    registered_alleles = car_service.dispatch_submissions(list(variant_post_mapped_hgvs.keys()))
+    hgvs_list = list(variant_post_mapped_hgvs.keys())
+    registered_alleles = car_service.dispatch_submissions(hgvs_list)
     job_manager.update_progress(60, 100, "Processing registered alleles from CAR.")
 
-    # Build a map of HGVS string -> CAR error details for every rejected submission.
-    # The CAR response intermixes successes (have "@id") and errors (have "errorType").
-    car_errors_by_hgvs: dict[str, dict] = {
-        err["hgvs"]: {
-            "error_type": err.get("errorType"),
-            "message": err.get("message"),
-        }
-        for err in registered_alleles
-        if is_car_submission_error(err)
-    }
+    # CAR returns one response per submitted HGVS in the same order (see CAR API docs).
+    # Zip the submissions with the responses and annotate each based on success or error.
+    linked_count = 0
+    error_count = 0
 
-    # Build an inverse map so we can look up the HGVS string for any mapped_variant_id.
-    mapped_variant_id_to_hgvs: dict[int, str] = {
-        vid: hgvs for hgvs, vids in variant_post_mapped_hgvs.items() for vid in vids
-    }
-
-    # Process registered alleles and update mapped variants
-    linked_alleles = get_allele_registry_associations(list(variant_post_mapped_hgvs.keys()), registered_alleles)
-    total = len(linked_alleles)
-    processed = 0
-    # Setup annotation manager
-    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
-    registered_mapped_variant_ids = []
-    for hgvs_string, caid in linked_alleles.items():
+    for hgvs_string, response in zip(hgvs_list, registered_alleles):
         mapped_variant_ids = variant_post_mapped_hgvs[hgvs_string]
-        registered_mapped_variant_ids.extend(mapped_variant_ids)
         mapped_variants = job_manager.db.scalars(
             select(MappedVariant).where(MappedVariant.id.in_(mapped_variant_ids))
         ).all()
 
-        for mapped_variant in mapped_variants:
-            mapped_variant.clingen_allele_id = caid
-            job_manager.db.add(mapped_variant)
+        if "errorType" in response:
+            error_count += 1
+            logger.warning(
+                msg=f"CAR rejected HGVS '{hgvs_string}' ({response.get('errorType', 'unknown')}): {response.get('message', 'unknown')}",
+                extra=job_manager.logging_context(),
+            )
 
+            for mapped_variant in mapped_variants:
+                annotation_manager.add_annotation(
+                    variant_id=mapped_variant.variant_id,  # type: ignore
+                    annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
+                    version=None,
+                    status=AnnotationStatus.FAILED,
+                    failure_category=AnnotationFailureCategory.EXTERNAL_SERVICE_REJECTED,
+                    annotation_data={
+                        "error_message": "Failed to register variant with ClinGen Allele Registry.",
+                        "annotation_metadata": {
+                            "submitted_hgvs": hgvs_string,
+                            "car_error_type": response.get("errorType"),
+                            "car_error_message": response.get("message"),
+                        },
+                    },
+                    current=True,
+                )
+
+        else:
+            linked_count += 1
+            caid = response["@id"].split("/")[-1]
+            for mapped_variant in mapped_variants:
+                mapped_variant.clingen_allele_id = caid
+                job_manager.db.add(mapped_variant)
+
+                annotation_manager.add_annotation(
+                    variant_id=mapped_variant.variant_id,  # type: ignore
+                    annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
+                    version=None,
+                    status=AnnotationStatus.SUCCESS,
+                    annotation_data={"annotation_metadata": {"clingen_allele_id": caid}},
+                    current=True,
+                )
+
+    # Any HGVS strings CAR did not respond to (network drop, service-side omission).
+    # Use EXTERNAL_SERVICE_REJECTED for explicit CAR errors, EXTERNAL_API_ERROR for silent failures.
+    no_response_hgvs = hgvs_list[len(registered_alleles) :]
+    for hgvs_string in no_response_hgvs:
+        mapped_variants = job_manager.db.scalars(
+            select(MappedVariant).where(MappedVariant.id.in_(variant_post_mapped_hgvs[hgvs_string]))
+        ).all()
+        for mapped_variant in mapped_variants:
             annotation_manager.add_annotation(
                 variant_id=mapped_variant.variant_id,  # type: ignore
                 annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
                 version=None,
-                status=AnnotationStatus.SUCCESS,
+                status=AnnotationStatus.FAILED,
+                failure_category=AnnotationFailureCategory.EXTERNAL_API_ERROR,
                 annotation_data={
-                    "annotation_metadata": {"clingen_allele_id": caid},
+                    "error_message": "Failed to register variant with ClinGen Allele Registry.",
+                    "annotation_metadata": {"submitted_hgvs": hgvs_string},
                 },
                 current=True,
             )
 
-            processed += 1
-
-            # Calculate progress: 50% + (processed/total_mapped)*50, rounded to nearest 5%
-            if total % 20 == 0 or processed == total:
-                progress = 50 + round((processed / total) * 45 / 5) * 5
-                job_manager.update_progress(progress, 100, f"Processed {processed} of {total} registered alleles.")
-                logger.info(
-                    msg=f"Processed {processed}/{total} registered alleles from CAR.",
-                    extra=job_manager.logging_context(),
-                )
-
-    # For mapped variants which did not get a CAID, log failure annotation
-    failed_submissions = set(obj[0] for obj in variant_post_mapped_objects) - set(registered_mapped_variant_ids)
-    for mapped_variant_id in failed_submissions:
-        mapped_variant = job_manager.db.scalars(
-            select(MappedVariant).where(MappedVariant.id == mapped_variant_id)
-        ).one()
-
-        failed_variant_hgvs = mapped_variant_id_to_hgvs.get(mapped_variant_id)
-        car_error = car_errors_by_hgvs.get(failed_variant_hgvs) if failed_variant_hgvs else None
-
-        annotation_metadata: dict = {"submitted_hgvs": failed_variant_hgvs}
-        if car_error:
-            annotation_metadata["car_error_type"] = car_error["error_type"]
-            annotation_metadata["car_error_message"] = car_error["message"]
-
-        # Use EXTERNAL_SERVICE_REJECTED when CAR explicitly rejected the submission with an error
-        # response (e.g. InvalidHGVS), vs EXTERNAL_API_ERROR for silent failures where CAR returned
-        # no response at all (network drop, service-side omission, etc.).
-        failure_category = (
-            AnnotationFailureCategory.EXTERNAL_SERVICE_REJECTED
-            if car_error
-            else AnnotationFailureCategory.EXTERNAL_API_ERROR
-        )
-
-        annotation_manager.add_annotation(
-            variant_id=mapped_variant.variant_id,  # type: ignore
-            annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
-            version=None,
-            status=AnnotationStatus.FAILED,
-            failure_category=failure_category,
-            annotation_data={
-                "error_message": "Failed to register variant with ClinGen Allele Registry.",
-                "annotation_metadata": annotation_metadata,
-            },
-            current=True,
-        )
-
     annotation_manager.flush()
+
+    failed_count = no_hgvs_count + error_count + len(no_response_hgvs)
 
     # When all registrations fail we will not be able to render any annotations. Fail the job
     # to explicitly halt the pipeline.
-    if failed_submissions and not linked_alleles:
-        error_message = (
-            f"CAR submission failed for all {len(failed_submissions)} variants in score set {score_set.urn}."
-        )
-        logger.error(
-            msg=error_message,
-            extra=job_manager.logging_context(),
-        )
+    if linked_count == 0:
+        error_message = f"CAR submission failed for all {len(hgvs_list)} variants in score set {score_set.urn}."
+        logger.error(msg=error_message, extra=job_manager.logging_context())
         job_manager.db.flush()
         return JobExecutionOutcome.failed(
             reason=error_message,
-            data={
-                "submitted_count": len(variant_post_mapped_hgvs),
-                "matched_count": 0,
-                "failed_count": len(failed_submissions),
-            },
+            data={"submitted_count": len(hgvs_list), "matched_count": 0, "failed_count": failed_count},
             failure_category=FailureCategory.DEPENDENCY_FAILURE,
         )
 
-    if failed_submissions:
+    if failed_count > 0:
         # CAR rejections are typically per-variant data quality issues (e.g. invalid HGVS) rather than
         # systemic failures. Per-variant AnnotationStatus.FAILED records are already written above for
         # traceability. We continue the pipeline so that successfully registered variants still receive
         # downstream annotations (warm_clingen_cache, gnomAD, ClinVar, HGVS, translations).
         logger.warning(
-            msg=f"CAR submission failed for {len(failed_submissions)} of {len(variant_post_mapped_hgvs)} variants in score set {score_set.urn}.",
+            msg=f"CAR submission failed for {failed_count} of {len(hgvs_list)} variants in score set {score_set.urn}.",
             extra=job_manager.logging_context(),
         )
 
     logger.info(msg="Completed CAR mapped resource submission", extra=job_manager.logging_context())
     job_manager.db.flush()
     return JobExecutionOutcome.succeeded(
-        data={
-            "submitted_count": len(variant_post_mapped_hgvs),
-            "matched_count": len(linked_alleles),
-            "failed_count": len(failed_submissions),
-        }
+        data={"submitted_count": len(hgvs_list), "matched_count": linked_count, "failed_count": failed_count}
     )
 
 

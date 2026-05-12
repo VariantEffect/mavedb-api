@@ -160,7 +160,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             assert ann.status == "failed"
             assert ann.annotation_type == "clingen_allele_id"
 
-    async def test_submit_score_set_mappings_to_car_no_linked_alleles(
+    async def test_submit_score_set_mappings_to_car_all_car_errors(
         self,
         mock_worker_ctx,
         session,
@@ -184,10 +184,18 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             dummy_variant_mapping_job_run,
         )
 
-        # Patch ClinGenAlleleRegistryService to return registered alleles that do not match submitted HGVS
+        # Build error responses for every submitted HGVS — CAR explicitly rejected all of them
+        mapped_variants = session.scalars(select(MappedVariant)).all()
         registered_alleles_mock = [
-            {"@id": "CA123456", "type": "nucleotide", "genomicAlleles": [{"hgvs": "NC_000007.14:g.140453136A>C"}]},
-            {"@id": "CA234567", "type": "nucleotide", "genomicAlleles": [{"hgvs": "NC_000007.14:g.140453136A>G"}]},
+            {
+                "errorType": "InvalidHGVS",
+                "hgvs": get_hgvs_from_post_mapped(mv.post_mapped) or "",
+                "message": "Invalid HGVS expression.",
+                "description": "",
+                "inputLine": get_hgvs_from_post_mapped(mv.post_mapped) or "",
+                "position": str(i),
+            }
+            for i, mv in enumerate(mapped_variants)
         ]
 
         with (
@@ -892,10 +900,12 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             dummy_variant_mapping_job_run,
         )
 
-        # Patch ClinGenAlleleRegistryService to return registered alleles that do not match submitted HGVS
+        # Patch ClinGenAlleleRegistryService to return only errors with no linked alleles
         registered_alleles_mock = [
-            {"@id": "CA123456", "type": "nucleotide", "genomicAlleles": [{"hgvs": "NC_000007.14:g.140453136A>C"}]},
-            {"@id": "CA234567", "type": "nucleotide", "genomicAlleles": [{"hgvs": "NC_000007.14:g.140453136A>G"}]},
+            {"errorType": "InvalidHGVS", "hgvs": "test"},
+            {"errorType": "InvalidHGVS", "hgvs": "test2"},
+            {"errorType": "InvalidHGVS", "hgvs": "test3"},
+            {"errorType": "InvalidHGVS", "hgvs": "test4"},
         ]
 
         with (
