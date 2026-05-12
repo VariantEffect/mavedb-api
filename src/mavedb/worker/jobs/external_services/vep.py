@@ -135,9 +135,8 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
     )
 
     # --- Phase 1: Initial VEP pass ---
-    all_consequences: dict[str, str | None] = {}
+    all_consequences: dict[str, str] = {}
     all_missing_hgvs: set[str] = set()
-    missing_hgvs_to_variant_ids: dict[str, list[int]] = {}
 
     for batch_idx, batch in enumerate(batches):
         logger.debug(
@@ -153,14 +152,16 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             extra=job_manager.logging_context(),
         )
 
-        all_consequences.update(consequences)
+        # Only store variants where VEP returned an actual consequence string. A None value
+        # means VEP knew the variant but couldn't classify it — treat that the same as absent
+        # and route to Recoder so we have the best chance of getting a consequence.
+        hit_consequences = {h: c for h, c in consequences.items() if c is not None}
+        all_consequences.update(hit_consequences)
 
-        missing_hgvs = set(hgvs_strings) - set(consequences.keys())
+        missing_hgvs = set(hgvs_strings) - set(hit_consequences.keys())
         for hgvs, mapped_variant_id in zip(hgvs_strings, mapped_variant_ids):
             if hgvs in missing_hgvs:
                 all_missing_hgvs.add(hgvs)
-                mv = mapped_variants_by_id[mapped_variant_id]
-                missing_hgvs_to_variant_ids.setdefault(hgvs, []).append(mv.variant_id)  # type: ignore
 
         progress_pct = int((batch_idx + 1) / len(batches) * 33)
         job_manager.save_to_context(
@@ -255,7 +256,10 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         )
 
         # --- Phase 3: VEP pass on the recoded genomic HGVS strings ---
-        recoded_vep_batch_list = list(batched(list(hgvs_to_genomic.values()), _VEP_BATCH_SIZE))
+        # hgvs_to_genomic maps original HGVS → list[str]; flatten to a deduplicated list of
+        # genomic strings before batching with VEP.
+        all_recoded_genomic_hgvs = list({g for genomic_list in hgvs_to_genomic.values() for g in genomic_list})
+        recoded_vep_batch_list = list(batched(all_recoded_genomic_hgvs, _VEP_BATCH_SIZE))
         all_recoded_consequences: dict[str, str | None] = {}
 
         for recoded_vep_batch_idx, recoded_vep_batch in enumerate(recoded_vep_batch_list):

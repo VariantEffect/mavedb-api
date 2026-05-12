@@ -15,7 +15,6 @@ from mavedb.lib.clingen.constants import GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT
 from mavedb.lib.clingen.services import (
     ClinGenAlleleRegistryService,
     ClinGenLdhService,
-    get_allele_registry_associations,
 )
 from mavedb.lib.utils import batched
 
@@ -265,69 +264,3 @@ class TestClinGenAlleleRegistryService:
         content_submissions = ["NM_0001:c.1A>G"]
         result = car_service.dispatch_submissions(content_submissions)
         assert result == []
-
-
-def test_get_allele_registry_associations_success():
-    content_submissions = ["NM_0001:c.1A>G", "NM_0002:c.2T>C", "NM_0003:c.3G>A"]
-    submission_response = [
-        {
-            "@id": "http://reg.test.genome.network/allele/CA123",
-            "genomicAlleles": [{"hgvs": "NM_0001:c.1A>G"}],
-            "transcriptAlleles": [],
-        },
-        {
-            "@id": "http://reg.test.genome.network/allele/CA456",
-            "genomicAlleles": [],
-            "transcriptAlleles": [{"hgvs": "NM_0002:c.2T>C"}],
-        },
-        {
-            "@id": "http://reg.test.genome.network/allele/CA789",
-            "genomicAlleles": [],
-            "transcriptAlleles": [],
-            "aminoAcidAlleles": [{"hgvs": "NM_0003:c.3G>A"}],
-        },
-    ]
-    result = get_allele_registry_associations(content_submissions, submission_response)
-    assert result == {"NM_0001:c.1A>G": "CA123", "NM_0002:c.2T>C": "CA456", "NM_0003:c.3G>A": "CA789"}
-
-
-def test_get_allele_registry_associations_empty():
-    result = get_allele_registry_associations([], [])
-    assert result == {}
-
-
-def test_get_allele_registry_associations_no_match():
-    content_submissions = ["NM_0001:c.1A>G"]
-    submission_response = [
-        {
-            "@id": "http://reg.test.genome.network/allele/CA123",
-            "genomicAlleles": [{"hgvs": "NM_0002:c.2T>C"}],
-            "transcriptAlleles": [],
-        }
-    ]
-    result = get_allele_registry_associations(content_submissions, submission_response)
-    assert result == {}
-
-
-def test_get_allele_registry_associations_mixed():
-    content_submissions = ["NM_0001:c.1A>G", "NM_0002:c.2T>C", "NM_0003:c.3G>A"]
-    submission_response = [
-        {
-            "@id": "http://reg.test.genome.network/allele/CA123",
-            "genomicAlleles": [{"hgvs": "NM_0001:c.1A>G"}],
-            "transcriptAlleles": [],
-        },
-        {
-            "errorType": "InvalidHGVS",
-            "hgvs": "NM_0002:c.2T>C",
-            "message": "The HGVS string is invalid.",
-        },
-        {
-            "@id": "http://reg.test.genome.network/allele/CA789",
-            "genomicAlleles": [],
-            "transcriptAlleles": [{"hgvs": "NM_0003:c.3G>A"}],
-        },
-    ]
-
-    result = get_allele_registry_associations(content_submissions, submission_response)
-    assert result == {"NM_0001:c.1A>G": "CA123", "NM_0003:c.3G>A": "CA789"}

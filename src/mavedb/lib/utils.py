@@ -1,7 +1,7 @@
 import logging
-import requests
 import time
 
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -11,11 +11,22 @@ def request_with_backoff(
 ) -> requests.Response:
     attempt = 0
     while attempt <= backoff_limit:
-        logger.debug(f"Attempting request to {url}. This is attempt {attempt+1}.")
+        logger.debug(f"Attempting request to {url}. This is attempt {attempt + 1}.")
         try:
             response = requests.request(method=method, url=url, **kwargs)
             response.raise_for_status()
             return response
+        except requests.exceptions.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            # 429 means rate-limited — retrying with backoff is the correct response.
+            # Other 4xx errors are client mistakes that won't improve on retry.
+            if status is not None and status != 429 and status < 500:
+                raise
+            logger.warning(f"Request to {url} failed with status {status}.", exc_info=exc)
+            backoff_time = backoff_wait * (2**attempt)
+            attempt += 1
+            logger.info(f"Retrying request to {url} in {backoff_wait} seconds.")
+            time.sleep(backoff_time)
         except requests.exceptions.RequestException as exc:
             logger.warning(f"Request to {url} failed.", exc_info=exc)
             backoff_time = backoff_wait * (2**attempt)

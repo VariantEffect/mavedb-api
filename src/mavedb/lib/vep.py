@@ -6,6 +6,8 @@ import logging
 import os
 from typing import Optional, Sequence
 
+import requests
+
 from mavedb.lib.utils import request_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -80,44 +82,48 @@ async def run_variant_recoder(missing_hgvs: Sequence[str]) -> dict[str, list[str
 
     Returns:
         dict[str, list[str]]: Mapping of input HGVS to list of genomic HGVS strings (hgvsg).
-
-    Raises:
-        VEPProcessingError: If the API request fails.
+                              Returns an empty dict if Ensembl rejects the batch (e.g. 400 for
+                              unrecognised identifiers) — callers treat missing entries as failures.
     """
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     # request_with_backoff is synchronous (requests lib + time.sleep backoff); run_in_executor
     # keeps the event loop free during the full request + any retry wait time.
     loop = asyncio.get_running_loop()
-    response = await loop.run_in_executor(
-        None,
-        functools.partial(
-            request_with_backoff,
-            method="POST",
-            url=f"{ENSEMBL_API_URL}/variant_recoder/human",
-            headers=headers,
-            json={"ids": list(missing_hgvs)},
-            timeout=600,  # Variant Recoder can be very slow for large batches and 504s are common; generous timeout and backoff retries are needed
-        ),
-    )
-    hgvs_to_genomic: dict[str, list[str]] = {}
-    # request_with_backoff handles http errors, so no need to check response status
+    try:
+        response = await loop.run_in_executor(
+            None,
+            functools.partial(
+                request_with_backoff,
+                method="POST",
+                url=f"{ENSEMBL_API_URL}/variant_recoder/human",
+                headers=headers,
+                json={"ids": list(missing_hgvs)},
+                timeout=600,  # Variant Recoder can be very slow for large batches and 504s are common; generous timeout and backoff retries are needed
+            ),
+        )
+    except requests.exceptions.HTTPError as exc:
+        # A 4xx from Ensembl (e.g. 400 for an unrecognised identifier format) means the batch
+        # cannot be recoded.  Return empty so callers can handle these missing entries.
+        logger.warning(
+            f"Variant Recoder returned {exc.response.status_code if exc.response is not None else 'unknown'} "
+            f"for batch of {len(missing_hgvs)} HGVS strings — treating as no results.",
+            exc_info=exc,
+        )
+        return {}
+
     data = response.json()
-    for entry in data:
-        hgvs_string = entry.get("input")
-        if not hgvs_string:
-            continue
-        genomic_hgvs_list = []
-        for variant, variant_data in entry.items():
-            if variant == "input":
+    # request_with_backoff handles http errors, so no need to check response status
+    hgvs_to_genomic: dict[str, list[str]] = {}
+    for input_variant in data:
+        for variant_str, variant_data in input_variant.items():
+            hgvs_string = variant_data.get("input") if isinstance(variant_data, dict) else None
+            if variant_str == "input" or not hgvs_string:
                 continue
             genomic_strings = variant_data.get("hgvsg") if isinstance(variant_data, dict) else None
             if genomic_strings:
                 for genomic_hgvs in genomic_strings:
                     if genomic_hgvs.startswith("NC_"):
-                        genomic_hgvs_list.append(genomic_hgvs)
-        if genomic_hgvs_list:
-            hgvs_to_genomic[hgvs_string] = genomic_hgvs_list
-
+                        hgvs_to_genomic.setdefault(hgvs_string, []).append(genomic_hgvs)
     return hgvs_to_genomic
 
 
@@ -133,10 +139,10 @@ async def get_functional_consequence(hgvs_strings: Sequence[str]) -> dict[str, O
 
     Returns:
         dict[str, Optional[str]]: Mapping of HGVS string to functional consequence.
-                                  If no consequence found, maps to None.
-
-    Raises:
-        VEPProcessingError: If VEP API processing fails critically.
+                                  If no consequence found, maps to None.  Returns an empty dict
+                                  if Ensembl rejects the batch (e.g. 400 for unrecognised
+                                  identifiers) — callers treat missing entries as needing Recoder
+                                  fallback or as failures.
     """
     if len(hgvs_strings) > 200:
         raise ValueError(
@@ -149,19 +155,28 @@ async def get_functional_consequence(hgvs_strings: Sequence[str]) -> dict[str, O
     # request_with_backoff is synchronous (requests lib + time.sleep backoff); run_in_executor
     # keeps the event loop free during the full request + any retry wait time.
     loop = asyncio.get_running_loop()
-    response = await loop.run_in_executor(
-        None,
-        functools.partial(
-            request_with_backoff,
-            method="POST",
-            url=f"{ENSEMBL_API_URL}/vep/human/hgvs",
-            headers=headers,
-            json={"hgvs_notations": list(hgvs_strings)},
-            timeout=60,  # VEP can be slow for large batches.
-        ),
-    )
+    try:
+        response = await loop.run_in_executor(
+            None,
+            functools.partial(
+                request_with_backoff,
+                method="POST",
+                url=f"{ENSEMBL_API_URL}/vep/human/hgvs",
+                headers=headers,
+                json={"hgvs_notations": list(hgvs_strings)},
+                timeout=60,  # VEP can be slow for large batches.
+            ),
+        )
+    except requests.exceptions.HTTPError as exc:
+        # A 4xx from Ensembl (e.g. 400 for an unrecognised identifier) means the batch cannot
+        # be resolved.  Return empty so the callers can handle these missing entries.
+        logger.warning(
+            f"VEP returned {exc.response.status_code if exc.response is not None else 'unknown'} "
+            f"for batch of {len(hgvs_strings)} HGVS strings — treating as no results.",
+            exc_info=exc,
+        )
+        return result
 
-    # request_with_backoff handles http errors, so no need to check response status
     data = response.json()
     for entry in data:
         hgvs = entry.get("input")
