@@ -1230,9 +1230,9 @@ def setup_sample_variants_for_vep(session, with_populated_domain_data, mock_work
     variant = Variant(
         urn="urn:variant:test-variant-for-vep",
         score_set_id=score_set.id,
-        hgvs_nt="NM_007294.4:c.5G>A",
+        hgvs_nt="NM_007294.4:c.5A>G",
         hgvs_pro="NP_009225.1:p.Cys2Tyr",
-        data={"hgvs_c": "NM_007294.4:c.5G>A", "hgvs_p": "NP_009225.1:p.Cys2Tyr"},
+        data={"hgvs_c": "NM_007294.4:c.5A>G", "hgvs_p": "NP_009225.1:p.Cys2Tyr"},
     )
     session.add(variant)
     session.commit()
@@ -1241,8 +1241,40 @@ def setup_sample_variants_for_vep(session, with_populated_domain_data, mock_work
         current=True,
         mapped_date="2024-01-01T00:00:00Z",
         mapping_api_version="1.0.0",
-        post_mapped={"type": "Allele", "expressions": [{"value": "NM_007294.4:c.5G>A", "syntax": "hgvs.c"}]},
-        hgvs_assay_level="NM_007294.4:c.5G>A",
+        post_mapped={"type": "Allele", "expressions": [{"value": "NM_007294.4:c.5A>G", "syntax": "hgvs.c"}]},
+        hgvs_assay_level="NM_007294.4:c.5A>G",
+    )
+    session.add(mapped_variant)
+    session.commit()
+    return variant, mapped_variant
+
+
+@pytest.fixture
+def setup_sample_protein_variant_for_vep(session, with_populated_domain_data, mock_worker_ctx, sample_populate_vep_run):
+    """Setup a protein HGVS variant (NP_ accession) that VEP cannot resolve directly.
+
+    VEP's /vep/human/hgvs endpoint does not return results for protein HGVS strings like
+    NP_009225.1:p.Val1696His, so these must be recoded via Variant Recoder first.  This fixture
+    exercises the recoder fallback path end-to-end.
+    """
+    score_set = session.get(ScoreSet, sample_populate_vep_run.job_params["score_set_id"])
+
+    variant = Variant(
+        urn="urn:variant:test-protein-variant-for-vep",
+        score_set_id=score_set.id,
+        hgvs_pro="NP_009225.1:p.Val1696His",
+        data={"hgvs_p": "NP_009225.1:p.Val1696His"},
+    )
+    session.add(variant)
+    session.commit()
+
+    mapped_variant = MappedVariant(
+        variant_id=variant.id,
+        current=True,
+        mapped_date="2024-01-01T00:00:00Z",
+        mapping_api_version="1.0.0",
+        post_mapped={"type": "Allele", "expressions": [{"value": "NP_009225.1:p.Val1696His", "syntax": "hgvs.p"}]},
+        hgvs_assay_level="NP_009225.1:p.Val1696His",
     )
     session.add(mapped_variant)
     session.commit()

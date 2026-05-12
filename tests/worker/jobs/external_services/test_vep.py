@@ -11,6 +11,9 @@ from sqlalchemy import select
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus, JobStatus
+from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.score_set import ScoreSet
+from mavedb.models.variant import Variant
 from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 from mavedb.worker.jobs.external_services.vep import populate_vep_for_score_set
 from mavedb.worker.lib.managers.job_manager import JobManager
@@ -244,6 +247,143 @@ class TestPopulateVepForScoreSetUnit:
         ).one()
         assert annotation.status == AnnotationStatus.FAILED
         assert annotation.failure_category == AnnotationFailureCategory.EXTERNAL_REFERENCE_NOT_FOUND
+
+    async def test_vep_none_consequence_routes_to_recoder(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_variants_for_vep,
+    ):
+        """A None consequence from VEP Phase 1 is treated as a miss and routed through Recoder.
+
+        VEP can return an entry with most_severe_consequence=None when it recognises a variant
+        but cannot classify it.  This should not silently fall into the UNKNOWN outcome branch —
+        instead it should be treated identically to an absent entry and sent to Recoder.
+        """
+        _, mapped_variant = setup_sample_variants_for_vep
+        hgvs = mapped_variant.hgvs_assay_level
+        genomic_hgvs = "NC_000017.11:g.43094692C>T"
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
+                side_effect=[
+                    {hgvs: None},  # VEP knows the variant but returns no consequence
+                    {genomic_hgvs: "missense_variant"},  # Phase 3 on recoded genomic string
+                ],
+            ),
+            patch(
+                "mavedb.worker.jobs.external_services.vep.run_variant_recoder",
+                return_value={hgvs: [genomic_hgvs]},
+            ),
+        ):
+            result = await populate_vep_for_score_set(
+                mock_worker_ctx,
+                1,
+                JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["variants_with_consequences"] == 1
+
+        session.refresh(mapped_variant)
+        assert mapped_variant.vep_functional_consequence == "missense_variant"
+
+    async def test_most_severe_consequence_selected_from_multiple_genomic_hgvs(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_variants_for_vep,
+    ):
+        """When Recoder returns multiple genomic strings with different consequences, the most severe wins."""
+        _, mapped_variant = setup_sample_variants_for_vep
+        hgvs = mapped_variant.hgvs_assay_level
+        genomic_less_severe = "NC_000017.11:g.43094692C>T"  # → missense_variant
+        genomic_more_severe = "NC_000017.11:g.43094692C>A"  # → stop_gained
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
+                side_effect=[
+                    {},  # Phase 1: VEP misses
+                    {
+                        genomic_less_severe: "missense_variant",
+                        genomic_more_severe: "stop_gained",
+                    },  # Phase 3: two different consequences
+                ],
+            ),
+            patch(
+                "mavedb.worker.jobs.external_services.vep.run_variant_recoder",
+                return_value={hgvs: [genomic_less_severe, genomic_more_severe]},
+            ),
+        ):
+            result = await populate_vep_for_score_set(
+                mock_worker_ctx,
+                1,
+                JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
+            )
+
+        assert result.data["variants_with_consequences"] == 1
+
+        session.refresh(mapped_variant)
+        assert mapped_variant.vep_functional_consequence == "stop_gained"
+
+    async def test_multiple_variants_sharing_hgvs_all_get_consequence(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_variants_for_vep,
+    ):
+        """All mapped variants that share an HGVS string each receive the consequence."""
+        _, mapped_variant_1 = setup_sample_variants_for_vep
+        hgvs = mapped_variant_1.hgvs_assay_level
+
+        score_set = session.get(ScoreSet, sample_populate_vep_run.job_params["score_set_id"])
+        variant_2 = Variant(
+            urn="urn:variant:test-variant-for-vep-2",
+            score_set_id=score_set.id,
+            hgvs_nt=hgvs,
+            data={"hgvs_c": hgvs},
+        )
+        session.add(variant_2)
+        session.commit()
+        mapped_variant_2 = MappedVariant(
+            variant_id=variant_2.id,
+            current=True,
+            mapped_date="2024-01-01T00:00:00Z",
+            mapping_api_version="1.0.0",
+            post_mapped={"type": "Allele", "expressions": [{"value": hgvs, "syntax": "hgvs.c"}]},
+            hgvs_assay_level=hgvs,
+        )
+        session.add(mapped_variant_2)
+        session.commit()
+
+        with patch(
+            "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
+            return_value={hgvs: "missense_variant"},
+        ):
+            result = await populate_vep_for_score_set(
+                mock_worker_ctx,
+                1,
+                JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
+            )
+
+        assert result.data["variants_processed"] == 2
+        assert result.data["variants_with_consequences"] == 2
+
+        session.refresh(mapped_variant_1)
+        session.refresh(mapped_variant_2)
+        assert mapped_variant_1.vep_functional_consequence == "missense_variant"
+        assert mapped_variant_2.vep_functional_consequence == "missense_variant"
 
     async def test_vep_batch_api_exception_raises(
         self,
