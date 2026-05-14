@@ -7,8 +7,10 @@ from ga4gh.vrs.models import (
     Allele,
     CisPhasedBlock,
     Expression,
+    LengthExpression,
     LiteralSequenceExpression,
     MolecularVariation,
+    ReferenceLengthExpression,
     SequenceLocation,
     SequenceReference,
 )
@@ -81,9 +83,26 @@ def allele_from_mapped_variant_dictionary_result(allelic_mapping_results: dict) 
     except KeyError:
         variation = allelic_mapping_results
 
+    state_dict = variation["state"]
+    state: ReferenceLengthExpression | LengthExpression | LiteralSequenceExpression
+    if state_dict.get("type") == "ReferenceLengthExpression":
+        state = ReferenceLengthExpression(**state_dict)
+    elif state_dict.get("type") == "LengthExpression":
+        state = LengthExpression(**state_dict)
+    elif state_dict.get("type") == "LiteralSequenceExpression":
+        state = LiteralSequenceExpression(**state_dict)
+    else:
+        raise ValueError(
+            f"Unsupported VRS Allele state type {state_dict.get('type')!r}. "
+            "Update allele_from_mapped_variant_dictionary_result to handle this type."
+        )
+
+    # Explicit field extraction for alleles is intentional: stored dicts may contain extra fields (e.g. "type" on
+    # Extension, "label" on SequenceReference) that the strict VRS Pydantic models forbid, so using model_validate()
+    # directly is not possible against stored mapping results.
     return Allele(
         id=variation.get("id"),
-        state=LiteralSequenceExpression(**variation["state"]),
+        state=state,
         digest=variation.get("digest"),
         location=SequenceLocation(
             start=variation.get("location", {}).get("start"),

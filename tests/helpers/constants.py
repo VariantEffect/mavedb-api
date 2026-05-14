@@ -126,6 +126,45 @@ TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE = {
     "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE, TEST_VALID_POST_MAPPED_VRS_ALLELE],
 }
 
+TEST_VALID_POST_MAPPED_VRS_ALLELE_RLE = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "ReferenceLengthExpression", "length": 5, "repeatSubunitLength": 5},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 6,
+        "type": "SequenceLocation",
+        "start": 5,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "label": TEST_REFSEQ_IDENTIFIER,
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "expressions": [{"value": f"{TEST_REFSEQ_IDENTIFIER}:p.=", "syntax": "hgvs.p"}],
+}
+
+TEST_VALID_POST_MAPPED_VRS_ALLELE_LENGTH_EXPRESSION = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LengthExpression", "length": 5},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 6,
+        "type": "SequenceLocation",
+        "start": 5,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "label": TEST_REFSEQ_IDENTIFIER,
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+}
+
 TEST_PUBMED_PUBLICATION = {
     "identifier": TEST_PUBMED_IDENTIFIER,
     "db_name": "PubMed",
