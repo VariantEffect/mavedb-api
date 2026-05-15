@@ -2890,16 +2890,46 @@ def test_search_score_sets_not_affected_by_experiment_metadata(
     assert response.json()["numScoreSets"] == num_score_sets
 
 
-def test_search_score_sets_not_affected_by_multiple_superseding_versions(
+def test_cannot_create_multiple_superseding_versions(
+        session, data_provider, client, setup_router_db, data_files
+):
+    """Attempting to create multiple superseding versions should fail."""
+    experiment = create_experiment(client, {"title": "Original Experiment"})
+    score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Original Score Set"})
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    # Create the first private superseding score set successfully
+    first_superseding = create_seq_score_set(
+        client,
+        create_experiment(client, {"title": "First Superseding Experiment"})["urn"],
+        update={"title": "First Superseding", "supersededScoreSetUrn": published["urn"]},
+    )
+    assert first_superseding is not None
+
+    # Attempt to create the second private superseding score set for the same published score set
+    # This should fail due to the unique constraint on replaces_id
+    experiment2 = create_experiment(client)
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = experiment2["urn"]
+    score_set_post_payload["supersededScoreSetUrn"] = published["urn"]
+
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 404
+    assert ("The newsest version of requested superseded score set is private. "
+            "Multiple score sets supersede to the same score set.") in response.json()["detail"]
+
+
+def test_search_score_sets_not_affected_by_an_unpublishing_superseding_versions(
     session, data_provider, client, setup_router_db, data_files
 ):
-    """Multiple unpublished superseding versions of the same score set should not reduce search page size.
+    """One unpublished superseding versions of the same score set should not reduce search page size.
 
     Regression test for a bug where the superseding score set filter used a LEFT OUTER JOIN
-    (scoresets LEFT JOIN scoresets AS s ON scoresets.id = s.replaces_id). Since replaces_id has
-    no uniqueness constraint, a score set with N superseding versions produces N rows, all inside
-    the LIMIT boundary. This consumed extra row budget and caused paginated searches to return
-    fewer unique score sets than the requested limit.
+    (scoresets LEFT JOIN scoresets AS s ON scoresets.id = s.replaces_id). replaces_id has
+    uniqueness constraint now.
     """
     num_published = 3
     published_urns = []
@@ -2912,14 +2942,12 @@ def test_search_score_sets_not_affected_by_multiple_superseding_versions(
             published = publish_score_set(client, score_set["urn"])
         published_urns.append(published["urn"])
 
-    # Create multiple unpublished superseding versions for the first score set.
-    # These share the same replaces_id, which caused row multiplication with the old LEFT JOIN filter.
-    for j in range(3):
-        create_seq_score_set(
-            client,
-            create_experiment(client, {"title": f"Superseding Experiment {j}"})["urn"],
-            update={"title": f"Superseding {j}", "supersededScoreSetUrn": published_urns[0]},
-        )
+    # Create an unpublished superseding versions for the first score set.
+    create_seq_score_set(
+        client,
+        create_experiment(client, {"title": f"Superseding Experiment {1}"})["urn"],
+        update={"title": f"Superseding {1}", "supersededScoreSetUrn": published_urns[0]},
+    )
 
     search_payload = {"limit": 2}
     response = client.post("/api/v1/score-sets/search", json=search_payload)

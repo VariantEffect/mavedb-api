@@ -54,6 +54,7 @@ from mavedb.lib.score_sets import (
     csv_data_to_df,
     fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
+    find_superseded_score_set_tail,
     get_score_set_variants_as_csv,
     refresh_variant_urns,
     variants_to_csv_rows,
@@ -1612,6 +1613,18 @@ async def create_score_set(
             raise HTTPException(
                 status_code=404,
                 detail="The requested superseded score set does not exist",
+            )
+        superseded_score_set = find_superseded_score_set_tail(superseded_score_set, Action.READ, user_data)
+        if superseded_score_set.private:
+            logger.info(
+                msg="Failed to create score set; The newsest version of requested superseded score set is private. "
+                    "Multiple score sets supersede to the same score set.",
+                extra=logging_context(),
+            )
+            raise HTTPException(
+                status_code=404,
+                detail="The newsest version of requested superseded score set is private. "
+                       "Multiple score sets supersede to the same score set.",
             )
     else:
         superseded_score_set = None
