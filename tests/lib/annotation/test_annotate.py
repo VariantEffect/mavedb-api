@@ -273,3 +273,24 @@ class TestVariantPathogenicityStatement:
             assert result.type == "Statement"
             # Classification should be UNCERTAIN_SIGNIFICANCE
             assert result.classification.primaryCoding.code.root == "uncertain significance"
+
+    def test_pathogenicity_evidence_line_has_evidence_items_are_statement_instances(
+        self, mock_mapped_variant_with_pathogenicity_calibration_score_set
+    ):
+        """Regression test: hasEvidenceItems on VariantPathogenicityEvidenceLine must be model instances.
+
+        Passing serialized dict representations of Statement objects to hasEvidenceItems caused
+        VariantPathogenicityEvidenceLine validation to fail when reconstructing nested VRS objects
+        (e.g. Allele with production genomic coordinates). Model instances must be stored directly.
+        """
+        result = variant_pathogenicity_statement(mock_mapped_variant_with_pathogenicity_calibration_score_set)
+
+        assert result is not None
+        for evidence_line in result.hasEvidenceLines:
+            assert evidence_line.hasEvidenceItems is not None
+            for evidence_item in evidence_line.hasEvidenceItems:
+                # Must be a model instance, not a raw dict
+                assert not isinstance(
+                    evidence_item, dict
+                ), "hasEvidenceItems contained a raw dict instead of a model instance"
+                assert evidence_item.type == "Statement"

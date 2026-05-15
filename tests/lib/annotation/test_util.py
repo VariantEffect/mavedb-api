@@ -26,7 +26,6 @@ from mavedb.lib.annotation.util import (
     select_strongest_functional_calibration,
     select_strongest_pathogenicity_calibration,
     sequence_feature_for_mapped_variant,
-    serialize_evidence_items,
     variation_from_mapped_variant,
     vrs_object_from_mapped_variant,
 )
@@ -570,24 +569,6 @@ class TestSequenceFeatureForMappedVariantUnit:
             with patch("mavedb.lib.annotation.util.extract_ids_from_post_mapped_metadata", return_value=[]):
                 with pytest.raises(MappingDataDoesntExistException):
                     sequence_feature_for_mapped_variant(mock_mapped_variant)
-
-
-@pytest.mark.unit
-class TestSerializeEvidenceItems:
-    def test_serialize_evidence_items_serializes_all_items_in_order(self):
-        first_item = SimpleNamespace(model_dump=lambda *, exclude_none: {"id": "first", "exclude_none": exclude_none})
-        second_item = SimpleNamespace(model_dump=lambda *, exclude_none: {"id": "second", "exclude_none": exclude_none})
-
-        result = serialize_evidence_items([first_item, second_item])
-
-        assert result == [
-            {"id": "first", "exclude_none": True},
-            {"id": "second", "exclude_none": True},
-        ]
-
-    def test_serialize_evidence_items_raises_for_non_dumpable_item(self):
-        with pytest.raises(TypeError, match="model_dump"):
-            serialize_evidence_items([SimpleNamespace(not_model_dump=True)])
 
 
 @pytest.mark.integration

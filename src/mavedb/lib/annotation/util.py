@@ -1,5 +1,4 @@
-from collections.abc import Sequence
-from typing import Any, Literal, Optional
+from typing import Literal, Optional
 
 from ga4gh.core.models import Extension
 from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided as VaSpecStrengthOfEvidenceProvided
@@ -27,33 +26,6 @@ from mavedb.lib.variants import target_for_variant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
-
-
-def serialize_evidence_items(evidence: Sequence[Any]) -> list[dict[str, Any]]:
-    """Serialize evidence objects to dictionaries using `model_dump(exclude_none=True)`.
-
-    Args:
-        evidence (Sequence[Any]): Evidence objects expected to provide a
-            `model_dump` method.
-
-    Returns:
-        list[dict[str, Any]]: Evidence payloads suitable for assignment to
-            GA4GH VA model fields such as `hasEvidenceItems`.
-
-    Raises:
-        TypeError: If any item does not expose a callable `model_dump` method.
-    """
-
-    serialized_evidence: list[dict[str, Any]] = []
-
-    for evidence_item in evidence:
-        model_dump = getattr(evidence_item, "model_dump", None)
-        if not callable(model_dump):
-            raise TypeError("Evidence items must provide a callable model_dump method.")
-
-        serialized_evidence.append(model_dump(exclude_none=True))
-
-    return serialized_evidence
 
 
 def allele_from_mapped_variant_dictionary_result(allelic_mapping_results: dict) -> Allele:
