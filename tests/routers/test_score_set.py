@@ -2918,8 +2918,8 @@ def test_cannot_create_multiple_superseding_versions(
 
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     assert response.status_code == 404
-    assert ("The newsest version of requested superseded score set is private. "
-            "Multiple score sets supersede to the same score set.") in response.json()["detail"]
+    assert ("The newest version of the requested superseded score set is not accessible. "
+            "It may be private and multiple score sets supersede the same score set.") in response.json()["detail"]
 
 
 def test_search_score_sets_not_affected_by_an_unpublishing_superseding_versions(

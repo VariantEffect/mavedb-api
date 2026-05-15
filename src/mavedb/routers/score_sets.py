@@ -1601,11 +1601,11 @@ async def create_score_set(
 
     save_to_logging_context({"requested_superseded_score_set": item_create.superseded_score_set_urn})
     if item_create.superseded_score_set_urn is not None:
-        superseded_score_set = await fetch_score_set_by_urn(
+        current_superseded = await fetch_score_set_by_urn(
             db, item_create.superseded_score_set_urn, user_data, user_data, True
         )
 
-        if superseded_score_set is None:
+        if current_superseded is None:
             logger.info(
                 msg="Failed to create score set; The requested superseded score set does not exist.",
                 extra=logging_context(),
@@ -1614,17 +1614,16 @@ async def create_score_set(
                 status_code=404,
                 detail="The requested superseded score set does not exist",
             )
-        superseded_score_set = find_superseded_score_set_tail(superseded_score_set, Action.READ, user_data)
-        if superseded_score_set.private:
+        superseded_score_set: Optional[ScoreSet] = find_superseded_score_set_tail(current_superseded, Action.READ, user_data)
+        if superseded_score_set is None or superseded_score_set.private:
             logger.info(
-                msg="Failed to create score set; The newsest version of requested superseded score set is private. "
-                    "Multiple score sets supersede to the same score set.",
+                msg="Failed to create score set; The newest version of the requested superseded score set is not accessible.",
                 extra=logging_context(),
             )
             raise HTTPException(
                 status_code=404,
-                detail="The newsest version of requested superseded score set is private. "
-                       "Multiple score sets supersede to the same score set.",
+                detail="The newest version of the requested superseded score set is not accessible. "
+                       "It may be private and multiple score sets supersede the same score set.",
             )
     else:
         superseded_score_set = None
