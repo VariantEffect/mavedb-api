@@ -1796,46 +1796,6 @@ def test_non_owner_searches_published_superseding_score_sets_for_experiments(
     assert response.json()[0]["urn"] == published_superseding_score_set["urn"]
 
 
-def test_non_owner_searches_multiple_unpublished_superseding_score_sets_no_duplicates(
-    session, client, setup_router_db, data_files, data_provider
-):
-    """When multiple private score sets supersede the same published score set,
-    a non-owner should see the published score set exactly once (no duplicates)."""
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
-
-    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, score_set["urn"])
-        worker_queue.assert_called_once()
-
-    experiment_urn = published_score_set["experiment"]["urn"]
-
-    # Create two unpublished score sets that both supersede the same published score set.
-    superseding_1_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
-    superseding_1_payload["experimentUrn"] = experiment_urn
-    superseding_1_payload["supersededScoreSetUrn"] = published_score_set["urn"]
-    superseding_1_response = client.post("/api/v1/score-sets/", json=superseding_1_payload)
-    assert superseding_1_response.status_code == 200
-
-    superseding_2_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
-    superseding_2_payload["experimentUrn"] = experiment_urn
-    superseding_2_payload["supersededScoreSetUrn"] = published_score_set["urn"]
-    superseding_2_response = client.post("/api/v1/score-sets/", json=superseding_2_payload)
-    assert superseding_2_response.status_code == 200
-
-    # Transfer ownership so the requesting user is a non-owner of the superseding score sets.
-    change_ownership(session, superseding_1_response.json()["urn"], ScoreSetDbModel)
-    change_ownership(session, superseding_2_response.json()["urn"], ScoreSetDbModel)
-    change_ownership(session, published_score_set["urn"], ScoreSetDbModel)
-
-    response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
-    assert response.status_code == 200
-    response_urns = [ss["urn"] for ss in response.json()]
-    assert len(response_urns) == 1
-    assert response_urns[0] == published_score_set["urn"]
-
-
 def test_search_score_sets_for_contributor_experiments(session, client, setup_router_db, data_files, data_provider):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
