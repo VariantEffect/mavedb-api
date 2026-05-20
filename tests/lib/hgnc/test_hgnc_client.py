@@ -1,6 +1,10 @@
 # ruff: noqa: E402
 
 import pytest
+
+# starlette is required for logging context functionality.
+pytest.importorskip("starlette")
+
 from unittest import mock
 
 import requests

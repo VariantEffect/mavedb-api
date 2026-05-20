@@ -1,6 +1,10 @@
+# ruff: noqa: E402
 """Network tests for the HGNC REST client. Require a live connection to rest.genenames.org."""
 
 import pytest
+
+# starlette is required for logging context functionality.
+pytest.importorskip("starlette")
 
 from mavedb.lib.exceptions import HGNCGeneNotFoundError
 from mavedb.lib.hgnc.client import HGNCGeneInfo, fetch_gene_info
