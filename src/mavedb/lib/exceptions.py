@@ -210,6 +210,18 @@ class UniProtPollingEnqueueError(ValueError):
     pass
 
 
+class HGNCGeneNotFoundError(Exception):
+    """Raised when HGNC REST does not recognize a gene symbol."""
+
+    pass
+
+
+class HGNCServiceError(Exception):
+    """Raised when HGNC REST cannot provide gene information."""
+
+    pass
+
+
 class LDHSubmissionFailureError(Exception):
     """Raised when submission to ClinGen Linked Data Hub (LDH) fails for all submissions."""
 
