@@ -13,6 +13,7 @@ from fastapi.security import (
     HTTPBearer,
 )
 from jose import jwt
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from mavedb import deps
@@ -230,7 +231,15 @@ async def get_current_user(
         )
 
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # A concurrent request created this user between our initial query and this commit.
+        # Roll back and re-fetch the existing record.
+        db.rollback()
+        user = db.query(User).filter(User.username == username).one()
+        logger.debug(msg="Concurrent first-login resolved; returning existing user.", extra=logging_context())
+
     db.refresh(user)
     logger.info(msg="Successfully authenticated user via JWT.", extra=logging_context())
 
