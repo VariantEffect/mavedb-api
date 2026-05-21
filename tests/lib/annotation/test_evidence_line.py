@@ -18,8 +18,13 @@ from ga4gh.va_spec.base.core import Direction, EvidenceLine
 from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
 
 from mavedb.lib.annotation.annotate import variant_study_result
+from mavedb.lib.annotation.classification import ExperimentalVariantFunctionalImpactClassification
 from mavedb.lib.annotation.evidence_line import acmg_evidence_line, functional_evidence_line
-from mavedb.lib.annotation.proposition import mapped_variant_to_experimental_variant_clinical_impact_proposition
+from mavedb.lib.annotation.proposition import (
+    mapped_variant_to_experimental_variant_clinical_impact_proposition,
+    mapped_variant_to_experimental_variant_functional_impact_proposition,
+)
+from mavedb.lib.annotation.statement import mapped_variant_to_functional_statement
 
 
 @pytest.mark.unit
@@ -59,7 +64,8 @@ class TestAcmgEvidenceLine:
         ):
             proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mapped_variant)
             study_result = variant_study_result(mapped_variant)
-            result = acmg_evidence_line(mapped_variant, score_calibration, proposition, [study_result])
+            evidence = functional_evidence_line(mapped_variant, score_calibration, [study_result])
+            result = acmg_evidence_line(mapped_variant, score_calibration, proposition, [evidence])
 
         if expected_strength == StrengthOfEvidenceProvided.STRONG:
             expected_evidence_outcome = expected_outcome.value
@@ -96,7 +102,8 @@ class TestAcmgEvidenceLine:
         ):
             proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mapped_variant)
             study_result = variant_study_result(mapped_variant)
-            result = acmg_evidence_line(mapped_variant, score_calibration, proposition, [study_result])
+            evidence = functional_evidence_line(mapped_variant, score_calibration, [study_result])
+            result = acmg_evidence_line(mapped_variant, score_calibration, proposition, [evidence])
 
         assert isinstance(result, VariantPathogenicityEvidenceLine)
         assert result.description == f"Pathogenicity evidence line for {mapped_variant.variant.urn}."
@@ -119,6 +126,39 @@ class TestAcmgEvidenceLine:
             proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mock_mapped_variant)
             study_result = variant_study_result(mock_mapped_variant)
             acmg_evidence_line(mock_mapped_variant, score_calibration, proposition, [study_result])
+
+    def test_acmg_evidence_line_accepts_statement_evidence_without_serialization_error(
+        self,
+        mock_mapped_variant_with_pathogenicity_calibration_score_set,
+    ):
+        """Regression test: VariantPathogenicityEvidenceLine must accept Statement instances directly.
+
+        Previously, acmg_evidence_line serialized Statement evidence to dicts via model_dump,
+        which caused VariantPathogenicityEvidenceLine validation to fail when reconstructing
+        nested VRS objects from those dicts (e.g. Allele with real genomic coordinates).
+        Evidence model instances must be passed directly, not serialized.
+        """
+        mapped_variant = mock_mapped_variant_with_pathogenicity_calibration_score_set
+        score_calibration = mapped_variant.variant.score_set.score_calibrations[0]
+
+        study_result = variant_study_result(mapped_variant)
+        functional_proposition = mapped_variant_to_experimental_variant_functional_impact_proposition(mapped_variant)
+        functional_evidence = functional_evidence_line(mapped_variant, score_calibration, [study_result])
+        functional_statement = mapped_variant_to_functional_statement(
+            mapped_variant,
+            functional_proposition,
+            [functional_evidence],
+            score_calibration,
+            ExperimentalVariantFunctionalImpactClassification.NORMAL,
+        )
+        clinical_proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mapped_variant)
+
+        result = acmg_evidence_line(mapped_variant, score_calibration, clinical_proposition, [functional_statement])
+
+        assert isinstance(result, VariantPathogenicityEvidenceLine)
+        assert len(result.hasEvidenceItems) == 1
+        # Evidence items must be Statement model instances, not raw dicts
+        assert result.hasEvidenceItems[0].type == "Statement"
 
 
 @pytest.mark.unit

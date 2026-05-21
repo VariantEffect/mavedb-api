@@ -30,7 +30,6 @@ from mavedb.lib.annotation.method import (
     functional_score_calibration_as_method,
     pathogenicity_score_calibration_as_method,
 )
-from mavedb.lib.annotation.util import serialize_evidence_items
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_calibration import ScoreCalibration
 
@@ -65,7 +64,7 @@ def acmg_evidence_line(
 
     return VariantPathogenicityEvidenceLine(
         description=f"Pathogenicity evidence line for {mapped_variant.variant.urn}.",
-        hasEvidenceItems=serialize_evidence_items(evidence),
+        hasEvidenceItems=list(evidence),
         specifiedBy=pathogenicity_score_calibration_as_method(score_calibration, evidence_outcome),
         evidenceOutcome={
             "primaryCoding": Coding(
@@ -102,7 +101,7 @@ def functional_evidence_line(
 
     return EvidenceLine(
         description=f"Functional evidence line for {mapped_variant.variant.urn}",
-        hasEvidenceItems=serialize_evidence_items(evidence),
+        hasEvidenceItems=[StudyResult(root=item) for item in evidence],
         directionOfEvidenceProvided=direction_of_support_for_functional_classification(classification),
         evidenceOutcome=MappableConcept(
             primaryCoding=Coding(
