@@ -26,11 +26,15 @@ from mavedb.lib.annotation.util import (
     select_strongest_functional_calibration,
     select_strongest_pathogenicity_calibration,
     sequence_feature_for_mapped_variant,
-    serialize_evidence_items,
     variation_from_mapped_variant,
     vrs_object_from_mapped_variant,
 )
-from tests.helpers.constants import TEST_SEQUENCE_LOCATION_ACCESSION, TEST_VALID_POST_MAPPED_VRS_ALLELE
+from tests.helpers.constants import (
+    TEST_SEQUENCE_LOCATION_ACCESSION,
+    TEST_VALID_POST_MAPPED_VRS_ALLELE,
+    TEST_VALID_POST_MAPPED_VRS_ALLELE_LENGTH_EXPRESSION,
+    TEST_VALID_POST_MAPPED_VRS_ALLELE_RLE,
+)
 
 
 @pytest.mark.unit
@@ -55,16 +59,60 @@ class TestVariationExtractionUnit:
         with pytest.raises(MappingDataDoesntExistException):
             variation_from_mapped_variant(mock_mapped_variant)
 
-    def test_vrs_object_from_mapped_variant_handles_haplotype_member_list(self):
-        mapping_results = {
-            "type": "Haplotype",
-            "members": [TEST_VALID_POST_MAPPED_VRS_ALLELE, TEST_VALID_POST_MAPPED_VRS_ALLELE],
+    @pytest.mark.parametrize(
+        "allele_dict, expected_state_type, expected_state_fields",
+        [
+            (
+                TEST_VALID_POST_MAPPED_VRS_ALLELE,
+                "LiteralSequenceExpression",
+                {"sequence": "F"},
+            ),
+            (
+                TEST_VALID_POST_MAPPED_VRS_ALLELE_RLE,
+                "ReferenceLengthExpression",
+                {"length": 5, "repeatSubunitLength": 5},
+            ),
+            (
+                TEST_VALID_POST_MAPPED_VRS_ALLELE_LENGTH_EXPRESSION,
+                "LengthExpression",
+                {"length": 5},
+            ),
+        ],
+        ids=["lse_state", "rle_state", "length_expression_state"],
+    )
+    def test_allele_state_type_is_deserialized_correctly(self, allele_dict, expected_state_type, expected_state_fields):
+        result = vrs_object_from_mapped_variant(allele_dict).model_dump()
+
+        assert result["state"]["type"] == expected_state_type
+        for k, v in expected_state_fields.items():
+            assert result["state"][k] == v
+
+    def test_unknown_allele_state_type_raises_value_error(self):
+        allele_dict = {
+            **TEST_VALID_POST_MAPPED_VRS_ALLELE,
+            "state": {"type": "UnknownFutureExpression", "someField": "someValue"},
         }
+
+        with pytest.raises(ValueError, match="Unsupported VRS Allele state type"):
+            vrs_object_from_mapped_variant(allele_dict)
+
+    @pytest.mark.parametrize(
+        "member_dict, expected_state_type",
+        [
+            (TEST_VALID_POST_MAPPED_VRS_ALLELE, "LiteralSequenceExpression"),
+            (TEST_VALID_POST_MAPPED_VRS_ALLELE_RLE, "ReferenceLengthExpression"),
+            (TEST_VALID_POST_MAPPED_VRS_ALLELE_LENGTH_EXPRESSION, "LengthExpression"),
+        ],
+        ids=["lse_members", "rle_members", "length_expression_members"],
+    )
+    def test_cis_phased_block_member_state_types_are_deserialized_correctly(self, member_dict, expected_state_type):
+        mapping_results = {"type": "CisPhasedBlock", "members": [member_dict, member_dict]}
 
         result = vrs_object_from_mapped_variant(mapping_results).model_dump()
 
         assert result["type"] == "CisPhasedBlock"
         assert len(result["members"]) == 2
+        assert result["members"][0]["state"]["type"] == expected_state_type
 
 
 @pytest.mark.unit
@@ -521,24 +569,6 @@ class TestSequenceFeatureForMappedVariantUnit:
             with patch("mavedb.lib.annotation.util.extract_ids_from_post_mapped_metadata", return_value=[]):
                 with pytest.raises(MappingDataDoesntExistException):
                     sequence_feature_for_mapped_variant(mock_mapped_variant)
-
-
-@pytest.mark.unit
-class TestSerializeEvidenceItems:
-    def test_serialize_evidence_items_serializes_all_items_in_order(self):
-        first_item = SimpleNamespace(model_dump=lambda *, exclude_none: {"id": "first", "exclude_none": exclude_none})
-        second_item = SimpleNamespace(model_dump=lambda *, exclude_none: {"id": "second", "exclude_none": exclude_none})
-
-        result = serialize_evidence_items([first_item, second_item])
-
-        assert result == [
-            {"id": "first", "exclude_none": True},
-            {"id": "second", "exclude_none": True},
-        ]
-
-    def test_serialize_evidence_items_raises_for_non_dumpable_item(self):
-        with pytest.raises(TypeError, match="model_dump"):
-            serialize_evidence_items([SimpleNamespace(not_model_dump=True)])
 
 
 @pytest.mark.integration

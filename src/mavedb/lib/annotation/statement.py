@@ -20,7 +20,6 @@ from mavedb.lib.annotation.method import (
     variant_interpretation_functional_guideline_method,
     variant_interpretation_pathogenicity_guideline_method,
 )
-from mavedb.lib.annotation.util import serialize_evidence_items
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
@@ -121,5 +120,5 @@ def mapped_variant_to_pathogenicity_statement(
                 system="ACMG Guidelines, 2015",
             ),
         ),
-        hasEvidenceLines=serialize_evidence_items(evidence),
+        hasEvidenceLines=list(evidence),
     )
