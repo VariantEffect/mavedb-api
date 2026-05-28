@@ -17,7 +17,7 @@ from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from pydantic import ValidationError
 from sqlalchemy import or_, select
-from sqlalchemy.exc import MultipleResultsFound
+from sqlalchemy.exc import MultipleResultsFound, IntegrityError
 from sqlalchemy.orm import Session, contains_eager
 
 from mavedb import deps
@@ -54,8 +54,8 @@ from mavedb.lib.score_sets import (
     csv_data_to_df,
     fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
-    find_superseded_score_set_tail,
     get_score_set_variants_as_csv,
+    is_replaces_id_unique_violation,
     refresh_variant_urns,
     variants_to_csv_rows,
 )
@@ -1601,11 +1601,11 @@ async def create_score_set(
 
     save_to_logging_context({"requested_superseded_score_set": item_create.superseded_score_set_urn})
     if item_create.superseded_score_set_urn is not None:
-        current_superseded = await fetch_score_set_by_urn(
+        superseded_score_set = await fetch_score_set_by_urn(
             db, item_create.superseded_score_set_urn, user_data, user_data, True
         )
 
-        if current_superseded is None:
+        if superseded_score_set is None or superseded_score_set.private:
             logger.info(
                 msg="Failed to create score set; The requested superseded score set does not exist.",
                 extra=logging_context(),
@@ -1614,16 +1614,15 @@ async def create_score_set(
                 status_code=404,
                 detail="The requested superseded score set does not exist",
             )
-        superseded_score_set: Optional[ScoreSet] = find_superseded_score_set_tail(current_superseded, Action.READ, user_data)
-        if superseded_score_set is None or superseded_score_set.private:
+
+        if superseded_score_set.superseding_score_set:
             logger.info(
-                msg="Failed to create score set; The newest version of the requested superseded score set is not accessible.",
+                msg=f"Failed to create score set. This score set has been superseded by score set: {superseded_score_set.superseding_score_set.urn}.",
                 extra=logging_context(),
             )
             raise HTTPException(
-                status_code=404,
-                detail="The newest version of the requested superseded score set is not accessible. "
-                       "It may be private and multiple score sets supersede the same score set.",
+                status_code=409,
+                detail=f"This score set has been superseded by score set: {superseded_score_set.superseding_score_set.urn}.",
             )
     else:
         superseded_score_set = None
@@ -1879,8 +1878,17 @@ async def create_score_set(
         score_calibrations=score_calibrations,
     )  # type: ignore[call-arg]
 
-    db.add(item)
-    db.commit()
+    try:
+        db.add(item)
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        if is_replaces_id_unique_violation(e):
+            raise HTTPException(
+                status_code=409,
+                detail="The requested score set has already been superseded.",
+            )
+        raise
     db.refresh(item)
 
     save_to_logging_context({"created_resource": item.urn})

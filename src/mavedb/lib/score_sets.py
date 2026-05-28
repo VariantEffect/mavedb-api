@@ -11,6 +11,7 @@ import pandas as pd
 from pandas.testing import assert_index_equal
 from sqlalchemy import Integer, and_, cast, func, or_, select
 from sqlalchemy.orm import Query, Session, aliased, contains_eager, joinedload, selectinload
+from sqlalchemy.exc import IntegrityError
 
 from mavedb.lib.exceptions import ValidationError
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
@@ -805,6 +806,19 @@ def is_null(value):
     """Return True if a string represents a null value."""
     value = str(value).strip().lower()
     return null_values_re.fullmatch(value) or not value
+
+
+def is_replaces_id_unique_violation(exc: IntegrityError) -> bool:
+    """
+    Return True if the IntegrityError was caused by the unique constraint on score_set.replaces_id.
+    """
+    orig = getattr(exc, "orig", None)
+    if orig is None:
+        return False
+
+    diag = getattr(orig, "diag", None)
+    detail = getattr(diag, "detail", "") or ""
+    return "replaces_id" in detail
 
 
 def variant_to_csv_row(
