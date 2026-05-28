@@ -1,7 +1,9 @@
 name: Run Tests
 on:
   push:
-    # Run all tests on main and release branches, fast (non-network) tests elsewhere
+    branches:
+      - main
+      - 'release-*'
   pull_request:
 
 env:
@@ -52,11 +54,11 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev
-    - name: Run fast tests on non-main branches
-      if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/release-')
+    - name: Run fast tests on PRs
+      if: github.event_name == 'pull_request'
       run: poetry run pytest tests/ -m "not network and not slow"
     - name: Run full tests on main and release branches
-      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-')
+      if: github.event_name == 'push'
       run: poetry run pytest tests/
 
   run-tests-3_12-core-dependencies:
@@ -71,11 +73,11 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev
-    - name: Run fast tests on non-main branches
-      if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/release-')
+    - name: Run fast tests on PRs
+      if: github.event_name == 'pull_request'
       run: poetry run pytest tests/ -m "not network and not slow"
     - name: Run all tests on main and release branches
-      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-')
+      if: github.event_name == 'push'
       run: poetry run pytest tests/
 
   run-tests-3_11:
@@ -92,13 +94,13 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev --extras server
-    - name: Run fast tests with coverage on non-main branches
-      if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/release-')
+    - name: Run fast tests with coverage on PRs
+      if: github.event_name == 'pull_request'
       run: |
         mkdir -p coverage
         poetry run pytest tests/ -m "not network and not slow" --show-capture=stdout --cov=src --cov-report=term-missing --cov-report=lcov:coverage/lcov.info
     - name: Run all tests with coverage on main and release branches
-      if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-')
+      if: github.event_name == 'push'
       run: |
         mkdir -p coverage
         poetry run pytest tests/ --show-capture=stdout --cov=src --cov-report=term-missing --cov-report=lcov:coverage/lcov.info
