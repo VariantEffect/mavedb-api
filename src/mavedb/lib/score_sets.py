@@ -906,7 +906,9 @@ def variant_to_csv_row(
             value = str(mapping.hgvs_g) if mapping and mapping.hgvs_g else na_rep
             if value == na_rep:
                 fallback_hgvs = (
-                    get_hgvs_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
+                    get_hgvs_from_post_mapped(mapping.post_mapped, combine_cis=True)
+                    if mapping and mapping.post_mapped
+                    else None
                 )
                 if fallback_hgvs is not None and is_hgvs_g(fallback_hgvs):
                     value = fallback_hgvs
@@ -917,7 +919,9 @@ def variant_to_csv_row(
             value = str(mapping.hgvs_p) if mapping and mapping.hgvs_p else na_rep
             if value == na_rep:
                 fallback_hgvs = (
-                    get_hgvs_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
+                    get_hgvs_from_post_mapped(mapping.post_mapped, combine_cis=True)
+                    if mapping and mapping.post_mapped
+                    else None
                 )
                 if fallback_hgvs is not None and is_hgvs_p(fallback_hgvs):
                     value = fallback_hgvs

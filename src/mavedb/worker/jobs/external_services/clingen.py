@@ -137,6 +137,9 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
     variant_post_mapped_hgvs: dict[str, list[int]] = {}
     no_hgvs_count = 0
     for mapped_variant_id, post_mapped in variant_post_mapped_objects:
+        # Intentionally not combine_cis=True: multi-variant cis-phased blocks have no single
+        # CAID, so they are skipped here pending ClinGen guidance on how to register them
+        # (https://github.com/VariantEffect/mavedb-api/issues/764).
         hgvs_for_post_mapped = get_hgvs_from_post_mapped(post_mapped)
 
         if not hgvs_for_post_mapped:
@@ -357,6 +360,8 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
     variant_content = []
     variant_for_urn = {}
     for variant, mapped_variant in variant_objects:
+        # See the note above: cis-phased blocks are skipped here pending ClinGen guidance
+        # (https://github.com/VariantEffect/mavedb-api/issues/764).
         variation = get_hgvs_from_post_mapped(mapped_variant.post_mapped)
 
         if not variation:

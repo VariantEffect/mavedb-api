@@ -1,6 +1,7 @@
 import re
 from typing import Any, Optional
 
+from mavedb.lib.hgvs import join_cis_phased_hgvs
 from mavedb.lib.validation.constants.general import hgvs_columns
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.variant import Variant
@@ -25,7 +26,15 @@ def hgvs_from_vrs_allele(allele: dict) -> str:
             raise KeyError("Invalid VRS allele structure. Expected 'expressions'.")
 
 
-def get_hgvs_from_post_mapped(post_mapped_vrs: Optional[Any]) -> Optional[str]:
+def get_hgvs_from_post_mapped(post_mapped_vrs: Optional[Any], *, combine_cis: bool = False) -> Optional[str]:
+    """Extract a single HGVS string from a post-mapped VRS object.
+
+    Multi-variant blocks (Haplotype/CisPhasedBlock) are cis-phased, so their members combine
+    into one bracketed expression (``NC_…:g.[a;b]``) when ``combine_cis`` is set. It defaults
+    off because some consumers cannot yet handle a bracketed expression — notably ClinGen
+    submission, which has no single CAID for a multi-variant cis block (see
+    https://github.com/VariantEffect/mavedb-api/issues/764).
+    """
     if not post_mapped_vrs:
         return None
 
@@ -40,13 +49,9 @@ def get_hgvs_from_post_mapped(post_mapped_vrs: Optional[Any]) -> Optional[str]:
 
     if len(variations_hgvs) == 0:
         return None
-        # raise ValueError(f"No variations found in variant {variant_urn}.")
 
-    # TODO (https://github.com/VariantEffect/mavedb-api/issues/468) In a future version, we will be able to generate
-    # a combined HGVS string for haplotypes and cis phased blocks directly from mapper output.
     if len(variations_hgvs) > 1:
-        return None
-        # raise ValueError(f"Multiple variations found in variant {variant_urn}.")
+        return join_cis_phased_hgvs(variations_hgvs) if combine_cis else None
 
     return variations_hgvs[0]
 
