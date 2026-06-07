@@ -121,14 +121,12 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
     correlation_id = job.job_params["correlation_id"]  # type: ignore
     force_reregister = bool(job.job_params.get("force_reregister", False))  # type: ignore[union-attr]
 
-    job_manager.save_to_context(
-        {
-            "application": "mavedb-worker",
-            "function": "submit_score_set_mappings_to_car",
-            "resource": score_set.urn,
-            "correlation_id": correlation_id,
-        }
-    )
+    job_manager.save_to_context({
+        "application": "mavedb-worker",
+        "function": "submit_score_set_mappings_to_car",
+        "resource": score_set.urn,
+        "correlation_id": correlation_id,
+    })
     job_manager.update_progress(0, 100, "Starting CAR mapped resource submission.")
     logger.info(msg="Started CAR mapped resource submission", extra=job_manager.logging_context())
 
@@ -480,14 +478,12 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
     correlation_id = job.job_params["correlation_id"]  # type: ignore
 
     # Setup initial context and progress
-    job_manager.save_to_context(
-        {
-            "application": "mavedb-worker",
-            "function": "submit_score_set_mappings_to_ldh",
-            "resource": score_set.urn,
-            "correlation_id": correlation_id,
-        }
-    )
+    job_manager.save_to_context({
+        "application": "mavedb-worker",
+        "function": "submit_score_set_mappings_to_ldh",
+        "resource": score_set.urn,
+        "correlation_id": correlation_id,
+    })
     job_manager.update_progress(0, 100, "Starting LDH mapped resource submission.")
     logger.info(msg="Started LDH mapped resource submission", extra=job_manager.logging_context())
 
@@ -560,12 +556,10 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
     loop = asyncio.get_running_loop()
     submission_successes, submission_failures = await loop.run_in_executor(ctx["pool"], blocking)
     job_manager.update_progress(90, 100, "Finalizing LDH mapped resource submission.")
-    job_manager.save_to_context(
-        {
-            "ldh_submission_successes": len(submission_successes),
-            "ldh_submission_failures": len(submission_failures),
-        }
-    )
+    job_manager.save_to_context({
+        "ldh_submission_successes": len(submission_successes),
+        "ldh_submission_failures": len(submission_failures),
+    })
 
     # TODO prior to finalizing: Verify typing of ClinGen submission responses. See https://reg.clinicalgenome.org/doc/AlleleRegistry_1.01.xx_api_v1.pdf
     annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
