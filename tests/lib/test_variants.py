@@ -46,6 +46,18 @@ def test_get_hgvs_from_post_mapped_cis_phased_block():
     assert result is None
 
 
+def test_get_hgvs_from_post_mapped_cis_phased_block_combine_cis():
+    # combine_cis collapses the cis-phased members into one bracketed expression.
+    result = get_hgvs_from_post_mapped(TEST_VALID_POST_MAPPED_VRS_CIS_PHASED_BLOCK, combine_cis=True)
+    assert result == "NM_003345:p.[Asp5Phe;Asp5Phe]"
+
+
+def test_get_hgvs_from_post_mapped_single_allele_combine_cis_is_unbracketed():
+    # A single-variant post-mapped allele is unaffected by combine_cis.
+    result = get_hgvs_from_post_mapped(TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X, combine_cis=True)
+    assert result == TEST_HGVS_IDENTIFIER
+
+
 def test_get_hgvs_from_post_mapped_single_allele_vrs_1():
     with pytest.raises(ValueError):
         get_hgvs_from_post_mapped(TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X)
