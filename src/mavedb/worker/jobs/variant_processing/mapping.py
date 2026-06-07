@@ -24,12 +24,15 @@ from mavedb.lib.exceptions import (
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.mapping import EXCLUDED_PREMAPPED_ANNOTATION_KEYS
 from mavedb.lib.types.workflow import JobExecutionOutcome
+from mavedb.lib.variant_translations import get_or_create_allele
 from mavedb.lib.variants import get_hgvs_from_post_mapped
+from mavedb.models.allele import Allele as AlleleDbModel
 from mavedb.models.enums.annotation_layer import AnnotationLayer
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus, FailureCategory
 from mavedb.models.enums.mapping_state import MappingState
-from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.mapping_record import MappingRecord
+from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene_mapping import TargetGeneMapping
 from mavedb.models.user import User
@@ -130,7 +133,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
         # Per-(target, alignment_level) QC records produced by the dcd-mapping API.
         # All records share the same tool_version because they come from a single run;
-        # we use that as the global ``mapping_api_version`` carried on each MappedVariant.
+        # we use that as the global ``mapping_api_version`` carried on each MappingRecord.
         target_mappings_payload = mapping_results.get("target_mappings") or []
         tool_version = next(
             (tm.get("tool_version") for tm in target_mappings_payload if tm.get("tool_version")),
@@ -218,7 +221,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                     continue
 
                 target_gene_mapping = TargetGeneMapping(
-                    target_gene_id=target_gene.id,
+                    target_gene=target_gene,
                     alignment_level=AnnotationLayer.from_wire(level_value),
                     preferred=bool(tm.get("preferred", False)),
                     reference_assembly=tm.get("reference_assembly"),
@@ -268,18 +271,16 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             job_manager.save_to_context({"processing_variant": variant.id})
             logger.debug(f"Processing variant {variant.id}.", extra=job_manager.logging_context())
 
-            # there should only be one current mapped variant per variant id, so update old mapped variant to current = false
+            # Only allow one live MappingRecord per variant. The prior live record (if any) is
+            # superseded by the new version below via supersede_with, which retires it (cascading to
+            # its allele links) and inserts the new record under one timestamp.
             existing_mapped_variant = (
-                job_manager.db.query(MappedVariant)
-                .filter(MappedVariant.variant_id == variant.id, MappedVariant.current.is_(True))
+                job_manager.db.query(MappingRecord)
+                .filter(MappingRecord.variant_id == variant.id, MappingRecord.current)
                 .one_or_none()
             )
-
             if existing_mapped_variant:
                 job_manager.save_to_context({"existing_mapped_variant": existing_mapped_variant.id})
-                existing_mapped_variant.current = False
-                job_manager.db.add(existing_mapped_variant)
-                logger.debug(msg="Set existing mapped variant to current = false.", extra=job_manager.logging_context())
 
             annotation_was_successful = mapped_score.get("pre_mapped") and mapped_score.get("post_mapped")
             if annotation_was_successful:
@@ -294,27 +295,47 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             score_alignment_level = mapped_score.get("alignment_level")
             if not score_target or not score_alignment_level:
                 raise NonexistentMappingResultsError(
-                    f"ScoreAnnotation for variant {variant_urn!r} is missing "
-                    f"target_gene_identifier or alignment_level."
+                    f"ScoreAnnotation for variant {variant_urn!r} is missing target_gene_identifier or alignment_level."
                 )
 
+            pre_mapped_allele: dict = mapped_score.get("pre_mapped") or {}
+            post_mapped_allele: dict = mapped_score.get("post_mapped") or {}
+            annotation_layer = AnnotationLayer.from_wire(score_alignment_level)
+            assay_level_hgvs = get_hgvs_from_post_mapped(post_mapped_allele, combine_cis=True)
+
+            # dcd-mapping guarantees every mapped score is attributable to a TargetGeneMapping
+            # via (target_gene_identifier, alignment_level) -- including failed variants, which
+            # it re-attributes to the target's preferred layer. A miss implies a malformed payload.
             target_gene_mapping_row = target_gene_mapping_by_key.get((score_target, score_alignment_level))
-            mapped_variant = MappedVariant(
-                pre_mapped=mapped_score.get("pre_mapped", null()),
-                post_mapped=mapped_score.get("post_mapped", null()),
-                hgvs_assay_level=get_hgvs_from_post_mapped(mapped_score.get("post_mapped", {})),
+            if target_gene_mapping_row is None:
+                raise NonexistentMappingResultsError(
+                    f"ScoreAnnotation for variant {variant_urn!r} has no TargetGeneMapping for "
+                    f"(target={score_target!r}, alignment_level={score_alignment_level!r})."
+                )
+
+            mapping_record = MappingRecord(
                 variant_id=variant.id,
-                modification_date=date.today(),
+                vrs_digest=pre_mapped_allele.get("id"),
+                pre_mapped=pre_mapped_allele or None,
+                assay_level=annotation_layer,
+                hgvs_assay_level=assay_level_hgvs,
                 mapped_date=mapping_results["mapped_date"],
-                vrs_version=mapped_score.get("vrs_version", null()),
+                vrs_version=mapped_score.get("vrs_version", None),
                 mapping_api_version=tool_version,
-                error_message=mapped_score.get("error_message", null()),
-                target_gene_mapping_id=target_gene_mapping_row.id if target_gene_mapping_row else None,
-                alignment_level=AnnotationLayer.from_wire(score_alignment_level),
+                target_gene_mapping_id=target_gene_mapping_row.id,
+                alignment_level=annotation_layer,
                 at_mismatched_locus=mapped_score.get("at_mismatched_locus"),
                 near_gap=mapped_score.get("near_gap"),
-                current=True,
             )
+            if existing_mapped_variant:
+                # Retire the prior record (cascading to its allele links) and insert this one under a
+                # single timestamp, so the prior valid_to equals the new valid_from with no gap.
+                existing_mapped_variant.supersede_with(job_manager.db, mapping_record)
+                logger.debug(
+                    msg="Superseded prior mapping record and its allele links.", extra=job_manager.logging_context()
+                )
+            else:
+                job_manager.db.add(mapping_record)
 
             annotation_manager.add_annotation(
                 variant_id=variant.id,  # type: ignore
@@ -327,14 +348,38 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 annotation_data={
                     "error_message": mapped_score.get("error_message", null()),
                     "annotation_metadata": {
-                        "mapped_assay_level_hgvs": get_hgvs_from_post_mapped(mapped_score.get("post_mapped", {})),
+                        "mapped_assay_level_hgvs": assay_level_hgvs,
                     },
                 },
                 current=True,
             )
 
-            job_manager.db.add(mapped_variant)
+            # Only variants with a post-mapped representation yield an authoritative Allele. Failed variants
+            # get a MappingRecord (with null VRS data) but no linked allele.
+            if post_mapped_allele:
+                allele_draft = AlleleDbModel(
+                    vrs_digest=post_mapped_allele["id"],
+                    level=annotation_layer,
+                    hgvs_g=assay_level_hgvs if annotation_layer == AnnotationLayer.genomic else None,
+                    hgvs_c=assay_level_hgvs if annotation_layer == AnnotationLayer.cdna else None,
+                    hgvs_p=assay_level_hgvs if annotation_layer == AnnotationLayer.protein else None,
+                    post_mapped=post_mapped_allele,
+                )
+                authoritative_allele = get_or_create_allele(job_manager.db, allele_draft)
+                job_manager.db.flush()
+
+                # TODO#765: Mapping is not idempotent, so we must always create a new link.
+                job_manager.db.add(
+                    MappingRecordAllele(
+                        mapping_record_id=mapping_record.id,
+                        allele_id=authoritative_allele.id,
+                        is_authoritative=True,
+                    )
+                )
+                logger.debug(msg="Linked mapped variant to authoritative allele.", extra=job_manager.logging_context())
+
             logger.debug(msg="Added new mapped variant to session.", extra=job_manager.logging_context())
+            job_manager.db.flush()
 
         annotation_manager.flush()
 

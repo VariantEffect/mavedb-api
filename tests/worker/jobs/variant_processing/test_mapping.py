@@ -5,15 +5,19 @@ import pytest
 pytest.importorskip("arq")
 
 from asyncio.unix_events import _UnixSelectorEventLoop
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 from sqlalchemy.exc import NoResultFound
 
 from mavedb.lib.mapping import EXCLUDED_PREMAPPED_ANNOTATION_KEYS
 from mavedb.lib.types.workflow import JobExecutionOutcome
+from mavedb.models.allele import Allele
+from mavedb.models.enums.annotation_layer import AnnotationLayer
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.enums.mapping_state import MappingState
-from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.mapping_record import MappingRecord
+from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.variant import Variant
 from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 from mavedb.worker.jobs.variant_processing.mapping import map_variants_for_score_set
@@ -22,6 +26,25 @@ from tests.helpers.constants import TEST_CODING_LAYER, TEST_GENOMIC_LAYER, TEST_
 from tests.helpers.util.setup.worker import construct_mock_mapping_output, create_variants_in_score_set
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
+
+
+def authoritative_allele_for(session, mapping_record):
+    """Return the authoritative (post-mapped) Allele linked to a mapping record, or None.
+
+    Under the allele data model the post-mapped VRS representation lives on an
+    ``Allele`` joined to the ``MappingRecord`` through ``MappingRecordAllele``.
+    A successfully post-mapped variant has exactly one authoritative link; a
+    variant that failed to post-map has a mapping record but no such link.
+    """
+    return (
+        session.query(Allele)
+        .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
+        .filter(
+            MappingRecordAllele.mapping_record_id == mapping_record.id,
+            MappingRecordAllele.is_authoritative.is_(True),
+        )
+        .one_or_none()
+    )
 
 
 @pytest.mark.unit
@@ -90,7 +113,10 @@ class TestMapVariantsForScoreSetUnit:
                 _UnixSelectorEventLoop,
                 "run_in_executor",
                 return_value=self.dummy_mapping_output(
-                    {"mapped_scores": [], "error_message": "No variants were mapped for this score set"}
+                    {
+                        "mapped_scores": [],
+                        "error_message": "No variants were mapped for this score set",
+                    }
                 ),
             ),
         ):
@@ -134,7 +160,10 @@ class TestMapVariantsForScoreSetUnit:
                 _UnixSelectorEventLoop,
                 "run_in_executor",
                 return_value=self.dummy_mapping_output(
-                    {"mapped_scores": [MagicMock()], "error_message": "Reference metadata missing from mapping results"}
+                    {
+                        "mapped_scores": [MagicMock()],
+                        "error_message": "Reference metadata missing from mapping results",
+                    }
                 ),
             ),
         ):
@@ -318,9 +347,9 @@ class TestMapVariantsForScoreSetUnit:
         for target in sample_score_set.target_genes:
             assert target.mapped_hgnc_name is None
 
-        # Verify that a mapped variant was created
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 1
+        # Verify that a mapping record was created
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 1
 
         # Verify that annotation statuses were created and correct
         annotation_statuses = (
@@ -435,9 +464,9 @@ class TestMapVariantsForScoreSetUnit:
             else:
                 assert target.post_mapped_metadata.get("protein") is None
 
-        # Verify that a mapped variant was created
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 1
+        # Verify that a mapping record was created
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 1
 
         # Verify that annotation statuses were created and correct
         annotation_statuses = (
@@ -501,13 +530,12 @@ class TestMapVariantsForScoreSetUnit:
         assert sample_score_set.mapping_state == MappingState.failed
         assert sample_score_set.mapping_errors["error_message"] == "All variants failed to map."
 
-        # Verify that one mapped variant was created. Although no successful mapping, an entry is still created.
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 1
+        # Verify that one mapping record was created. Although no successful mapping, an entry is still created.
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 1
 
-        # Verify that the mapped variant has no post-mapped data
-        mapped_variant = mapped_variants[0]
-        assert mapped_variant.post_mapped == {}
+        # Verify that the mapping record has no authoritative (post-mapped) allele
+        assert authoritative_allele_for(session, mapping_records[0]) is None
 
         # Verify that annotation statuses were created and correct
         annotation_statuses = (
@@ -584,19 +612,14 @@ class TestMapVariantsForScoreSetUnit:
 
         # Although only one variant was successfully mapped, verify that an entity was created
         # for each variant in the score set
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 2
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 2
 
-        # Verify that only one variant has post-mapped data
-        mapped_variant_with_post_data = (
-            session.query(MappedVariant).filter(MappedVariant.post_mapped != {}).one_or_none()
-        )
-        assert mapped_variant_with_post_data is not None
-
-        mapped_variant_without_post_data = (
-            session.query(MappedVariant).filter(MappedVariant.post_mapped == {}).one_or_none()
-        )
-        assert mapped_variant_without_post_data is not None
+        # Verify that exactly one mapping record has post-mapped (authoritative) allele data
+        records_with_post_data = [r for r in mapping_records if authoritative_allele_for(session, r) is not None]
+        records_without_post_data = [r for r in mapping_records if authoritative_allele_for(session, r) is None]
+        assert len(records_with_post_data) == 1
+        assert len(records_without_post_data) == 1
 
         # Verify that annotation statuses were created and correct
         annotation_status_success = (
@@ -678,17 +701,17 @@ class TestMapVariantsForScoreSetUnit:
         assert sample_score_set.mapping_state == MappingState.complete
         assert sample_score_set.mapping_errors is None
 
-        # Verify that mapped variants were created
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 2
+        # Verify that mapping records were created
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 2
 
         # Verify that both variants have post-mapped data. I'm comfortable assuming the
         # data is correct given our layer permutation tests above.
         for urn in ["variant:1", "variant:2"]:
-            mapped_variant = session.query(MappedVariant).filter(MappedVariant.variant.has(urn=urn)).one_or_none()
-            assert mapped_variant is not None
-            assert mapped_variant.post_mapped != {}
-            assert mapped_variant.hgvs_assay_level is not None
+            mapping_record = session.query(MappingRecord).filter(MappingRecord.variant.has(urn=urn)).one_or_none()
+            assert mapping_record is not None
+            assert authoritative_allele_for(session, mapping_record) is not None
+            assert mapping_record.hgvs_assay_level is not None
 
         # Verify that annotation statuses were created and correct
         annotation_statuses = (
@@ -733,13 +756,23 @@ class TestMapVariantsForScoreSetUnit:
         )
         session.add(variant)
         session.commit()
-        mapped_variant = MappedVariant(
+        mapping_record = MappingRecord(
             variant_id=variant.id,
-            current=True,
-            mapped_date="2023-01-01T00:00:00Z",
+            assay_level=AnnotationLayer.genomic,
+            mapped_date=date(2023, 1, 1),
             mapping_api_version="v1.0.0",
         )
-        session.add(mapped_variant)
+        session.add(mapping_record)
+        session.commit()
+        # Link the prior record to an authoritative allele. Re-mapping must retire this link too,
+        # not just the record — a live link dangling off a retired record breaks the temporal model.
+        prior_allele = Allele(vrs_digest="ga4gh:VA.prior", level=AnnotationLayer.genomic.value)
+        session.add(prior_allele)
+        session.commit()
+        prior_link = MappingRecordAllele(
+            mapping_record_id=mapping_record.id, allele_id=prior_allele.id, is_authoritative=True
+        )
+        session.add(prior_link)
         session.commit()
         variant_annotation_status = VariantAnnotationStatus(
             variant_id=variant.id, current=True, annotation_type="vrs_mapping", status="success"
@@ -766,31 +799,42 @@ class TestMapVariantsForScoreSetUnit:
         assert sample_score_set.mapping_state == MappingState.complete
         assert sample_score_set.mapping_errors is None
 
-        # Verify the existing mapped variant was marked as non-current
-        non_current_mapped_variant = (
-            session.query(MappedVariant)
-            .filter(MappedVariant.id == mapped_variant.id, MappedVariant.current.is_(False))
+        # Verify the existing mapping record was retired (valid_to closed)
+        non_current_mapping_record = (
+            session.query(MappingRecord)
+            .filter(MappingRecord.id == mapping_record.id, MappingRecord.valid_to.isnot(None))
             .one_or_none()
         )
-        assert non_current_mapped_variant is not None
+        assert non_current_mapping_record is not None
 
-        # Verify a new mapped variant entry was created
-        new_mapped_variant = (
-            session.query(MappedVariant)
-            .filter(MappedVariant.variant_id == variant.id, MappedVariant.current.is_(True))
+        # Verify the prior record's authoritative allele link was retired alongside the record,
+        # so no live link dangles off the retired record.
+        session.refresh(prior_link)
+        assert prior_link.valid_to is not None
+
+        # Verify a new, live mapping record entry was created
+        new_mapping_record = (
+            session.query(MappingRecord)
+            .filter(MappingRecord.variant_id == variant.id, MappingRecord.current)
             .one_or_none()
         )
-        assert new_mapped_variant is not None
+        assert new_mapping_record is not None
 
-        # Verify that the new mapped variant has updated mapping data
-        assert new_mapped_variant.mapped_date != "2023-01-01T00:00:00Z"
-        assert new_mapped_variant.mapping_api_version != "v1.0.0"
+        # Gap-free handoff: the prior record closed at exactly the new record's valid_from (one
+        # supersession timestamp), and the cascade closed the prior link at that same instant — so
+        # no point-in-time query lands in a hole between the old and new record or their links.
+        assert non_current_mapping_record.valid_to == new_mapping_record.valid_from
+        assert prior_link.valid_to == non_current_mapping_record.valid_to
+
+        # Verify that the new mapping record has updated mapping data
+        assert new_mapping_record.mapped_date != date(2023, 1, 1)
+        assert new_mapping_record.mapping_api_version != "v1.0.0"
 
         # Verify the non-current annotation status still exists
         old_annotation_status = (
             session.query(VariantAnnotationStatus)
             .filter(
-                VariantAnnotationStatus.variant_id == non_current_mapped_variant.variant_id,
+                VariantAnnotationStatus.variant_id == non_current_mapping_record.variant_id,
                 VariantAnnotationStatus.current.is_(False),
             )
             .one_or_none()
@@ -862,9 +906,9 @@ class TestMapVariantsForScoreSetIntegration:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
 
-        # Verify that mapped variants were created
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 4
+        # Verify that mapping records were created
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 4
 
         # Verify score set mapping state
         assert sample_score_set.mapping_state == MappingState.complete
@@ -875,11 +919,11 @@ class TestMapVariantsForScoreSetIntegration:
             assert target.mapped_hgnc_name is not None
             assert target.post_mapped_metadata is not None
 
-        # Verify that each variant has a corresponding mapped variant
+        # Verify that each variant has a corresponding mapping record
         variants = (
             session.query(Variant)
-            .join(MappedVariant, MappedVariant.variant_id == Variant.id)
-            .filter(Variant.score_set_id == sample_score_set.id, MappedVariant.current.is_(True))
+            .join(MappingRecord, MappingRecord.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id, MappingRecord.current.is_(True))
             .all()
         )
         assert len(variants) == 4
@@ -953,9 +997,9 @@ class TestMapVariantsForScoreSetIntegration:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
 
-        # Verify that mapped variants were created
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 4
+        # Verify that mapping records were created
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 4
 
         # Verify score set mapping state
         assert sample_score_set.mapping_state == MappingState.complete
@@ -966,11 +1010,11 @@ class TestMapVariantsForScoreSetIntegration:
             assert target.mapped_hgnc_name is not None
             assert target.post_mapped_metadata is not None
 
-        # Verify that each variant has a corresponding mapped variant
+        # Verify that each variant has a corresponding mapping record
         variants = (
             session.query(Variant)
-            .join(MappedVariant, MappedVariant.variant_id == Variant.id)
-            .filter(Variant.score_set_id == sample_score_set.id, MappedVariant.current.is_(True))
+            .join(MappingRecord, MappingRecord.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id, MappingRecord.current.is_(True))
             .all()
         )
         assert len(variants) == 4
@@ -1053,9 +1097,9 @@ class TestMapVariantsForScoreSetIntegration:
             in sample_score_set.mapping_errors["error_message"]
         )
 
-        # Verify that no mapped variants were created
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 0
+        # Verify that no mapping records were created
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 0
 
         # Verify that no annotation statuses were created
         annotation_statuses = session.query(VariantAnnotationStatus).all()
@@ -1130,9 +1174,9 @@ class TestMapVariantsForScoreSetIntegration:
         # Error message originates from our mock mapping construction function
         assert "test error: no mapped scores" in sample_score_set.mapping_errors["error_message"]
 
-        # Verify that no mapped variants were created
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 0
+        # Verify that no mapping records were created
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 0
 
         # Verify that no annotation statuses were created
         annotation_statuses = session.query(VariantAnnotationStatus).all()
@@ -1206,9 +1250,9 @@ class TestMapVariantsForScoreSetIntegration:
         assert sample_score_set.mapping_errors is not None
         assert "Reference metadata missing from mapping results" in sample_score_set.mapping_errors["error_message"]
 
-        # Verify that no mapped variants were created
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 0
+        # Verify that no mapping records were created
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 0
 
         # Verify that no annotation statuses were created
         annotation_statuses = session.query(VariantAnnotationStatus).all()
@@ -1246,20 +1290,20 @@ class TestMapVariantsForScoreSetIntegration:
             sample_independent_variant_creation_run,
         )
 
-        # Associate mapped variants with all variants just created in the score set
+        # Associate mapping records with all variants just created in the score set
         variants = session.query(Variant).filter(Variant.score_set_id == sample_score_set.id).all()
         for variant in variants:
-            mapped_variant = MappedVariant(
+            mapping_record = MappingRecord(
                 variant_id=variant.id,
-                current=True,
-                mapped_date="2023-01-01T00:00:00Z",
+                assay_level=AnnotationLayer.genomic,
+                mapped_date=date(2023, 1, 1),
                 mapping_api_version="v1.0.0",
             )
             annotation_status = VariantAnnotationStatus(
                 variant_id=variant.id, current=True, annotation_type="vrs_mapping", status="success"
             )
             session.add(annotation_status)
-            session.add(mapped_variant)
+            session.add(mapping_record)
         session.commit()
 
         async def dummy_mapping_job():
@@ -1295,27 +1339,27 @@ class TestMapVariantsForScoreSetIntegration:
         assert sample_score_set.mapping_state == MappingState.complete
         assert sample_score_set.mapping_errors is None
 
-        # Verify that mapped variants were marked as non-current and new entries created
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == len(variants) * 2  # Each variant has two mapped entries now
+        # Verify that mapping records were marked as non-current and new entries created
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == len(variants) * 2  # Each variant has two mapping records now
         for variant in variants:
-            non_current_mapped_variant = (
-                session.query(MappedVariant)
-                .filter(MappedVariant.variant_id == variant.id, MappedVariant.current.is_(False))
+            non_current_mapping_record = (
+                session.query(MappingRecord)
+                .filter(MappingRecord.variant_id == variant.id, MappingRecord.valid_to.isnot(None))
                 .one_or_none()
             )
-            assert non_current_mapped_variant is not None
+            assert non_current_mapping_record is not None
 
-            new_mapped_variant = (
-                session.query(MappedVariant)
-                .filter(MappedVariant.variant_id == variant.id, MappedVariant.current.is_(True))
+            new_mapping_record = (
+                session.query(MappingRecord)
+                .filter(MappingRecord.variant_id == variant.id, MappingRecord.current)
                 .one_or_none()
             )
-            assert new_mapped_variant is not None
+            assert new_mapping_record is not None
 
-            # Verify that the new mapped variant has updated mapping data
-            assert new_mapped_variant.mapped_date != "2023-01-01T00:00:00Z"
-            assert new_mapped_variant.mapping_api_version != "v1.0.0"
+            # Verify that the new mapping record has updated mapping data
+            assert new_mapping_record.mapped_date != date(2023, 1, 1)
+            assert new_mapping_record.mapping_api_version != "v1.0.0"
 
         # Verify that annotation statuses where marked as non-current and new entries created
         annotation_statuses = session.query(VariantAnnotationStatus).all()
@@ -1389,9 +1433,9 @@ class TestMapVariantsForScoreSetIntegration:
         assert sample_score_set.mapping_errors is not None
         assert "test error: no mapped scores" in sample_score_set.mapping_errors["error_message"]
 
-        # Verify that no mapped variants were created
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 0
+        # Verify that no mapping records were created
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 0
 
         # Verify that no annotation statuses were created
         annotation_statuses = session.query(VariantAnnotationStatus).all()
@@ -1448,9 +1492,9 @@ class TestMapVariantsForScoreSetIntegration:
             in sample_score_set.mapping_errors["error_message"]
         )
 
-        # Verify that no mapped variants were created
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 0
+        # Verify that no mapping records were created
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 0
 
         # Verify that no annotation statuses were created
         annotation_statuses = session.query(VariantAnnotationStatus).all()
@@ -1518,19 +1562,19 @@ class TestMapVariantsForScoreSetArqContext:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        # Verify that mapped variants were created
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 4
+        # Verify that mapping records were created
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 4
 
         # Verify score set mapping state
         assert sample_score_set.mapping_state == MappingState.complete
         assert sample_score_set.mapping_errors is None
 
-        # Verify that each variant has a corresponding mapped variant
+        # Verify that each variant has a corresponding mapping record
         variants = (
             session.query(Variant)
-            .join(MappedVariant, MappedVariant.variant_id == Variant.id)
-            .filter(Variant.score_set_id == sample_score_set.id, MappedVariant.current.is_(True))
+            .join(MappingRecord, MappingRecord.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id, MappingRecord.current.is_(True))
             .all()
         )
         assert len(variants) == 4
@@ -1606,19 +1650,19 @@ class TestMapVariantsForScoreSetArqContext:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        # Verify that mapped variants were created
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 4
+        # Verify that mapping records were created
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 4
 
         # Verify score set mapping state
         assert sample_score_set.mapping_state == MappingState.complete
         assert sample_score_set.mapping_errors is None
 
-        # Verify that each variant has a corresponding mapped variant
+        # Verify that each variant has a corresponding mapping record
         variants = (
             session.query(Variant)
-            .join(MappedVariant, MappedVariant.variant_id == Variant.id)
-            .filter(Variant.score_set_id == sample_score_set.id, MappedVariant.current.is_(True))
+            .join(MappingRecord, MappingRecord.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id, MappingRecord.current.is_(True))
             .all()
         )
         assert len(variants) == 4
@@ -1690,9 +1734,9 @@ class TestMapVariantsForScoreSetArqContext:
             in sample_score_set.mapping_errors["error_message"]
         )
 
-        # Verify that no mapped variants were created
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 0
+        # Verify that no mapping records were created
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 0
 
         # Verify that no annotation statuses were created
         annotation_statuses = session.query(VariantAnnotationStatus).all()
@@ -1744,9 +1788,9 @@ class TestMapVariantsForScoreSetArqContext:
             in sample_score_set.mapping_errors["error_message"]
         )
 
-        # Verify that no mapped variants were created
-        mapped_variants = session.query(MappedVariant).all()
-        assert len(mapped_variants) == 0
+        # Verify that no mapping records were created
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 0
 
         # Verify that no annotation statuses were created
         annotation_statuses = session.query(VariantAnnotationStatus).all()
