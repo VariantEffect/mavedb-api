@@ -1,6 +1,7 @@
 __all__ = [
     "access_key",
     "acmg_classification",
+    "allele",
     "collection",
     "clinical_control",
     "controlled_keyword",
@@ -16,6 +17,8 @@ __all__ = [
     "legacy_keyword",
     "license",
     "mapped_variant",
+    "mapping_record",
+    "mapping_record_allele",
     "pipeline",
     "publication_identifier",
     "published_variant",

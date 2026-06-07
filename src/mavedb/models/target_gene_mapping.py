@@ -23,15 +23,16 @@ from mavedb.models.enums.annotation_layer import AnnotationLayer
 
 if TYPE_CHECKING:
     from mavedb.models.mapped_variant import MappedVariant
+    from mavedb.models.mapping_record import MappingRecord
     from mavedb.models.target_gene import TargetGene
 
 
 class TargetGeneMapping(Base):
     __tablename__ = "target_gene_mappings"
 
-    id = Column(Integer, primary_key=True)
+    id: Mapped[int] = Column(Integer, primary_key=True)
 
-    target_gene_id = Column(Integer, ForeignKey("target_genes.id"), nullable=False, index=True)
+    target_gene_id: Mapped[int] = Column(Integer, ForeignKey("target_genes.id"), nullable=False, index=True)
     target_gene: Mapped["TargetGene"] = relationship("TargetGene", back_populates="target_gene_mappings")
 
     alignment_level = Column(
@@ -77,6 +78,11 @@ class TargetGeneMapping(Base):
 
     mapped_variants: Mapped[list["MappedVariant"]] = relationship(
         "MappedVariant",
+        back_populates="target_gene_mapping",
+    )
+
+    mapping_records: Mapped[list["MappingRecord"]] = relationship(
+        "MappingRecord",
         back_populates="target_gene_mapping",
     )
 
