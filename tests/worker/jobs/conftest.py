@@ -45,6 +45,38 @@ def map_variants_sample_params(with_populated_domain_data, sample_score_set, sam
 
 
 @pytest.fixture
+def reverse_translate_variants_sample_params(with_populated_domain_data, sample_score_set):
+    """Provide sample parameters for reverse_translate_variants_for_score_set job."""
+
+    return {
+        "score_set_id": sample_score_set.id,
+        "correlation_id": "sample-reverse-translation-correlation-id",
+    }
+
+
+@pytest.fixture
+def sample_independent_reverse_translation_run(reverse_translate_variants_sample_params):
+    """Create a JobRun instance for the reverse_translate_variants_for_score_set job."""
+
+    return JobRun(
+        urn="test:reverse_translate_variants_for_score_set",
+        job_type="reverse_translate_variants_for_score_set",
+        job_function="reverse_translate_variants_for_score_set",
+        max_retries=3,
+        retry_count=0,
+        job_params=reverse_translate_variants_sample_params,
+    )
+
+
+@pytest.fixture
+def with_reverse_translation_run(session, sample_independent_reverse_translation_run):
+    """Add a reverse_translate_variants_for_score_set job run to the session."""
+
+    session.add(sample_independent_reverse_translation_run)
+    session.commit()
+
+
+@pytest.fixture
 def link_gnomad_variants_sample_params(with_populated_domain_data, sample_score_set):
     """Provide sample parameters for create_variants_for_score_set job."""
 

@@ -21,6 +21,16 @@ def annotation_pipeline_job_definitions(
     )
     return [
         {
+            "key": "reverse_translate_variants_for_score_set",
+            "function": "reverse_translate_variants_for_score_set",
+            "type": JobType.MAPPED_VARIANT_ANNOTATION,
+            "params": {
+                "correlation_id": None,  # Required param to be filled in at runtime
+                "score_set_id": None,  # Required param to be filled in at runtime
+            },
+            "dependencies": mapping_dep,
+        },
+        {
             "key": "submit_score_set_mappings_to_car",
             "function": "submit_score_set_mappings_to_car",
             "type": JobType.MAPPED_VARIANT_ANNOTATION,
@@ -29,7 +39,7 @@ def annotation_pipeline_job_definitions(
                 "score_set_id": None,  # Required param to be filled in at runtime
                 "updater_id": None,  # Required param to be filled in at runtime
             },
-            "dependencies": mapping_dep,
+            "dependencies": [("reverse_translate_variants_for_score_set", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "warm_clingen_cache",

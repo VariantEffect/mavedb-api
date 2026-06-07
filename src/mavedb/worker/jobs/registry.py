@@ -32,6 +32,7 @@ from mavedb.worker.jobs.system import cleanup_stalled_jobs
 from mavedb.worker.jobs.variant_processing import (
     create_variants_for_score_set,
     map_variants_for_score_set,
+    reverse_translate_variants_for_score_set,
 )
 
 # All job functions for ARQ worker
@@ -39,6 +40,7 @@ BACKGROUND_FUNCTIONS: List[Callable] = [
     # Variant processing jobs
     create_variants_for_score_set,
     map_variants_for_score_set,
+    reverse_translate_variants_for_score_set,
     # External service jobs
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,
@@ -100,6 +102,13 @@ STANDALONE_JOB_DEFINITIONS: dict[Callable, JobDefinition] = {
         "params": {"score_set_id": None, "updater_id": None, "correlation_id": None},
         "function": "map_variants_for_score_set",
         "key": "map_variants_for_score_set",
+        "type": JobType.VARIANT_MAPPING,
+    },
+    reverse_translate_variants_for_score_set: {
+        "dependencies": [],
+        "params": {"score_set_id": None, "correlation_id": None},
+        "function": "reverse_translate_variants_for_score_set",
+        "key": "reverse_translate_variants_for_score_set",
         "type": JobType.VARIANT_MAPPING,
     },
     submit_score_set_mappings_to_car: {
