@@ -496,7 +496,8 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
     # MaveDB score to its canonical mapped variant, not to every equivalent allele (unlike CAR,
     # which registers a CAID per allele).
     variant_objects: Sequence[tuple[Variant, MappingRecord, AlleleModel]] = (
-        job_manager.db.execute(
+        job_manager.db
+        .execute(
             select(Variant, MappingRecord, AlleleModel)
             .join(MappingRecord, MappingRecord.variant_id == Variant.id)
             .join(MappingRecordAllele, MappingRecordAllele.mapping_record_id == MappingRecord.id)
