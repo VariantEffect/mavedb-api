@@ -13,8 +13,10 @@ from typing import Any
 
 from ga4gh.core import ga4gh_identify
 from ga4gh.vrs.extras.translator import AlleleTranslator
-from ga4gh.vrs.models import Allele, LiteralSequenceExpression, SequenceLocation
+from ga4gh.vrs.models import Allele, CisPhasedBlock, LiteralSequenceExpression, SequenceLocation
 from ga4gh.vrs.normalize import normalize
+
+from mavedb.lib.hgvs import split_cis_phased_hgvs
 
 
 def translate_hgvs_to_vrs(hgvs: str, translator: AlleleTranslator) -> Allele:
@@ -47,6 +49,32 @@ def translate_hgvs_to_vrs(hgvs: str, translator: AlleleTranslator) -> Allele:
     return allele
 
 
+def translate_hgvs_to_variation(hgvs: str, translator: AlleleTranslator) -> Allele | CisPhasedBlock:
+    """Translate an HGVS expression — possibly a cis-phased multivariant — into a VRS object.
+
+    Mirrors dcd_mapping's ``vrs_map._construct_vrs_allele``: each component HGVS is translated
+    to an Allele independently; a single component returns a bare Allele, while two or more are
+    wrapped in a CisPhasedBlock. The reverse-translation job emits bracketed genomic forms
+    (``g.[a;b]``) for non-adjacent codon components that ga4gh's AlleleTranslator cannot
+    translate directly, so splitting and recombining is the only way to represent them.
+
+    The block's GA4GH digest is order-independent, so the same biological cis-phased set always
+    identifies to one ``ga4gh:CPB.`` digest and dedups to a single row regardless of component
+    ordering.
+
+    :param hgvs: a single- or cis-phased-multivariant HGVS string
+    :param translator: caller-owned AlleleTranslator reused across calls
+    :return: an Allele for a single variant, or a CisPhasedBlock for a cis-phased set
+    """
+    members = [translate_hgvs_to_vrs(component, translator) for component in split_cis_phased_hgvs(hgvs)]
+    if len(members) == 1:
+        return members[0]
+
+    block = CisPhasedBlock(members=members)  # type: ignore[call-arg]
+    block.id = identify_variation(block)
+    return block
+
+
 def identify_allele(allele: Allele) -> str:
     """Clear cached digests and return a fresh GA4GH identifier for *allele*.
 
@@ -63,6 +91,31 @@ def identify_allele(allele: Allele) -> str:
     digest = ga4gh_identify(allele)
     if digest is None:
         raise ValueError("Failed to compute GA4GH identifier for allele")  # noqa: EM101
+
+    return digest
+
+
+def identify_variation(variation: Allele | CisPhasedBlock) -> str:
+    """Clear cached digests and return a fresh GA4GH id for an Allele or CisPhasedBlock.
+
+    Generalizes :func:`identify_allele` to cis-phased blocks. A block's Merkle digest is
+    derived from its members' digests, so a stale member digest would silently propagate into
+    the block id. Clear every member (and its location) plus the block itself before
+    identifying so the id always reflects current content.
+    """
+    if isinstance(variation, Allele):
+        return identify_allele(variation)
+
+    for member in variation.members:
+        if isinstance(member, Allele):
+            if isinstance(member.location, SequenceLocation):
+                member.location.digest = None
+            member.digest = None
+
+    variation.digest = None
+    digest = ga4gh_identify(variation)
+    if digest is None:
+        raise ValueError("Failed to compute GA4GH identifier for variation")  # noqa: EM101
 
     return digest
 
