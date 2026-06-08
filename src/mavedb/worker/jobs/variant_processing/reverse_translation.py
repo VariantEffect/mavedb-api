@@ -12,6 +12,8 @@ import dataclasses
 import functools
 import logging
 import os
+from datetime import date
+from enum import Enum
 from typing import Any, NamedTuple, Sequence
 
 from ga4gh.vrs.extras.translator import AlleleTranslator
@@ -30,6 +32,7 @@ from mavedb.models.allele import Allele as AlleleDbModel
 from mavedb.models.enums.annotation_layer import AnnotationLayer
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus, FailureCategory
+from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_set import ScoreSet
@@ -62,6 +65,40 @@ class _TranscriptResolution(NamedTuple):
     variant: Variant
     gene_transcript: str | None
     protein_accession: str | None
+    target_gene_id: int | None
+
+
+class _TranscriptResolutionSkipReason(Enum):
+    NO_ASSAY_LEVEL_HGVS = "no_assay_level_hgvs"
+    TRANSCRIPT_UNRESOLVED = "transcript_unresolved"
+    NO_CODING_TRANSCRIPT = "no_coding_transcript"
+
+    @classmethod
+    def classify(
+        cls, resolution: _TranscriptResolution, category: TargetCategory | None
+    ) -> tuple["_TranscriptResolutionSkipReason", str]:
+        """Classify why a record was skipped, distinguishing recoverable from correct skips.
+
+        A protein-coding target with no resolvable transcript is *recoverable* (it should now be
+        rare -- the mapper selects a MANE transcript for coding genomic-accession targets); a
+        regulatory / non-coding target has no protein consequence and is a *correct* skip.
+        """
+        if not resolution.rec.hgvs_assay_level:
+            return (
+                cls.NO_ASSAY_LEVEL_HGVS,
+                "No assay-level HGVS available to reverse-translate.",
+            )
+        if category == TargetCategory.protein_coding:
+            return (
+                cls.TRANSCRIPT_UNRESOLVED,
+                "Protein-coding target but no coding transcript could be resolved "
+                "(no cdna TargetGeneMapping and no NP_->NM_ association). Recoverable: "
+                "re-map or check transcript selection.",
+            )
+        return (
+            cls.NO_CODING_TRANSCRIPT,
+            "Non-coding/regulatory target has no protein consequence to reverse-translate.",
+        )
 
 
 def _coding_transcripts_for_proteins(protein_accessions: set[str]) -> dict[str, str]:
@@ -169,25 +206,55 @@ async def reverse_translate_variants_for_score_set(
     job_manager.update_progress(0, 100, "Starting reverse translation job.")
     logger.info(msg="Started reverse translation job.", extra=job_manager.logging_context())
 
-    # Build {target_gene_id -> NM_ transcript} from the cdna TargetGeneMappings the mapper
-    # emits. Reverse translation must run against the cdna (NM_) transcript.
-    cdna_transcript_by_gene: dict[int, str | None] = dict(
-        job_manager.db.execute(
-            select(TargetGeneMapping.target_gene_id, TargetGeneMapping.reference_accession)
+    # Build {(target_gene_id, run date) -> NM_ transcript} from the cdna TargetGeneMappings
+    # the mapper emits. Reverse translation must run against the cdna (NM_) transcript.
+    #
+    # TargetGeneMapping is not valid-time-versioned and re-mapping cannot delete prior rows
+    # (retired MappingRecords still FK them), so a re-mapped target accumulates several cdna
+    # rows. There is no run anchor on the row, so we approximate one with mapped_date and key
+    # the lookup by (target gene, run date): each record resolves only the cdna transcript
+    # from *its own* run, matched below against the run date of the genomic TargetGeneMapping
+    # the record points to. All of a run's TargetGeneMappings share one mapped_date (stamped
+    # once per job), so a record and its run's cdna row match even if the job spans midnight.
+    # Within a single key, order by id so the newest row wins.
+    #
+    # TODO#763: mapped_date is day-granular, so two re-maps on the *same calendar day* collide
+    # on the key. If a later same-day re-map emits no cdna row (e.g. transcript selection hit
+    # a transient Ensembl/gene-normalizer failure, or the target genuinely lost its coding
+    # transcript) but an earlier same-day one did, RT can still bind the earlier (stale)
+    # transcript. This keying narrows the window from "any prior run ever" to "a same-day
+    # re-map" -- the bug now requires re-runs in quick succession -- but only an actual run
+    # anchor / versioned home for reference identity closes it fully.
+    cdna_transcript_by_run: dict[tuple[int, date | None], str | None] = {
+        (target_gene_id, mapped_date): reference_accession
+        for target_gene_id, mapped_date, reference_accession in job_manager.db.execute(
+            select(
+                TargetGeneMapping.target_gene_id,
+                TargetGeneMapping.mapped_date,
+                TargetGeneMapping.reference_accession,
+            )
             .join(TargetGene, TargetGene.id == TargetGeneMapping.target_gene_id)
             .where(TargetGene.score_set_id == score_set_id)
             .where(TargetGeneMapping.alignment_level == AnnotationLayer.cdna)
             .where(TargetGeneMapping.reference_accession.isnot(None))
+            .order_by(TargetGeneMapping.id)
         )
         .tuples()
         .all()
-    )
+    }
 
     # Load current, authoritative, and successfully-mapped MappingRecords along with their
     # target gene (for the coding-transcript lookup) and parent Variant.
-    rows: Sequence[tuple[MappingRecord, Variant, int]] = (
+    # The joined TargetGeneMapping is the record's own (genomic) mapping row, so its
+    # mapped_date is this record's run date -- used to anchor the cdna lookup to the run.
+    rows: Sequence[tuple[MappingRecord, Variant, int, date | None]] = (
         job_manager.db.execute(
-            select(MappingRecord, Variant, TargetGeneMapping.target_gene_id)
+            select(
+                MappingRecord,
+                Variant,
+                TargetGeneMapping.target_gene_id,
+                TargetGeneMapping.mapped_date,
+            )
             .join(MappingRecordAllele, MappingRecord.id == MappingRecordAllele.mapping_record_id)
             .join(Variant, MappingRecord.variant_id == Variant.id)
             .outerjoin(TargetGeneMapping, MappingRecord.target_gene_mapping_id == TargetGeneMapping.id)
@@ -214,8 +281,8 @@ async def reverse_translate_variants_for_score_set(
     # resolve NP_→NM_ from UTA in a single batch query below.
     transcript_resolutions: list[_TranscriptResolution] = []
     protein_accessions: set[str] = set()
-    for rec, variant, target_gene_id in rows:
-        coding_accession = cdna_transcript_by_gene.get(target_gene_id)
+    for rec, variant, target_gene_id, mapped_date in rows:
+        coding_accession = cdna_transcript_by_run.get((target_gene_id, mapped_date))
         protein_accession = None
         if not coding_accession and rec.hgvs_assay_level is not None:
             raw_accession = extract_accession(rec.hgvs_assay_level)
@@ -223,9 +290,22 @@ async def reverse_translate_variants_for_score_set(
                 protein_accession = raw_accession
                 protein_accessions.add(raw_accession)
 
-        transcript_resolutions.append(_TranscriptResolution(rec, variant, coding_accession, protein_accession))
+        transcript_resolutions.append(
+            _TranscriptResolution(rec, variant, coding_accession, protein_accession, target_gene_id)
+        )
 
     transcript_by_protein = _coding_transcripts_for_proteins(protein_accessions)
+
+    # Target gene category per gene, so a skip can be classified honestly: a coding target
+    # with no resolvable transcript is recoverable (should now be rare), while a regulatory /
+    # non-coding target has no protein consequence and is a correct skip.
+    target_category_by_gene: dict[int, TargetCategory] = dict(
+        job_manager.db.execute(
+            select(TargetGene.id, TargetGene.category).where(TargetGene.score_set_id == score_set_id)
+        )
+        .tuples()
+        .all()
+    )
 
     # Build VariantInputs, supplying the resolved coding transcript for every input
     # regardless of its own assay level (p./c./g. all collapse to a ProteinConsequence
@@ -237,13 +317,13 @@ async def reverse_translate_variants_for_score_set(
     # reverse-translate; it is skipped and recorded as SKIPPED rather than counted as a failure.
     variant_inputs: list[Any] = []
     variant_input_map: dict[int, tuple[MappingRecord, Variant]] = {}
-    skipped_variants: list[tuple[MappingRecord, Variant]] = []
+    skipped_variants: list[_TranscriptResolution] = []
     for p in transcript_resolutions:
         transcript = p.gene_transcript or (
             transcript_by_protein.get(p.protein_accession) if p.protein_accession else None
         )
         if not transcript or not p.rec.hgvs_assay_level:
-            skipped_variants.append((p.rec, p.variant))
+            skipped_variants.append(p)
             continue
 
         inp = VariantInput(hgvs=p.rec.hgvs_assay_level, transcript=transcript)
@@ -429,15 +509,18 @@ async def reverse_translate_variants_for_score_set(
         )
 
     skipped = len(skipped_variants)
-    for rec, variant in skipped_variants:
+    for p in skipped_variants:
+        category = target_category_by_gene.get(p.target_gene_id) if p.target_gene_id is not None else None
+        skip_category, reason = _TranscriptResolutionSkipReason.classify(p, category)
         annotation_manager.add_annotation(
-            variant_id=variant.id,
+            variant_id=p.variant.id,
             annotation_type=AnnotationType.CROSS_LEVEL_TRANSLATION,
             status=AnnotationStatus.SKIPPED,
             annotation_data={
                 "annotation_metadata": {
-                    "hgvs_input": rec.hgvs_assay_level,
-                    "reason": "No coding transcript for target gene; no protein consequence to reverse-translate.",
+                    "hgvs_input": p.rec.hgvs_assay_level,
+                    "skip_category": skip_category.value,
+                    "reason": reason,
                 }
             },
         )

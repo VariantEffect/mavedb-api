@@ -18,6 +18,7 @@ from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.target_gene_mapping import TargetGeneMapping
 from mavedb.models.variant import Variant
 from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 from mavedb.worker.jobs.variant_processing.mapping import map_variants_for_score_set
@@ -478,6 +479,50 @@ class TestMapVariantsForScoreSetUnit:
         assert len(annotation_statuses) == 1
         assert annotation_statuses[0].annotation_type == "vrs_mapping"
         assert annotation_statuses[0].status == "success"
+
+    async def test_persists_cdna_target_gene_mapping_with_reference_accession_and_null_qc(
+        self,
+        session,
+        with_independent_processing_runs,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_score_set,
+    ):
+        """An identity cdna TargetGeneMapping (a cdna layer with no per-variant scores
+        joining it) persists with its reference_accession (NM_) and null QC/counts -- the
+        artifact reverse translation consumes to resolve the projection transcript."""
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            hgvs_nt="NC_000001.11:g.1000A>G",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+
+        # Genomic assay layer + an identity cdna layer (no cdna per-variant scores).
+        async def dummy_mapping_job():
+            return await construct_mock_mapping_output(
+                session=session, score_set=sample_score_set, with_layers={"g", "c"}
+            )
+
+        with patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=dummy_mapping_job()):
+            result = await map_variants_for_score_set(
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
+            )
+        assert result.status == JobStatus.SUCCEEDED
+
+        cdna_tgms = (
+            session.query(TargetGeneMapping).filter(TargetGeneMapping.alignment_level == AnnotationLayer.cdna).all()
+        )
+        assert len(cdna_tgms) == len(sample_score_set.target_genes)
+        tgm = cdna_tgms[0]
+        assert tgm.reference_accession == "NM_999999.1"
+        # Identity row: no mapped_variant joins it, so QC/counts are null.
+        assert tgm.total_variants is None
+        assert tgm.variants_mapped_cleanly is None
+        assert tgm.percent_identity is None
 
     async def test_map_variants_for_score_set_success_no_successful_mapping(
         self,

@@ -5,6 +5,7 @@ import pytest
 pytest.importorskip("arq")
 
 from asyncio.unix_events import _UnixSelectorEventLoop
+from datetime import timedelta
 from unittest.mock import patch
 
 from variant_annotation.lib.translation.types import TranslationError, TranslationResult, WtCodonMode
@@ -13,9 +14,11 @@ from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.allele import Allele
 from mavedb.models.enums.annotation_layer import AnnotationLayer
 from mavedb.models.enums.job_pipeline import JobStatus
+from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.job_run import JobRun
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.target_gene_mapping import TargetGeneMapping
 from mavedb.models.variant import Variant
 from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 from mavedb.worker.jobs.variant_processing.mapping import map_variants_for_score_set
@@ -770,6 +773,253 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert _non_authoritative_links(session) == []
         assert _cross_level_statuses(session, sample_score_set.id, status="failed") == []
         assert len(_cross_level_statuses(session, sample_score_set.id, status="skipped")) == 1
+
+    async def test_genomic_accession_coding_target_is_reverse_translated(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+    ):
+        """A genomic-accession (NC_:g.) coding variant -- previously skipped for want of a
+        coding transcript -- is reverse-translated once the mapper emits a cdna
+        TargetGeneMapping, whose reference_accession anchors the projection."""
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn="variant:1",
+            hgvs_nt="NC_000001.11:g.1000A>G",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        # Genomic assay layer + cdna identity TargetGeneMapping (carrying the NM_); the
+        # genomic variant projects onto that transcript for reverse translation.
+        await _map_variants(
+            session,
+            mock_worker_ctx,
+            sample_independent_variant_mapping_run,
+            sample_score_set,
+            with_layers={"g", "c"},
+        )
+
+        assay_hgvs = "NC_000001.11:g.1000A>G"
+        g_candidate = "NC_000001.11:g.1000A>G"
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", fake_construct({assay_hgvs: ([], [g_candidate])})),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", fake_translate({g_candidate: "ga4gh:VA.genomic"})),
+        ):
+            result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 1}
+        assert _cross_level_statuses(session, sample_score_set.id, status="skipped") == []
+
+    def _run_mapped_date(self, session, target_gene_id):
+        """The mapped_date the (mock) mapping run stamped on its TargetGeneMappings."""
+        return (
+            session.query(TargetGeneMapping)
+            .filter(
+                TargetGeneMapping.target_gene_id == target_gene_id,
+                TargetGeneMapping.alignment_level == AnnotationLayer.genomic,
+            )
+            .first()
+            .mapped_date
+        )
+
+    async def test_uses_latest_cdna_row_within_the_run(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+    ):
+        """When a run has more than one cdna TargetGeneMapping for a target (same run date),
+        RT reverse-translates against the newest (highest id), not an arbitrary one."""
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn="variant:1",
+            hgvs_nt="NC_000001.11:g.1000A>G",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        # Mapping emits a cdna TargetGeneMapping (NM_999999.1) stamped with the run date.
+        await _map_variants(
+            session,
+            mock_worker_ctx,
+            sample_independent_variant_mapping_run,
+            sample_score_set,
+            with_layers={"g", "c"},
+        )
+        target_gene = sample_score_set.target_genes[0]
+        run_date = self._run_mapped_date(session, target_gene.id)
+        # A newer cdna row (higher id) for the same target and same run date.
+        session.add(
+            TargetGeneMapping(
+                target_gene_id=target_gene.id,
+                alignment_level=AnnotationLayer.cdna,
+                reference_accession="NM_111111.1",
+                preferred=False,
+                tool_version="pytest.0.0",
+                mapped_date=run_date,
+            )
+        )
+        session.commit()
+
+        assay_hgvs = "NC_000001.11:g.1000A>G"
+        g_candidate = "NC_000001.11:g.1000A>G"
+        delegate = fake_construct({assay_hgvs: ([], [g_candidate])})
+        captured: dict = {}
+
+        def capturing_construct(inputs, *, transcripts, coordinates, config):
+            captured["transcripts"] = [inp.transcript for inp in inputs]
+            return delegate(inputs, transcripts=transcripts, coordinates=coordinates, config=config)
+
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", capturing_construct),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", fake_translate({g_candidate: "ga4gh:VA.g"})),
+        ):
+            result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        assert result.status == JobStatus.SUCCEEDED
+        # The newest cdna row within the run wins, not the first-mapped one.
+        assert captured["transcripts"] == ["NM_111111.1"]
+
+    async def test_ignores_stale_cdna_row_from_a_different_run(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+    ):
+        """A cdna row left behind by a *different* run (different run date) is not used:
+        the current run emitted no cdna row, so the variant is skipped (transcript
+        unresolved) rather than reverse-translated against the stale transcript -- the
+        mapped_date anchor narrows the accumulation edge case (mavedb-api#763)."""
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn="variant:1",
+            hgvs_nt="NC_000001.11:g.1000A>G",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        # Current run maps genomic only -- no cdna row for this run's date.
+        await _map_variants(
+            session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set, with_layers={"g"}
+        )
+        target_gene = sample_score_set.target_genes[0]
+        run_date = self._run_mapped_date(session, target_gene.id)
+        # A leftover cdna row from a *prior* run (an earlier date) must not be picked up.
+        session.add(
+            TargetGeneMapping(
+                target_gene_id=target_gene.id,
+                alignment_level=AnnotationLayer.cdna,
+                reference_accession="NM_888888.1",
+                preferred=False,
+                tool_version="pytest.0.0",
+                mapped_date=run_date - timedelta(days=1),
+            )
+        )
+        session.commit()
+
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", fake_construct({})),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", fake_translate({})),
+        ):
+            result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0}
+        skipped = _cross_level_statuses(session, sample_score_set.id, status="skipped")
+        assert len(skipped) == 1
+        assert skipped[0].annotation_metadata["skip_category"] == "transcript_unresolved"
+
+    async def test_coding_target_skip_is_classified_recoverable(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+    ):
+        """A protein-coding target with no resolvable coding transcript is a *recoverable*
+        skip -- classified ``transcript_unresolved`` so it is findable, distinct from a
+        regulatory target's correct skip."""
+        assert sample_score_set.target_genes[0].category == TargetCategory.protein_coding
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn="variant:1",
+            hgvs_nt="NC_000001.11:g.1000A>G",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        # Genomic-only mapping: no cdna TargetGeneMapping, so no coding transcript resolves.
+        await _map_variants(
+            session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set, with_layers={"g"}
+        )
+
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", fake_construct({})),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", fake_translate({})),
+        ):
+            result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0}
+        skipped = _cross_level_statuses(session, sample_score_set.id, status="skipped")
+        assert len(skipped) == 1
+        assert skipped[0].annotation_metadata["skip_category"] == "transcript_unresolved"
+
+    async def test_regulatory_target_skip_is_classified_correct(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+    ):
+        """A non-coding/regulatory target has no protein consequence: its skip is *correct*,
+        classified ``no_coding_transcript`` rather than the recoverable category."""
+        target = sample_score_set.target_genes[0]
+        target.category = TargetCategory.regulatory
+        session.add(target)
+        session.commit()
+
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn="variant:1",
+            hgvs_nt="NC_000001.11:g.1000A>G",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        await _map_variants(
+            session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set, with_layers={"g"}
+        )
+
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", fake_construct({})),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", fake_translate({})),
+        ):
+            result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0}
+        skipped = _cross_level_statuses(session, sample_score_set.id, status="skipped")
+        assert len(skipped) == 1
+        assert skipped[0].annotation_metadata["skip_category"] == "no_coding_transcript"
 
     async def test_translation_config_param_overrides_job_defaults(
         self,
