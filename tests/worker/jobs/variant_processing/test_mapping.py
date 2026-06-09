@@ -684,6 +684,96 @@ class TestMapVariantsForScoreSetUnit:
         assert len(annotation_status_failed) == 1
         assert annotation_status_failed[0].annotation_type == "vrs_mapping"
 
+    async def test_map_variants_for_score_set_benign_outcomes_are_not_failures(
+        self,
+        session,
+        with_independent_processing_runs,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_score_set,
+    ):
+        """A score set whose only unmapped variants are benign absences (intronic / no
+        protein consequence) is ``complete``, not ``incomplete``/``failed``: benign
+        outcomes carry no allele but are skips, not failures."""
+
+        async def dummy_mapping_job():
+            mapping_output = await construct_mock_mapping_output(
+                session=session,
+                score_set=sample_score_set,
+                with_gene_info=True,
+                with_layers={"g", "c", "p"},
+                with_pre_mapped=True,
+                with_post_mapped=True,
+                with_reference_metadata=True,
+                with_mapped_scores=True,
+                with_all_variants=True,
+            )
+            # Re-stamp the emitted records as benign absences: no allele, no failure. The
+            # helper only produces MAPPED/FAILED, so we override here to exercise the path.
+            benign_outcomes = ["intronic", "no_protein_consequence"]
+            for idx, mapped_score in enumerate(mapping_output["mapped_scores"]):
+                mapped_score["pre_mapped"] = {}
+                mapped_score["post_mapped"] = {}
+                mapped_score["outcome"] = benign_outcomes[idx % len(benign_outcomes)]
+            return mapping_output
+
+        variant1 = Variant(
+            score_set_id=sample_score_set.id,
+            hgvs_nt="NM_000000.1:c.1A>G",
+            hgvs_pro="NP_000000.1:p.Met1Val",
+            data={},
+            urn="variant:1",
+        )
+        variant2 = Variant(
+            score_set_id=sample_score_set.id,
+            hgvs_nt="NM_000000.1:c.2G>T",
+            hgvs_pro="NP_000000.1:p.Val2Leu",
+            data={},
+            urn="variant:2",
+        )
+        session.add_all([variant1, variant2])
+        session.commit()
+
+        with (
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                return_value=dummy_mapping_job(),
+            ),
+        ):
+            result = await map_variants_for_score_set(
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
+            )
+
+        # The run succeeded and the score set is complete -- nothing genuinely failed.
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["mapped_count"] == 0
+        assert result.data["failed_count"] == 0
+        assert result.data["skipped_count"] == 2
+        assert sample_score_set.mapping_state == MappingState.complete
+        assert sample_score_set.mapping_errors is None
+
+        # A record exists per variant, but with no authoritative allele.
+        mapping_records = session.query(MappingRecord).all()
+        assert len(mapping_records) == 2
+        assert all(authoritative_allele_for(session, r) is None for r in mapping_records)
+
+        # Benign outcomes are SKIPPED (not FAILED), and the finer outcome is preserved in metadata.
+        annotation_statuses = (
+            session.query(VariantAnnotationStatus)
+            .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id)
+            .all()
+        )
+        assert len(annotation_statuses) == 2
+        assert all(s.status == "skipped" for s in annotation_statuses)
+        assert all(s.failure_category is None for s in annotation_statuses)
+        recorded_outcomes = {s.annotation_metadata["outcome"] for s in annotation_statuses}
+        assert recorded_outcomes == {"intronic", "no_protein_consequence"}
+
     async def test_map_variants_for_score_set_complete_mapping(
         self,
         session,

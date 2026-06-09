@@ -183,6 +183,12 @@ async def construct_mock_mapping_output(
             if not with_all_variants and idx % 2 == 0:
                 mapped_score["post_mapped"] = {}
 
+            # Mirror the mapper's per-record outcome: both alleles present -> MAPPED, else
+            # FAILED. Tests needing benign outcomes set ``outcome`` explicitly afterward.
+            mapped_score["outcome"] = (
+                "mapped" if mapped_score["pre_mapped"] and mapped_score["post_mapped"] else "failed"
+            )
+
             mapping_output["mapped_scores"].append(mapped_score)
 
     if not mapping_output["mapped_scores"]:

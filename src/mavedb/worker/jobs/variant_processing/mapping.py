@@ -8,6 +8,7 @@ and coordination with downstream services like ClinGen and UniProt.
 import asyncio
 import functools
 import logging
+from collections import Counter
 from datetime import date
 from typing import Any
 
@@ -23,6 +24,7 @@ from mavedb.lib.exceptions import (
 )
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.mapping import EXCLUDED_PREMAPPED_ANNOTATION_KEYS
+from mavedb.lib.mapping.schema import MappingOutcome
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variant_translations import get_or_create_allele
 from mavedb.lib.variants import get_hgvs_from_post_mapped
@@ -258,7 +260,10 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         total_variants = len(mapped_scores)
         job_manager.save_to_context({"total_variants_to_process": total_variants})
 
-        successful_mapped_variants = 0
+        # Tally every record by its typed outcome; the mapped/failed/benign buckets are
+        # derived from this after the loop. Keeping all four keys preserves the
+        # intronic-vs-no-protein distinction in logs.
+        outcome_counts: Counter[MappingOutcome] = Counter()
         logger.info(
             f"Processing {total_variants} mapped variants for score set {score_set.urn}.",
             extra=job_manager.logging_context(),
@@ -282,10 +287,17 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             if existing_mapped_variant:
                 job_manager.save_to_context({"existing_mapped_variant": existing_mapped_variant.id})
 
-            annotation_was_successful = mapped_score.get("pre_mapped") and mapped_score.get("post_mapped")
-            if annotation_was_successful:
-                successful_mapped_variants += 1
-                job_manager.save_to_context({"successful_mapped_variants": successful_mapped_variants})
+            # The typed outcome -- not allele presence -- decides success/benign/failure.
+            # Absent outcome means an older or malformed payload; fail fast.
+            raw_outcome = mapped_score.get("outcome")
+            if not raw_outcome:
+                raise NonexistentMappingResultsError(
+                    f"ScoreAnnotation for variant {variant_urn!r} is missing its outcome."
+                )
+            outcome = MappingOutcome(raw_outcome)
+
+            outcome_counts[outcome] += 1
+            job_manager.save_to_context({"outcome_counts": {o.value: n for o, n in outcome_counts.items()}})
 
             # dcd-mapping guarantees both fields are set on every ScoreAnnotation,
             # including failed variants (the annotate step re-attributes failures to
@@ -337,25 +349,36 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             else:
                 job_manager.db.add(mapping_record)
 
+            # MAPPED -> success; benign absences -> skipped; FAILED -> failed. The raw outcome
+            # is preserved in annotation_metadata so the benign distinction survives.
+            if outcome is MappingOutcome.MAPPED:
+                annotation_status = AnnotationStatus.SUCCESS
+                annotation_failure_category = None
+            elif outcome.is_benign_absence:
+                annotation_status = AnnotationStatus.SKIPPED
+                annotation_failure_category = None
+            else:
+                annotation_status = AnnotationStatus.FAILED
+                annotation_failure_category = AnnotationFailureCategory.EXTERNAL_SERVICE_REJECTED
+
             annotation_manager.add_annotation(
                 variant_id=variant.id,  # type: ignore
                 annotation_type=AnnotationType.VRS_MAPPING,
                 version=tool_version,
-                status=AnnotationStatus.SUCCESS if annotation_was_successful else AnnotationStatus.FAILED,
-                failure_category=None
-                if annotation_was_successful
-                else AnnotationFailureCategory.EXTERNAL_SERVICE_REJECTED,
+                status=annotation_status,
+                failure_category=annotation_failure_category,
                 annotation_data={
                     "error_message": mapped_score.get("error_message", null()),
                     "annotation_metadata": {
+                        "outcome": outcome.value,
                         "mapped_assay_level_hgvs": assay_level_hgvs,
                     },
                 },
                 current=True,
             )
 
-            # Only variants with a post-mapped representation yield an authoritative Allele. Failed variants
-            # get a MappingRecord (with null VRS data) but no linked allele.
+            # Only variants with a post-mapped representation yield an authoritative Allele;
+            # failed and benign-absent variants get a MappingRecord but no linked allele.
             if post_mapped_allele:
                 allele_draft = AlleleDbModel(
                     vrs_digest=post_mapped_allele["id"],
@@ -383,17 +406,26 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
         annotation_manager.flush()
 
-        if successful_mapped_variants == 0:
+        # Collapse the per-outcome tally into the three buckets the rest of the job reasons about.
+        mapped_count = outcome_counts[MappingOutcome.MAPPED]
+        failed_count = outcome_counts[MappingOutcome.FAILED]
+        skipped_count = sum(n for o, n in outcome_counts.items() if o.is_benign_absence)
+
+        # State keys off genuine failures only: no failures -> complete (benign absences
+        # don't count); failures with nothing mapped -> failed; otherwise incomplete.
+        if failed_count == 0:
+            score_set.mapping_state = MappingState.complete
+        elif mapped_count == 0:
             score_set.mapping_state = MappingState.failed
             score_set.mapping_errors = {"error_message": "All variants failed to map."}
-        elif successful_mapped_variants < total_variants:
-            score_set.mapping_state = MappingState.incomplete
         else:
-            score_set.mapping_state = MappingState.complete
+            score_set.mapping_state = MappingState.incomplete
 
         job_manager.save_to_context(
             {
-                "successful_mapped_variants": successful_mapped_variants,
+                "mapped_count": mapped_count,
+                "failed_count": failed_count,
+                "skipped_count": skipped_count,
                 "mapping_state": score_set.mapping_state.name,
                 "mapping_errors": score_set.mapping_errors,
                 "inserted_mapped_variants": len(mapped_scores),
@@ -442,7 +474,8 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
     logger.info(msg="Inserted mapped variants into db.", extra=job_manager.logging_context())
 
-    if successful_mapped_variants == 0:
+    # Fail the job only on genuine failure with nothing mapped; all-benign is a success.
+    if mapped_count == 0 and failed_count > 0:
         logger.error(msg="No variants were successfully mapped.", extra=job_manager.logging_context())
         job_manager.db.flush()
         return JobExecutionOutcome.failed(
@@ -450,19 +483,27 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             data={
                 "score_set_id": score_set.id,
                 "mapped_count": 0,
-                "unmapped_count": total_variants,
+                "failed_count": failed_count,
+                "skipped_count": skipped_count,
                 "total_count": total_variants,
             },
             failure_category=FailureCategory.VRS_MAPPING_FAILED,
         )
 
-    logger.info(msg="Variant mapping job completed successfully.", extra=job_manager.logging_context())
+    logger.info(
+        msg=(
+            f"Variant mapping job completed successfully: {mapped_count} mapped, "
+            f"{failed_count} failed, {skipped_count} skipped (intronic / no protein consequence)."
+        ),
+        extra=job_manager.logging_context(),
+    )
     job_manager.db.flush()
     return JobExecutionOutcome.succeeded(
         data={
             "score_set_id": score_set.id,
-            "mapped_count": successful_mapped_variants,
-            "unmapped_count": total_variants - successful_mapped_variants,
+            "mapped_count": mapped_count,
+            "failed_count": failed_count,
+            "skipped_count": skipped_count,
             "total_count": total_variants,
         }
     )
