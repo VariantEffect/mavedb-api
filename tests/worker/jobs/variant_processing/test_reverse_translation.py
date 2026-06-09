@@ -69,12 +69,15 @@ def fake_construct(results_by_hgvs: dict, errors_by_hgvs: dict | None = None):
             if inp.hgvs in errors_by_hgvs:
                 errors.append(TranslationError(input=inp, error=errors_by_hgvs[inp.hgvs]))
             elif inp.hgvs in results_by_hgvs:
-                c_candidates, g_candidates = results_by_hgvs[inp.hgvs]
+                entry = results_by_hgvs[inp.hgvs]
+                c_candidates, g_candidates = entry[0], entry[1]
+                hgvs_p = entry[2] if len(entry) > 2 else None
                 results.append(
                     TranslationResult(
                         input=inp,
                         hgvs_c_candidates=list(c_candidates),
                         hgvs_g_candidates=list(g_candidates),
+                        hgvs_p=hgvs_p,
                     )
                 )
             else:
@@ -322,6 +325,57 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert [a.vrs_digest for a in genomic] == ["ga4gh:VA.genomic"]
         coding = session.query(Allele).filter(Allele.transcript == "NM_000001.1").all()
         assert [a.vrs_digest for a in coding] == ["ga4gh:VA.coding"]
+
+    async def test_protein_consequence_is_persisted_as_a_protein_allele(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+    ):
+        """The deterministic protein consequence (``result.hgvs_p``) is emitted as the
+        protein-level member of the equivalence set -- a non-authoritative ``level=protein``
+        allele linked to the record, not dropped."""
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn="variant:1",
+            hgvs_nt="NM_000000.1:c.1A>G",
+            hgvs_pro="NP_000000.1:p.Met1Val",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        await _map_variants(session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set)
+
+        assay_hgvs = "NM_000000.1:c.1A>G"
+        g_candidate = "NC_000001.11:g.1000A>G"
+        c_candidate = "NM_000001.1:c.5A>G"
+        # c_to_p emits a predicted consequence in parens; the job strips them before use.
+        p_consequence = "NP_000001.1:p.(Met1Val)"
+        p_stripped = "NP_000001.1:p.Met1Val"
+        construct = fake_construct({assay_hgvs: ([c_candidate], [g_candidate], p_consequence)})
+        translate = fake_translate(
+            {
+                g_candidate: "ga4gh:VA.genomic",
+                c_candidate: "ga4gh:VA.coding",
+                p_stripped: "ga4gh:VA.protein",  # the stripped form is what reaches the translator
+            }
+        )
+
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", construct),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", translate),
+        ):
+            await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        protein_allele = session.query(Allele).filter(Allele.vrs_digest == "ga4gh:VA.protein").one()
+        assert protein_allele.level == AnnotationLayer.protein.value
+        assert protein_allele.hgvs_p == p_stripped  # stored without the prediction parens
+        # Linked to the record as a non-authoritative member of the equivalence set.
+        assert protein_allele.id in {link.allele_id for link in _non_authoritative_links(session)}
 
     async def test_cis_phased_multivariant_candidate_is_persisted_as_a_block(
         self,

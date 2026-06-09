@@ -2,7 +2,8 @@
 
 For each mapped variant in a score set, calls construct_equivalent_variants from
 the variant-annotation library to produce all coding and genomic HGVS candidates
-encoding the same protein consequence. The candidates are written as non-authoritative
+encoding the same protein consequence, plus that protein consequence itself. The
+candidates (coding, genomic, and the protein) are written as non-authoritative
 Allele rows linked to the existing MappingRecord via MappingRecordAllele.
 """
 
@@ -24,7 +25,7 @@ from variant_annotation.lib.translation import construct_equivalent_variants
 from variant_annotation.lib.translation.types import TranslationConfig, VariantInput, WtCodonMode
 
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
-from mavedb.lib.hgvs import extract_accession
+from mavedb.lib.hgvs import extract_accession, strip_protein_prediction_parens
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variant_translations import get_or_create_allele
 from mavedb.lib.vrs_utils import translate_hgvs_to_variation
@@ -46,9 +47,8 @@ from mavedb.worker.lib.translation_ports import NullTranscriptSource, WorkerCoor
 
 logger = logging.getLogger(__name__)
 
-# Job defaults when no `translation_config` override is supplied: enumerate the full coding
-# equivalence class — every synonymous codon, indels included. wt_codon_mode "all" requires
-# include_indels=True (TranslationConfig enforces this).
+# Job defaults: full coding equivalence class — every synonymous codon, indels included.
+# wt_codon_mode "all" requires include_indels=True.
 _DEFAULT_TRANSLATION_CONFIG: dict[str, Any] = {
     "include_indels": True,
     "wt_codon_mode": WtCodonMode.ALL,
@@ -56,10 +56,9 @@ _DEFAULT_TRANSLATION_CONFIG: dict[str, Any] = {
 
 
 class _TranscriptResolution(NamedTuple):
-    """A mapping record paired with what we know about its coding transcript before the
-    batched UTA lookup: the gene-level cdna transcript if the mapper supplied one, and the
-    protein accession still awaiting NP_→NM_ resolution otherwise. Exactly one of the two is
-    set for a resolvable record; both are None when neither path applies (record is skipped)."""
+    """Pairs a mapping record with its pre-UTA transcript info: gene_transcript if the mapper
+    supplied a cdna row, protein_accession if NP_→NM_ resolution is still needed. Both None
+    means the record will be skipped."""
 
     rec: MappingRecord
     variant: Variant
@@ -77,11 +76,10 @@ class _TranscriptResolutionSkipReason(Enum):
     def classify(
         cls, resolution: _TranscriptResolution, category: TargetCategory | None
     ) -> tuple["_TranscriptResolutionSkipReason", str]:
-        """Classify why a record was skipped, distinguishing recoverable from correct skips.
+        """Classify why a record was skipped.
 
-        A protein-coding target with no resolvable transcript is *recoverable* (it should now be
-        rare -- the mapper selects a MANE transcript for coding genomic-accession targets); a
-        regulatory / non-coding target has no protein consequence and is a *correct* skip.
+        Protein-coding target with no transcript → recoverable (transcript_unresolved).
+        Non-coding/regulatory target → correct skip (no_coding_transcript).
         """
         if not resolution.rec.hgvs_assay_level:
             return (
@@ -102,14 +100,11 @@ class _TranscriptResolutionSkipReason(Enum):
 
 
 def _coding_transcripts_for_proteins(protein_accessions: set[str]) -> dict[str, str]:
-    """Resolve each RefSeq protein accession (NP_/XP_…) to its preferred coding transcript
-    via UTA's associated_accessions table.
+    """Resolve RefSeq protein accessions (NP_/XP_) to their preferred coding transcripts via UTA.
 
-    Protein-level mappings carry no coding transcript — the mapper emits reference_accession
-    only for cdna alignments — so reverse-translating them relies on the NP_→NM_ association
-    UTA records. Resolution and the multi-transcript preference order both live in the
-    variant-annotation library's UtaClient; we own only the connection lifecycle here so the
-    long-lived worker process does not leak UTA connections across jobs.
+    Protein-level mappings carry no cdna transcript in TargetGeneMapping, so reverse
+    translation falls back to the NP_→NM_ association in UTA. Connection is opened and
+    closed per-call to avoid leaking connections across long-lived worker jobs.
     """
     if not protein_accessions:
         return {}
@@ -128,17 +123,11 @@ def _coding_transcripts_for_proteins(protein_accessions: set[str]) -> dict[str, 
 
 
 def _build_translation_config(overrides: dict[str, Any] | None) -> TranslationConfig:
-    """Build the variant-annotation TranslationConfig from optional job-param overrides.
+    """Build a TranslationConfig from optional job-param overrides merged with job defaults.
 
-    Each key in `overrides` is a TranslationConfig field (that dataclass is the source of truth
-    for the available knobs) and wins over the job defaults in _DEFAULT_TRANSLATION_CONFIG;
-    absent or None means use the defaults. wt_codon_mode is coerced to the enum so a JSON string
-    value ("all"/"unambiguous"/"none") works.
-
-    Raises ValueError with an actionable message — listing the offending value and the valid
-    options — for an unknown field, an invalid wt_codon_mode, or an invalid combination (e.g. a
-    wt_codon_mode other than "none" without include_indels). The allowed-field set is derived
-    from TranslationConfig itself, so it never drifts from the library.
+    Overrides win over _DEFAULT_TRANSLATION_CONFIG; wt_codon_mode accepts string values and
+    is coerced to the enum. Raises ValueError for unknown fields, invalid modes, or invalid
+    combinations (e.g. wt_codon_mode != "none" without include_indels).
     """
     config_kwargs: dict[str, Any] = {**_DEFAULT_TRANSLATION_CONFIG, **(overrides or {})}
 
@@ -172,20 +161,12 @@ async def reverse_translate_variants_for_score_set(
 ) -> JobExecutionOutcome:
     """Build the cross-level HGVS equivalence class for every mapped variant in the score set.
 
-    Reads current MappingRecords that carry an hgvs_assay_level string, collapses each
-    to its ProteinConsequence, and expands to all coding/genomic HGVS candidates via a
-    single batched subprocess call to the variant-annotation library. Each candidate is
-    written as a non-authoritative Allele linked to the MappingRecord.
+    For each current MappingRecord with an hgvs_assay_level, collapses to a ProteinConsequence
+    and expands to all coding/genomic HGVS candidates via the variant-annotation library.
+    Each candidate is written as a non-authoritative Allele linked to the MappingRecord.
 
-    Required job_params:
-        - score_set_id (int): ID of the ScoreSet to process
-        - correlation_id (str): Correlation ID for tracking
-
-    Optional job_params:
-        - translation_config (dict): Overrides for any variant-annotation TranslationConfig
-          field (e.g. include_indels, wt_codon_mode, max_indel_size). Omitted keys fall back to
-          the job defaults in _DEFAULT_TRANSLATION_CONFIG (full codon equivalence class, indels
-          included).
+    job_params: score_set_id (int), correlation_id (str),
+                translation_config (dict, optional) — TranslationConfig overrides.
     """
     job = job_manager.get_job()
     validate_job_params(["score_set_id", "correlation_id"], job)
@@ -206,25 +187,14 @@ async def reverse_translate_variants_for_score_set(
     job_manager.update_progress(0, 100, "Starting reverse translation job.")
     logger.info(msg="Started reverse translation job.", extra=job_manager.logging_context())
 
-    # Build {(target_gene_id, run date) -> NM_ transcript} from the cdna TargetGeneMappings
-    # the mapper emits. Reverse translation must run against the cdna (NM_) transcript.
+    # Build {(target_gene_id, run date) -> NM_ transcript} from cdna TargetGeneMappings.
+    # TargetGeneMapping rows accumulate across re-maps (retired records still FK them), so we
+    # key by (target_gene_id, mapped_date) to bind each record to its own run's cdna row.
+    # All TargetGeneMappings in one job share a mapped_date; within a key, highest id wins.
     #
-    # TargetGeneMapping is not valid-time-versioned and re-mapping cannot delete prior rows
-    # (retired MappingRecords still FK them), so a re-mapped target accumulates several cdna
-    # rows. There is no run anchor on the row, so we approximate one with mapped_date and key
-    # the lookup by (target gene, run date): each record resolves only the cdna transcript
-    # from *its own* run, matched below against the run date of the genomic TargetGeneMapping
-    # the record points to. All of a run's TargetGeneMappings share one mapped_date (stamped
-    # once per job), so a record and its run's cdna row match even if the job spans midnight.
-    # Within a single key, order by id so the newest row wins.
-    #
-    # TODO#763: mapped_date is day-granular, so two re-maps on the *same calendar day* collide
-    # on the key. If a later same-day re-map emits no cdna row (e.g. transcript selection hit
-    # a transient Ensembl/gene-normalizer failure, or the target genuinely lost its coding
-    # transcript) but an earlier same-day one did, RT can still bind the earlier (stale)
-    # transcript. This keying narrows the window from "any prior run ever" to "a same-day
-    # re-map" -- the bug now requires re-runs in quick succession -- but only an actual run
-    # anchor / versioned home for reference identity closes it fully.
+    # TODO#763: mapped_date is day-granular, so two re-maps on the same calendar day collide.
+    # A later same-day run that emits no cdna row can still bind the earlier run's stale
+    # transcript. Only a versioned run anchor closes this fully.
     cdna_transcript_by_run: dict[tuple[int, date | None], str | None] = {
         (target_gene_id, mapped_date): reference_accession
         for target_gene_id, mapped_date, reference_accession in job_manager.db.execute(
@@ -243,10 +213,8 @@ async def reverse_translate_variants_for_score_set(
         .all()
     }
 
-    # Load current, authoritative, and successfully-mapped MappingRecords along with their
-    # target gene (for the coding-transcript lookup) and parent Variant.
-    # The joined TargetGeneMapping is the record's own (genomic) mapping row, so its
-    # mapped_date is this record's run date -- used to anchor the cdna lookup to the run.
+    # Load current authoritative MappingRecords with their Variant and TargetGeneMapping.
+    # mapped_date from the joined (genomic) TargetGeneMapping anchors the cdna transcript lookup.
     rows: Sequence[tuple[MappingRecord, Variant, int, date | None]] = (
         job_manager.db.execute(
             select(
@@ -275,10 +243,8 @@ async def reverse_translate_variants_for_score_set(
         job_manager.db.flush()
         return JobExecutionOutcome.succeeded(data={"translated": 0, "failed": 0, "skipped": 0, "alleles_created": 0})
 
-    # Resolve each record's coding transcript. Genomic/cdna mappings share their target
-    # gene's cdna alignment reference; protein mappings have none (the mapper emits
-    # reference_accession only for cdna alignments), so gather their protein accessions and
-    # resolve NP_→NM_ from UTA in a single batch query below.
+    # Genomic/cdna records resolve via the cdna TargetGeneMapping; protein records have no
+    # cdna reference_accession, so collect their NP_ accessions for a batched NP_→NM_ UTA lookup.
     transcript_resolutions: list[_TranscriptResolution] = []
     protein_accessions: set[str] = set()
     for rec, variant, target_gene_id, mapped_date in rows:
@@ -296,9 +262,8 @@ async def reverse_translate_variants_for_score_set(
 
     transcript_by_protein = _coding_transcripts_for_proteins(protein_accessions)
 
-    # Target gene category per gene, so a skip can be classified honestly: a coding target
-    # with no resolvable transcript is recoverable (should now be rare), while a regulatory /
-    # non-coding target has no protein consequence and is a correct skip.
+    # Target category per gene — used to classify skips as recoverable (coding target,
+    # transcript unresolved) vs. correct (non-coding/regulatory, no protein consequence).
     target_category_by_gene: dict[int, TargetCategory] = dict(
         job_manager.db.execute(
             select(TargetGene.id, TargetGene.category).where(TargetGene.score_set_id == score_set_id)
@@ -307,14 +272,9 @@ async def reverse_translate_variants_for_score_set(
         .all()
     )
 
-    # Build VariantInputs, supplying the resolved coding transcript for every input
-    # regardless of its own assay level (p./c./g. all collapse to a ProteinConsequence
-    # anchored on that transcript). Object identity on each VariantInput is preserved
-    # through the call so we can correlate TranslationResult.input back to its MappingRecord.
-    #
-    # A record with no coding transcript (e.g. a regulatory element aligned only at the
-    # genomic level, or a protein with no UTA association) has no protein consequence to
-    # reverse-translate; it is skipped and recorded as SKIPPED rather than counted as a failure.
+    # Build VariantInputs with the resolved coding transcript (p./c./g. all collapse to a
+    # ProteinConsequence on that transcript). Object identity is preserved so TranslationResult
+    # can be correlated back to its MappingRecord. Records with no transcript are skipped.
     variant_inputs: list[Any] = []
     variant_input_map: dict[int, tuple[MappingRecord, Variant]] = {}
     skipped_variants: list[_TranscriptResolution] = []
@@ -378,9 +338,8 @@ async def reverse_translate_variants_for_score_set(
         .where(MappingRecord.current.is_(True))
     )
 
-    # Collect new MappingRecord -> Allele links and defer linkage until all candidates are processed.
-    # This allows us to supersede the prior live derived links with the new set in one atomic operation at the end,
-    # so the retire and insert share a timestamp and there is no gap between the old and new sets of live links.
+    # Defer linkage until all candidates are processed so the prior derived links can be
+    # superseded atomically — retire and insert share a timestamp with no gap.
     new_links: list[MappingRecordAllele] = []
 
     # The live authoritative (record, allele) pairs. A derived candidate that equals a record's
@@ -410,12 +369,15 @@ async def reverse_translate_variants_for_score_set(
             (hgvs_g, AnnotationLayer.genomic, "hgvs_g") for hgvs_g in result.hgvs_g_candidates
         ] + [(hgvs_c, AnnotationLayer.cdna, "hgvs_c") for hgvs_c in result.hgvs_c_candidates]
 
+        # Emit the protein consequence as the protein-level member of the equivalence set.
+        # Prediction parens (p.(Ala222Val)) are stripped before translation and storage.
+        # None for protein-assay inputs where the protein is already the authoritative allele.
+        if result.hgvs_p:
+            candidates.append((strip_protein_prediction_parens(result.hgvs_p), AnnotationLayer.protein, "hgvs_p"))
+
         for hgvs, level, hgvs_field in candidates:
-            # A candidate the equivalence class produced may be a form ga4gh cannot
-            # translate (an intronic projection, an unsupported edge case, a malformed
-            # bracketed expression). A variant with at least one translatable candidate still
-            # advances the pipeline; only a variant where every candidate fails is
-            # recorded as failed (with the per-candidate errors retained as metadata).
+            # A candidate may not be translatable (intronic projection, malformed expression).
+            # Track per-candidate failures; a variant fails only if *all* candidates fail.
             try:
                 variation = translate_hgvs_to_variation(hgvs, allele_translator)
             except Exception as e:
@@ -483,10 +445,9 @@ async def reverse_translate_variants_for_score_set(
                 annotation_data={"annotation_metadata": annotation_metadata},
             )
 
-    # Supersede the prior live derived links with the new set in one gap-free operation.
-    # TODO#765: a re-run supersedes the whole derived set wholesale because re-mapping re-mints the
-    # records, so we cannot tell which derivations are unchanged; idempotent mapping records would let
-    # unchanged derived links stay live instead of being retired and recreated.
+    # Supersede prior live derived links atomically.
+    # TODO#765: re-runs retire and recreate the whole derived set because re-mapping re-mints
+    # records; idempotent records would allow unchanged links to stay live.
     MappingRecordAllele.supersede_live_where(
         job_manager.db,
         new_links,
