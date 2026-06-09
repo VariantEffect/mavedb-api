@@ -22,6 +22,20 @@ def extract_accession(hgvs_string: str) -> str:
     return token.split(":", 1)[0].strip()
 
 
+_HGVS_P_PREDICTION = re.compile(r":p\.\((.+)\)\s*$")
+
+
+def strip_protein_prediction_parens(hgvs_p: str) -> str:
+    """Unwrap the prediction parentheses from a protein HGVS: ``p.(Ala222Val)`` -> ``p.Ala222Val``.
+
+    Forward translation (``c_to_p``) emits a *predicted* consequence in parentheses. ga4gh
+    translates either form fine, but the parens are noise we don't want in the stored HGVS --
+    they denote inference, not a different variant -- so we normalize to the bare form for
+    consistency. A string with no prediction parens is returned unchanged.
+    """
+    return _HGVS_P_PREDICTION.sub(r":p.\1", hgvs_p)
+
+
 def split_cis_phased_hgvs(hgvs_string: str) -> list[str]:
     """Split a cis-phased multivariant HGVS expression into fully-qualified component strings.
 

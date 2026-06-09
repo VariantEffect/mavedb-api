@@ -1,6 +1,26 @@
 import pytest
 
-from mavedb.lib.hgvs import extract_accession, join_cis_phased_hgvs, split_cis_phased_hgvs
+from mavedb.lib.hgvs import (
+    extract_accession,
+    join_cis_phased_hgvs,
+    split_cis_phased_hgvs,
+    strip_protein_prediction_parens,
+)
+
+
+@pytest.mark.parametrize(
+    ("hgvs", "expected"),
+    [
+        ("NP_000456.2:p.(Ala222Val)", "NP_000456.2:p.Ala222Val"),
+        ("NP_000456.2:p.(Tyr745Ter)", "NP_000456.2:p.Tyr745Ter"),
+        ("NP_000456.2:p.(Ala222_Val225del)", "NP_000456.2:p.Ala222_Val225del"),
+        # no prediction parens -> unchanged
+        ("NP_000456.2:p.Ala222Val", "NP_000456.2:p.Ala222Val"),
+        ("NM_000001.1:c.5A>G", "NM_000001.1:c.5A>G"),
+    ],
+)
+def test_strip_protein_prediction_parens(hgvs, expected):
+    assert strip_protein_prediction_parens(hgvs) == expected
 
 
 @pytest.mark.parametrize(
