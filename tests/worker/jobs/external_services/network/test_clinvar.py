@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("arq")
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from sqlalchemy import select
 
@@ -21,11 +21,21 @@ pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 # Stable archival snapshot known to contain ClinVar allele 3045425 (CA9765210).
 _E2E_VERSIONS = [(2025, 1)]
 
+# Minimal synthetic ClinVar data for the E2E test. The real archive is 350 MB+
+# and would exceed the arq job_timeout on a cold CI runner. The ClinGen API
+# call (CA9765210 → 3045425) still runs live, so the happy path is genuine.
+_SYNTHETIC_CLINVAR_DATA = {
+    "3045425": {
+        "GeneSymbol": "CA9",
+        "ClinicalSignificance": "Pathogenic",
+        "ReviewStatus": "criteria provided, single submitter",
+    }
+}
+
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 @pytest.mark.network
-@pytest.mark.slow
 class TestE2ERefreshClinvarControls:
     async def test_refresh_clinvar_controls_e2e(
         self,
@@ -37,15 +47,19 @@ class TestE2ERefreshClinvarControls:
         with_refresh_clinvar_controls_job,
         sample_refresh_clinvar_controls_job_run,
     ):
-        """End-to-end: job fetches a real ClinVar archive, stores a clinical control, and
-        records the correct annotation status for the sample variant (CA9765210 / allele 3045425).
-
-        Only one archival snapshot is processed to keep CI fast. The full version-iteration
-        logic and all annotation-status paths are covered by unit tests.
+        """End-to-end: job resolves CA9765210 via the live ClinGen API, stores a clinical
+        control, and records the correct annotation status. The NCBI archive download is
+        replaced with synthetic data so the test is fast in CI.
         """
-        with patch(
-            "mavedb.worker.jobs.external_services.clinvar.generate_clinvar_versions",
-            return_value=_E2E_VERSIONS,
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.generate_clinvar_versions",
+                return_value=_E2E_VERSIONS,
+            ),
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                new=AsyncMock(return_value=_SYNTHETIC_CLINVAR_DATA),
+            ),
         ):
             await arq_redis.enqueue_job("refresh_clinvar_controls", sample_refresh_clinvar_controls_job_run.id)
             await arq_worker.async_run()
