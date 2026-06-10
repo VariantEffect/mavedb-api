@@ -4,9 +4,10 @@ import pytest
 
 pytest.importorskip("arq")
 
+import contextlib
 from asyncio.unix_events import _UnixSelectorEventLoop
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from variant_annotation.lib.translation.types import TranslationError, TranslationResult, WtCodonMode
 
@@ -130,11 +131,15 @@ async def _map_variants(session, mock_worker_ctx, mapping_run, score_set, with_l
 
 
 async def _reverse_translate(session, mock_worker_ctx, rt_run):
-    return await reverse_translate_variants_for_score_set(
-        mock_worker_ctx,
-        rt_run.id,
-        JobManager(session, mock_worker_ctx["redis"], rt_run.id),
-    )
+    # The job opens a UTA-backed TranscriptSource to back codon_at (WtCodonMode.ALL).
+    # construct_equivalent_variants is mocked in these tests, so the source is never
+    # queried -- stub the factory with a no-op context yielding a dummy client.
+    with patch(f"{RT_MODULE}.uta_transcript_source", lambda: contextlib.nullcontext(MagicMock())):
+        return await reverse_translate_variants_for_score_set(
+            mock_worker_ctx,
+            rt_run.id,
+            JobManager(session, mock_worker_ctx["redis"], rt_run.id),
+        )
 
 
 def _cross_level_statuses(session, score_set_id, status=None):

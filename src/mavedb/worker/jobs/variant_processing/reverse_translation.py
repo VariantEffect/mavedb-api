@@ -8,11 +8,9 @@ Allele rows linked to the existing MappingRecord via MappingRecordAllele.
 """
 
 import asyncio
-import contextlib
 import dataclasses
 import functools
 import logging
-import os
 from datetime import date
 from enum import Enum
 from typing import Any, NamedTuple, Sequence
@@ -20,7 +18,6 @@ from typing import Any, NamedTuple, Sequence
 from ga4gh.vrs.extras.translator import AlleleTranslator
 from sqlalchemy import select
 from variant_annotation.lib.accessions import looks_like_refseq_protein_accession
-from variant_annotation.lib.clients.uta import UtaClient, connect_uta
 from variant_annotation.lib.translation import construct_equivalent_variants
 from variant_annotation.lib.translation.types import TranslationConfig, VariantInput, WtCodonMode
 
@@ -43,7 +40,7 @@ from mavedb.models.variant import Variant
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.translation_ports import NullTranscriptSource, WorkerCoordinateTranslator
+from mavedb.worker.lib.translation_ports import WorkerCoordinateTranslator, uta_transcript_source
 
 logger = logging.getLogger(__name__)
 
@@ -109,12 +106,7 @@ def _coding_transcripts_for_proteins(protein_accessions: set[str]) -> dict[str, 
     if not protein_accessions:
         return {}
 
-    uta_db_url = (os.environ.get("UTA_DB_URL") or "").strip()
-    if not uta_db_url:
-        raise RuntimeError("UTA_DB_URL must be set to resolve protein→transcript associations.")
-
-    with contextlib.closing(connect_uta(uta_db_url)) as conn:
-        client = UtaClient(conn)
+    with uta_transcript_source() as client:
         return {
             pro_ac: transcript
             for pro_ac in sorted(protein_accessions)
@@ -305,19 +297,24 @@ async def reverse_translate_variants_for_score_set(
     # construct_equivalent_variants is I/O-bound (blocks on a subprocess); run in the
     # default thread pool rather than the process pool to avoid pickling the port objects.
     coordinates = WorkerCoordinateTranslator(ctx["hdp"])
-    transcripts = NullTranscriptSource()
     loop = asyncio.get_running_loop()
     job_manager.update_progress(20, 100, "Running reverse translation subprocess.")
-    results, errors = await loop.run_in_executor(
-        None,
-        functools.partial(
-            construct_equivalent_variants,
-            variant_inputs,
-            transcripts=transcripts,
-            coordinates=coordinates,
-            config=translation_config,
-        ),
-    )
+    # WtCodonMode.ALL reads the reference codon via TranscriptSource.codon_at, so pass a
+    # live UTA-backed source. codon_at is only touched in the post-subprocess WT-codon step,
+    # but the connection must outlive the executor call, so scope it around the whole call.
+    # (transcript_for_protein is redundant here -- the job already resolved every transcript
+    # and supplies it via VariantInput.transcript.)
+    with uta_transcript_source() as transcripts:
+        results, errors = await loop.run_in_executor(
+            None,
+            functools.partial(
+                construct_equivalent_variants,
+                variant_inputs,
+                transcripts=transcripts,
+                coordinates=coordinates,
+                config=translation_config,
+            ),
+        )
 
     job_manager.update_progress(70, 100, "Writing translated alleles to database.")
     logger.info(
@@ -455,6 +452,10 @@ async def reverse_translate_variants_for_score_set(
         MappingRecordAllele.mapping_record_id.in_(current_record_ids),
     )
 
+    # TODO#767: non-substitution consequences (del/ins/delins/fs/ext) have no synonymous
+    # equivalence class, so they arrive here as TranslationErrors and are miscounted as
+    # FAILED. Classify by the protein consequence's edit type up front and map these to
+    # SKIPPED instead of pattern-matching engine error strings.
     for error in errors:
         _rec, variant = variant_input_map[id(error.input)]
         failed += 1
