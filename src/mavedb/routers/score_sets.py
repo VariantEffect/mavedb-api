@@ -54,6 +54,7 @@ from mavedb.lib.score_sets import (
     csv_data_to_df,
     fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
+    get_current_mapped_variants_for_annotation,
     get_score_set_variants_as_csv,
     is_replaces_id_unique_violation,
     refresh_variant_urns,
@@ -1288,24 +1289,7 @@ def get_score_set_annotated_variants(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    mapped_variants = (
-        db.query(MappedVariant)
-        .join(MappedVariant.variant)
-        .join(Variant.score_set)
-        .filter(ScoreSet.urn == urn)
-        .filter(MappedVariant.current.is_(True))
-        .options(
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set),
-            contains_eager(MappedVariant.variant)
-            .contains_eager(Variant.score_set)
-            .selectinload(ScoreSet.publication_identifier_associations),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.created_by),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.modified_by),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.license),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.experiment),
-        )
-        .all()
-    )
+    mapped_variants = get_current_mapped_variants_for_annotation(db, score_set)
 
     if not mapped_variants:
         logger.info(msg="No mapped variants are associated with the requested score set.", extra=logging_context())
@@ -1397,24 +1381,7 @@ def get_score_set_annotated_variants_functional_statement(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    mapped_variants = (
-        db.query(MappedVariant)
-        .join(MappedVariant.variant)
-        .join(Variant.score_set)
-        .filter(ScoreSet.urn == urn)
-        .filter(MappedVariant.current.is_(True))
-        .options(
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set),
-            contains_eager(MappedVariant.variant)
-            .contains_eager(Variant.score_set)
-            .selectinload(ScoreSet.publication_identifier_associations),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.created_by),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.modified_by),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.license),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.experiment),
-        )
-        .all()
-    )
+    mapped_variants = get_current_mapped_variants_for_annotation(db, score_set)
 
     if not mapped_variants:
         logger.info(msg="No mapped variants are associated with the requested score set.", extra=logging_context())
@@ -1510,24 +1477,7 @@ def get_score_set_annotated_variants_functional_study_result(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    mapped_variants = (
-        db.query(MappedVariant)
-        .join(MappedVariant.variant)
-        .join(Variant.score_set)
-        .filter(ScoreSet.urn == urn)
-        .filter(MappedVariant.current.is_(True))
-        .options(
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set),
-            contains_eager(MappedVariant.variant)
-            .contains_eager(Variant.score_set)
-            .selectinload(ScoreSet.publication_identifier_associations),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.created_by),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.modified_by),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.license),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.experiment),
-        )
-        .all()
-    )
+    mapped_variants = get_current_mapped_variants_for_annotation(db, score_set)
 
     if not mapped_variants:
         logger.info(msg="No mapped variants are associated with the requested score set.", extra=logging_context())

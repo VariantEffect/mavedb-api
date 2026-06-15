@@ -25,7 +25,8 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, lazyload
 
-from mavedb.lib.score_sets import get_score_set_variants_as_csv
+from mavedb.lib.annotation.annotate import variant_highest_level_annotation
+from mavedb.lib.score_sets import get_current_mapped_variants_for_annotation, get_score_set_variants_as_csv
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.license import License
@@ -173,6 +174,28 @@ def export_public_data(db: Session):
                     )
                     logger.info(
                         f"[{i + 1}/{num_score_sets}]   Wrote annotations + {len(mapped_variants)} mapped variants"
+                    )
+
+                    # Write VA-Spec annotations NDJSON — mirrors the GET /api/v1/score-sets/{urn}/annotated-variants/*
+                    # streams, emitting one record per current mapped variant at its highest materialized VA level.
+                    annotated_variants = get_current_mapped_variants_for_annotation(db, score_set)
+
+                    va_lines = []
+                    num_annotations = 0
+                    for mv in annotated_variants:
+                        annotation = variant_highest_level_annotation(mv)
+                        if annotation is not None:
+                            num_annotations += 1
+                        record = {
+                            "variant_urn": mv.variant.urn,
+                            "annotation": annotation.model_dump(exclude_none=True) if annotation else None,
+                        }
+                        va_lines.append(json.dumps(record, default=str))
+
+                    zipfile.writestr(f"va/{csv_filename_base}.va.ndjson", "\n".join(va_lines))
+                    logger.info(
+                        f"[{i + 1}/{num_score_sets}]   Wrote {len(va_lines)} VA-Spec records "
+                        f"({num_annotations} non-null annotations)"
                     )
 
                 # Only generate the counts CSV if count columns are present.

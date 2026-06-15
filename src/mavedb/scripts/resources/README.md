@@ -37,8 +37,11 @@ mavedb-dump.YYYYMMDDHHMMSS.zip
 │   ├── {urn}.counts.csv                       # Variant counts (score sets with count data only)
 │   └── {urn}.annotations.csv                  # Variant annotations from VEP, gnomAD, and ClinGen
 │                                              #   (score sets that have completed mapping only)
-└── mapped/
-    └── {urn}.mapped-variants.json             # Mapped variant data including VRS alleles and HGVS
+├── mapped/
+│   └── {urn}.mapped-variants.json             # Mapped variant data including VRS alleles and HGVS
+│                                              #   (score sets that have completed mapping only)
+└── va/
+    └── {urn}.va.ndjson                        # GA4GH VA-Spec annotations, one record per mapped variant
                                                #   (score sets that have completed mapping only)
 ```
 
@@ -158,6 +161,47 @@ present for score sets that have completed the MaveDB mapping pipeline.**
 
 ---
 
+### `va/{urn}.va.ndjson`
+
+[Newline-delimited JSON](https://ndjson.org/): one line per current mapped variant. Each line is an
+envelope mirroring the `GET /api/v1/score-sets/{urn}/annotated-variants/*` streaming endpoints:
+
+```json
+{"variant_urn": "urn:mavedb:00000001-a-1#1", "annotation": { ... }}
+```
+
+| Field | Description |
+|-------|-------------|
+| `variant_urn` | URN of the source variant — use this to join with `accession` in the CSV files |
+| `annotation` | A single GA4GH VA-Spec object, or `null` |
+
+Rather than re-emitting every nested layer, each variant carries only its **highest materialized**
+VA-Spec layer. The lower layers are not dropped — they are nested inside the higher one (the study
+result sits inside the functional statement, which sits inside the pathogenicity statement). Both
+statement layers serialize with `type: "Statement"`, so `annotation.type` alone does not distinguish
+them — use `annotation.proposition.type`:
+
+| Layer | `annotation.type` | `annotation.proposition.type` | GA4GH class | Emitted when |
+|-------|-------------------|-------------------------------|-------------|--------------|
+| Pathogenicity statement | `Statement` | `VariantPathogenicityProposition` | `VariantPathogenicityStatement` | A non-research-use calibration with ACMG classifications exists |
+| Functional impact statement | `Statement` | `ExperimentalVariantFunctionalImpactProposition` | `Statement` | A non-research-use calibration with functional ranges exists |
+| Study result | `ExperimentalVariantFunctionalImpactStudyResult` | — | `ExperimentalVariantFunctionalImpactStudyResult` | Any variant that can be mapped (lowest layer) |
+
+**Note on the pathogenicity layer:** its `classification` (e.g. `Pathogenic` / `Uncertain
+Significance` / `Benign`) integrates **only MaveDB functional evidence** — every eligible calibration
+for the variant, with the strongest determining the statement-level classification — and not the
+non-functional ACMG criteria (population frequency, segregation, computational predictions) that a
+full clinical determination requires. Treat it as the functional contribution to a classification, to
+be combined with other evidence downstream, not as a standalone clinical verdict. Research-use-only
+calibrations are excluded.
+
+`annotation` is `null` for current mapped variants that have no post-mapped allele (and therefore
+cannot be annotated); the `variant_urn` is still present on those lines. Every current mapped variant
+produces exactly one line, so the line count equals the current mapped-variant count. **Only present
+for score sets that have completed the MaveDB mapping pipeline.**
+
+---
+
 ## Working with this data
 
 ### Joining files for a single score set
@@ -202,10 +246,13 @@ score_set = next(
 
 - Only **published**, **CC0-licensed** data is included. Datasets with other licenses are not
   present in this dump even if they are publicly visible on MaveDB.
-- Annotation files (`.annotations.csv`) and mapped variant files (`.mapped-variants.json`) are
-  **only present for score sets that have been processed by the MaveDB variant mapping pipeline**.
-  Score sets that have not yet been mapped, or for which mapping failed entirely, will not have
-  these files.
+- Annotation files (`.annotations.csv`), mapped variant files (`.mapped-variants.json`), and
+  VA-Spec files (`.va.ndjson`) are **only present for score sets that have been processed by the
+  MaveDB variant mapping pipeline**. Score sets that have not yet been mapped, or for which mapping
+  failed entirely, will not have these files.
+- The `va/` files carry only each variant's highest materialized VA-Spec layer (see
+  [`va/{urn}.va.ndjson`](#vaurnvandjson)). The pathogenicity layer's classification reflects MaveDB
+  functional evidence only, not a full clinical ACMG determination.
 - Mapping is applied per variant within a score set. A score set that has completed the mapping
   pipeline may still contain individual variants with failed mappings. Those variants have `NA` in
   all `mavedb.*`, `vep.*`, `gnomad.*`, and `clingen.*` columns in the annotations CSV, and

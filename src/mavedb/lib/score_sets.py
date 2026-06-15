@@ -410,9 +410,7 @@ def fetch_score_set_search_filter_options(
     controlled_keywords_counter_list = []
     for key, label_counter in controlled_keywords_counter.items():
         for label, count in label_counter.items():
-            controlled_keywords_counter_list.append(
-                ControlledKeywordFilterOption(key=key, value=label, count=count)
-            )
+            controlled_keywords_counter_list.append(ControlledKeywordFilterOption(key=key, value=label, count=count))
 
     logger.debug(msg="Score set search filter options were fetched.", extra=logging_context())
 
@@ -556,6 +554,39 @@ def find_publish_or_private_superseded_score_set_tail(
     return score_set
 
 
+def get_current_mapped_variants_for_annotation(db: Session, score_set: ScoreSet) -> Sequence[MappedVariant]:
+    """
+    Load the current mapped variants for a score set with the relationships required to build VA-Spec
+    annotations eagerly loaded.
+
+    This is the single source of truth for the eager-load shape shared by the annotated-variant
+    streaming endpoints and the public data export. The annotation builders reach through
+    ``MappedVariant.variant.score_set`` for publications, contributors, license, experiment, and score
+    calibrations, so each of those is loaded up front to avoid per-variant lazy loads.
+    """
+    return (
+        db.query(MappedVariant)
+        .join(MappedVariant.variant)
+        .join(Variant.score_set)
+        .filter(Variant.score_set_id == score_set.id)
+        .filter(MappedVariant.current.is_(True))
+        .options(
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set),
+            contains_eager(MappedVariant.variant)
+            .contains_eager(Variant.score_set)
+            .selectinload(ScoreSet.publication_identifier_associations),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.created_by),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.modified_by),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.license),
+            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.experiment),
+            contains_eager(MappedVariant.variant)
+            .contains_eager(Variant.score_set)
+            .selectinload(ScoreSet.score_calibrations),
+        )
+        .all()
+    )
+
+
 def get_score_set_variants_as_csv(
     db: Session,
     score_set: ScoreSet,
@@ -643,11 +674,11 @@ def get_score_set_variants_as_csv(
             namespaced_score_set_columns[ns] = ["clinical_significance", "clinical_review_status"]
 
     need_mappings = (
-            include_post_mapped_hgvs
-            or "clingen" in namespaces
-            or "vep" in namespaces
-            or "gnomad" in namespaces
-            or bool(clinvar_namespaces)
+        include_post_mapped_hgvs
+        or "clingen" in namespaces
+        or "vep" in namespaces
+        or "gnomad" in namespaces
+        or bool(clinvar_namespaces)
     )
     need_gnomad = "gnomad" in namespaces
 
