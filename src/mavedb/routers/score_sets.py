@@ -1605,7 +1605,7 @@ async def create_score_set(
             db, item_create.superseded_score_set_urn, user_data, user_data, True
         )
 
-        if superseded_score_set is None or superseded_score_set.private:
+        if superseded_score_set is None:
             logger.info(
                 msg="Failed to create score set; The requested superseded score set does not exist.",
                 extra=logging_context(),
