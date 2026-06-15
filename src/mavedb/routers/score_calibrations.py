@@ -132,7 +132,7 @@ async def get_score_calibrations_for_score_set(
     calibrations = (
         db.query(ScoreCalibration)
         .filter(ScoreCalibration.score_set_id == score_set.id)
-        .filter(~ScoreCalibration.superseding_calibration.has(ScoreCalibration.private == False))
+        .filter(~ScoreCalibration.superseding_calibration.has(ScoreCalibration.private.is_(False)))
         .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
         .all()
     )

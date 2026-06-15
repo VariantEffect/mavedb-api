@@ -4,7 +4,6 @@ import math
 from typing import Optional, Union
 
 import pandas as pd
-from fastapi import Depends
 from sqlalchemy import Float, and_, select
 from sqlalchemy.orm import Session
 
