@@ -132,6 +132,7 @@ async def get_score_calibrations_for_score_set(
     calibrations = (
         db.query(ScoreCalibration)
         .filter(ScoreCalibration.score_set_id == score_set.id)
+        .filter(~ScoreCalibration.superseding_calibration.has(ScoreCalibration.private == False))
         .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
         .all()
     )
@@ -339,7 +340,7 @@ async def create_score_calibration_route(
             )
 
     created_calibration = await create_score_calibration_in_score_set(
-        db, calibration, user_data.user, variant_classes if classes_file else None
+        db, calibration, user_data, variant_classes if classes_file else None
     )
 
     db.commit()

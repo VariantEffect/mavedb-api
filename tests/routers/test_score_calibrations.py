@@ -963,8 +963,15 @@ def test_creating_user_can_get_score_calibrations_for_score_set_when_public(
     assert response.status_code == 200
     calibrations_response = response.json()
     assert len(calibrations_response) == 2
-    assert calibrations_response[0]["urn"] == calibration["urn"]
-    assert calibrations_response[0]["private"] is False
+    # The order is different from before.
+    created_calibration = next(
+        c for c in calibrations_response if c["urn"] == calibration["urn"]
+    )
+    assert created_calibration["private"] is False
+    other_calibration = next(
+        c for c in calibrations_response if c["urn"] != calibration["urn"]
+    )
+    assert other_calibration["private"] is True
 
 
 @pytest.mark.parametrize(
@@ -1013,8 +1020,10 @@ def test_contributing_user_can_get_score_calibrations_for_score_set_when_public(
     assert response.status_code == 200
     calibrations_response = response.json()
     assert len(calibrations_response) == 2
-    assert calibrations_response[0]["urn"] == calibration["urn"]
-    assert calibrations_response[0]["private"] is False
+    created_calibration = next(
+        c for c in calibrations_response if c["urn"] == calibration["urn"]
+    )
+    assert created_calibration["private"] is False
 
 
 @pytest.mark.parametrize(
@@ -1054,8 +1063,10 @@ def test_admin_user_can_get_score_calibrations_for_score_set_when_public(
     assert response.status_code == 200
     calibrations_response = response.json()
     assert len(calibrations_response) == 2
-    assert calibrations_response[0]["urn"] == calibration["urn"]
-    assert calibrations_response[0]["private"] is False
+    created_calibration = next(
+        c for c in calibrations_response if c["urn"] == calibration["urn"]
+    )
+    assert created_calibration["private"] is False
 
 
 ###########################################################

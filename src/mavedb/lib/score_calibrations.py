@@ -4,11 +4,14 @@ import math
 from typing import Optional, Union
 
 import pandas as pd
+from fastapi import Depends
 from sqlalchemy import Float, and_, select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.acmg import find_or_create_acmg_classification
 from mavedb.lib.identifiers import find_or_create_publication_identifier
+from mavedb.lib.permissions import Action, has_permission
+from mavedb.lib.types.authentication import UserData
 from mavedb.lib.types.score_calibrations import ClassificationDict
 from mavedb.lib.validation.constants.general import (
     calibration_class_column_name,
@@ -25,6 +28,7 @@ from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.view_models import score_calibration
+from mavedb.view_models.score_calibration import ScoreCalibrationCreate
 
 
 def create_functional_classification(
@@ -97,7 +101,7 @@ def create_functional_classification(
 async def _create_score_calibration(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
-    user: User,
+    user_data: UserData,
     variant_classes: Optional[ClassificationDict] = None,
     containing_score_set: Optional[ScoreSet] = None,
 ) -> ScoreCalibration:
@@ -176,6 +180,8 @@ async def _create_score_calibration(
             db.add(pub)
             db.flush()
 
+    superseded_calibration = validate_superseded_score_calibration(db, calibration_create, user_data)
+
     calibration = ScoreCalibration(
         **calibration_create.model_dump(
             by_alias=False,
@@ -185,12 +191,14 @@ async def _create_score_calibration(
                 "evidence_sources",
                 "method_sources",
                 "score_set_urn",
+                "superseded_calibration_urn"
             },
         ),
         publication_identifier_associations=calibration_pub_assocs,
         functional_classifications=[],
-        created_by=user,
-        modified_by=user,
+        superseded_calibration=superseded_calibration,
+        created_by=user_data.user,
+        modified_by=user_data.user,
     )  # type: ignore[call-arg]
 
     if containing_score_set:
@@ -210,7 +218,7 @@ async def _create_score_calibration(
 async def create_score_calibration_in_score_set(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
-    user: User,
+    user_data: UserData,
     variant_classes: Optional[ClassificationDict] = None,
 ) -> ScoreCalibration:
     """
@@ -251,9 +259,9 @@ async def create_score_calibration_in_score_set(
         raise ValueError("score_set_urn must be provided to create a score calibration within a score set.")
 
     containing_score_set = db.query(ScoreSet).where(ScoreSet.urn == calibration_create.score_set_urn).one()
-    calibration = await _create_score_calibration(db, calibration_create, user, variant_classes, containing_score_set)
+    calibration = await _create_score_calibration(db, calibration_create, user_data, variant_classes, containing_score_set)
 
-    if user.username in [contributor.orcid_id for contributor in containing_score_set.contributors] + [
+    if user_data.user.username in [contributor.orcid_id for contributor in containing_score_set.contributors] + [
         containing_score_set.created_by.username,
         containing_score_set.modified_by.username,
     ]:
@@ -268,7 +276,7 @@ async def create_score_calibration_in_score_set(
 async def create_score_calibration(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
-    user: User,
+    user_data: UserData,
     variant_classes: Optional[ClassificationDict] = None,
 ) -> ScoreCalibration:
     """
@@ -321,7 +329,7 @@ async def create_score_calibration(
         raise ValueError("score_set_urn must not be provided to create a score calibration outside a score set.")
 
     created_calibration = await _create_score_calibration(
-        db, calibration_create, user, variant_classes, containing_score_set=None
+        db, calibration_create, user_data, variant_classes, containing_score_set=None
     )
 
     db.add(created_calibration)
@@ -650,6 +658,29 @@ def delete_score_calibration(db: Session, calibration: ScoreCalibration) -> None
 
     db.delete(calibration)
     return None
+
+
+def validate_superseded_score_calibration(
+    db: Session,
+    calibration_create: ScoreCalibrationCreate,
+    user_data: Optional[UserData],
+) -> Optional[ScoreCalibration]:
+    if not calibration_create.superseded_calibration_urn:
+        return None
+
+    superseded_calibration = (
+        db.query(ScoreCalibration)
+        .where(ScoreCalibration.urn == calibration_create.superseded_calibration_urn)
+        .one_or_none()
+    )
+
+    if superseded_calibration is None:
+        raise ValueError("Superseded calibration does not exist.")
+
+    if not has_permission(user_data, superseded_calibration, Action.READ).permitted:
+        raise ValueError("No access right to supersede this calibration.")
+
+    return superseded_calibration
 
 
 def variants_for_functional_classification(

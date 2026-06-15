@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Collection, Optional, Sequence, Union
 from pydantic import Field, field_validator, model_validator
 
 from mavedb.lib.oddspaths import oddspaths_evidence_strength_equivalent
+from mavedb.lib.validation import urn_re
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.transform import (
     transform_score_calibration_publication_identifiers,
@@ -477,11 +478,24 @@ class ScoreCalibrationModify(ScoreCalibrationBase):
 class ScoreCalibrationCreate(ScoreCalibrationModify):
     """Model used to create a new score calibration."""
 
+    superseded_calibration_urn: Optional[str] = None
     functional_classifications: Optional[Sequence[FunctionalClassificationCreate]] = None
     threshold_sources: Sequence[PublicationIdentifierCreate]
     evidence_sources: Sequence[PublicationIdentifierCreate]
     method_sources: Sequence[PublicationIdentifierCreate]
 
+    @field_validator("superseded_calibration_urn")
+    def validate_superseded_calibration_urn(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return None
+
+        if urn_re.MAVEDB_CALIBRATION_URN_RE.fullmatch(v) is None:
+            if urn_re.MAVEDB_TMP_CALIBRATION_URN_RE.fullmatch(v) is None:
+                raise ValueError(f"'{v}' is not a valid calibration URN")
+            else:
+                raise ValueError("cannot supersede a private calibration - please edit it instead")
+
+        return v
 
 class SavedScoreCalibration(ScoreCalibrationBase):
     """Persisted score calibration model (includes identifiers and source lists)."""
@@ -501,6 +515,8 @@ class SavedScoreCalibration(ScoreCalibrationBase):
     threshold_sources: Sequence[SavedPublicationIdentifier]
     evidence_sources: Sequence[SavedPublicationIdentifier]
     method_sources: Sequence[SavedPublicationIdentifier]
+    superseded_calibration: Optional[ScoreCalibrationBase] = None
+    superseding_calibration: Optional[ScoreCalibrationBase] = None
 
     created_by: Optional[SavedUser] = None
     modified_by: Optional[SavedUser] = None

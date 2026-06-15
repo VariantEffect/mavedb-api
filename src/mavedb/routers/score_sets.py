@@ -1742,7 +1742,7 @@ async def create_score_set(
                 )
 
             created_calibration_item = await create_score_calibration(
-                db, calibration_create, user_data.user, variant_classes=None
+                db, calibration_create, user_data, variant_classes=None
             )
             created_calibration_item.investigator_provided = True  # necessarily true on score set creation
             score_calibrations.append(created_calibration_item)
