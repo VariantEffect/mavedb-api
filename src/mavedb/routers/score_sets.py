@@ -17,7 +17,7 @@ from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from pydantic import ValidationError
 from sqlalchemy import or_, select
-from sqlalchemy.exc import MultipleResultsFound
+from sqlalchemy.exc import MultipleResultsFound, IntegrityError
 from sqlalchemy.orm import Session, contains_eager
 
 from mavedb import deps
@@ -55,6 +55,7 @@ from mavedb.lib.score_sets import (
     fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
     get_score_set_variants_as_csv,
+    is_replaces_id_unique_violation,
     refresh_variant_urns,
     variants_to_csv_rows,
 )
@@ -1613,6 +1614,16 @@ async def create_score_set(
                 status_code=404,
                 detail="The requested superseded score set does not exist",
             )
+
+        if superseded_score_set.superseding_score_set:
+            logger.info(
+                msg=f"Failed to create score set. This score set has been superseded by score set: {superseded_score_set.superseding_score_set.urn}.",
+                extra=logging_context(),
+            )
+            raise HTTPException(
+                status_code=409,
+                detail=f"This score set has been superseded by score set: {superseded_score_set.superseding_score_set.urn}.",
+            )
     else:
         superseded_score_set = None
 
@@ -1867,8 +1878,17 @@ async def create_score_set(
         score_calibrations=score_calibrations,
     )  # type: ignore[call-arg]
 
-    db.add(item)
-    db.commit()
+    try:
+        db.add(item)
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        if is_replaces_id_unique_violation(e):
+            raise HTTPException(
+                status_code=409,
+                detail="The requested score set has already been superseded.",
+            )
+        raise
     db.refresh(item)
 
     save_to_logging_context({"created_resource": item.urn})
