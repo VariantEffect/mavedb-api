@@ -14,16 +14,20 @@ import pytest
 pytest.importorskip("psycopg2")
 
 
+from ga4gh.va_spec.base.core import Document
+
 from mavedb.lib.annotation.document import (
     experiment_as_iri,
     experiment_to_document,
     mapped_variant_as_iri,
     mapped_variant_to_document,
+    score_calibration_as_document,
     score_set_as_iri,
     score_set_to_document,
     variant_as_iri,
     variant_to_document,
 )
+from tests.helpers.mocks.factories import create_mock_score_calibration
 
 BASE_URL = "https://mavedb.org"
 
@@ -134,3 +138,26 @@ class TestVariantDocumentFunctions:
         assert document.documentType == "genomic variant description"
         assert len(document.urls) > 0
         assert variant_as_iri(mock_variant).root in document.urls
+
+
+@pytest.mark.unit
+class TestScoreCalibrationDocumentFunctions:
+    """Unit tests for score calibration document creation."""
+
+    def test_includes_baseline_score_extension_when_present(self, mock_score_set):
+        calibration = create_mock_score_calibration(score_set=mock_score_set, baseline_score=1.5)
+        document = score_calibration_as_document(calibration)
+
+        baseline = [ext for ext in document.extensions if ext.name == "Baseline score"]
+        assert len(baseline) == 1
+        assert baseline[0].value == 1.5
+
+    def test_omits_baseline_score_extension_when_none_and_round_trips(self, mock_score_set):
+        # Extension.value is required, so a None-valued extension is dropped by exclude_none and
+        # would no longer re-parse. The builder must omit the extension entirely instead.
+        calibration = create_mock_score_calibration(score_set=mock_score_set, baseline_score=None)
+        document = score_calibration_as_document(calibration)
+
+        assert all(ext.name != "Baseline score" for ext in document.extensions)
+        # Regression guard: the exclude_none serialization must round-trip back through the model.
+        Document(**document.model_dump(exclude_none=True))

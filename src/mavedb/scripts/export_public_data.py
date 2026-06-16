@@ -145,10 +145,17 @@ def export_public_data(db: Session):
                 csv_str = get_score_set_variants_as_csv(db, score_set, ["scores"], namespaced=True)
                 zipfile.writestr(f"csv/{csv_filename_base}.scores.csv", csv_str)
 
-                # Only generate annotation files if mapped variants exist in the score set.
+                # Only generate annotation files if the score set has at least one current mapped variant.
+                # A score set whose mappings are all superseded (no current mapping) yields no annotations,
+                # so we skip emitting empty/superseded-only annotation files for it entirely.
                 has_annotations = (
                     db.scalars(
-                        select(ScoreSet).where(ScoreSet.id == score_set_id).join(Variant).join(MappedVariant).limit(1)
+                        select(ScoreSet)
+                        .where(ScoreSet.id == score_set_id)
+                        .join(Variant)
+                        .join(MappedVariant)
+                        .where(MappedVariant.current.is_(True))
+                        .limit(1)
                     ).one_or_none()
                     is not None
                 )
@@ -192,7 +199,9 @@ def export_public_data(db: Session):
                         }
                         va_lines.append(json.dumps(record, default=str))
 
-                    zipfile.writestr(f"va/{csv_filename_base}.va.ndjson", "\n".join(va_lines))
+                    # Newline-terminate every record (including the last) to match the API NDJSON streams
+                    # and keep line-based consumers happy.
+                    zipfile.writestr(f"va/{csv_filename_base}.va.ndjson", "".join(line + "\n" for line in va_lines))
                     logger.info(
                         f"[{i + 1}/{num_score_sets}]   Wrote {len(va_lines)} VA-Spec records "
                         f"({num_annotations} non-null annotations)"
