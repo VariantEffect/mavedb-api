@@ -23,6 +23,7 @@ from mavedb.lib.score_calibrations import (
     variant_classification_df_to_dict,
     variants_for_functional_classification,
 )
+from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import (
     calibration_class_column_name,
     calibration_variant_column_name,
@@ -341,6 +342,7 @@ async def test_create_score_calibration_in_score_set_creates_score_calibration_w
     setup_lib_db_with_score_set, session
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     MockCalibrationCreate = create_model(
         "MockCalibrationCreate",
@@ -349,9 +351,10 @@ async def test_create_score_calibration_in_score_set_creates_score_calibration_w
         evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
+        superseded_calibration_urn=(str | None, None),
     )
 
-    calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), test_user)
+    calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), test_user_data)
     assert calibration is not None
     assert calibration.score_set == setup_lib_db_with_score_set
 
@@ -361,6 +364,7 @@ async def test_create_score_calibration_in_score_set_investigator_provided_set_w
     setup_lib_db_with_score_set, session, mock_user
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     MockCalibrationCreate = create_model(
         "MockCalibrationCreate",
@@ -369,9 +373,10 @@ async def test_create_score_calibration_in_score_set_investigator_provided_set_w
         evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
+        superseded_calibration_urn=(str | None, None),
     )
 
-    calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), test_user)
+    calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), test_user_data)
     assert calibration is not None
     assert calibration.score_set == setup_lib_db_with_score_set
     assert calibration.created_by == test_user
@@ -384,6 +389,7 @@ async def test_create_score_calibration_in_score_set_investigator_provided_set_w
     setup_lib_db_with_score_set, session
 ):
     extra_user = session.execute(select(User).where(User.username == EXTRA_USER["username"])).scalars().first()
+    extra_user_data = UserData(user=extra_user, active_roles=[])
 
     add_contributor(
         session,
@@ -401,9 +407,10 @@ async def test_create_score_calibration_in_score_set_investigator_provided_set_w
         evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
+        superseded_calibration_urn=(str | None, None),
     )
 
-    calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), extra_user)
+    calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), extra_user_data)
     assert calibration is not None
     assert calibration.score_set == setup_lib_db_with_score_set
     assert calibration.created_by == extra_user
@@ -422,12 +429,14 @@ async def test_create_score_calibration_in_score_set_investigator_provided_not_s
         evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
+        superseded_calibration_urn=(str | None, None),
     )
 
     # invoke from a different user context
     extra_user = session.execute(select(User).where(User.username == EXTRA_USER["username"])).scalars().first()
+    extra_user_data = UserData(user=extra_user, active_roles=[])
 
-    calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), extra_user)
+    calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), extra_user_data)
     assert calibration is not None
     assert calibration.score_set == setup_lib_db_with_score_set
     assert calibration.created_by == extra_user
@@ -453,6 +462,7 @@ async def test_create_score_calibration_raises_value_error_when_score_set_urn_is
 @pytest.mark.asyncio
 async def test_create_score_calibration_creates_score_calibration_when_score_set_urn_is_absent(setup_lib_db, session):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     MockCalibrationCreate = create_model(
         "MockCalibrationCreate",
@@ -461,9 +471,10 @@ async def test_create_score_calibration_creates_score_calibration_when_score_set
         evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
+        superseded_calibration_urn=(str | None, None),
     )
 
-    calibration = await create_score_calibration(session, MockCalibrationCreate(), test_user)
+    calibration = await create_score_calibration(session, MockCalibrationCreate(), test_user_data)
     assert calibration is not None
     assert calibration.score_set is None
 
@@ -549,9 +560,11 @@ async def test_create_score_calibration_publication_identifier_associations_crea
         evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
+        superseded_calibration_urn=(str | None, None),
     )
 
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     mocked_calibration = MockCalibrationCreate()
     setattr(
@@ -560,7 +573,7 @@ async def test_create_score_calibration_publication_identifier_associations_crea
         [create_model("MockPublicationCreate", db_name=(str, "PubMed"), identifier=(str, TEST_PUBMED_IDENTIFIER))()],
     )
 
-    calibration = await create_function_to_call(session, mocked_calibration, test_user)
+    calibration = await create_function_to_call(session, mocked_calibration, test_user_data)
     assert calibration.publication_identifier_associations[0].publication.db_name == "PubMed"
     assert calibration.publication_identifier_associations[0].publication.identifier == TEST_PUBMED_IDENTIFIER
     assert calibration.publication_identifier_associations[0].relation == expected_relation
@@ -585,11 +598,13 @@ async def test_create_score_calibration_user_is_set_as_creator_and_modifier(
         evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
+        superseded_calibration_urn=(str | None, None),
     )
 
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
-    calibration = await create_function_to_call(session, MockCalibrationCreate(), test_user)
+    calibration = await create_function_to_call(session, MockCalibrationCreate(), test_user_data)
     assert calibration.created_by == test_user
     assert calibration.modified_by == test_user
 
@@ -630,8 +645,9 @@ async def test_create_score_calibration_fully_valid_calibration(
     calibration_create = ScoreCalibrationCreate(**valid_score_calibration_data, score_set_urn=score_set_urn)
 
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
-    calibration = await create_function_to_call(session, calibration_create, test_user)
+    calibration = await create_function_to_call(session, calibration_create, test_user_data)
 
     for field in valid_score_calibration_data:
         # Sources are tested elsewhere.
@@ -671,9 +687,10 @@ async def test_create_score_calibration_does_not_commit_transaction(
         **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, score_set_urn=score_set_urn
     )
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     with mock.patch.object(session, "commit") as mock_commit:
-        await create_function_to_call(session, calibration_create, test_user)
+        await create_function_to_call(session, calibration_create, test_user_data)
         mock_commit.assert_not_called()
 
 
@@ -721,9 +738,10 @@ async def test_modify_score_calibration_modifies_score_calibration_when_score_se
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
 
     MockCalibrationModify = create_model(
@@ -734,6 +752,7 @@ async def test_modify_score_calibration_modifies_score_calibration_when_score_se
         evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
+        superseded_calibration_urn=(str | None, None),
     )
 
     modified_calibration = await modify_score_calibration(
@@ -759,9 +778,10 @@ async def test_modify_score_calibration_clears_existing_publication_identifier_a
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
 
     MockCalibrationModify = create_model(
@@ -771,6 +791,7 @@ async def test_modify_score_calibration_clears_existing_publication_identifier_a
         evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
+        superseded_calibration_urn=(str | None, None),
     )
 
     mocked_calibration = MockCalibrationModify()
@@ -806,9 +827,10 @@ async def test_modify_score_calibration_publication_identifier_associations_crea
     expected_relation,
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
 
     MockCalibrationModify = create_model(
@@ -818,6 +840,7 @@ async def test_modify_score_calibration_publication_identifier_associations_crea
         evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
+        superseded_calibration_urn=(str | None, None),
     )
 
     mocked_calibration = MockCalibrationModify()
@@ -849,9 +872,10 @@ async def test_modify_score_calibration_retains_existing_publication_relationshi
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     calibration_publication_relations = existing_calibration.publication_identifier_associations.copy()
 
@@ -917,9 +941,10 @@ async def test_modify_score_calibration_adds_new_publication_association(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
 
     MockCalibrationModify = create_model(
@@ -938,6 +963,7 @@ async def test_modify_score_calibration_adds_new_publication_association(
         evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
+        superseded_calibration_urn=(str | None, None),
     )
 
     modified_calibration = await modify_score_calibration(
@@ -967,9 +993,10 @@ async def test_modify_score_calibration_user_is_set_as_modifier(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
 
     MockCalibrationModify = create_model(
@@ -979,6 +1006,7 @@ async def test_modify_score_calibration_user_is_set_as_modifier(
         evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
+        superseded_calibration_urn=(str | None, None),
     )
 
     modify_user = session.execute(select(User).where(User.id != test_user.id)).scalars().first()
@@ -1018,8 +1046,9 @@ async def test_modify_score_calibration_new_score_set(setup_lib_db_with_score_se
     session.refresh(new_containing_score_set)
 
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, new_containing_score_set.urn, test_user
+        session, new_containing_score_set.urn, test_user_data
     )
 
     MockCalibrationModify = create_model(
@@ -1029,6 +1058,7 @@ async def test_modify_score_calibration_new_score_set(setup_lib_db_with_score_se
         evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
+        superseded_calibration_urn=(str | None, None),
     )
 
     modified_calibration = await modify_score_calibration(
@@ -1053,9 +1083,10 @@ async def test_modify_score_calibration_clears_functional_classifications(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
 
     MockCalibrationModify = create_model(
@@ -1065,6 +1096,7 @@ async def test_modify_score_calibration_clears_functional_classifications(
         evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
+        superseded_calibration_urn=(str | None, None),
     )
 
     modified_calibration = await modify_score_calibration(
@@ -1089,9 +1121,10 @@ async def test_modify_score_calibration_fully_valid_calibration(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
 
     modify_calibration = ScoreCalibrationModify(
@@ -1127,9 +1160,10 @@ async def test_modify_score_calibration_does_not_commit_transaction(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
 
     modify_calibration = ScoreCalibrationModify(
@@ -1161,9 +1195,10 @@ async def test_cannot_publish_already_published_calibration(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_calibration.private = False
     session.add(existing_calibration)
@@ -1189,9 +1224,10 @@ async def test_publish_score_calibration_marks_calibration_public(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     assert existing_calibration.private is True
 
@@ -1214,9 +1250,10 @@ async def test_publish_score_calibration_user_is_set_as_modifier(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
 
     publish_user = session.execute(select(User).where(User.id != test_user.id)).scalars().first()
@@ -1244,9 +1281,10 @@ async def test_publish_score_calibration_user_is_set_as_modifier(
 )
 async def test_cannot_promote_already_primary_calibration(setup_lib_db_with_score_set, session, mock_publication_fetch):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_calibration.primary = True
     session.add(existing_calibration)
@@ -1272,9 +1310,10 @@ async def test_cannot_promote_calibration_when_calibration_is_research_use_only(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_calibration.research_use_only = True
     session.add(existing_calibration)
@@ -1300,9 +1339,10 @@ async def test_cannot_promote_calibration_when_calibration_is_private(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_calibration.private = True
     session.add(existing_calibration)
@@ -1328,12 +1368,13 @@ async def test_cannot_promote_calibration_when_another_primary_exists(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_primary_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_primary_calibration.private = False
     existing_primary_calibration.primary = True
@@ -1365,9 +1406,10 @@ async def test_promote_score_calibration_to_primary_marks_calibration_primary(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_calibration.private = False
     existing_calibration.primary = False
@@ -1394,12 +1436,13 @@ async def test_promote_score_calibration_to_primary_demotes_existing_primary_whe
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_primary_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_primary_calibration.private = False
     existing_primary_calibration.primary = True
@@ -1437,9 +1480,10 @@ async def test_promote_score_calibration_to_primary_user_is_set_as_modifier(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_calibration.private = False
     existing_calibration.primary = False
@@ -1471,12 +1515,13 @@ async def test_promote_score_calibration_to_primary_demoted_existing_primary_use
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_primary_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_primary_calibration.private = False
     existing_primary_calibration.primary = True
@@ -1517,9 +1562,10 @@ async def test_promote_score_calibration_to_primary_does_not_commit_transaction(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_calibration.private = False
     existing_calibration.primary = False
@@ -1550,9 +1596,10 @@ async def test_promote_score_calibration_to_primary_does_not_commit_transaction(
 )
 async def test_cannot_demote_non_primary_calibration(setup_lib_db_with_score_set, session, mock_publication_fetch):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_calibration.primary = False
     session.add(existing_calibration)
@@ -1578,9 +1625,10 @@ async def test_demote_score_calibration_from_primary_marks_calibration_non_prima
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_calibration.primary = True
     session.add(existing_calibration)
@@ -1607,9 +1655,10 @@ async def test_demote_score_calibration_from_primary_user_is_set_as_modifier(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_calibration.primary = True
     session.add(existing_calibration)
@@ -1638,9 +1687,10 @@ async def test_demote_score_calibration_from_primary_does_not_commit_transaction
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_calibration.primary = True
     session.add(existing_calibration)
@@ -1670,9 +1720,10 @@ async def test_demote_score_calibration_from_primary_does_not_commit_transaction
 )
 async def test_cannot_delete_primary_calibration(setup_lib_db_with_score_set, session, mock_publication_fetch):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     existing_calibration.primary = True
     session.add(existing_calibration)
@@ -1698,9 +1749,10 @@ async def test_delete_score_calibration_deletes_calibration(
     session, setup_lib_db_with_score_set, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
     calibration_id = existing_calibration.id
 
@@ -1726,9 +1778,10 @@ async def test_delete_score_calibration_does_not_commit_transaction(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
 
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
-        session, setup_lib_db_with_score_set.urn, test_user
+        session, setup_lib_db_with_score_set.urn, test_user_data
     )
 
     with mock.patch.object(session, "commit") as mock_commit:
