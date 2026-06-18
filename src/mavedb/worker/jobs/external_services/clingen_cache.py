@@ -15,11 +15,10 @@ import logging
 from sqlalchemy import select
 
 from mavedb.lib.clingen.allele_registry import get_clingen_allele_data
+from mavedb.lib.clingen.alleles import get_alleles_for_score_set
 from mavedb.lib.clingen.constants import CLINGEN_CACHE_WARMING_CONCURRENCY
 from mavedb.lib.types.workflow import JobExecutionOutcome
-from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
-from mavedb.models.variant import Variant
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
@@ -55,19 +54,16 @@ async def warm_clingen_cache(ctx: dict, job_id: int, job_manager: JobManager) ->
     job_manager.update_progress(0, 100, "Starting ClinGen cache pre-warming.")
     logger.info("Starting ClinGen cache pre-warming", extra=job_manager.logging_context())
 
-    # Get distinct clingen_allele_ids for this score set's current mapped variants
-    allele_ids = job_manager.db.scalars(
-        select(MappedVariant.clingen_allele_id)
-        .join(Variant)
-        .where(
-            Variant.score_set_id == score_set.id,
-            MappedVariant.current.is_(True),
-            MappedVariant.clingen_allele_id.isnot(None),
-            # Exclude multi-variant IDs (comma-separated) — they can't be fetched individually
-            MappedVariant.clingen_allele_id.not_like("%,%"),
-        )
-        .distinct()
-    ).all()
+    # Get distinct clingen_allele_ids registered for alleles in this score set.
+    # Exclude None and comma-separated multi-variant IDs that can't be fetched individually.
+    allele_rows = get_alleles_for_score_set(job_manager.db, score_set.id)
+    allele_ids = list(
+        {
+            row.clingen_allele_id
+            for row in allele_rows
+            if row.clingen_allele_id is not None and "," not in row.clingen_allele_id
+        }
+    )
 
     total = len(allele_ids)
     job_manager.save_to_context({"total_allele_ids_to_warm": total})

@@ -5,14 +5,16 @@ import pytest
 pytest.importorskip("arq")
 
 from asyncio.unix_events import _UnixSelectorEventLoop
+from copy import deepcopy
 from unittest.mock import patch
 
 from sqlalchemy import select
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
+from mavedb.models.allele import Allele
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
-from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.variant import Variant
 from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 from mavedb.worker.jobs.external_services.clingen import (
@@ -51,9 +53,9 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SKIPPED
 
-        # Verify no variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 0
+        # Verify no alleles have CAIDs assigned
+        alleles = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles) == 0
 
     async def test_submit_score_set_mappings_to_car_no_mappings(
         self,
@@ -76,9 +78,9 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
 
-        # Verify no variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 0
+        # Verify no alleles have CAIDs assigned
+        alleles = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles) == 0
 
     async def test_submit_score_set_mappings_to_car_submission_endpoint_not_set(
         self,
@@ -101,9 +103,9 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
-        # Verify no variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 0
+        # Verify no alleles have CAIDs assigned
+        alleles = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles) == 0
 
     async def test_submit_score_set_mappings_to_car_no_registered_alleles(
         self,
@@ -147,11 +149,11 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
-        # Verify no variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 0
+        # Verify no alleles have CAIDs assigned
+        alleles = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles) == 0
 
-        # Verify annotation statuses were rendered as failed
+        # Verify annotation statuses were rendered as failed — 4 variants, all failed
         annotation_statuses = session.scalars(
             select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
@@ -184,18 +186,18 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             dummy_variant_mapping_job_run,
         )
 
-        # Build error responses for every submitted HGVS — CAR explicitly rejected all of them
-        mapped_variants = session.scalars(select(MappedVariant)).all()
+        # All 4 variants share 1 allele (same VRS digest). Build an error response for that 1 HGVS.
+        alleles = session.scalars(select(Allele)).all()
+        assert len(alleles) == 1
         registered_alleles_mock = [
             {
                 "errorType": "InvalidHGVS",
-                "hgvs": get_hgvs_from_post_mapped(mv.post_mapped) or "",
+                "hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped) or "",
                 "message": "Invalid HGVS expression.",
                 "description": "",
-                "inputLine": get_hgvs_from_post_mapped(mv.post_mapped) or "",
-                "position": str(i),
+                "inputLine": get_hgvs_from_post_mapped(alleles[0].post_mapped) or "",
+                "position": "0",
             }
-            for i, mv in enumerate(mapped_variants)
         ]
 
         with (
@@ -215,11 +217,11 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
-        # Verify no variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 0
+        # Verify no alleles have CAIDs assigned
+        alleles = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles) == 0
 
-        # Verify annotation statuses were rendered as failed
+        # 1 allele failed → all 4 variant annotations are failed
         annotation_statuses = session.scalars(
             select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
@@ -227,6 +229,211 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         for ann in annotation_statuses:
             assert ann.status == "failed"
             assert ann.annotation_type == "clingen_allele_id"
+
+    async def test_submit_score_set_mappings_to_car_derived_allele_no_duplicate_annotation(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        """A variant linked to an authoritative AND a derived allele gets exactly one VAS row (from the
+        authoritative link), while the derived allele is still registered with a CAID."""
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # The sample's 4 variants dedup to one authoritative allele.
+        authoritative_allele = session.scalars(select(Allele)).one()
+
+        # Attach a second, derived (is_authoritative=False) allele to one variant's current mapping
+        # record. It shares the authoritative allele's HGVS (different vrs_digest) so it is submitted
+        # under the same line — the realistic shape is a different level, but identical HGVS is enough
+        # to exercise the multi-allele-per-variant fan-out.
+        a_link = session.scalars(
+            select(MappingRecordAllele).where(MappingRecordAllele.allele_id == authoritative_allele.id)
+        ).first()
+        derived_allele = Allele(
+            vrs_digest=f"{authoritative_allele.vrs_digest}-derived",
+            level=authoritative_allele.level,
+            post_mapped={**deepcopy(authoritative_allele.post_mapped), "id": "derived-allele-id"},
+        )
+        session.add(derived_allele)
+        session.flush()
+        session.add(
+            MappingRecordAllele(
+                mapping_record_id=a_link.mapping_record_id,
+                allele_id=derived_allele.id,
+                is_authoritative=False,
+            )
+        )
+        session.flush()
+
+        def fake_dispatch(hgvs_list):
+            return [{"@id": f"CA{idx}", "type": "nucleotide", "genomicAlleles": []} for idx, _ in enumerate(hgvs_list)]
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                side_effect=fake_dispatch,
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+
+        # Exactly one current VAS row per variant (4 total) — no duplicate from the derived allele.
+        current_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(
+                VariantAnnotationStatus.annotation_type == "clingen_allele_id",
+                VariantAnnotationStatus.current.is_(True),
+            )
+        ).all()
+        assert len(current_statuses) == 4
+        assert len({s.variant_id for s in current_statuses}) == 4
+
+        # Both alleles registered: registration breadth is preserved even though the derived allele
+        # produced no VAS row.
+        session.refresh(authoritative_allele)
+        session.refresh(derived_allele)
+        assert authoritative_allele.clingen_allele_id is not None
+        assert derived_allele.clingen_allele_id is not None
+
+    async def test_submit_score_set_mappings_to_car_response_count_mismatch(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # All 4 variants share 1 allele → 1 submitted HGVS, but CAR returns 2 results. The count
+        # violates the one-result-per-input contract, so positional alignment can't be trusted
+        # and the whole batch must be rejected without writing any CAID.
+        alleles = session.scalars(select(Allele)).all()
+        assert len(alleles) == 1
+        registered_alleles_mock = [
+            {"@id": "CA111111", "type": "nucleotide", "genomicAlleles": []},
+            {"@id": "CA222222", "type": "nucleotide", "genomicAlleles": []},
+        ]
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
+            )
+
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.FAILED
+
+        # No CAID written — neither of the returned values is trusted.
+        assert len(session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()) == 0
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "failed"
+            assert ann.failure_category == "external_api_error"
+
+    async def test_submit_score_set_mappings_to_car_malformed_response(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        # Create mappings in the score set
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # CAR returns a response that is neither an error (no "errorType") nor a registration
+        # (no "@id"). This must be surfaced as a rejection, not crash the loop with a KeyError.
+        alleles = session.scalars(select(Allele)).all()
+        assert len(alleles) == 1
+        registered_alleles_mock = [{"type": "nucleotide", "genomicAlleles": []}]
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
+            )
+
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.FAILED
+
+        # No CAID assigned, and all 4 variant annotations are failed as rejected.
+        assert len(session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()) == 0
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "failed"
+            assert ann.failure_category == "external_service_rejected"
 
     async def test_submit_score_set_mappings_to_car_repeated_hgvs(
         self,
@@ -252,13 +459,14 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             dummy_variant_mapping_job_run,
         )
 
-        # Patch ClinGenAlleleRegistryService to return registered alleles with repeated HGVS
-        mapped_variants = session.scalars(select(MappedVariant)).all()
+        # 4 variants share 1 allele; CAR returns 1 response for the 1 submitted HGVS
+        alleles = session.scalars(select(Allele)).all()
+        assert len(alleles) == 1
         registered_alleles_mock = [
             {
                 "@id": "CA_DUPLICATE",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mapped_variants[0].post_mapped)}],
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
             }
         ]
 
@@ -266,11 +474,6 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             patch(
                 "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
                 return_value=registered_alleles_mock,
-            ),
-            # Patch get_hgvs_from_post_mapped to return the same HGVS for all variants
-            patch(
-                "mavedb.worker.jobs.external_services.clingen.get_hgvs_from_post_mapped",
-                return_value=get_hgvs_from_post_mapped(mapped_variants[0].post_mapped),
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
@@ -284,13 +487,12 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
 
-        # Verify variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 4
-        for variant in variants:
-            assert variant.clingen_allele_id == "CA_DUPLICATE"
+        # 1 allele received the CAID
+        alleles = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles) == 1
+        assert alleles[0].clingen_allele_id == "CA_DUPLICATE"
 
-        # Verify annotation statuses were rendered as success
+        # 4 per-variant annotations — all success
         annotation_statuses = session.scalars(
             select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
@@ -312,7 +514,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         dummy_variant_creation_job_run,
         dummy_variant_mapping_job_run,
     ):
-        """Test that partial CAR failures (some matched, some not) result in a succeeded outcome with failure annotations."""
+        """All 4 variants share 1 allele; CAR returns 1 success → 1 registered allele, 0 failed."""
         # Create mappings in the score set
         await create_mappings_in_score_set(
             session,
@@ -324,16 +526,14 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             dummy_variant_mapping_job_run,
         )
 
-        # Get mapped variants; return a CAR response that only matches the first variant
-        mapped_variants = session.scalars(select(MappedVariant)).all()
-        assert len(mapped_variants) == 4
+        alleles = session.scalars(select(Allele)).all()
+        assert len(alleles) == 1
 
-        first_hgvs = get_hgvs_from_post_mapped(mapped_variants[0].post_mapped)
         registered_alleles_mock = [
             {
-                "@id": f"CA{mapped_variants[0].id}",
+                "@id": f"CA{alleles[0].id}",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": first_hgvs}],
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
             }
         ]
 
@@ -353,31 +553,22 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data["matched_count"] == 1
-        assert result.data["failed_count"] == 3
+        assert result.data["registered_allele_count"] == 1
+        assert result.data["failed_allele_count"] == 0
 
-        # Verify only the first variant got a CAID
-        variants_with_caid = session.scalars(
-            select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))
-        ).all()
-        assert len(variants_with_caid) == 1
-        assert variants_with_caid[0].clingen_allele_id == f"CA{mapped_variants[0].id}"
+        # 1 allele got a CAID
+        alleles_with_caid = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles_with_caid) == 1
+        assert alleles_with_caid[0].clingen_allele_id == f"CA{alleles[0].id}"
 
-        # Verify annotation statuses: 1 success, 3 failed
+        # All 4 variant annotations succeeded
         success_annotations = session.scalars(
             select(VariantAnnotationStatus).where(
                 VariantAnnotationStatus.annotation_type == "clingen_allele_id",
                 VariantAnnotationStatus.status == "success",
             )
         ).all()
-        failed_annotations = session.scalars(
-            select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.annotation_type == "clingen_allele_id",
-                VariantAnnotationStatus.status == "failed",
-            )
-        ).all()
-        assert len(success_annotations) == 1
-        assert len(failed_annotations) == 3
+        assert len(success_annotations) == 4
 
     async def test_submit_score_set_mappings_to_car_hgvs_not_found(
         self,
@@ -403,32 +594,11 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             dummy_variant_mapping_job_run,
         )
 
-        # Get the mapped variants from score set before submission
-        mapped_variants = session.scalars(
-            select(MappedVariant)
-            .join(Variant)
-            .where(Variant.score_set_id == submit_score_set_mappings_to_car_sample_job_run.job_params["score_set_id"])
-        ).all()
-
-        # Patch ClinGenAlleleRegistryService to return registered alleles
-        registered_alleles_mock = [
-            {
-                "@id": f"CA{mv.id}",
-                "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mv.post_mapped)}],
-            }
-            for mv in mapped_variants
-        ]
-
+        # Patch get_hgvs_from_post_mapped to return None for all alleles
         with (
-            patch(
-                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
-                return_value=registered_alleles_mock,
-            ),
-            # Patch get_hgvs_from_post_mapped to not find any HGVS in registered alleles
-            patch("mavedb.worker.jobs.external_services.clingen.get_hgvs_from_post_mapped", return_value=None),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+            patch("mavedb.worker.jobs.external_services.clingen.get_hgvs_from_post_mapped", return_value=None),
         ):
             result = await submit_score_set_mappings_to_car(
                 mock_worker_ctx,
@@ -439,11 +609,11 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
-        # Verify no variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 0
+        # Verify no alleles have CAIDs assigned
+        alleles = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles) == 0
 
-        # Verify annotation statuses were rendered as failed
+        # Verify annotation statuses were rendered as failed — 4 variants, all failed
         annotation_statuses = session.scalars(
             select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
@@ -519,20 +689,16 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             dummy_variant_mapping_job_run,
         )
 
-        # Get the mapped variants from score set before submission
-        mapped_variants = session.scalars(
-            select(MappedVariant).join(Variant).where(Variant.score_set_id == sample_score_set.id)
-        ).all()
-        assert len(mapped_variants) == 4
+        # All 4 variants share 1 allele (same VRS digest from construct_mock_mapping_output)
+        alleles = session.scalars(select(Allele)).all()
+        assert len(alleles) == 1
 
-        # Patch ClinGenAlleleRegistryService to return registered alleles
         registered_alleles_mock = [
             {
-                "@id": f"CA{mv.id}",
+                "@id": f"CA{alleles[0].id}",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mv.post_mapped)}],
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
             }
-            for mv in mapped_variants
         ]
 
         with (
@@ -552,13 +718,12 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
 
-        # Verify variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 4
-        for variant in variants:
-            assert variant.clingen_allele_id == f"CA{variant.id}"
+        # 1 allele received the CAID
+        alleles_with_caid = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles_with_caid) == 1
+        assert alleles_with_caid[0].clingen_allele_id == f"CA{alleles[0].id}"
 
-        # Verify annotation statuses were rendered as success
+        # 4 per-variant annotations — all success
         annotation_statuses = session.scalars(
             select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
@@ -566,6 +731,192 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         for ann in annotation_statuses:
             assert ann.status == "success"
             assert ann.annotation_type == "clingen_allele_id"
+
+    async def test_submit_score_set_mappings_to_car_preexisting(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        """Already-registered allele is re-annotated as preexisting, not re-submitted."""
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        # Pre-set the CAID on the allele to simulate prior registration
+        allele = session.scalars(select(Allele)).first()
+        allele.clingen_allele_id = "CA_PRIOR"
+        session.flush()
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+            ) as mock_dispatch,
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
+            )
+
+        # CAR should NOT be called since the allele is already registered
+        mock_dispatch.assert_not_called()
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["already_registered_allele_count"] == 1
+        assert result.data["submitted_allele_count"] == 0
+
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "success"
+            assert ann.annotation_metadata["registration_source"] == "preexisting"
+            assert ann.annotation_metadata["clingen_allele_id"] == "CA_PRIOR"
+
+    async def test_submit_score_set_mappings_to_car_force_reregister_same_caid(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        """Force re-registration that returns the same CAID is a success with registration_source=reconfirmed."""
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        allele = session.scalars(select(Allele)).first()
+        allele.clingen_allele_id = "CA_CONFIRMED"
+        session.flush()
+
+        submit_score_set_mappings_to_car_sample_job_run.job_params = {
+            **submit_score_set_mappings_to_car_sample_job_run.job_params,
+            "force_reregister": True,
+        }
+        session.flush()
+
+        registered_alleles_mock = [{"@id": "CA_CONFIRMED", "type": "nucleotide", "genomicAlleles": []}]
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["registered_allele_count"] == 1
+        assert result.data["submitted_allele_count"] == 1
+
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "success"
+            assert ann.annotation_metadata["registration_source"] == "reconfirmed"
+
+    async def test_submit_score_set_mappings_to_car_force_reregister_caid_conflict(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        """Force re-registration returning a different CAID fails without overwriting the stored CAID."""
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+
+        allele = session.scalars(select(Allele)).first()
+        allele.clingen_allele_id = "CA_STORED"
+        session.flush()
+
+        submit_score_set_mappings_to_car_sample_job_run.job_params = {
+            **submit_score_set_mappings_to_car_sample_job_run.job_params,
+            "force_reregister": True,
+        }
+        session.flush()
+
+        # CAR returns a DIFFERENT CAID — this is an invariant violation
+        registered_alleles_mock = [{"@id": "CA_DIFFERENT", "type": "nucleotide", "genomicAlleles": []}]
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=registered_alleles_mock,
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
+            )
+
+        # Job fails because all CAID-returning submissions had a conflict
+        assert result.status == JobStatus.FAILED
+
+        # CAID must NOT have been overwritten
+        session.refresh(allele)
+        assert allele.clingen_allele_id == "CA_STORED"
+
+        annotation_statuses = session.scalars(
+            select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(annotation_statuses) == 4
+        for ann in annotation_statuses:
+            assert ann.status == "failed"
+            assert ann.annotation_metadata["clingen_allele_id"] == "CA_STORED"
+            assert ann.annotation_metadata["conflicting_caid"] == "CA_DIFFERENT"
 
 
 @pytest.mark.integration
@@ -597,15 +948,14 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             dummy_variant_mapping_job_run,
         )
 
-        # Patch ClinGenAlleleRegistryService to return registered alleles
-        mapped_variants = session.scalars(select(MappedVariant)).all()
+        # All 4 variants share 1 allele; build 1 CAR response
+        alleles = session.scalars(select(Allele)).all()
         registered_alleles_mock = [
             {
-                "@id": f"CA{mv.id}",
+                "@id": f"CA{alleles[0].id}",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mv.post_mapped)}],
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
             }
-            for mv in mapped_variants
         ]
 
         with (
@@ -623,17 +973,16 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
 
-        # Verify variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == len(mapped_variants)
-        for variant in variants:
-            assert variant.clingen_allele_id == f"CA{variant.id}"
+        # 1 allele received the CAID
+        alleles_with_caid = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles_with_caid) == 1
+        assert alleles_with_caid[0].clingen_allele_id == f"CA{alleles[0].id}"
 
-        # Verify annotation statuses were rendered as success
+        # 4 per-variant annotations — all success
         annotation_statuses = session.scalars(
             select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
-        assert len(annotation_statuses) == len(mapped_variants)
+        assert len(annotation_statuses) == 4
         for ann in annotation_statuses:
             assert ann.status == "success"
 
@@ -666,15 +1015,14 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             dummy_variant_mapping_job_run,
         )
 
-        # Patch ClinGenAlleleRegistryService to return registered alleles
-        mapped_variants = session.scalars(select(MappedVariant)).all()
+        # All 4 variants share 1 allele; build 1 CAR response
+        alleles = session.scalars(select(Allele)).all()
         registered_alleles_mock = [
             {
-                "@id": f"CA{mv.id}",
+                "@id": f"CA{alleles[0].id}",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mv.post_mapped)}],
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
             }
-            for mv in mapped_variants
         ]
 
         with (
@@ -692,17 +1040,16 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
 
-        # Verify variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == len(mapped_variants)
-        for variant in variants:
-            assert variant.clingen_allele_id == f"CA{variant.id}"
+        # 1 allele received the CAID
+        alleles_with_caid = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles_with_caid) == 1
+        assert alleles_with_caid[0].clingen_allele_id == f"CA{alleles[0].id}"
 
-        # Verify annotation statuses were rendered as success
+        # 4 per-variant annotations — all success
         annotation_statuses = session.scalars(
             select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
-        assert len(annotation_statuses) == len(mapped_variants)
+        assert len(annotation_statuses) == 4
         for ann in annotation_statuses:
             assert ann.status == "success"
 
@@ -738,9 +1085,9 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SKIPPED
 
-        # Verify no variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 0
+        # Verify no alleles have CAIDs assigned
+        alleles = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles) == 0
 
         # Verify no annotation statuses were created
         annotation_statuses = session.scalars(select(VariantAnnotationStatus)).all()
@@ -777,9 +1124,9 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
-        # Verify no variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 0
+        # Verify no alleles have CAIDs assigned
+        alleles = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles) == 0
 
         # Verify no annotation statuses were created
         annotation_statuses = session.scalars(select(VariantAnnotationStatus)).all()
@@ -808,9 +1155,9 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
 
-        # Verify no variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 0
+        # Verify no alleles have CAIDs assigned
+        alleles = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles) == 0
 
         # Verify no annotation statuses were created
         annotation_statuses = session.scalars(select(VariantAnnotationStatus)).all()
@@ -862,11 +1209,11 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
-        # Verify no variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 0
+        # Verify no alleles have CAIDs assigned
+        alleles = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles) == 0
 
-        # Verify annotation statuses were rendered as failed
+        # Verify annotation statuses were rendered as failed — 4 variants, all failed
         annotation_statuses = session.scalars(
             select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
@@ -903,9 +1250,6 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         # Patch ClinGenAlleleRegistryService to return only errors with no linked alleles
         registered_alleles_mock = [
             {"errorType": "InvalidHGVS", "hgvs": "test"},
-            {"errorType": "InvalidHGVS", "hgvs": "test2"},
-            {"errorType": "InvalidHGVS", "hgvs": "test3"},
-            {"errorType": "InvalidHGVS", "hgvs": "test4"},
         ]
 
         with (
@@ -925,11 +1269,11 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.FAILED
 
-        # Verify no variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 0
+        # Verify no alleles have CAIDs assigned
+        alleles = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles) == 0
 
-        # Verify annotation statuses were rendered as failed
+        # Verify annotation statuses were rendered as failed — 4 variants, all failed
         annotation_statuses = session.scalars(
             select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
@@ -952,7 +1296,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         dummy_variant_creation_job_run,
         dummy_variant_mapping_job_run,
     ):
-        """Test that partial CAR failures result in SUCCEEDED status with per-variant failure annotations committed."""
+        """All 4 variants share 1 allele; CAR returns 1 success → 1 registered allele, 0 failed, job SUCCEEDED."""
         # Create mappings in the score set
         await create_mappings_in_score_set(
             session,
@@ -964,14 +1308,14 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             dummy_variant_mapping_job_run,
         )
 
-        # Return a CAR response that only matches the first variant's HGVS
-        mapped_variants = session.scalars(select(MappedVariant)).all()
-        first_hgvs = get_hgvs_from_post_mapped(mapped_variants[0].post_mapped)
+        alleles = session.scalars(select(Allele)).all()
+        assert len(alleles) == 1
+
         registered_alleles_mock = [
             {
-                "@id": f"CA{mapped_variants[0].id}",
+                "@id": f"CA{alleles[0].id}",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": first_hgvs}],
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
             }
         ]
 
@@ -991,31 +1335,22 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         mock_send_slack_error.assert_not_called()
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data["matched_count"] == 1
-        assert result.data["failed_count"] == 3
+        assert result.data["registered_allele_count"] == 1
+        assert result.data["failed_allele_count"] == 0
 
-        # Verify the successfully matched variant got a CAID
-        variants_with_caid = session.scalars(
-            select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))
-        ).all()
-        assert len(variants_with_caid) == 1
-        assert variants_with_caid[0].clingen_allele_id == f"CA{mapped_variants[0].id}"
+        # 1 allele got a CAID
+        alleles_with_caid = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles_with_caid) == 1
+        assert alleles_with_caid[0].clingen_allele_id == f"CA{alleles[0].id}"
 
-        # Verify annotation statuses: 1 success, 3 failed
+        # All 4 variant annotations succeeded
         success_annotations = session.scalars(
             select(VariantAnnotationStatus).where(
                 VariantAnnotationStatus.annotation_type == "clingen_allele_id",
                 VariantAnnotationStatus.status == "success",
             )
         ).all()
-        failed_annotations = session.scalars(
-            select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.annotation_type == "clingen_allele_id",
-                VariantAnnotationStatus.status == "failed",
-            )
-        ).all()
-        assert len(success_annotations) == 1
-        assert len(failed_annotations) == 3
+        assert len(success_annotations) == 4
 
         # Verify the job status is updated in the database
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
@@ -1046,22 +1381,17 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             dummy_variant_mapping_job_run,
         )
 
-        # Return a CAR response where: first variant succeeds, second has explicit CAR error, rest are silent failures
-        mapped_variants = session.scalars(select(MappedVariant)).all()
-        first_hgvs = get_hgvs_from_post_mapped(mapped_variants[0].post_mapped)
-        second_hgvs = get_hgvs_from_post_mapped(mapped_variants[1].post_mapped)
+        # All 4 variants share 1 allele. CAR returns an explicit error for that 1 HGVS.
+        alleles = session.scalars(select(Allele)).all()
+        assert len(alleles) == 1
+        allele_hgvs = get_hgvs_from_post_mapped(alleles[0].post_mapped)
         registered_alleles_mock = [
             {
-                "@id": f"CA{mapped_variants[0].id}",
-                "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": first_hgvs}],
-            },
-            {
                 "errorType": "InvalidHGVS",
-                "hgvs": second_hgvs,
+                "hgvs": allele_hgvs,
                 "message": "The HGVS string is invalid.",
                 "description": "error",
-                "inputLine": second_hgvs,
+                "inputLine": allele_hgvs,
                 "position": "0",
             },
         ]
@@ -1079,31 +1409,18 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
                 standalone_worker_context, submit_score_set_mappings_to_car_sample_job_run.id
             )
 
-        # Verify the variant whose HGVS returned an explicit CAR error has error details in annotation_metadata.
-        # Only 1 annotation should have EXTERNAL_SERVICE_REJECTED since only one CAR error was in the response.
+        # All 4 variant annotations should have EXTERNAL_SERVICE_REJECTED since the 1 shared allele was rejected
         car_rejected_annotations = session.scalars(
             select(VariantAnnotationStatus).where(
                 VariantAnnotationStatus.annotation_type == "clingen_allele_id",
                 VariantAnnotationStatus.failure_category == "external_service_rejected",
             )
         ).all()
-        assert len(car_rejected_annotations) == 1
-        rejected = car_rejected_annotations[0]
-        assert rejected.annotation_metadata["submitted_hgvs"] == second_hgvs
-        assert rejected.annotation_metadata["car_error_type"] == "InvalidHGVS"
-        assert rejected.annotation_metadata["car_error_message"] == "The HGVS string is invalid."
-
-        # The remaining 2 failures (variants 3 and 4) got no CAR response — silent failures get EXTERNAL_API_ERROR.
-        silent_failure_annotations = session.scalars(
-            select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.annotation_type == "clingen_allele_id",
-                VariantAnnotationStatus.failure_category == "external_api_error",
-            )
-        ).all()
-        assert len(silent_failure_annotations) == 2
-        for ann in silent_failure_annotations:
-            assert ann.annotation_metadata["submitted_hgvs"] is not None
-            assert "car_error_type" not in ann.annotation_metadata
+        assert len(car_rejected_annotations) == 4
+        for rejected in car_rejected_annotations:
+            assert rejected.annotation_metadata["submitted_hgvs"] == allele_hgvs
+            assert rejected.annotation_metadata["car_error_type"] == "InvalidHGVS"
+            assert rejected.annotation_metadata["car_error_message"] == "The HGVS string is invalid."
 
     async def test_submit_score_set_mappings_to_car_propagates_exception_to_decorator(
         self,
@@ -1185,15 +1502,14 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
             dummy_variant_mapping_job_run,
         )
 
-        # Patch ClinGenAlleleRegistryService to return registered alleles
-        mapped_variants = session.scalars(select(MappedVariant)).all()
+        # All 4 variants share 1 allele; build 1 CAR response
+        alleles = session.scalars(select(Allele)).all()
         registered_alleles_mock = [
             {
-                "@id": f"CA{mv.id}",
+                "@id": f"CA{alleles[0].id}",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mv.post_mapped)}],
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
             }
-            for mv in mapped_variants
         ]
 
         with (
@@ -1214,13 +1530,12 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
         session.refresh(submit_score_set_mappings_to_car_sample_job_run)
         assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.SUCCEEDED
 
-        # Verify variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == len(mapped_variants)
-        for variant in variants:
-            assert variant.clingen_allele_id == f"CA{variant.id}"
+        # 1 allele received the CAID
+        alleles_with_caid = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles_with_caid) == 1
+        assert alleles_with_caid[0].clingen_allele_id == f"CA{alleles[0].id}"
 
-        # Verify annotation statuses were rendered as success
+        # 4 per-variant annotations — all success
         annotation_statuses = session.scalars(
             select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
@@ -1255,15 +1570,14 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
             dummy_variant_mapping_job_run,
         )
 
-        # Patch ClinGenAlleleRegistryService to return registered alleles
-        mapped_variants = session.scalars(select(MappedVariant)).all()
+        # All 4 variants share 1 allele; build 1 CAR response
+        alleles = session.scalars(select(Allele)).all()
         registered_alleles_mock = [
             {
-                "@id": f"CA{mv.id}",
+                "@id": f"CA{alleles[0].id}",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(mv.post_mapped)}],
+                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
             }
-            for mv in mapped_variants
         ]
 
         with (
@@ -1288,13 +1602,12 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
         session.refresh(submit_score_set_mappings_to_car_sample_pipeline)
         assert submit_score_set_mappings_to_car_sample_pipeline.status == PipelineStatus.SUCCEEDED
 
-        # Verify variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == len(mapped_variants)
-        for variant in variants:
-            assert variant.clingen_allele_id == f"CA{variant.id}"
+        # 1 allele received the CAID
+        alleles_with_caid = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles_with_caid) == 1
+        assert alleles_with_caid[0].clingen_allele_id == f"CA{alleles[0].id}"
 
-        # Verify annotation statuses were rendered as success
+        # 4 per-variant annotations — all success
         annotation_statuses = session.scalars(
             select(VariantAnnotationStatus).where(VariantAnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
@@ -1350,9 +1663,9 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
         assert submit_score_set_mappings_to_car_sample_job_run.status == JobStatus.ERRORED
         assert submit_score_set_mappings_to_car_sample_job_run.error_message == "ClinGen service error"
 
-        # Verify no variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 0
+        # Verify no alleles have CAIDs assigned
+        alleles = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles) == 0
 
         # Verify no annotation statuses were created
         annotation_statuses = session.scalars(
@@ -1413,9 +1726,9 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
         session.refresh(submit_score_set_mappings_to_car_sample_pipeline)
         assert submit_score_set_mappings_to_car_sample_pipeline.status == PipelineStatus.FAILED
 
-        # Verify no variants have CAIDs assigned
-        variants = session.scalars(select(MappedVariant).where(MappedVariant.clingen_allele_id.isnot(None))).all()
-        assert len(variants) == 0
+        # Verify no alleles have CAIDs assigned
+        alleles = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(alleles) == 0
 
         # Verify no annotation statuses were created
         annotation_statuses = session.scalars(

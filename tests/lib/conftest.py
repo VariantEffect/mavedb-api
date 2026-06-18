@@ -308,6 +308,23 @@ def mock_mapped_variant(mock_variant):
 
 
 @pytest.fixture
+def mock_mapping_record(mock_mapped_variant):
+    # Pre-mapped data and the mapping API version now live on the per-variant MappingRecord.
+    rec = mock.Mock()
+    rec.pre_mapped = mock_mapped_variant.pre_mapped
+    rec.mapping_api_version = mock_mapped_variant.mapping_api_version
+    return rec
+
+
+@pytest.fixture
+def mock_allele(mock_mapped_variant):
+    # Post-mapped data now lives on the (cross-variant deduped) Allele.
+    allele = mock.Mock()
+    allele.post_mapped = mock_mapped_variant.post_mapped
+    return allele
+
+
+@pytest.fixture
 def mock_mapped_variant_with_functional_calibration_score_set(
     mock_mapped_variant, mock_variant_with_functional_calibration_score_set
 ):
