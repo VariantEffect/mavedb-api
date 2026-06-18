@@ -50,7 +50,8 @@ class FakeVrsVariation:
         self.id = vrs_id
         self.vrs_type = vrs_type
 
-    def model_dump(self) -> dict:
+    def model_dump(self, **kwargs) -> dict:
+        # Accept (and ignore) model_dump kwargs like exclude_none, mirroring the real VRS model.
         return {"type": self.vrs_type, "id": self.id}
 
 

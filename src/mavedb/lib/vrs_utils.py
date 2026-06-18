@@ -17,13 +17,34 @@ from ga4gh.vrs.extras.translator import AlleleTranslator
 from ga4gh.vrs.models import (
     Allele,
     CisPhasedBlock,
+    Expression,
     LiteralSequenceExpression,
     ReferenceLengthExpression,
     SequenceLocation,
+    Syntax,
 )
 from ga4gh.vrs.normalize import normalize
 
 from mavedb.lib.hgvs import split_cis_phased_hgvs
+
+# HGVS type letter (``accession:g.``) → VRS Expression syntax.
+_HGVS_SYNTAX_BY_TYPE = {
+    "g": Syntax.HGVS_G,
+    "c": Syntax.HGVS_C,
+    "p": Syntax.HGVS_P,
+    "n": Syntax.HGVS_N,
+    "m": Syntax.HGVS_M,
+    "r": Syntax.HGVS_R,
+}
+
+
+def _hgvs_syntax(hgvs: str) -> Syntax:
+    """Map an HGVS string to its VRS Expression syntax via the type letter after the accession."""
+    _, _, rest = hgvs.partition(":")
+    try:
+        return _HGVS_SYNTAX_BY_TYPE[rest[:1]]
+    except KeyError:
+        raise ValueError(f"Cannot determine HGVS syntax for {hgvs!r}")
 
 
 def translate_hgvs_to_vrs(hgvs: str, translator: AlleleTranslator) -> Allele:
@@ -81,10 +102,14 @@ def translate_hgvs_to_variation(hgvs: str, translator: AlleleTranslator) -> Alle
     :param translator: caller-owned AlleleTranslator reused across calls
     :return: an Allele for a single variant, or a CisPhasedBlock for a cis-phased set
     """
-    members = [
-        normalize_and_identify(translate_hgvs_to_vrs(component, translator), translator.data_proxy)
-        for component in split_cis_phased_hgvs(hgvs)
-    ]
+    members = []
+    for component in split_cis_phased_hgvs(hgvs):
+        allele = normalize_and_identify(translate_hgvs_to_vrs(component, translator), translator.data_proxy)
+        # Stamp the source HGVS as the allele's expression so post_mapped is self-describing.
+        # Mirrors the mapper's authoritative alleles.
+        allele.expressions = [Expression(syntax=_hgvs_syntax(component), value=component)]
+        members.append(allele)
+
     if len(members) == 1:
         return members[0]
 

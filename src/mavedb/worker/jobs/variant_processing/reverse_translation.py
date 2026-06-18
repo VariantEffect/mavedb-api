@@ -391,7 +391,8 @@ async def reverse_translate_variants_for_score_set(
             seen_digests.add(variation.id)
             draft_allele = AlleleDbModel(
                 vrs_digest=variation.id,
-                post_mapped=variation.model_dump(),
+                # exclude_none mirrors the mapper's serialization.
+                post_mapped=variation.model_dump(exclude_none=True),
                 level=level,
                 **{hgvs_field: hgvs},  # type: ignore[arg-type]
             )

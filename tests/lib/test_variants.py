@@ -83,6 +83,26 @@ def test_get_hgvs_from_post_mapped_invalid_structure():
         get_hgvs_from_post_mapped({"invalid_key": "InvalidType"})
 
 
+def test_hgvs_from_vrs_allele_null_or_empty_expressions():
+    # A VRS allele may carry `expressions: null` or `[]` — that is "no HGVS", not a crash.
+    assert hgvs_from_vrs_allele({"type": "Allele", "expressions": None}) is None
+    assert hgvs_from_vrs_allele({"type": "Allele", "expressions": []}) is None
+
+
+def test_get_hgvs_from_post_mapped_member_without_expression():
+    # Regression: a cis-phased block member whose `expressions` is null must yield None, not raise
+    # `TypeError: 'NoneType' object is not subscriptable` (which previously killed the CAR job).
+    block = {
+        "type": "CisPhasedBlock",
+        "members": [
+            {"type": "Allele", "expressions": [{"value": "NM_003345:p.Asp5Phe"}]},
+            {"type": "Allele", "expressions": None},
+        ],
+    }
+    assert get_hgvs_from_post_mapped(block) is None
+    assert get_hgvs_from_post_mapped(block, combine_cis=True) is None
+
+
 ### Tests for get_digest_from_post_mapped function ###
 
 

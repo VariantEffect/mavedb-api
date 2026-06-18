@@ -10,20 +10,23 @@ HGVS_G_REGEX = re.compile(r"(^|:)g\.")
 HGVS_P_REGEX = re.compile(r"(^|:)p\.")
 
 
-def hgvs_from_vrs_allele(allele: dict) -> str:
+def hgvs_from_vrs_allele(allele: dict) -> Optional[str]:
     """
-    Extract the HGVS notation from the VRS allele.
+    Extract the HGVS notation from the VRS allele, or None if it carries no expression.
     """
     try:
-        # VRS 2.X
-        return allele["expressions"][0]["value"]
+        expressions = allele["expressions"]  # VRS 2.X
     except KeyError:
         if "variation" in allele:
             raise ValueError("VRS 1.X format not supported.")
             # VRS 1.X. We don't want to allow this.
-            # return allele["variation"]["expressions"][0]["value"]
-        else:
-            raise KeyError("Invalid VRS allele structure. Expected 'expressions'.")
+        raise KeyError("Invalid VRS allele structure. Expected 'expressions'.")
+
+    # A valid VRS allele may simply carry no HGVS expression (None or empty) — e.g. a member of a
+    # cis-phased block. That is "no HGVS", not a crash.
+    if not expressions:
+        return None
+    return expressions[0]["value"]
 
 
 def get_hgvs_from_post_mapped(post_mapped_vrs: Optional[Any], *, combine_cis: bool = False) -> Optional[str]:
@@ -38,22 +41,24 @@ def get_hgvs_from_post_mapped(post_mapped_vrs: Optional[Any], *, combine_cis: bo
     if not post_mapped_vrs:
         return None
 
-    if post_mapped_vrs["type"] == "Haplotype":  # type: ignore
-        variations_hgvs = [hgvs_from_vrs_allele(allele) for allele in post_mapped_vrs["members"]]
-    elif post_mapped_vrs["type"] == "CisPhasedBlock":  # type: ignore
-        variations_hgvs = [hgvs_from_vrs_allele(allele) for allele in post_mapped_vrs["members"]]
+    if post_mapped_vrs["type"] in ("Haplotype", "CisPhasedBlock"):  # type: ignore
+        members = post_mapped_vrs["members"]
     elif post_mapped_vrs["type"] == "Allele":  # type: ignore
-        variations_hgvs = [hgvs_from_vrs_allele(post_mapped_vrs)]
+        members = [post_mapped_vrs]
     else:
         return None
 
-    if len(variations_hgvs) == 0:
+    member_hgvs = [hgvs_from_vrs_allele(allele) for allele in members]
+
+    # No members, or a member carrying no HGVS expression — no single/combinable HGVS to return.
+    if not member_hgvs or any(h is None for h in member_hgvs):
         return None
 
-    if len(variations_hgvs) > 1:
-        return join_cis_phased_hgvs(variations_hgvs) if combine_cis else None
+    hgvs_values: list[str] = [h for h in member_hgvs if h is not None]
+    if len(hgvs_values) > 1:
+        return join_cis_phased_hgvs(hgvs_values) if combine_cis else None
 
-    return variations_hgvs[0]
+    return hgvs_values[0]
 
 
 def get_digest_from_post_mapped(post_mapped_vrs: Optional[Any]) -> Optional[str]:
