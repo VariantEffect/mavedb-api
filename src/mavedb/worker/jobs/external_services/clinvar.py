@@ -120,17 +120,15 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
 
     versions = _generate_clinvar_versions()
 
-    job_manager.save_to_context(
-        {
-            "application": "mavedb-worker",
-            "function": "refresh_clinvar_controls",
-            "resource": score_set.urn,
-            "correlation_id": correlation_id,
-            "versions": versions,
-            "total_versions": len(versions),
-            "force": force,
-        }
-    )
+    job_manager.save_to_context({
+        "application": "mavedb-worker",
+        "function": "refresh_clinvar_controls",
+        "resource": score_set.urn,
+        "correlation_id": correlation_id,
+        "versions": versions,
+        "total_versions": len(versions),
+        "force": force,
+    })
     job_manager.update_progress(0, 100, f"Starting ClinVar refresh across {len(versions)} versions.")
     logger.info(f"Starting ClinVar refresh across {len(versions)} versions", extra=job_manager.logging_context())
 
@@ -144,14 +142,12 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
     job_manager.save_to_context({"num_alleles_with_caids": len(allele_data)})
 
     # Link counts accumulate across all versions (an allele may link in every release it appears in).
-    annotation_counts: Counter[str] = Counter(
-        {
-            "created_link_count": 0,
-            "preexisting_link_count": 0,
-            "skipped_link_count": 0,
-            "failed_link_count": 0,
-        }
-    )
+    annotation_counts: Counter[str] = Counter({
+        "created_link_count": 0,
+        "preexisting_link_count": 0,
+        "skipped_link_count": 0,
+        "failed_link_count": 0,
+    })
 
     if not allele_data:
         logger.warning(

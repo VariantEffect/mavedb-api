@@ -10,13 +10,13 @@ from unittest.mock import patch
 from sqlalchemy import select
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
+from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
-from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.worker.jobs.external_services.clinvar import refresh_clinvar_controls
 from mavedb.worker.lib.managers.job_manager import JobManager
 
