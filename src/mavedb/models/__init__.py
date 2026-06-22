@@ -11,6 +11,7 @@ __all__ = [
     "experiment",
     "experiment_set",
     "genome_identifier",
+    "gnomad_allele_link",
     "gnomad_variant",
     "job_dependency",
     "job_run",

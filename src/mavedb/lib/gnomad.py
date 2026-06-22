@@ -3,19 +3,24 @@ import os
 import re
 from typing import Any, Sequence, Union
 
-from sqlalchemy import Connection, Row, select, text
+from sqlalchemy import Connection, Row, func, select, text
 from sqlalchemy.orm import Session
 
-from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.utils import batched
-from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationStatus
+from mavedb.models.allele import Allele
+from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
-from mavedb.models.mapped_variant import MappedVariant
 
 GNOMAD_DB_NAME = "gnomAD"
-GNOMAD_DATA_VERSION = os.getenv("GNOMAD_DATA_VERSION", "v4.1")  # e.g., "v4.1"
+GNOMAD_DATA_VERSION = os.getenv("GNOMAD_DATA_VERSION", "v4.1")
+_CAID_LEADING_ZERO_RE = r"^(CA)0+([0-9])"
+"""
+Strip leading zeros from a CAID's numeric portion, keeping at least one digit. 
+Kept byte-for-byte in sync with the SQL form used to normalize Allele.clingen_allele_id 
+in link_gnomad_variants_to_alleles.
+"""
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,6 +49,18 @@ def gnomad_table_name() -> str:
 
     save_to_logging_context({"gnomad_table_name": table_name})
     return table_name
+
+
+def normalize_caid(caid: str) -> str:
+    """Normalize a ClinGen CAID by stripping leading zeros from its numeric portion.
+
+    The gnomAD Hail/Athena dump drops leading zeros from CAIDs — MaveDB's ``CA025094`` is recorded as
+    ``CA25094`` — so an exact-string join silently misses every zero-padded CAID (issue #722). Both
+    sides of the join are normalized to the unpadded form to repair the match. ``CA025094`` and
+    ``CA25094`` denote the same ClinGen allele, so this can never collide distinct alleles. A value
+    that is not a recognizable CAID (no ``CA`` prefix + digits) is returned unchanged.
+    """
+    return re.sub(_CAID_LEADING_ZERO_RE, r"\1\2", caid)
 
 
 def allele_list_from_list_like_string(alleles_string: str) -> list[str]:
@@ -94,8 +111,9 @@ def gnomad_variant_data_for_caids(
     Raises:
         sqlalchemy.exc.SQLAlchemyError: If there is an error executing the query.
     """
+    # Normalize to the unpadded form the dump stores so the IN-list matches zero-padded CAIDs (see issue #722).
     chunked_caids = batched(caids, 16250)
-    caid_strs = [",".join(f"'{caid}'" for caid in chunk) for chunk in chunked_caids]
+    caid_strs = [",".join(f"'{normalize_caid(caid)}'" for caid in chunk) for chunk in chunked_caids]
     save_to_logging_context({"num_caids": len(caids), "num_chunks": len(caid_strs)})
 
     result_rows: list[Row[Any]] = []
@@ -132,31 +150,40 @@ def gnomad_variant_data_for_caids(
     return result_rows
 
 
-def link_gnomad_variants_to_mapped_variants(
-    db: Session, gnomad_variant_data: Sequence[Row[Any]], only_current: bool = True
-) -> int:
-    """
-    Links gnomAD variants to mapped variants in the database based on CAIDs. Note that this function does
-    not commit this data to the database; it only prepares the relationships.
+def link_gnomad_variants_to_alleles(db: Session, gnomad_variant_data: Sequence[Row[Any]]) -> set[int]:
+    """Link gnomAD variants to deduplicated alleles by CAID, superseding only on change.
 
-    Args:
-        caids (list[str]): A list of CAIDs to link with gnomAD variants.
+    Every ``Allele`` carrying the row's ``clingen_allele_id`` (populated by CAR) is linked through a
+    valid-time :class:`GnomadAlleleLink`, so one gnomAD variant fans out to every allele sharing the
+    CAID (cross-score-set dedup included). Each allele holds at most one live link, superseded **only
+    on change**: a live link already pointing to the resolved variant is left untouched (an unchanged
+    re-run writes no spurious valid-time boundary); a new/different/older-version target retires it and
+    inserts a successor, keyed on ``allele_id`` so a version bump replaces rather than accumulates. The
+    guard is load-bearing despite the job's upstream skip — shared CAIDs and ``force`` runs still reach
+    it. A current-version link to a *different* identifier (a CAID re-resolved within one release) is
+    logged and superseded newest-wins, not raised.
+
+    Does not commit. Returns the allele ids whose link was created or superseded this run.
     """
     save_to_logging_context({"num_gnomad_variant_rows": len(gnomad_variant_data)})
-    save_to_logging_context({"only_current": only_current})
-    logger.debug(msg="Linking gnomAD variants to mapped variants", extra=logging_context())
+    logger.debug(msg="Linking gnomAD variants to alleles", extra=logging_context())
 
-    linked_gnomad_variants = 0
-    annotation_manager = AnnotationStatusManager(db)
+    changed_allele_ids: set[int] = set()
     for index, row in enumerate(gnomad_variant_data, start=1):
         logger.info(
             msg=f"Processing gnomAD variant row {index}/{len(gnomad_variant_data)}: {row.caid}", extra=logging_context()
         )
 
-        mapped_variants_with_caids_query = select(MappedVariant).where(MappedVariant.clingen_allele_id == row.caid)
-        if only_current:
-            mapped_variants_with_caids_query = mapped_variants_with_caids_query.where(MappedVariant.current.is_(True))
-        mapped_variants_with_caids = db.scalars(mapped_variants_with_caids_query).all()
+        # Match on the unpadded CAID: the dump's caid is already stripped, while the stored CAID may
+        # be zero-padded, so normalize both sides (issue #722). regexp_replace mirrors normalize_caid.
+        alleles_with_caid = db.scalars(
+            select(Allele).where(
+                func.regexp_replace(Allele.clingen_allele_id, _CAID_LEADING_ZERO_RE, r"\1\2")
+                == normalize_caid(row.caid)
+            )
+        ).all()
+        if not alleles_with_caid:
+            continue
 
         gnomad_identifier_for_variant = gnomad_identifier(
             row.__getattribute__("locus.contig"),
@@ -172,80 +199,86 @@ def link_gnomad_variants_to_mapped_variants(
         if faf95_max is not None:
             faf95_max = float(faf95_max)
 
-        for mapped_variant in mapped_variants_with_caids:
-            # Remove any existing gnomAD variants for this mapped variant that match the current gnomAD data version to avoid data duplication.
-            # There should only be one gnomAD variant per mapped variant per gnomAD data version, since each gnomAD variant can only match to one
-            # CAID.
-            for linked_gnomad_variant in mapped_variant.gnomad_variants:
-                if linked_gnomad_variant.db_version == GNOMAD_DATA_VERSION:
-                    logger.debug(
-                        msg=f"Removing existing gnomAD variant {linked_gnomad_variant.db_identifier} from mapped variant {mapped_variant.id} ({mapped_variant.clingen_allele_id})",
-                        extra=logging_context(),
-                    )
-                    mapped_variant.gnomad_variants.remove(linked_gnomad_variant)
-
-            existing_gnomad_variant = db.scalar(
-                select(GnomADVariant).where(
-                    GnomADVariant.db_name == "gnomAD",
-                    GnomADVariant.db_identifier == gnomad_identifier_for_variant,
-                    GnomADVariant.db_version == GNOMAD_DATA_VERSION,
-                )
+        # One gnomAD variant per (identifier, version): get-or-create so repeated CAIDs and re-runs
+        # reuse the same row. Flush so a freshly created variant has an id for the link below.
+        gnomad_variant = db.scalar(
+            select(GnomADVariant).where(
+                GnomADVariant.db_name == GNOMAD_DB_NAME,
+                GnomADVariant.db_identifier == gnomad_identifier_for_variant,
+                GnomADVariant.db_version == GNOMAD_DATA_VERSION,
             )
-
-            if existing_gnomad_variant is None:
-                logger.debug(
-                    msg=f"Creating new gnomAD variant for identifier {gnomad_identifier_for_variant}",
-                    extra=logging_context(),
-                )
-                gnomad_variant = GnomADVariant(
-                    db_name=GNOMAD_DB_NAME,
-                    db_identifier=gnomad_identifier_for_variant,
-                    db_version=GNOMAD_DATA_VERSION,
-                    allele_count=allele_count,
-                    allele_number=allele_number,
-                    allele_frequency=allele_frequency,  # type: ignore
-                    faf95_max_ancestry=faf95_max_ancestry,
-                    faf95_max=faf95_max,  # type: ignore
-                )
-            else:
-                logger.debug(
-                    msg=f"Found existing gnomAD variant for identifier {gnomad_identifier_for_variant}",
-                    extra=logging_context(),
-                )
-                gnomad_variant = existing_gnomad_variant
-
-            if gnomad_variant not in mapped_variant.gnomad_variants:
-                mapped_variant.gnomad_variants.append(gnomad_variant)
-                linked_gnomad_variants += 1
-
+        )
+        if gnomad_variant is None:
+            logger.debug(
+                msg=f"Creating new gnomAD variant for identifier {gnomad_identifier_for_variant}",
+                extra=logging_context(),
+            )
+            gnomad_variant = GnomADVariant(
+                db_name=GNOMAD_DB_NAME,
+                db_identifier=gnomad_identifier_for_variant,
+                db_version=GNOMAD_DATA_VERSION,
+                allele_count=allele_count,
+                allele_number=allele_number,
+                allele_frequency=allele_frequency,  # type: ignore
+                faf95_max_ancestry=faf95_max_ancestry,
+                faf95_max=faf95_max,  # type: ignore
+            )
             db.add(gnomad_variant)
-            annotation_manager.add_annotation(
-                variant_id=mapped_variant.variant_id,  # type: ignore
-                annotation_type=AnnotationType.GNOMAD_ALLELE_FREQUENCY,
-                version=GNOMAD_DATA_VERSION,
-                status=AnnotationStatus.SUCCESS,
-                annotation_data={
-                    "annotation_metadata": {
-                        "gnomad_db_identifier": gnomad_variant.db_identifier,
-                    }
-                },
-                current=True,
+            db.flush()
+        else:
+            logger.debug(
+                msg=f"Found existing gnomAD variant for identifier {gnomad_identifier_for_variant}",
+                extra=logging_context(),
             )
+
+        for allele in alleles_with_caid:
+            live_link = db.scalar(
+                select(GnomadAlleleLink).where(
+                    GnomadAlleleLink.allele_id == allele.id,
+                    GnomadAlleleLink.current,
+                )
+            )
+
+            # No change: live link already points here — leave it untouched (no spurious boundary).
+            if live_link is not None and live_link.gnomad_variant_id == gnomad_variant.id:
+                continue
+
+            if (
+                live_link is not None
+                and live_link.gnomad_variant.db_version == GNOMAD_DATA_VERSION
+                and live_link.gnomad_variant.db_identifier != gnomad_identifier_for_variant
+            ):
+                logger.warning(
+                    msg=(
+                        f"CAID {allele.clingen_allele_id} for allele {allele.id} resolved to "
+                        f"{gnomad_identifier_for_variant} at version {GNOMAD_DATA_VERSION}, but a live link "
+                        f"already points to {live_link.gnomad_variant.db_identifier} at the same version. "
+                        "Superseding (newest wins); investigate the gnomAD source for a re-resolved CAID."
+                    ),
+                    extra=logging_context(),
+                )
+
+            # Change: retire any live link for the allele, insert the successor (allele-keyed, so a
+            # version bump replaces rather than accumulates).
+            GnomadAlleleLink.supersede_live_where(
+                db,
+                [GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id)],
+                GnomadAlleleLink.allele_id == allele.id,
+            )
+            changed_allele_ids.add(allele.id)
 
             logger.debug(
-                msg=f"Linked gnomAD variant {gnomad_variant.db_identifier} to mapped variant {mapped_variant.id} ({mapped_variant.clingen_allele_id})",
+                msg=f"Linked gnomAD variant {gnomad_variant.db_identifier} to allele {allele.id} ({allele.clingen_allele_id})",
                 extra=logging_context(),
             )
 
         logger.info(
-            f"Linked {len(mapped_variants_with_caids)} mapped variants with CAID {row.caid} to gnomAD variant {gnomad_identifier_for_variant}. ({index}/{len(gnomad_variant_data)})"
+            f"Processed {len(alleles_with_caid)} alleles with CAID {row.caid} for gnomAD variant {gnomad_identifier_for_variant}. ({index}/{len(gnomad_variant_data)})"
         )
 
-    annotation_manager.flush()
-
-    save_to_logging_context({"linked_gnomad_variants": linked_gnomad_variants})
+    save_to_logging_context({"changed_allele_count": len(changed_allele_ids)})
     logger.info(
-        msg=f"Linked a total of {linked_gnomad_variants} gnomAD variants to mapped variants.",
+        msg=f"Created or superseded {len(changed_allele_ids)} allele links this run.",
         extra=logging_context(),
     )
-    return linked_gnomad_variants
+    return changed_allele_ids

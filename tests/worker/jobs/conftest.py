@@ -1,9 +1,13 @@
 import pytest
+from sqlalchemy import select
 
+from mavedb.models.allele import Allele
 from mavedb.models.enums.job_pipeline import DependencyType
 from mavedb.models.job_dependency import JobDependency
 from mavedb.models.job_run import JobRun
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.mapping_record import MappingRecord
+from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -279,6 +283,87 @@ def setup_sample_variants_with_caid(
     session.add(mapped_variant)
     session.commit()
     return variant, mapped_variant
+
+
+@pytest.fixture
+def setup_sample_alleles_with_caid(session, with_populated_domain_data, sample_link_gnomad_variants_run):
+    """Set up new-model rows (Variant + live MappingRecord + authoritative MappingRecordAllele + Allele)
+    for the gnomAD linkage job. The allele carries the CAID matched by the mocked Athena row, and the
+    allele is the authoritative measurement for the variant so the bandaid seam writes its VAS row.
+    """
+    score_set = session.get(ScoreSet, sample_link_gnomad_variants_run.job_params["score_set_id"])
+
+    variant = Variant(
+        urn="urn:variant:test-variant-with-allele-caid",
+        score_set_id=score_set.id,
+        hgvs_nt="NM_000000.1:c.1A>G",
+        hgvs_pro="NP_000000.1:p.Met1Val",
+        data={"hgvs_c": "NM_000000.1:c.1A>G", "hgvs_p": "NP_000000.1:p.Met1Val"},
+    )
+    allele = Allele(
+        vrs_digest="test-allele-vrs-digest",
+        level="genomic",
+        clingen_allele_id=VALID_CAID,
+        post_mapped={"type": "Allele", "expressions": [{"value": "NM_000000.1:c.1A>G", "syntax": "hgvs.c"}]},
+    )
+    session.add_all([variant, allele])
+    session.commit()
+
+    mapping_record = MappingRecord(
+        variant_id=variant.id,
+        assay_level="genomic",
+        mapping_api_version="pytest.0.0",
+    )
+    session.add(mapping_record)
+    session.commit()
+
+    session.add(
+        MappingRecordAllele(
+            mapping_record_id=mapping_record.id,
+            allele_id=allele.id,
+            is_authoritative=True,
+        )
+    )
+    session.commit()
+    return variant, allele
+
+
+@pytest.fixture
+def setup_rt_derived_allele_with_caid(session, setup_sample_alleles_with_caid):
+    """Add a NON-authoritative (RT-derived) allele to the variant's current mapping record, carrying
+    the CAID the mocked gnomAD row matches. The authoritative allele is given a CAID with no gnomAD
+    match, so only the RT-derived allele can link. This isolates the requirement that gnomAD linkage
+    must cover the full allele set (authoritative + RT-derived), not just authoritative links — for
+    protein/coding score sets the genomic allele gnomAD knows is the RT-derived one.
+    """
+    variant, authoritative_allele = setup_sample_alleles_with_caid
+
+    # Authoritative allele's CAID intentionally has no gnomAD match, so it cannot be what links.
+    authoritative_allele.clingen_allele_id = "CA_NO_GNOMAD_MATCH"
+    session.add(authoritative_allele)
+
+    mapping_record = session.scalars(
+        select(MappingRecord).where(MappingRecord.variant_id == variant.id, MappingRecord.current)
+    ).one()
+
+    rt_allele = Allele(
+        vrs_digest="test-rt-derived-allele-vrs-digest",
+        level="genomic",
+        clingen_allele_id=VALID_CAID,
+        post_mapped={"type": "Allele", "expressions": [{"value": "NC_000001.11:g.12345G>A", "syntax": "hgvs.g"}]},
+    )
+    session.add(rt_allele)
+    session.commit()
+
+    session.add(
+        MappingRecordAllele(
+            mapping_record_id=mapping_record.id,
+            allele_id=rt_allele.id,
+            is_authoritative=False,
+        )
+    )
+    session.commit()
+    return variant, authoritative_allele, rt_allele
 
 
 ## Uniprot Job Fixtures ##
