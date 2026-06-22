@@ -38,7 +38,7 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
-from mavedb.models.clinical_control import ClinicalControl
+from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinical_control_mapped_variant import mapped_variants_clinical_controls_association_table
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
@@ -734,14 +734,14 @@ def get_score_set_variants_as_csv(
             idx = 2 if need_mappings else 1
             gnomad_data.append(row[idx])
 
-    # For each ClinVar namespace, fetch a mapping from mapped_variant_id to ClinicalControl.
-    clinvar_data_map: dict[str, dict[int, Optional[ClinicalControl]]] = {}
+    # For each ClinVar namespace, fetch a mapping from mapped_variant_id to ClinvarControl.
+    clinvar_data_map: dict[str, dict[int, Optional[ClinvarControl]]] = {}
     if clinvar_namespaces and mappings is not None:
         mv_ids = [m.id for m in mappings if m is not None]
         for ns, db_version in clinvar_namespaces.items():
-            mv_to_cc: dict[int, Optional[ClinicalControl]] = {}
+            mv_to_cc: dict[int, Optional[ClinvarControl]] = {}
             if mv_ids:
-                aliased_cc = aliased(ClinicalControl)
+                aliased_cc = aliased(ClinvarControl)
                 cc_query = (
                     select(
                         mapped_variants_clinical_controls_association_table.c.mapped_variant_id,
@@ -764,11 +764,11 @@ def get_score_set_variants_as_csv(
             clinvar_data_map[ns] = mv_to_cc
 
     # Build per-variant ClinVar lookup (list indexed in parallel with variants).
-    clinvar_per_variant: Optional[list[Optional[dict[str, Optional[ClinicalControl]]]]] = None
+    clinvar_per_variant: Optional[list[Optional[dict[str, Optional[ClinvarControl]]]]] = None
     if clinvar_namespaces and mappings is not None:
         clinvar_per_variant = []
         for mapping in mappings:
-            row_clinvar: dict[str, Optional[ClinicalControl]] = {}
+            row_clinvar: dict[str, Optional[ClinvarControl]] = {}
             for ns, mv_to_cc in clinvar_data_map.items():
                 if mapping is not None and mapping.id is not None:
                     row_clinvar[ns] = mv_to_cc.get(mapping.id)
@@ -857,7 +857,7 @@ def variant_to_csv_row(
     columns: dict[str, list[str]],
     mapping: Optional[MappedVariant] = None,
     gnomad_data: Optional[GnomADVariant] = None,
-    clinvar_data_by_ns: Optional[dict[str, Optional[ClinicalControl]]] = None,
+    clinvar_data_by_ns: Optional[dict[str, Optional[ClinvarControl]]] = None,
     namespaced: Optional[bool] = None,
     na_rep="NA",
 ) -> dict[str, Any]:
@@ -876,7 +876,7 @@ def variant_to_csv_row(
         Mapped variant corresponding to the variant.
     gnomad_data : variant.models.GnomADVariant, optional
         gnomAD variant data corresponding to the variant.
-    clinvar_data_by_ns : dict[str, Optional[ClinicalControl]], optional
+    clinvar_data_by_ns : dict[str, Optional[ClinvarControl]], optional
         Per-variant ClinVar data keyed by namespace (e.g. "clinvar.2024_01").
     na_rep : str
         String to represent null values.
@@ -1005,7 +1005,7 @@ def variants_to_csv_rows(
     columns: dict[str, list[str]],
     mappings: Optional[Sequence[Optional[MappedVariant]]] = None,
     gnomad_data: Optional[Sequence[Optional[GnomADVariant]]] = None,
-    clinvar_data_by_ns: Optional[Sequence[Optional[dict[str, Optional[ClinicalControl]]]]] = None,
+    clinvar_data_by_ns: Optional[Sequence[Optional[dict[str, Optional[ClinvarControl]]]]] = None,
     namespaced: Optional[bool] = None,
     na_rep="NA",
 ) -> Iterable[dict[str, Any]]:
@@ -1024,7 +1024,7 @@ def variants_to_csv_rows(
         List of mapped variants corresponding to the variants.
     gnomad_data : list[Optional[variant.models.GnomADVariant]], optional
         List of gnomAD variant data corresponding to the variants.
-    clinvar_data_by_ns : list[Optional[dict[str, Optional[ClinicalControl]]]], optional
+    clinvar_data_by_ns : list[Optional[dict[str, Optional[ClinvarControl]]]], optional
         Per-variant ClinVar data keyed by namespace (e.g. "clinvar.2024_01").
     na_rep : str
         String to represent null values.
@@ -1036,7 +1036,7 @@ def variants_to_csv_rows(
     n = len(variants)
     _mappings: Sequence[Optional[MappedVariant]] = mappings if mappings is not None else [None] * n
     _gnomad: Sequence[Optional[GnomADVariant]] = gnomad_data if gnomad_data is not None else [None] * n
-    _clinvar: Sequence[Optional[dict[str, Optional[ClinicalControl]]]] = (
+    _clinvar: Sequence[Optional[dict[str, Optional[ClinvarControl]]]] = (
         clinvar_data_by_ns if clinvar_data_by_ns is not None else [None] * n
     )
     return map(

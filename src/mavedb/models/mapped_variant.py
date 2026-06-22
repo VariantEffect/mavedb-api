@@ -11,7 +11,7 @@ from mavedb.models.enums.annotation_layer import AnnotationLayer
 from mavedb.models.gnomad_variant_mapped_variant import gnomad_variants_mapped_variants_association_table
 
 if TYPE_CHECKING:
-    from .clinical_control import ClinicalControl
+    from .clinical_control import ClinvarControl
     from .gnomad_variant import GnomADVariant
     from .target_gene_mapping import TargetGeneMapping
     from .variant import Variant
@@ -61,8 +61,8 @@ class MappedVariant(Base):
     hgvs_c = Column(String, nullable=True)
     hgvs_p = Column(String, nullable=True)
 
-    clinical_controls: Mapped[list["ClinicalControl"]] = relationship(
-        "ClinicalControl",
+    clinical_controls: Mapped[list["ClinvarControl"]] = relationship(
+        "ClinvarControl",
         secondary=mapped_variants_clinical_controls_association_table,
         back_populates="mapped_variants",
     )

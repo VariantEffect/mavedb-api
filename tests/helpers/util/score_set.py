@@ -8,7 +8,7 @@ import jsonschema
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from mavedb.models.clinical_control import ClinicalControl as ClinicalControlDbModel
+from mavedb.models.clinical_control import ClinvarControl as ClinicalControlDbModel
 from mavedb.models.gnomad_variant import GnomADVariant as GnomADVariantDbModel
 from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel

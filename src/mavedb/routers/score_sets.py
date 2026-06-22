@@ -73,7 +73,7 @@ from mavedb.lib.urns import (
     generate_score_set_urn,
 )
 from mavedb.lib.workflow.pipeline_factory import PipelineFactory
-from mavedb.models.clinical_control import ClinicalControl
+from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
@@ -2411,7 +2411,7 @@ async def get_clinical_controls_for_score_set(
     user_data: UserData = Depends(get_current_user),
     db: Optional[str] = None,
     version: Optional[str] = None,
-) -> Sequence[ClinicalControl]:
+) -> Sequence[ClinvarControl]:
     """
     Fetch relevant clinical controls for a given score set.
     """
@@ -2432,23 +2432,23 @@ async def get_clinical_controls_for_score_set(
     assert_permission(user_data, item, Action.READ)
 
     clinical_controls_query = (
-        select(ClinicalControl)
-        .join(ClinicalControl.mapped_variants)
+        select(ClinvarControl)
+        .join(ClinvarControl.mapped_variants)
         .join(MappedVariant.variant)
-        .options(contains_eager(ClinicalControl.mapped_variants).contains_eager(MappedVariant.variant))
+        .options(contains_eager(ClinvarControl.mapped_variants).contains_eager(MappedVariant.variant))
         .filter(MappedVariant.current.is_(True))
         .filter(Variant.score_set_id == item.id)
     )
 
     if db_name is not None:
         save_to_logging_context({"db_name": db_name})
-        clinical_controls_query = clinical_controls_query.filter(ClinicalControl.db_name == db_name)
+        clinical_controls_query = clinical_controls_query.filter(ClinvarControl.db_name == db_name)
 
     if db_version is not None:
         save_to_logging_context({"db_version": db_version})
-        clinical_controls_query = clinical_controls_query.filter(ClinicalControl.db_version == db_version)
+        clinical_controls_query = clinical_controls_query.filter(ClinvarControl.db_version == db_version)
 
-    clinical_controls: Sequence[ClinicalControl] = _db.scalars(clinical_controls_query).unique().all()
+    clinical_controls: Sequence[ClinvarControl] = _db.scalars(clinical_controls_query).unique().all()
 
     if not clinical_controls:
         logger.info(
@@ -2496,8 +2496,8 @@ async def get_clinical_controls_options_for_score_set(
     assert_permission(user_data, item, Action.READ)
 
     clinical_controls_query = (
-        select(ClinicalControl.db_name, ClinicalControl.db_version)
-        .join(MappedVariant, ClinicalControl.mapped_variants)
+        select(ClinvarControl.db_name, ClinvarControl.db_version)
+        .join(MappedVariant, ClinvarControl.mapped_variants)
         .join(Variant)
         .where(MappedVariant.current.is_(True))
         .where(Variant.score_set_id == item.id)

@@ -4,6 +4,7 @@ __all__ = [
     "allele",
     "collection",
     "clinical_control",
+    "clinvar_allele_link",
     "controlled_keyword",
     "doi_identifier",
     "ensembl_identifier",
