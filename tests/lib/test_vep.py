@@ -4,11 +4,20 @@ These tests mock the underlying HTTP call (request_with_backoff) and assert that
 logic correctly handles the actual Ensembl REST API response shapes.
 """
 
+from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy import select
 
-from mavedb.lib.vep import get_functional_consequence, run_variant_recoder
+from mavedb.lib.vep import (
+    get_ensembl_release,
+    get_functional_consequence,
+    link_vep_consequences_to_alleles,
+    run_variant_recoder,
+)
+from mavedb.models.allele import Allele
+from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 
 
 def _mock_response(data) -> MagicMock:
@@ -240,3 +249,155 @@ class TestGetFunctionalConsequence:
         """Passing more than 200 HGVS strings raises ValueError before any HTTP call."""
         with pytest.raises(ValueError, match="maximum of 200"):
             await get_functional_consequence(["NM_007294.4:c.1A>T"] * 201)
+
+
+### Tests for get_ensembl_release function ###
+
+
+@pytest.mark.asyncio
+async def test_get_ensembl_release_returns_release_as_string():
+    """The /info/software release integer is returned as a string for use as source_version."""
+    with patch("mavedb.lib.vep.request_with_backoff", return_value=_mock_response({"release": 116})):
+        assert await get_ensembl_release() == "116"
+
+
+### Tests for link_vep_consequences_to_alleles function ###
+
+
+def _make_allele(session, *, vrs_digest, level="genomic"):
+    """Create and persist a deduplicated Allele."""
+    allele = Allele(vrs_digest=vrs_digest, level=level)
+    session.add(allele)
+    session.commit()
+    session.refresh(allele)
+    return allele
+
+
+def _live_rows_for(session, allele_id):
+    return session.scalars(
+        select(VepAlleleConsequence).where(
+            VepAlleleConsequence.allele_id == allele_id,
+            VepAlleleConsequence.current,
+        )
+    ).all()
+
+
+def _all_rows_for(session, allele_id):
+    return session.scalars(select(VepAlleleConsequence).where(VepAlleleConsequence.allele_id == allele_id)).all()
+
+
+def test_link_vep_creates_new_consequence(session):
+    """A consequence for an allele with no live row creates a single live row and is reported changed."""
+    allele = _make_allele(session, vrs_digest="vrs-1")
+
+    changed = link_vep_consequences_to_alleles(
+        session, {allele.id: "missense_variant"}, source_version="116", access_date=date.today()
+    )
+    session.commit()
+
+    assert changed == {allele.id}
+    live = _live_rows_for(session, allele.id)
+    assert len(live) == 1
+    assert live[0].functional_consequence == "missense_variant"
+    assert live[0].source_version == "116"
+    assert live[0].access_date == date.today()
+
+
+def test_link_vep_unchanged_bumps_version_and_date_in_place(session):
+    """Re-confirming an unchanged consequence at a new release advances source_version and access_date
+    in place — no supersede, no new valid-time boundary, and the allele is not reported changed."""
+    allele = _make_allele(session, vrs_digest="vrs-1")
+    session.add(
+        VepAlleleConsequence(
+            allele_id=allele.id,
+            functional_consequence="missense_variant",
+            source_version="115",
+            access_date=date.today() - timedelta(days=90),
+        )
+    )
+    session.commit()
+
+    changed = link_vep_consequences_to_alleles(
+        session, {allele.id: "missense_variant"}, source_version="116", access_date=date.today()
+    )
+    session.commit()
+
+    assert changed == set()
+    # One row, still live, never retired — version and access_date advanced in place.
+    all_rows = _all_rows_for(session, allele.id)
+    assert len(all_rows) == 1
+    assert all_rows[0].valid_to is None
+    assert all_rows[0].source_version == "116"
+    assert all_rows[0].access_date == date.today()
+
+
+def test_link_vep_changed_consequence_supersedes(session):
+    """A changed consequence retires the live row and inserts the successor — exactly one live row,
+    keyed on allele_id, with the old one preserved as retired history."""
+    allele = _make_allele(session, vrs_digest="vrs-1")
+    session.add(
+        VepAlleleConsequence(
+            allele_id=allele.id,
+            functional_consequence="synonymous_variant",
+            source_version="115",
+            access_date=date.today() - timedelta(days=90),
+        )
+    )
+    session.commit()
+
+    changed = link_vep_consequences_to_alleles(
+        session, {allele.id: "missense_variant"}, source_version="116", access_date=date.today()
+    )
+    session.commit()
+
+    assert changed == {allele.id}
+    live = _live_rows_for(session, allele.id)
+    assert len(live) == 1
+    assert live[0].functional_consequence == "missense_variant"
+    assert live[0].source_version == "116"
+
+    all_rows = _all_rows_for(session, allele.id)
+    assert len(all_rows) == 2
+    assert len([r for r in all_rows if r.valid_to is not None]) == 1
+
+
+def test_link_vep_none_leaves_live_row_untouched(session):
+    """A transient None result must not overwrite a held consequence: the live row is left intact
+    (value, version, and date) and the allele is not reported changed."""
+    allele = _make_allele(session, vrs_digest="vrs-1")
+    session.add(
+        VepAlleleConsequence(
+            allele_id=allele.id,
+            functional_consequence="missense_variant",
+            source_version="115",
+            access_date=date.today() - timedelta(days=90),
+        )
+    )
+    session.commit()
+
+    changed = link_vep_consequences_to_alleles(
+        session, {allele.id: None}, source_version="116", access_date=date.today()
+    )
+    session.commit()
+
+    assert changed == set()
+    live = _live_rows_for(session, allele.id)
+    assert len(live) == 1
+    assert live[0].functional_consequence == "missense_variant"
+    # Not re-confirmed -> neither version nor access_date advanced.
+    assert live[0].source_version == "115"
+    assert live[0].access_date == date.today() - timedelta(days=90)
+
+
+def test_link_vep_none_with_no_live_row_writes_nothing(session):
+    """A None result for an allele with no live row writes nothing (the allele is re-queried next run),
+    mirroring gnomAD's no-match handling."""
+    allele = _make_allele(session, vrs_digest="vrs-1")
+
+    changed = link_vep_consequences_to_alleles(
+        session, {allele.id: None}, source_version="116", access_date=date.today()
+    )
+    session.commit()
+
+    assert changed == set()
+    assert len(_all_rows_for(session, allele.id)) == 0

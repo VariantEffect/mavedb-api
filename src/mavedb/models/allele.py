@@ -51,6 +51,10 @@ class Allele(Base):
         back_populates="allele",
     )
 
+    # Annotation links (VEP, gnomAD, ClinVar) deliberately carry no reverse collection here — they are
+    # one-directional annotation->Allele, navigated set-wise from the link tables, not from an Allele
+    # instance. Keep new annotation links one-directional unless a read path needs the navigation.
+
     __table_args__ = (
         UniqueConstraint("vrs_digest", name="uq_alleles_vrs_digest"),
         Index("ix_alleles_vrs_digest", "vrs_digest"),

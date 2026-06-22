@@ -1340,8 +1340,14 @@ def sample_populate_vep_run_pipeline(
 
 
 @pytest.fixture
-def setup_sample_variants_for_vep(session, with_populated_domain_data, mock_worker_ctx, sample_populate_vep_run):
-    """Setup a variant and mapped variant with hgvs_assay_level for VEP testing."""
+def setup_sample_alleles_for_vep(session, with_populated_domain_data, mock_worker_ctx, sample_populate_vep_run):
+    """Set up new-model rows (Variant + live MappingRecord + authoritative MappingRecordAllele + Allele)
+    for the VEP consequence job. The allele carries an HGVS the job submits to VEP and is the
+    authoritative measurement for the variant, so the bandaid seam writes its per-variant VAS row.
+
+    The HGVS lives on ``Allele.hgvs_c`` (a coding HGVS VEP resolves directly) — the new job reads its
+    submission string from the allele, not from ``MappedVariant.hgvs_assay_level``.
+    """
     score_set = session.get(ScoreSet, sample_populate_vep_run.job_params["score_set_id"])
 
     variant = Variant(
@@ -1351,28 +1357,42 @@ def setup_sample_variants_for_vep(session, with_populated_domain_data, mock_work
         hgvs_pro="NP_009225.1:p.Cys2Tyr",
         data={"hgvs_c": "NM_007294.4:c.5A>G", "hgvs_p": "NP_009225.1:p.Cys2Tyr"},
     )
-    session.add(variant)
-    session.commit()
-    mapped_variant = MappedVariant(
-        variant_id=variant.id,
-        current=True,
-        mapped_date="2024-01-01T00:00:00Z",
-        mapping_api_version="1.0.0",
+    allele = Allele(
+        vrs_digest="test-vep-allele-vrs-digest",
+        level="cdna",
+        hgvs_c="NM_007294.4:c.5A>G",
         post_mapped={"type": "Allele", "expressions": [{"value": "NM_007294.4:c.5A>G", "syntax": "hgvs.c"}]},
-        hgvs_assay_level="NM_007294.4:c.5A>G",
     )
-    session.add(mapped_variant)
+    session.add_all([variant, allele])
     session.commit()
-    return variant, mapped_variant
+
+    mapping_record = MappingRecord(
+        variant_id=variant.id,
+        assay_level="cdna",
+        mapping_api_version="pytest.0.0",
+    )
+    session.add(mapping_record)
+    session.commit()
+
+    session.add(
+        MappingRecordAllele(
+            mapping_record_id=mapping_record.id,
+            allele_id=allele.id,
+            is_authoritative=True,
+        )
+    )
+    session.commit()
+    return variant, allele
 
 
 @pytest.fixture
-def setup_sample_protein_variant_for_vep(session, with_populated_domain_data, mock_worker_ctx, sample_populate_vep_run):
-    """Setup a protein HGVS variant (NP_ accession) that VEP cannot resolve directly.
+def setup_sample_protein_allele_for_vep(session, with_populated_domain_data, mock_worker_ctx, sample_populate_vep_run):
+    """Set up an allele whose only HGVS is a protein HGVS (NP_ accession) that VEP cannot resolve
+    directly.
 
-    VEP's /vep/human/hgvs endpoint does not return results for protein HGVS strings like
-    NP_009225.1:p.Val1696His, so these must be recoded via Variant Recoder first.  This fixture
-    exercises the recoder fallback path end-to-end.
+    VEP's /vep/human/hgvs endpoint returns no consequence for protein HGVS like
+    NP_009225.1:p.Val1696His, so the job must fall back to Variant Recoder. ``hgvs_g``/``hgvs_c`` are
+    left unset so the VEP payload resolves to ``hgvs_p``, exercising the recoder fallback path.
     """
     score_set = session.get(ScoreSet, sample_populate_vep_run.job_params["score_set_id"])
 
@@ -1382,17 +1402,61 @@ def setup_sample_protein_variant_for_vep(session, with_populated_domain_data, mo
         hgvs_pro="NP_009225.1:p.Val1696His",
         data={"hgvs_p": "NP_009225.1:p.Val1696His"},
     )
-    session.add(variant)
+    allele = Allele(
+        vrs_digest="test-vep-protein-allele-vrs-digest",
+        level="protein",
+        hgvs_p="NP_009225.1:p.Val1696His",
+        post_mapped={"type": "Allele", "expressions": [{"value": "NP_009225.1:p.Val1696His", "syntax": "hgvs.p"}]},
+    )
+    session.add_all([variant, allele])
     session.commit()
 
-    mapped_variant = MappedVariant(
+    mapping_record = MappingRecord(
         variant_id=variant.id,
-        current=True,
-        mapped_date="2024-01-01T00:00:00Z",
-        mapping_api_version="1.0.0",
-        post_mapped={"type": "Allele", "expressions": [{"value": "NP_009225.1:p.Val1696His", "syntax": "hgvs.p"}]},
-        hgvs_assay_level="NP_009225.1:p.Val1696His",
+        assay_level="protein",
+        mapping_api_version="pytest.0.0",
     )
-    session.add(mapped_variant)
+    session.add(mapping_record)
     session.commit()
-    return variant, mapped_variant
+
+    session.add(
+        MappingRecordAllele(
+            mapping_record_id=mapping_record.id,
+            allele_id=allele.id,
+            is_authoritative=True,
+        )
+    )
+    session.commit()
+    return variant, allele
+
+
+@pytest.fixture
+def setup_rt_derived_allele_for_vep(session, setup_sample_alleles_for_vep):
+    """Add a NON-authoritative (RT-derived) allele to the variant's current mapping record, carrying a
+    genomic HGVS of its own. Isolates the requirement that VEP linkage covers the full allele set
+    (authoritative + RT-derived), while the per-variant VAS fan-out stays authoritative-only.
+    """
+    variant, authoritative_allele = setup_sample_alleles_for_vep
+
+    mapping_record = session.scalars(
+        select(MappingRecord).where(MappingRecord.variant_id == variant.id, MappingRecord.current)
+    ).one()
+
+    rt_allele = Allele(
+        vrs_digest="test-rt-derived-vep-allele-vrs-digest",
+        level="genomic",
+        hgvs_g="NC_000017.11:g.43124027T>C",
+        post_mapped={"type": "Allele", "expressions": [{"value": "NC_000017.11:g.43124027T>C", "syntax": "hgvs.g"}]},
+    )
+    session.add(rt_allele)
+    session.commit()
+
+    session.add(
+        MappingRecordAllele(
+            mapping_record_id=mapping_record.id,
+            allele_id=rt_allele.id,
+            is_authoritative=False,
+        )
+    )
+    session.commit()
+    return variant, authoritative_allele, rt_allele

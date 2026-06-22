@@ -25,6 +25,10 @@ class ScoreSetAlleleRow(NamedTuple):
 
     ``is_authoritative`` is a property of the link, not the allele: the same VRS allele can be
     the authoritative measurement for one variant and an RT-derived equivalence for another.
+
+    ``hgvs_g``/``hgvs_c``/``hgvs_p`` are allele-level (stable by construction), carried here so the
+    VEP job can build its HGVS payload without a second query. They are optional with a ``None``
+    default so payloads keying only on the CAID (gnomAD/ClinVar) need not name them.
     """
 
     allele_id: int
@@ -32,6 +36,9 @@ class ScoreSetAlleleRow(NamedTuple):
     clingen_allele_id: str | None
     variant_id: int
     is_authoritative: bool
+    hgvs_g: str | None = None
+    hgvs_c: str | None = None
+    hgvs_p: str | None = None
 
 
 def get_alleles_for_score_set(db: Session, score_set_id: int) -> list[ScoreSetAlleleRow]:
@@ -51,6 +58,9 @@ def get_alleles_for_score_set(db: Session, score_set_id: int) -> list[ScoreSetAl
             Allele.clingen_allele_id,
             Variant.id.label("variant_id"),
             MappingRecordAllele.is_authoritative,
+            Allele.hgvs_g,
+            Allele.hgvs_c,
+            Allele.hgvs_p,
         )
         .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
         .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
@@ -61,7 +71,12 @@ def get_alleles_for_score_set(db: Session, score_set_id: int) -> list[ScoreSetAl
         .where(Allele.post_mapped.is_not(None))
     ).all()
 
-    return [ScoreSetAlleleRow(r.id, r.post_mapped, r.clingen_allele_id, r.variant_id, r.is_authoritative) for r in rows]
+    return [
+        ScoreSetAlleleRow(
+            r.id, r.post_mapped, r.clingen_allele_id, r.variant_id, r.is_authoritative, r.hgvs_g, r.hgvs_c, r.hgvs_p
+        )
+        for r in rows
+    ]
 
 
 @dataclass

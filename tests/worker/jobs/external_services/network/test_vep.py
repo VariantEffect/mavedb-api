@@ -9,6 +9,7 @@ from sqlalchemy import select
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.job_pipeline import AnnotationStatus, JobStatus, PipelineStatus
 from mavedb.models.variant_annotation_status import VariantAnnotationStatus
+from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
@@ -27,10 +28,10 @@ class TestE2EPopulateVepForScoreSet:
         arq_worker,
         sample_populate_vep_run_pipeline,
         sample_populate_vep_pipeline,
-        setup_sample_variants_for_vep,
+        setup_sample_alleles_for_vep,
     ):
-        """Enqueue the VEP job, run the worker, and verify consequence and annotation are populated."""
-        _, mapped_variant = setup_sample_variants_for_vep
+        """Enqueue the VEP job, run the worker, and verify the allele's consequence and annotation."""
+        variant, allele = setup_sample_alleles_for_vep
 
         await arq_redis.enqueue_job("populate_vep_for_score_set", sample_populate_vep_run_pipeline.id)
         await arq_worker.async_run()
@@ -42,13 +43,18 @@ class TestE2EPopulateVepForScoreSet:
         session.refresh(sample_populate_vep_pipeline)
         assert sample_populate_vep_pipeline.status == PipelineStatus.SUCCEEDED
 
-        session.refresh(mapped_variant)
-        assert mapped_variant.vep_functional_consequence is not None
-        assert mapped_variant.vep_access_date is not None
+        live = session.scalars(
+            select(VepAlleleConsequence).where(
+                VepAlleleConsequence.allele_id == allele.id,
+                VepAlleleConsequence.current,
+            )
+        ).one()
+        assert live.functional_consequence is not None
+        assert live.access_date is not None
 
         annotation = session.scalars(
             select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.variant_id == mapped_variant.variant_id,
+                VariantAnnotationStatus.variant_id == variant.id,
                 VariantAnnotationStatus.annotation_type == AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
                 VariantAnnotationStatus.current.is_(True),
             )
@@ -62,7 +68,7 @@ class TestE2EPopulateVepForScoreSet:
         arq_worker,
         sample_populate_vep_run_pipeline,
         sample_populate_vep_pipeline,
-        setup_sample_protein_variant_for_vep,
+        setup_sample_protein_allele_for_vep,
     ):
         """VEP job uses Variant Recoder for a protein HGVS (NP_ accession) that VEP cannot resolve directly.
 
@@ -70,7 +76,7 @@ class TestE2EPopulateVepForScoreSet:
         does not return a consequence for.  The job must fall back to Variant Recoder, recode it
         to a genomic HGVS, and then re-query VEP with the recoded string.
         """
-        _, mapped_variant = setup_sample_protein_variant_for_vep
+        variant, allele = setup_sample_protein_allele_for_vep
 
         await arq_redis.enqueue_job("populate_vep_for_score_set", sample_populate_vep_run_pipeline.id)
         await arq_worker.async_run()
@@ -82,13 +88,18 @@ class TestE2EPopulateVepForScoreSet:
         session.refresh(sample_populate_vep_pipeline)
         assert sample_populate_vep_pipeline.status == PipelineStatus.SUCCEEDED
 
-        session.refresh(mapped_variant)
-        assert mapped_variant.vep_functional_consequence is not None
-        assert mapped_variant.vep_access_date is not None
+        live = session.scalars(
+            select(VepAlleleConsequence).where(
+                VepAlleleConsequence.allele_id == allele.id,
+                VepAlleleConsequence.current,
+            )
+        ).one()
+        assert live.functional_consequence is not None
+        assert live.access_date is not None
 
         annotation = session.scalars(
             select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.variant_id == mapped_variant.variant_id,
+                VariantAnnotationStatus.variant_id == variant.id,
                 VariantAnnotationStatus.annotation_type == AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
                 VariantAnnotationStatus.current.is_(True),
             )

@@ -43,4 +43,5 @@ __all__ = [
     "variant_annotation_status",
     "variant",
     "variant_translation",
+    "vep_allele_consequence",
 ]
