@@ -8,12 +8,13 @@ This module supports the construction of three main VA-Spec data structures base
     See: https://va-spec.ga4gh.org/en/latest/va-standard-profiles/community-profiles/acmg-2015-profiles.html#variant-pathogenicity-statement-acmg-2015
 """
 
-from typing import Optional
+from typing import Optional, Union
 
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 
 from mavedb.lib.annotation.classification import functional_classification_of_variant
+from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.annotation.evidence_line import acmg_evidence_line, functional_evidence_line
 from mavedb.lib.annotation.proposition import (
     mapped_variant_to_experimental_variant_clinical_impact_proposition,
@@ -132,3 +133,22 @@ def variant_pathogenicity_statement(
     return mapped_variant_to_pathogenicity_statement(
         mapped_variant, clinical_proposition, clinical_evidence, strongest_calibration, strongest_range
     )
+
+
+def variant_highest_level_annotation(
+    mapped_variant: MappedVariant,
+) -> Optional[Union[ExperimentalVariantFunctionalImpactStudyResult, Statement, VariantPathogenicityStatement]]:
+    """
+    Build the single highest-materialized VA-Spec layer for a mapped variant.
+
+    Layer ladder (highest to lowest): pathogenicity statement -> functional impact statement -> study result.
+    Returns None when the variant has no post-mapped allele and therefore cannot be annotated.
+    """
+    try:
+        if can_annotate_variant_for_pathogenicity_evidence(mapped_variant):
+            return variant_pathogenicity_statement(mapped_variant)
+        if can_annotate_variant_for_functional_statement(mapped_variant):
+            return variant_functional_impact_statement(mapped_variant)
+        return variant_study_result(mapped_variant)
+    except MappingDataDoesntExistException:
+        return None

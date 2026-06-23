@@ -84,11 +84,20 @@ def score_calibration_as_document(score_calibration: ScoreCalibration) -> Docume
         name="MaveDB Score Calibration",
         title=score_calibration.title,
         extensions=[
-            Extension(
-                name="Baseline score",
-                value=score_calibration.baseline_score,
-                description=score_calibration.baseline_score_description
-                or "No description for this baseline score provided.",
+            # Omit the baseline-score extension when no baseline score exists: Extension.value is required,
+            # so an extension with a null value will be dropped by model_dump(exclude_none=True) and will
+            # not round trip when served by the API.
+            *(
+                [
+                    Extension(
+                        name="Baseline score",
+                        value=score_calibration.baseline_score,
+                        description=score_calibration.baseline_score_description
+                        or "No description for this baseline score provided.",
+                    )
+                ]
+                if score_calibration.baseline_score is not None
+                else []
             ),
             Extension(
                 name="Research use only",
