@@ -3,6 +3,12 @@
 This module provides database operations for the variant_translations table,
 which stores relationships between protein allele (PA) and nucleotide allele (CA)
 ClinGen IDs.
+
+FROZEN (serving-only). The populate_variant_translations_for_score_set job that wrote this table was
+retired in the #742 migration: the reverse-translation allele equivalence space (genomic/coding/protein
+VRS alleles per variant, linked via MappingRecordAllele with HGVS on Allele) now covers PA<->CA
+relationships without querying ClinGen. These helpers and the variant_translations table remain only to
+serve existing old-model data; they are never written for new score sets and are dropped at read-cutover.
 """
 
 from typing import cast
