@@ -602,7 +602,18 @@ async def fetch_score_set_by_urn(
     if item.superseding_score_set and not has_permission(user, item.superseding_score_set, Action.READ).permitted:
         item.superseding_score_set = None
 
-    item.score_calibrations = [sc for sc in item.score_calibrations if has_permission(user, sc, Action.READ).permitted]
+    visible_calibrations = [sc for sc in item.score_calibrations if has_permission(user, sc, Action.READ).permitted]
+
+    superseded_ids = [sc.superseded_calibration_id for sc in visible_calibrations if sc.superseded_calibration_id is not None]
+
+    available_calibrations = [sc for sc in visible_calibrations if sc.id not in superseded_ids]
+
+    # Solve Pydantic model validation error
+    for sc in available_calibrations:
+        sc.superseded_calibration = None
+        sc.superseding_calibration = None
+
+    item.score_calibrations = available_calibrations
 
     return item
 

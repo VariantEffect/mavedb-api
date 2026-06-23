@@ -520,7 +520,7 @@ def publish_score_calibration(db: Session, calibration: ScoreCalibration, user: 
     This function adds the modified calibration to the session but does not commit;
     the caller is responsible for committing the transaction.
     """
-    if not calibration.private:
+    if calibration.private is False: # It's possible None value
         raise ValueError("Calibration is already published.")
 
     calibration.private = False
@@ -678,6 +678,12 @@ def validate_superseded_score_calibration(
 
     if not has_permission(user_data, superseded_calibration, Action.READ).permitted:
         raise ValueError("No access right to supersede this calibration.")
+
+    if superseded_calibration.private:
+        raise ValueError("Cannot supersede a private calibration. Please edit it instead.")
+
+    if superseded_calibration.superseding_calibration:
+        raise ValueError("Cannot supersede a superseded calibration. Please edit it instead.")
 
     return superseded_calibration
 
