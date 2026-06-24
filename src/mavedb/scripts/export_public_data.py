@@ -161,7 +161,27 @@ def export_public_data(db: Session):
                 )
                 if has_annotations:
                     csv_str = get_score_set_variants_as_csv(
-                        db, score_set, ["vep", "gnomad", "clingen"], include_post_mapped_hgvs=True, namespaced=True
+                        db,
+                        score_set,
+                        [
+                            "vep",
+                            "gnomad",
+                            "clingen",
+                            "clinvar.2015_02",
+                            "clinvar.2016_01",
+                            "clinvar.2017_01",
+                            "clinvar.2018_01",
+                            "clinvar.2019_01",
+                            "clinvar.2020_01",
+                            "clinvar.2021_01",
+                            "clinvar.2022_01",
+                            "clinvar.2023_01",
+                            "clinvar.2024_01",
+                            "clinvar.2025_01",
+                            "clinvar.2026_01",
+                        ],
+                        include_post_mapped_hgvs=True,
+                        namespaced=True,
                     )
                     zipfile.writestr(f"csv/{csv_filename_base}.annotations.csv", csv_str)
 
