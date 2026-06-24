@@ -171,6 +171,7 @@ def export_public_data(db: Session):
                         .join(Variant, Variant.id == MappedVariant.variant_id)
                         .options(joinedload(MappedVariant.variant))
                         .where(Variant.score_set_id == score_set_id)
+                        .where(MappedVariant.current.is_(True))
                     ).all()
                     mapped_variant_views = [
                         mapped_variant_vm.MappedVariant.model_validate(mv) for mv in mapped_variants
