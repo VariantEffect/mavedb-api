@@ -124,7 +124,7 @@ class ScoreSet(Base):
     # TODO Standardize on US or GB spelling for licenc/se.
     licence_id = Column(Integer, ForeignKey("licenses.id"), index=True, nullable=False)
     license: Mapped["License"] = relationship("License")
-    superseded_score_set_id = Column("replaces_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=True)
+    superseded_score_set_id = Column("replaces_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=True, unique=True,)
     superseded_score_set: Mapped[Optional["ScoreSet"]] = relationship(
         "ScoreSet",
         uselist=False,
