@@ -104,9 +104,17 @@ async def _resolve_consequences(unique_hgvs: list[str], job_manager: JobManager)
     for batch_idx, batch in enumerate(batches):
         try:
             consequences = await get_functional_consequence(list(batch))
+        # VEP rejected the batch (e.g. 400 for protein HGVS it cannot parse). Route all
+        # items to Variant Recoder — the input may still be resolvable via genomic recoding.
+        except requests.exceptions.HTTPError:
+            logger.warning(
+                msg=f"VEP returned an HTTP error for batch {batch_idx + 1}/{len(batches)} ({len(batch)} HGVS); routing to Variant Recoder.",
+                extra=job_manager.logging_context(),
+            )
+            all_missing_hgvs.update(batch)
+            continue
+        # Transport/network error — result unknown. Mark errored and do not route to Recoder.
         except requests.exceptions.RequestException as exc:
-            # The request failed — we do not know these alleles' consequence. Mark errored and do
-            # not route to Recoder or count as a genuine empty.
             logger.warning(
                 msg=f"VEP request failed for batch {batch_idx + 1}/{len(batches)} ({len(batch)} HGVS); marking errored.",
                 exc_info=exc,
