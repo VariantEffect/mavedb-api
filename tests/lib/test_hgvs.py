@@ -94,3 +94,32 @@ def test_join_cis_phased_hgvs_returns_none_for_mixed_coordinate_prefixes():
 
 def test_join_cis_phased_hgvs_returns_none_for_component_without_accession():
     assert join_cis_phased_hgvs(["g.1A>G", "g.2T>C"]) is None
+
+
+def test_split_cis_phased_hgvs_passes_through_bracketed_without_accession():
+    # Bracketed but accession-less input is not a cis-phased multivariant we can qualify; it must
+    # degrade to a single-element list rather than raising on the missing ":".
+    assert split_cis_phased_hgvs("g.[1000A>G;1002T>C]") == ["g.[1000A>G;1002T>C]"]
+
+
+def test_join_cis_phased_hgvs_orders_components_by_position():
+    # Out-of-order members are emitted in coordinate order.
+    assert (
+        join_cis_phased_hgvs(["NC_000001.11:g.1002T>C", "NC_000001.11:g.1000A>G"]) == "NC_000001.11:g.[1000A>G;1002T>C]"
+    )
+
+
+def test_join_cis_phased_hgvs_is_order_independent():
+    # The same set of members yields the same string regardless of input ordering (the VRS block
+    # digest is order-independent; the exported HGVS string must be too).
+    forward = join_cis_phased_hgvs(["NC_000001.11:g.1000A>G", "NC_000001.11:g.1002T>C"])
+    reverse = join_cis_phased_hgvs(["NC_000001.11:g.1002T>C", "NC_000001.11:g.1000A>G"])
+    assert forward == reverse
+
+
+def test_join_cis_phased_hgvs_orders_protein_components_by_position():
+    # The first integer is the position for protein forms too (Arg123Gly), not just genomic.
+    assert (
+        join_cis_phased_hgvs(["NP_000001.1:p.Arg223Gly", "NP_000001.1:p.Ala12Val"])
+        == "NP_000001.1:p.[Ala12Val;Arg223Gly]"
+    )
