@@ -14,7 +14,7 @@ from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
-from mavedb.models.variant_annotation_status import VariantAnnotationStatus
+from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.worker.jobs.external_services.gnomad import link_gnomad_variants
 from mavedb.worker.lib.managers.job_manager import JobManager
 
@@ -91,7 +91,7 @@ class TestLinkGnomadVariantsUnit:
             ),
             patch(
                 "mavedb.worker.jobs.external_services.gnomad.link_gnomad_variants_to_alleles",
-                return_value=set(),
+                return_value={},
             ) as mock_linking_method,
             patch("mavedb.worker.jobs.external_services.gnomad.athena.engine", athena_engine),
         ):
@@ -156,8 +156,8 @@ class TestLinkGnomadVariantsIntegration:
         assert len(session.scalars(select(GnomadAlleleLink)).all()) == 0
 
         # Verify no annotations were rendered (since there were no alleles with CAIDs)
-        annotation_statuses = session.query(VariantAnnotationStatus).all()
-        assert len(annotation_statuses) == 0
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 0
 
         # Verify job status updates
         session.refresh(sample_link_gnomad_variants_run)
@@ -189,11 +189,13 @@ class TestLinkGnomadVariantsIntegration:
         # Verify that no allele links were created
         assert len(session.scalars(select(GnomadAlleleLink)).all()) == 0
 
-        # Verify a skipped annotation status was rendered (since there was an allele with a CAID)
-        annotation_statuses = session.query(VariantAnnotationStatus).all()
-        assert len(annotation_statuses) == 1
-        assert annotation_statuses[0].status == "skipped"
-        assert annotation_statuses[0].annotation_type == "gnomad_allele_frequency"
+        # Verify an absent event was rendered: the allele's CAID was queried but gnomAD had no record.
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 1
+        assert events[0].disposition == "absent"
+        assert events[0].reason == "no_record"
+        assert events[0].annotation_type == "gnomad_allele_frequency"
+        assert events[0].allele_id == allele.id and events[0].variant_id is None
 
         # Verify job status updates
         session.refresh(sample_link_gnomad_variants_run)
@@ -230,16 +232,18 @@ class TestLinkGnomadVariantsIntegration:
         assert len(live_links) == 1
 
         # Verify annotation status was rendered
-        annotation_statuses = session.query(VariantAnnotationStatus).all()
-        assert len(annotation_statuses) == 1
-        assert annotation_statuses[0].status == "success"
-        assert annotation_statuses[0].annotation_type == "gnomad_allele_frequency"
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 1
+        assert events[0].disposition == "present"
+        assert events[0].reason == "created"
+        assert events[0].annotation_type == "gnomad_allele_frequency"
+        assert events[0].allele_id is not None and events[0].variant_id is None
 
         # Verify job status updates
         session.refresh(sample_link_gnomad_variants_run)
         assert sample_link_gnomad_variants_run.status == JobStatus.SUCCEEDED
 
-    async def test_link_gnomad_variants_links_rt_derived_allele_but_annotates_only_authoritative(
+    async def test_link_gnomad_variants_links_and_annotates_rt_derived_allele(
         self,
         session,
         with_populated_domain_data,
@@ -249,11 +253,12 @@ class TestLinkGnomadVariantsIntegration:
         setup_rt_derived_allele_with_caid,
         athena_engine,
     ):
-        """gnomAD linkage must cover the full allele set, not just authoritative links: the
-        RT-derived allele carries the CAID gnomAD matches and must be linked. Per-variant VAS status,
-        however, is written only for the authoritative link (the interim bandaid) — so exactly one
-        annotation row is produced, keyed to the variant, never a second row for the RT-derived
-        allele."""
+        """gnomAD linkage covers the full allele set, not just authoritative links: the RT-derived
+        allele carries the CAID gnomAD matches and is linked. Events are now allele-keyed, so the
+        RT-derived allele's PRESENT status is recorded directly — the limitation the per-variant
+        bandaid had (dropping the RT-derived allele's status) is lifted. Each allele in the score set
+        gets its own event: present for the linked RT allele, absent for the unmatched authoritative
+        one."""
         variant, authoritative_allele, rt_allele = setup_rt_derived_allele_with_caid
 
         with patch("mavedb.worker.jobs.external_services.gnomad.athena.engine", athena_engine):
@@ -279,13 +284,16 @@ class TestLinkGnomadVariantsIntegration:
             == 0
         )
 
-        # Annotation status is written only for the authoritative link: exactly one VAS row, for the
-        # variant. (Its status is "skipped" because the variant's authoritative allele had no match —
-        # cross-level resolution onto the RT-derived allele is deferred to the AnnotationEvent design.)
-        annotation_statuses = session.query(VariantAnnotationStatus).all()
-        assert len(annotation_statuses) == 1
-        assert annotation_statuses[0].variant_id == variant.id
-        assert annotation_statuses[0].annotation_type == "gnomad_allele_frequency"
+        # One allele-keyed event per allele (never per-variant): the linked RT allele is present,
+        # the unmatched authoritative allele is absent. The variant resolves its derived allele's
+        # status through the live links — no variant_id on the events.
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert all(e.annotation_type == "gnomad_allele_frequency" for e in events)
+        assert all(e.variant_id is None for e in events)
+        by_allele = {e.allele_id: e for e in events}
+        assert by_allele[rt_allele.id].disposition == "present"
+        assert by_allele[authoritative_allele.id].disposition == "absent"
+        assert by_allele[authoritative_allele.id].reason == "no_record"
 
     async def test_link_gnomad_variants_skips_allele_already_current(
         self,
@@ -326,11 +334,11 @@ class TestLinkGnomadVariantsIntegration:
         assert len(links) == 1
         assert links[0].valid_to is None
 
-        # Status is SUCCESS, marked preexisting.
-        annotation_statuses = session.query(VariantAnnotationStatus).all()
-        assert len(annotation_statuses) == 1
-        assert annotation_statuses[0].status == "success"
-        assert annotation_statuses[0].annotation_metadata["action"] == "preexisting"
+        # Event is PRESENT, marked preexisting (the link was already current; not created this run).
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 1
+        assert events[0].disposition == "present"
+        assert events[0].reason == "preexisting"
 
     async def test_link_gnomad_variants_force_refetches_without_churn(
         self,
@@ -403,10 +411,12 @@ class TestLinkGnomadVariantsIntegration:
         assert len(session.scalars(select(GnomadAlleleLink).where(GnomadAlleleLink.current)).all()) > 0
 
         # Verify annotation status was rendered
-        annotation_statuses = session.query(VariantAnnotationStatus).all()
-        assert len(annotation_statuses) == 1
-        assert annotation_statuses[0].status == "success"
-        assert annotation_statuses[0].annotation_type == "gnomad_allele_frequency"
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 1
+        assert events[0].disposition == "present"
+        assert events[0].reason == "created"
+        assert events[0].annotation_type == "gnomad_allele_frequency"
+        assert events[0].allele_id is not None and events[0].variant_id is None
 
         # Verify job status updates
         session.refresh(sample_link_gnomad_variants_run_pipeline)
@@ -481,10 +491,12 @@ class TestLinkGnomadVariantsArqContext:
         assert len(session.scalars(select(GnomadAlleleLink).where(GnomadAlleleLink.current)).all()) > 0
 
         # Verify annotation status was rendered
-        annotation_statuses = session.query(VariantAnnotationStatus).all()
-        assert len(annotation_statuses) == 1
-        assert annotation_statuses[0].status == "success"
-        assert annotation_statuses[0].annotation_type == "gnomad_allele_frequency"
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 1
+        assert events[0].disposition == "present"
+        assert events[0].reason == "created"
+        assert events[0].annotation_type == "gnomad_allele_frequency"
+        assert events[0].allele_id is not None and events[0].variant_id is None
 
         # Verify that the job completed successfully
         session.refresh(sample_link_gnomad_variants_run)
@@ -514,10 +526,12 @@ class TestLinkGnomadVariantsArqContext:
         assert len(session.scalars(select(GnomadAlleleLink).where(GnomadAlleleLink.current)).all()) > 0
 
         # Verify annotation status was rendered
-        annotation_statuses = session.query(VariantAnnotationStatus).all()
-        assert len(annotation_statuses) == 1
-        assert annotation_statuses[0].status == "success"
-        assert annotation_statuses[0].annotation_type == "gnomad_allele_frequency"
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 1
+        assert events[0].disposition == "present"
+        assert events[0].reason == "created"
+        assert events[0].annotation_type == "gnomad_allele_frequency"
+        assert events[0].allele_id is not None and events[0].variant_id is None
 
         # Verify that the job completed successfully
         session.refresh(sample_link_gnomad_variants_run_pipeline)
@@ -557,8 +571,8 @@ class TestLinkGnomadVariantsArqContext:
         assert len(session.scalars(select(GnomadAlleleLink)).all()) == 0
 
         # Verify no annotations were rendered
-        annotation_statuses = session.query(VariantAnnotationStatus).all()
-        assert len(annotation_statuses) == 0
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 0
 
         # Verify that the job errored
         session.refresh(sample_link_gnomad_variants_run)
@@ -594,8 +608,8 @@ class TestLinkGnomadVariantsArqContext:
         assert len(session.scalars(select(GnomadAlleleLink)).all()) == 0
 
         # Verify no annotations were rendered
-        annotation_statuses = session.query(VariantAnnotationStatus).all()
-        assert len(annotation_statuses) == 0
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 0
 
         # Verify that the job errored
         session.refresh(sample_link_gnomad_variants_run_pipeline)

@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+from enum import Enum
 from typing import Any, Sequence, Union
 
 from sqlalchemy import Connection, Row, func, select, text
@@ -12,6 +13,9 @@ from mavedb.models.allele import Allele
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
 
+logger = logging.getLogger(__name__)
+
+
 GNOMAD_DB_NAME = "gnomAD"
 GNOMAD_DATA_VERSION = os.getenv("GNOMAD_DATA_VERSION", "v4.1")
 _CAID_LEADING_ZERO_RE = r"^(CA)0+([0-9])"
@@ -21,7 +25,17 @@ Kept byte-for-byte in sync with the SQL form used to normalize Allele.clingen_al
 in link_gnomad_variants_to_alleles.
 """
 
-logger = logging.getLogger(__name__)
+
+class GnomadLinkVerdict(str, Enum):
+    """Per-allele outcome of a gnomAD linking run, returned for every allele the linker touched.
+
+    The single source of truth for what happened to an allele's link this run — the caller derives
+    annotation status directly from this, never by re-querying link state (which would be a second,
+    drift-prone source of truth).
+    """
+
+    CREATED = "created"  # link created or superseded this run (a new/changed live link)
+    UNCHANGED = "unchanged"  # a live link already pointed at the resolved variant; left untouched
 
 
 def gnomad_identifier(contig: str, position: Union[str, int], alleles: list[str]) -> str:
@@ -150,7 +164,9 @@ def gnomad_variant_data_for_caids(
     return result_rows
 
 
-def link_gnomad_variants_to_alleles(db: Session, gnomad_variant_data: Sequence[Row[Any]]) -> set[int]:
+def link_gnomad_variants_to_alleles(
+    db: Session, gnomad_variant_data: Sequence[Row[Any]]
+) -> dict[int, GnomadLinkVerdict]:
     """Link gnomAD variants to deduplicated alleles by CAID, superseding only on change.
 
     Every ``Allele`` carrying the row's ``clingen_allele_id`` (populated by CAR) is linked through a
@@ -163,12 +179,16 @@ def link_gnomad_variants_to_alleles(db: Session, gnomad_variant_data: Sequence[R
     it. A current-version link to a *different* identifier (a CAID re-resolved within one release) is
     logged and superseded newest-wins, not raised.
 
-    Does not commit. Returns the allele ids whose link was created or superseded this run.
+    Does not commit. Returns a verdict per allele *touched* this run (matched a CAID-bearing row):
+    :attr:`GnomadLinkVerdict.CREATED` for a created/superseded link, :attr:`~GnomadLinkVerdict.UNCHANGED`
+    for a live link left in place. Alleles absent from the map were matched by no row — the caller reads
+    those as "gnomAD had no record". This is the single source of truth for per-allele status; callers
+    must not re-derive it by re-querying link state.
     """
     save_to_logging_context({"num_gnomad_variant_rows": len(gnomad_variant_data)})
     logger.debug(msg="Linking gnomAD variants to alleles", extra=logging_context())
 
-    changed_allele_ids: set[int] = set()
+    verdicts: dict[int, GnomadLinkVerdict] = {}
     for index, row in enumerate(gnomad_variant_data, start=1):
         logger.info(
             msg=f"Processing gnomAD variant row {index}/{len(gnomad_variant_data)}: {row.caid}", extra=logging_context()
@@ -241,6 +261,7 @@ def link_gnomad_variants_to_alleles(db: Session, gnomad_variant_data: Sequence[R
 
             # No change: live link already points here — leave it untouched (no spurious boundary).
             if live_link is not None and live_link.gnomad_variant_id == gnomad_variant.id:
+                verdicts.setdefault(allele.id, GnomadLinkVerdict.UNCHANGED)
                 continue
 
             if (
@@ -265,7 +286,7 @@ def link_gnomad_variants_to_alleles(db: Session, gnomad_variant_data: Sequence[R
                 [GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id)],
                 GnomadAlleleLink.allele_id == allele.id,
             )
-            changed_allele_ids.add(allele.id)
+            verdicts[allele.id] = GnomadLinkVerdict.CREATED  # created always wins over a same-run unchanged
 
             logger.debug(
                 msg=f"Linked gnomAD variant {gnomad_variant.db_identifier} to allele {allele.id} ({allele.clingen_allele_id})",
@@ -276,9 +297,10 @@ def link_gnomad_variants_to_alleles(db: Session, gnomad_variant_data: Sequence[R
             f"Processed {len(alleles_with_caid)} alleles with CAID {row.caid} for gnomAD variant {gnomad_identifier_for_variant}. ({index}/{len(gnomad_variant_data)})"
         )
 
-    save_to_logging_context({"changed_allele_count": len(changed_allele_ids)})
+    changed_allele_count = sum(1 for v in verdicts.values() if v is GnomadLinkVerdict.CREATED)
+    save_to_logging_context({"changed_allele_count": changed_allele_count})
     logger.info(
-        msg=f"Created or superseded {len(changed_allele_ids)} allele links this run.",
+        msg=f"Created or superseded {changed_allele_count} allele links this run.",
         extra=logging_context(),
     )
-    return changed_allele_ids
+    return verdicts

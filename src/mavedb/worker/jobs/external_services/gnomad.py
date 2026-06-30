@@ -7,6 +7,7 @@ rarity of variants in their datasets.
 """
 
 import logging
+from collections import Counter
 
 from sqlalchemy import select
 
@@ -15,12 +16,14 @@ from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.clingen.alleles import get_alleles_for_score_set, group_alleles_for_annotation
 from mavedb.lib.gnomad import (
     GNOMAD_DATA_VERSION,
+    GnomadLinkVerdict,
     gnomad_variant_data_for_caids,
     link_gnomad_variants_to_alleles,
 )
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.score_set import ScoreSet
@@ -33,34 +36,31 @@ logger = logging.getLogger(__name__)
 
 def _annotate_gnomad(
     annotation_manager: AnnotationStatusManager,
-    variant_ids: list[int],
-    status: AnnotationStatus,
+    allele_id: int,
+    disposition: Disposition,
+    reason: EventReason,
     *,
-    failure_category: AnnotationFailureCategory | None = None,
     error_message: str | None = None,
     metadata: dict | None = None,
 ) -> None:
-    """Fan a GNOMAD_ALLELE_FREQUENCY annotation out to every variant served by an allele.
+    """Record one GNOMAD_ALLELE_FREQUENCY event for an allele (frequency is an allele-level fact).
 
-    AAS migration seam: the single choke point for gnomAD's per-variant VAS writes. At migration it
-    becomes an allele-keyed event writer; the per-variant fan-out goes away, and the variant
-    association narrows to provenance (which variant's mapping drove the linkage). See
-    docs/design/allele-annotation-status.md.
+    The single choke point for gnomAD's status writes. One event per allele, stamped at the current
+    gnomAD version; provenance (which variants drove the linkage) is derived from the live links
+    as-of the event, not fanned out here.
     """
-    annotation_data: dict = {"annotation_metadata": metadata or {}}
+    meta = dict(metadata or {})
     if error_message is not None:
-        annotation_data["error_message"] = error_message
+        meta["error_message"] = error_message
 
-    for variant_id in variant_ids:
-        annotation_manager.add_annotation(
-            variant_id=variant_id,
-            annotation_type=AnnotationType.GNOMAD_ALLELE_FREQUENCY,
-            version=GNOMAD_DATA_VERSION,
-            status=status,
-            failure_category=failure_category,
-            annotation_data=annotation_data,
-            current=True,
-        )
+    annotation_manager.record_event(
+        AnnotationType.GNOMAD_ALLELE_FREQUENCY,
+        allele_id=allele_id,
+        disposition=disposition,
+        reason=reason,
+        source_version=GNOMAD_DATA_VERSION,
+        metadata=meta or None,
+    )
 
 
 @with_pipeline_management
@@ -113,10 +113,18 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
 
     # One work-unit per allele (payload = CAID; alleles without one are skipped). Covers ALL the score
     # set's alleles — authoritative and RT-derived — since the genomic allele gnomAD knows is often the
-    # RT-derived one; VAS still fans only to authoritative_variant_ids (the bandaid seam).
+    # RT-derived one. Events are allele-keyed, so every linked allele is recorded.
     allele_data = group_alleles_for_annotation(
         get_alleles_for_score_set(job_manager.db, score_set.id),
         payload=lambda row: row.clingen_allele_id,
+    )
+
+    annotation_counts: Counter[str] = Counter(
+        {
+            "created_allele_count": 0,
+            "preexisting_allele_count": 0,
+            "skipped_allele_count": 0,
+        }
     )
 
     num_alleles_with_caids = len(allele_data)
@@ -128,9 +136,7 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
             extra=job_manager.logging_context(),
         )
         job_manager.db.flush()
-        return JobExecutionOutcome.succeeded(
-            data={"created_allele_count": 0, "preexisting_allele_count": 0, "skipped_allele_count": 0}
-        )
+        return JobExecutionOutcome.succeeded(data=dict(annotation_counts))
 
     job_manager.update_progress(
         10, 100, f"Found {num_alleles_with_caids} alleles with CAIDs to link to gnomAD variants."
@@ -150,10 +156,11 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
             ).all()
         )
 
-    # Cost: skip alleles already linked at the current version (they can't change). force re-fetches
+    # Skip alleles already linked at the current version (they can't change). force re-fetches
     # all; the linker still supersedes only on change, so a forced no-op writes nothing.
     already_current = set() if force else alleles_linked_at_current_version(set(allele_data.keys()))
-    variant_caids = sorted({allele_data[aid].payload for aid in allele_data if aid not in already_current})
+    variant_caids = sorted({allele_data[aid] for aid in allele_data if aid not in already_current})
+
     job_manager.save_to_context(
         {
             "num_alleles_already_current": len(already_current),
@@ -162,7 +169,7 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
         }
     )
 
-    changed_allele_ids: set[int] = set()
+    verdicts: dict[int, GnomadLinkVerdict] = {}
     if variant_caids:
         with athena.engine.connect() as athena_session:
             logger.debug("Fetching gnomAD variants from Athena.")
@@ -175,7 +182,7 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
         )
 
         logger.info(msg="Attempting to link alleles to gnomAD variants.", extra=job_manager.logging_context())
-        changed_allele_ids = link_gnomad_variants_to_alleles(job_manager.db, gnomad_variant_data)
+        verdicts = link_gnomad_variants_to_alleles(job_manager.db, gnomad_variant_data)
         job_manager.db.flush()
     else:
         logger.info(
@@ -184,43 +191,43 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
         )
         job_manager.update_progress(75, 100, "All alleles already current at this gnomAD version.")
 
-    # Status is an audit event, written every run: SUCCESS/created if linked this run, SUCCESS/preexisting
-    # if already current, SKIPPED if no current-version link (gnomAD had no data for the CAID).
-    current_after = alleles_linked_at_current_version(set(allele_data.keys()))
-
-    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
-    created_count = preexisting_count = skipped_count = 0
-    for allele_id, entry in allele_data.items():
-        if allele_id in current_after:
-            action = "created" if allele_id in changed_allele_ids else "preexisting"
-            if action == "created":
-                created_count += 1
-            else:
-                preexisting_count += 1
+    annotation_manager = AnnotationStatusManager(
+        job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
+    )
+    for allele_id, caid in allele_data.items():
+        verdict = verdicts.get(allele_id)
+        if verdict is GnomadLinkVerdict.CREATED:
+            annotation_counts["created_allele_count"] += 1
             _annotate_gnomad(
                 annotation_manager,
-                entry.authoritative_variant_ids,
-                AnnotationStatus.SUCCESS,
-                metadata={"clingen_allele_id": entry.payload, "action": action},
+                allele_id,
+                Disposition.PRESENT,
+                EventReason.CREATED,
+                metadata={"clingen_allele_id": caid},
+            )
+        elif allele_id in already_current or verdict is GnomadLinkVerdict.UNCHANGED:
+            annotation_counts["preexisting_allele_count"] += 1
+            _annotate_gnomad(
+                annotation_manager,
+                allele_id,
+                Disposition.PRESENT,
+                EventReason.PREEXISTING,
+                metadata={"clingen_allele_id": caid},
             )
         else:
-            skipped_count += 1
+            annotation_counts["skipped_allele_count"] += 1
             _annotate_gnomad(
                 annotation_manager,
-                entry.authoritative_variant_ids,
-                AnnotationStatus.SKIPPED,
-                failure_category=AnnotationFailureCategory.EXTERNAL_REFERENCE_NOT_FOUND,
+                allele_id,
+                Disposition.ABSENT,
+                EventReason.NO_RECORD,
                 error_message="No gnomAD variant could be linked for this allele.",
-                metadata={"clingen_allele_id": entry.payload},
+                metadata={"clingen_allele_id": caid},
             )
 
     annotation_manager.flush()
 
-    outcome_data = {
-        "created_allele_count": created_count,
-        "preexisting_allele_count": preexisting_count,
-        "skipped_allele_count": skipped_count,
-    }
+    outcome_data = dict(annotation_counts)
     job_manager.save_to_context(outcome_data)
     logger.info(msg="Done linking gnomAD variants to alleles.", extra=job_manager.logging_context())
     job_manager.db.flush()

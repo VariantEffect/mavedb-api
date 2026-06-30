@@ -9,6 +9,7 @@ pyathena = pytest.importorskip("pyathena")
 fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.gnomad import (
+    GnomadLinkVerdict,
     allele_list_from_list_like_string,
     gnomad_identifier,
     gnomad_table_name,
@@ -170,7 +171,7 @@ def test_links_new_gnomad_variant_to_allele(session, mocked_gnomad_variant_row):
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
         result = link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row])
-        assert result == {allele.id}
+        assert result == {allele.id: GnomadLinkVerdict.CREATED}
         session.commit()
 
     live_links = _live_links_for(session, allele.id)
@@ -186,7 +187,7 @@ def test_can_link_gnomad_variants_with_none_type_faf_fields(session, mocked_gnom
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
         result = link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row])
-        assert result == {allele.id}
+        assert result == {allele.id: GnomadLinkVerdict.CREATED}
         session.commit()
 
     live_links = _live_links_for(session, allele.id)
@@ -202,7 +203,7 @@ def test_links_existing_gnomad_variant(session, mocked_gnomad_variant_row):
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
         result = link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row])
-        assert result == {allele.id}
+        assert result == {allele.id: GnomadLinkVerdict.CREATED}
         session.commit()
 
     # Reused the existing gnomAD variant rather than creating a second.
@@ -214,14 +215,20 @@ def test_links_existing_gnomad_variant(session, mocked_gnomad_variant_row):
 
 def test_re_running_unchanged_data_is_idempotent(session, mocked_gnomad_variant_row):
     """Supersede only on change: a second run with identical data writes nothing — one live link,
-    no retired rows, so the valid-time history records no spurious boundary."""
+    no retired rows, so the valid-time history records no spurious boundary. The second run still
+    *reports* the allele (verdict UNCHANGED), so the caller can mark it preexisting without re-querying
+    link state."""
     allele = _make_allele(session, mocked_gnomad_variant_row.caid, vrs_digest="vrs-1")
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
-        assert link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row]) == {allele.id}
+        assert link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row]) == {
+            allele.id: GnomadLinkVerdict.CREATED
+        }
         session.commit()
-        # Second run sees the live link already points to this gnomAD variant → no change reported.
-        assert link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row]) == set()
+        # Second run sees the live link already points to this gnomAD variant → unchanged, no DB write.
+        assert link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row]) == {
+            allele.id: GnomadLinkVerdict.UNCHANGED
+        }
         session.commit()
 
     # One link, still live, never retired — the re-run did not churn the history.
@@ -237,11 +244,15 @@ def test_version_bump_supersedes_to_single_live_link(session, mocked_gnomad_vari
     allele = _make_allele(session, mocked_gnomad_variant_row.caid, vrs_digest="vrs-1")
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", "v1.old"):
-        assert link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row]) == {allele.id}
+        assert link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row]) == {
+            allele.id: GnomadLinkVerdict.CREATED
+        }
         session.commit()
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", "v2.new"):
-        assert link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row]) == {allele.id}
+        assert link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row]) == {
+            allele.id: GnomadLinkVerdict.CREATED
+        }
         session.commit()
 
     live_links = _live_links_for(session, allele.id)
@@ -273,7 +284,9 @@ def test_same_version_different_identifier_supersedes_newest_wins(session, mocke
     session.commit()
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
-        assert link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row]) == {allele.id}
+        assert link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row]) == {
+            allele.id: GnomadLinkVerdict.CREATED
+        }
         session.commit()
 
     live_links = _live_links_for(session, allele.id)
@@ -288,7 +301,7 @@ def test_links_one_gnomad_variant_to_multiple_alleles_sharing_a_caid(session, mo
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
         result = link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row])
-        assert result == {allele1.id, allele2.id}
+        assert result == {allele1.id: GnomadLinkVerdict.CREATED, allele2.id: GnomadLinkVerdict.CREATED}
         session.commit()
 
     for allele in (allele1, allele2):
@@ -305,15 +318,15 @@ def test_links_allele_when_dump_strips_leading_zero_from_caid(session, mocked_gn
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
         result = link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row])
-        assert result == {allele.id}
+        assert result == {allele.id: GnomadLinkVerdict.CREATED}
         session.commit()
 
     assert len(_live_links_for(session, allele.id)) == 1
 
 
-def test_returns_empty_set_when_no_alleles_match(session, mocked_gnomad_variant_row):
+def test_returns_empty_map_when_no_alleles_match(session, mocked_gnomad_variant_row):
     result = link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row])
-    assert result == set()
+    assert result == {}
     assert len(session.scalars(select(GnomadAlleleLink)).all()) == 0
     # No gnomAD variant is created when nothing matches the CAID.
     assert len(session.scalars(select(GnomADVariant)).all()) == 0
