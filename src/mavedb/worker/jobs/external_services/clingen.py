@@ -179,11 +179,9 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
     preexisting_alleles = []
     pending_alleles = []
     for aid, entry in allele_data.items():
-        if entry.existing_caid:
+        if entry.existing_caid and not force_reregister:
             preexisting_alleles.append(aid)
-        elif force_reregister:
-            pending_alleles.append(aid)
-        elif not entry.existing_caid:
+        else:
             pending_alleles.append(aid)
 
     # Pre-existing CAIDs: record success without re-submitting unless force_reregister is set.
