@@ -156,6 +156,110 @@ class TestSubjectValidation:
             )
 
 
+class TestQueryReads:
+    def test_get_current_annotation_returns_none_when_no_event(self, annotation_status_manager, allele):
+        # No event recorded for this subject yet — current status is None, not an error.
+        assert (
+            annotation_status_manager.get_current_annotation(
+                AnnotationType.GNOMAD_ALLELE_FREQUENCY, allele_id=allele.id
+            )
+            is None
+        )
+
+    def test_get_event_history_empty_for_no_records(self, annotation_status_manager, allele):
+        assert (
+            annotation_status_manager.get_event_history(AnnotationType.GNOMAD_ALLELE_FREQUENCY, allele_id=allele.id)
+            == []
+        )
+
+    def test_flush_is_noop_when_empty(self, annotation_status_manager):
+        # Nothing pending — flush must not raise or emit a write.
+        assert len(annotation_status_manager._pending) == 0
+        annotation_status_manager.flush()
+        assert len(annotation_status_manager._pending) == 0
+
+    def test_get_current_annotation_auto_flushes_pending(self, session, annotation_status_manager, allele):
+        annotation_status_manager.record_event(
+            AnnotationType.GNOMAD_ALLELE_FREQUENCY,
+            allele_id=allele.id,
+            disposition=Disposition.PRESENT,
+            reason=EventReason.CREATED,
+        )
+        # Buffered, never explicitly flushed — the read must flush first and still see it.
+        assert len(annotation_status_manager._pending) == 1
+        event = annotation_status_manager.get_current_annotation(
+            AnnotationType.GNOMAD_ALLELE_FREQUENCY, allele_id=allele.id
+        )
+        assert event is not None
+        assert len(annotation_status_manager._pending) == 0
+
+    def test_get_event_history_auto_flushes_pending(self, session, annotation_status_manager, allele):
+        annotation_status_manager.record_event(
+            AnnotationType.GNOMAD_ALLELE_FREQUENCY,
+            allele_id=allele.id,
+            disposition=Disposition.PRESENT,
+            reason=EventReason.CREATED,
+        )
+        assert len(annotation_status_manager._pending) == 1
+        history = annotation_status_manager.get_event_history(
+            AnnotationType.GNOMAD_ALLELE_FREQUENCY, allele_id=allele.id
+        )
+        assert len(history) == 1
+        assert len(annotation_status_manager._pending) == 0
+
+    def test_failed_disposition_round_trips_through_manager(self, session, annotation_status_manager, allele):
+        # The failure path (the case the audit log most needs to capture) survives a write/read cycle
+        # with its disposition, reason, and error metadata intact.
+        annotation_status_manager.record_event(
+            AnnotationType.GNOMAD_ALLELE_FREQUENCY,
+            allele_id=allele.id,
+            disposition=Disposition.FAILED,
+            reason=EventReason.API_ERROR,
+            metadata={"error_message": "upstream timeout"},
+        )
+        annotation_status_manager.flush()
+        session.commit()
+
+        event = annotation_status_manager.get_current_annotation(
+            AnnotationType.GNOMAD_ALLELE_FREQUENCY, allele_id=allele.id
+        )
+        assert event.disposition == Disposition.FAILED
+        assert event.reason == EventReason.API_ERROR
+        assert event.event_metadata == {"error_message": "upstream timeout"}
+
+    def test_current_is_isolated_per_subject(self, session, annotation_status_manager, allele):
+        # Recording for one allele must not bleed into another's current status.
+        other = Allele(vrs_digest="asm-test-allele-digest-2", level="genomic")
+        session.add(other)
+        session.commit()
+        session.refresh(other)
+
+        annotation_status_manager.record_event(
+            AnnotationType.GNOMAD_ALLELE_FREQUENCY,
+            allele_id=allele.id,
+            disposition=Disposition.PRESENT,
+            reason=EventReason.CREATED,
+            source_version="4.1.0",
+        )
+        annotation_status_manager.record_event(
+            AnnotationType.GNOMAD_ALLELE_FREQUENCY,
+            allele_id=other.id,
+            disposition=Disposition.ABSENT,
+            reason=EventReason.NO_RECORD,
+            source_version="4.1.0",
+        )
+        annotation_status_manager.flush()
+        session.commit()
+
+        a = annotation_status_manager.get_current_annotation(
+            AnnotationType.GNOMAD_ALLELE_FREQUENCY, allele_id=allele.id
+        )
+        b = annotation_status_manager.get_current_annotation(AnnotationType.GNOMAD_ALLELE_FREQUENCY, allele_id=other.id)
+        assert a.disposition == Disposition.PRESENT
+        assert b.disposition == Disposition.ABSENT
+        assert a.allele_id != b.allele_id
+
+
 class TestBatching:
     def test_auto_flush_at_batch_size(self, session, job_run, setup_lib_db_with_variant, annotation_status_manager):
         annotation_status_manager.batch_size = 2
