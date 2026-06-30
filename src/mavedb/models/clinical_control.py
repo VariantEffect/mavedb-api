@@ -28,11 +28,11 @@ class ClinvarControl(Base):
     clinical_review_status = Column(String, nullable=False)
 
     db_name = Column(String, nullable=False, index=True)
-    # Currently the ClinVar Allele ID.
+    # ClinVar Allele ID (row level link).
     db_identifier = Column(String, nullable=False, index=True)
     db_version = Column(String, nullable=False, index=True)
 
-    # ClinVar's canonical public identifier (ClinVar Variation ID).
+    # ClinVar Variation ID (variation level link).
     clinvar_variation_id = Column(String, nullable=True)
 
     creation_date = Column(Date, nullable=False, default=date.today)

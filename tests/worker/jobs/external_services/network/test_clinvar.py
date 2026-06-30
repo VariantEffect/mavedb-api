@@ -10,10 +10,11 @@ from sqlalchemy import select
 
 from mavedb.lib.clinvar.constants import CLINVAR_FIELDS_TO_KEEP
 from mavedb.lib.clinvar.utils import fetch_clinvar_variant_data
+from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationStatus, JobStatus
-from mavedb.models.variant_annotation_status import VariantAnnotationStatus
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.worker.jobs.external_services.clinvar import _generate_clinvar_versions
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
@@ -71,22 +72,32 @@ class TestE2ERefreshClinvarControls:
         assert len(clinical_controls) >= 1
         assert all(cc.db_identifier == "3045425" for cc in clinical_controls)
 
-        success_annotations = session.scalars(
-            select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.annotation_type == AnnotationType.CLINVAR_CONTROL,
-                VariantAnnotationStatus.status == AnnotationStatus.SUCCESS,
+        # Verify that at least one present event was recorded for the allele. The job processes one
+        # event per ClinVar version; versions without the allele produce absent events, so filtering
+        # for present gives a stable assertion. Events are allele-keyed (no variant_id).
+        present_events = session.scalars(
+            select(AnnotationEvent).where(
+                AnnotationEvent.annotation_type == AnnotationType.CLINVAR_CONTROL,
+                AnnotationEvent.disposition == Disposition.PRESENT,
             )
         ).all()
-        assert len(success_annotations) == 1
+        assert len(present_events) >= 1
+        assert all(e.variant_id is None and e.allele_id is not None for e in present_events)
 
-        # Total annotations == versions processed.
-        all_annotations = session.scalars(
-            select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.annotation_type == AnnotationType.CLINVAR_CONTROL,
+        # Versions where the allele's resolved ClinVar id is absent from that release's snapshot
+        # produce an absent event — expected for any version that doesn't contain it.
+        absent_events = session.scalars(
+            select(AnnotationEvent).where(
+                AnnotationEvent.annotation_type == AnnotationType.CLINVAR_CONTROL,
+                AnnotationEvent.disposition == Disposition.ABSENT,
             )
         ).all()
-        assert len(all_annotations) == len(_E2E_VERSIONS)
+        assert len(absent_events) >= 1
 
+        # Total events should equal the number of ClinVar versions processed (one allele, one per version).
+        assert len(present_events) + len(absent_events) == len(_generate_clinvar_versions())
+
+        # Verify that the job run was completed successfully
         session.refresh(sample_refresh_clinvar_controls_job_run)
         assert sample_refresh_clinvar_controls_job_run.status == JobStatus.SUCCEEDED
 

@@ -12,10 +12,11 @@ aiocache with Redis backend:
 """
 
 import logging
+from collections import Counter
 from datetime import datetime
 
 import requests
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
@@ -26,7 +27,9 @@ from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus, FailureCategory
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.event_reason import EventReason
+from mavedb.models.enums.job_pipeline import FailureCategory
 from mavedb.models.score_set import ScoreSet
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
@@ -47,46 +50,40 @@ def _generate_clinvar_versions() -> list[tuple[int, int]]:
     snapshot that should be processed.
     """
     current_year = datetime.now().year
-    versions = [(CLINVAR_START_YEAR, CLINVAR_START_MONTH)]
-    for year in range(CLINVAR_START_YEAR + 1, current_year + 1):
-        versions.append((year, 1))
-    return versions
+    first_version = (CLINVAR_START_YEAR, CLINVAR_START_MONTH)
+    archival_versions = [(year, 1) for year in range(CLINVAR_START_YEAR + 1, current_year + 1)]
+    return [first_version, *archival_versions]
 
 
 def _annotate_clinvar(
     annotation_manager: AnnotationStatusManager,
-    variant_ids: list[int],
-    version: str,
-    status: AnnotationStatus,
+    allele_id: int,
+    disposition: Disposition,
+    reason: EventReason,
     *,
-    failure_category: AnnotationFailureCategory | None = None,
+    source_version: str,
     error_message: str | None = None,
     metadata: dict | None = None,
 ) -> None:
-    """Fan a CLINVAR_CONTROL annotation out to every variant served by an allele.
+    """Record one CLINVAR_CONTROL event for an allele at a given ClinVar release.
 
-    AAS migration seam: the single choke point for ClinVar's per-variant VAS writes. At migration it
-    becomes an allele-keyed event writer; the per-variant fan-out goes away, and the variant
-    association narrows to provenance. See docs/design/allele-annotation-status.md.
-
-    Unlike gnomAD/VEP, ClinVar writes a status row per ClinVar release, so retirement is
-    version-scoped (``replace_all_versions=False``) — each release keeps its own current row.
+    The single choke point for ClinVar's status writes. One event per (allele, release); provenance
+    (which variants drove the linkage) is derived from the live links as-of the event, not fanned out
+    here. Unlike gnomAD/VEP, ClinVar is multi-version, so ``source_version`` (the ClinVar release)
+    distinguishes an allele's events across releases.
     """
-    annotation_data: dict = {"annotation_metadata": metadata or {}}
+    meta = dict(metadata or {})
     if error_message is not None:
-        annotation_data["error_message"] = error_message
+        meta["error_message"] = error_message
 
-    for variant_id in variant_ids:
-        annotation_manager.add_annotation(
-            variant_id=variant_id,
-            annotation_type=AnnotationType.CLINVAR_CONTROL,
-            version=version,
-            status=status,
-            failure_category=failure_category,
-            annotation_data=annotation_data,
-            current=True,
-            replace_all_versions=False,
-        )
+    annotation_manager.record_event(
+        AnnotationType.CLINVAR_CONTROL,
+        allele_id=allele_id,
+        disposition=disposition,
+        reason=reason,
+        source_version=source_version,
+        metadata=meta or None,
+    )
 
 
 @with_pipeline_management
@@ -139,12 +136,22 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
 
     # One work-unit per allele (payload = CAID; alleles without one are dropped). Covers ALL the score
     # set's alleles — authoritative and RT-derived — since the genomic allele ClinVar keys on is often
-    # the RT-derived one; VAS still fans only to authoritative_variant_ids (the bandaid seam).
+    # the RT-derived one. Events are allele-keyed, so every allele is recorded per release (no fan-out).
     allele_data = group_alleles_for_annotation(
         get_alleles_for_score_set(job_manager.db, score_set.id),
         payload=lambda row: row.clingen_allele_id,
     )
     job_manager.save_to_context({"num_alleles_with_caids": len(allele_data)})
+
+    # Link counts accumulate across all versions (an allele may link in every release it appears in).
+    annotation_counts: Counter[str] = Counter(
+        {
+            "created_link_count": 0,
+            "preexisting_link_count": 0,
+            "skipped_link_count": 0,
+            "failed_link_count": 0,
+        }
+    )
 
     if not allele_data:
         logger.warning(
@@ -153,12 +160,7 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
         )
         job_manager.db.flush()
         return JobExecutionOutcome.succeeded(
-            data={
-                "versions_completed": 0,
-                "versions_total": len(versions),
-                "created_link_count": 0,
-                "preexisting_link_count": 0,
-            }
+            data={"versions_completed": 0, "versions_total": len(versions), **dict(annotation_counts)}
         )
 
     all_allele_ids = set(allele_data.keys())
@@ -175,11 +177,7 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
             ).all()
         )
 
-    total_failed = 0
-    created_link_count = 0
-    preexisting_link_count = 0
     versions_completed = 0
-
     for version_index, (year, month) in enumerate(versions):
         clinvar_version = f"{month:02d}_{year}"
         job_manager.save_to_context({"current_version": clinvar_version, "version_index": version_index})
@@ -206,28 +204,32 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
         # bypasses the skip but the link write still get-or-creates, so a forced no-op writes nothing.
         already_linked = set() if force else alleles_linked_at_version(clinvar_version)
 
-        annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
-        for allele_id, entry in allele_data.items():
-            caid = entry.payload
-
+        annotation_manager = AnnotationStatusManager(
+            job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
+        )
+        for allele_id, caid in allele_data.items():
             if allele_id in already_linked:
-                preexisting_link_count += 1
+                annotation_counts["preexisting_link_count"] += 1
                 _annotate_clinvar(
                     annotation_manager,
-                    entry.authoritative_variant_ids,
-                    clinvar_version,
-                    AnnotationStatus.SUCCESS,
-                    metadata={"clingen_allele_id": caid, "action": "preexisting"},
+                    allele_id,
+                    Disposition.PRESENT,
+                    EventReason.PREEXISTING,
+                    source_version=clinvar_version,
+                    metadata={"clingen_allele_id": caid},
                 )
                 continue
 
+            # A cis-block (multi-variant) CAID structurally cannot key ClinVar — a terminal gap, not
+            # a statement about ClinVar's contents.
             if "," in caid:
+                annotation_counts["skipped_link_count"] += 1
                 _annotate_clinvar(
                     annotation_manager,
-                    entry.authoritative_variant_ids,
-                    clinvar_version,
-                    AnnotationStatus.SKIPPED,
-                    failure_category=AnnotationFailureCategory.UNSUPPORTED_IDENTIFIER,
+                    allele_id,
+                    Disposition.NOT_APPLICABLE,
+                    EventReason.MULTI_VARIANT_CAID,
+                    source_version=clinvar_version,
                     error_message="Multi-variant ClinGen allele IDs cannot be associated with ClinVar data.",
                     metadata={"clingen_allele_id": caid},
                 )
@@ -236,13 +238,13 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
             try:
                 clinvar_allele_id = await get_associated_clinvar_allele_id(caid)
             except requests.exceptions.RequestException as exc:
-                total_failed += 1
+                annotation_counts["failed_link_count"] += 1
                 _annotate_clinvar(
                     annotation_manager,
-                    entry.authoritative_variant_ids,
-                    clinvar_version,
-                    AnnotationStatus.FAILED,
-                    failure_category=AnnotationFailureCategory.EXTERNAL_API_ERROR,
+                    allele_id,
+                    Disposition.FAILED,
+                    EventReason.API_ERROR,
+                    source_version=clinvar_version,
                     error_message=f"Failed to retrieve ClinVar allele ID from ClinGen API: {str(exc)}",
                     metadata={"clingen_allele_id": caid},
                 )
@@ -253,27 +255,33 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                 )
                 continue
 
+            # ClinGen has no ClinVar AlleleID for this CAID — the allele is not a ClinVar control: an
+            # informative negative about the source, not a pipeline gap.
             if not clinvar_allele_id:
+                annotation_counts["skipped_link_count"] += 1
                 _annotate_clinvar(
                     annotation_manager,
-                    entry.authoritative_variant_ids,
-                    clinvar_version,
-                    AnnotationStatus.SKIPPED,
-                    failure_category=AnnotationFailureCategory.NO_LINKED_ALLELE,
+                    allele_id,
+                    Disposition.ABSENT,
+                    EventReason.NO_RECORD,
+                    source_version=clinvar_version,
                     error_message="No ClinVar allele ID found for ClinGen allele ID.",
                     metadata={"clingen_allele_id": caid},
                 )
                 continue
 
+            # The allele has a ClinVar AlleleID but it is absent from this release's snapshot — a
+            # genuine, version-scoped negative (ClinVar queried, nothing for this release).
             if clinvar_allele_id not in tsv_data:
+                annotation_counts["skipped_link_count"] += 1
                 _annotate_clinvar(
                     annotation_manager,
-                    entry.authoritative_variant_ids,
-                    clinvar_version,
-                    AnnotationStatus.SKIPPED,
-                    failure_category=AnnotationFailureCategory.EXTERNAL_REFERENCE_NOT_FOUND,
+                    allele_id,
+                    Disposition.ABSENT,
+                    EventReason.NO_RECORD,
+                    source_version=clinvar_version,
                     error_message="No ClinVar data found for ClinVar allele ID.",
-                    metadata={"clingen_allele_id": caid},
+                    metadata={"clingen_allele_id": caid, "clinvar_allele_id": clinvar_allele_id},
                 )
                 continue
 
@@ -323,20 +331,19 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
             )
             if live_link is None:
                 job_manager.db.add(ClinvarAlleleLink(allele_id=allele_id, clinvar_control_id=clinvar_control.id))
-                created_link_count += 1
-                action = "created"
+                annotation_counts["created_link_count"] += 1
+                reason = EventReason.CREATED
             elif live_link.clinvar_control_id == clinvar_control.id:
-                preexisting_link_count += 1
-                action = "preexisting"
+                annotation_counts["preexisting_link_count"] += 1
+                reason = EventReason.PREEXISTING
             else:
-                at = job_manager.db.scalar(select(func.now()))
-                assert at is not None  # SELECT now() always returns a timestamp
-                live_link.retire(at=at)
+                retired_at = datetime.now()
+                live_link.retire(at=retired_at)
                 job_manager.db.add(
-                    ClinvarAlleleLink(allele_id=allele_id, clinvar_control_id=clinvar_control.id, valid_from=at)
+                    ClinvarAlleleLink(allele_id=allele_id, clinvar_control_id=clinvar_control.id, valid_from=retired_at)
                 )
-                created_link_count += 1
-                action = "superseded"
+                annotation_counts["created_link_count"] += 1
+                reason = EventReason.SUPERSEDED
                 logger.warning(
                     msg=(
                         f"Allele {allele_id} held a live ClinVar link to control "
@@ -350,10 +357,11 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
 
             _annotate_clinvar(
                 annotation_manager,
-                entry.authoritative_variant_ids,
-                clinvar_version,
-                AnnotationStatus.SUCCESS,
-                metadata={"clingen_allele_id": caid, "clinvar_allele_id": clinvar_allele_id, "action": action},
+                allele_id,
+                Disposition.PRESENT,
+                reason,
+                source_version=clinvar_version,
+                metadata={"clingen_allele_id": caid, "clinvar_allele_id": clinvar_allele_id},
             )
 
         annotation_manager.flush()
@@ -366,14 +374,17 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
 
     logger.info(
         f"ClinVar refresh complete: {versions_completed}/{len(versions)} versions, "
-        f"{created_link_count} new links, {preexisting_link_count} preexisting.",
+        f"{annotation_counts['created_link_count']} new links, "
+        f"{annotation_counts['preexisting_link_count']} preexisting.",
         extra=job_manager.logging_context(),
     )
 
-    if total_failed > 0 and created_link_count == 0 and preexisting_link_count == 0:
-        error_message = (
-            f"All {total_failed} ClinVar lookups failed for score set {score_set.urn}. Possible ClinGen API outage."
-        )
+    if (
+        annotation_counts["failed_link_count"] > 0
+        and annotation_counts["created_link_count"] == 0
+        and annotation_counts["preexisting_link_count"] == 0
+    ):
+        error_message = f"All {annotation_counts['failed_link_count']} ClinVar lookups failed for score set {score_set.urn}. Possible ClinGen API outage."
         logger.error(error_message, extra=job_manager.logging_context())
         job_manager.db.flush()
         return JobExecutionOutcome.failed(
@@ -381,18 +392,12 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
             data={
                 "versions_completed": versions_completed,
                 "versions_total": len(versions),
-                "created_link_count": 0,
-                "preexisting_link_count": 0,
+                **dict(annotation_counts),
             },
             failure_category=FailureCategory.DEPENDENCY_FAILURE,
         )
 
     job_manager.db.flush()
     return JobExecutionOutcome.succeeded(
-        data={
-            "versions_completed": versions_completed,
-            "versions_total": len(versions),
-            "created_link_count": created_link_count,
-            "preexisting_link_count": preexisting_link_count,
-        }
+        data={"versions_completed": versions_completed, "versions_total": len(versions), **dict(annotation_counts)}
     )

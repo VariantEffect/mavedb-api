@@ -13,8 +13,10 @@ from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus, FailureCategory, JobStatus
-from mavedb.models.variant_annotation_status import VariantAnnotationStatus
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.event_reason import EventReason
+from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
+from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.worker.jobs.external_services.clinvar import refresh_clinvar_controls
 from mavedb.worker.lib.managers.job_manager import JobManager
 
@@ -67,7 +69,7 @@ class TestRefreshClinvarControlsUnit:
         assert result.status == JobStatus.SUCCEEDED
         assert session.scalars(select(ClinvarControl)).all() == []
         assert session.scalars(select(ClinvarAlleleLink)).all() == []
-        assert session.query(VariantAnnotationStatus).all() == []
+        assert session.scalars(select(AnnotationEvent)).all() == []
 
     async def test_fetch_failure_skips_version(
         self,
@@ -105,7 +107,7 @@ class TestRefreshClinvarControlsUnit:
         setup_sample_alleles_with_caid,
     ):
         """An allele whose CAID is a multi-variant identifier is skipped (ClinVar can't key on it)."""
-        variant, allele = setup_sample_alleles_with_caid
+        _, allele = setup_sample_alleles_with_caid
         allele.clingen_allele_id = "CA-MULTI-001,CA-MULTI-002"
         session.commit()
 
@@ -122,10 +124,13 @@ class TestRefreshClinvarControlsUnit:
         assert result.status == JobStatus.SUCCEEDED
         assert session.scalars(select(ClinvarAlleleLink)).all() == []
 
-        vas = session.query(VariantAnnotationStatus).filter_by(variant_id=variant.id).one()
-        assert vas.status == AnnotationStatus.SKIPPED
-        assert vas.annotation_type == AnnotationType.CLINVAR_CONTROL
-        assert vas.failure_category == AnnotationFailureCategory.UNSUPPORTED_IDENTIFIER
+        # Allele-keyed event: a cis-block CAID structurally can't key ClinVar — a pipeline gap, not a
+        # statement about the source.
+        event = session.scalars(select(AnnotationEvent)).one()
+        assert event.annotation_type == AnnotationType.CLINVAR_CONTROL
+        assert event.disposition == Disposition.NOT_APPLICABLE
+        assert event.reason == EventReason.MULTI_VARIANT_CAID
+        assert event.allele_id == allele.id and event.variant_id is None
 
     async def test_no_associated_clinvar_allele_id_skipped(
         self,
@@ -135,8 +140,8 @@ class TestRefreshClinvarControlsUnit:
         sample_refresh_clinvar_controls_job_run,
         setup_sample_alleles_with_caid,
     ):
-        """ClinGen returns no ClinVar allele id for the CAID -> SKIPPED/NO_LINKED_ALLELE, no link."""
-        variant, _ = setup_sample_alleles_with_caid
+        """ClinGen returns no ClinVar allele id for the CAID -> absent/no_record event, no link."""
+        _, allele = setup_sample_alleles_with_caid
 
         with (
             patch(
@@ -156,9 +161,11 @@ class TestRefreshClinvarControlsUnit:
 
         assert result.status == JobStatus.SUCCEEDED
         assert session.scalars(select(ClinvarAlleleLink)).all() == []
-        vas = session.query(VariantAnnotationStatus).filter_by(variant_id=variant.id).one()
-        assert vas.status == AnnotationStatus.SKIPPED
-        assert vas.failure_category == AnnotationFailureCategory.NO_LINKED_ALLELE
+        # ClinGen had no ClinVar AlleleID for this CAID — an informative negative about the source.
+        event = session.scalars(select(AnnotationEvent)).one()
+        assert event.disposition == Disposition.ABSENT
+        assert event.reason == EventReason.NO_RECORD
+        assert event.allele_id == allele.id and event.variant_id is None
 
     async def test_clinvar_data_not_found_skipped(
         self,
@@ -168,8 +175,8 @@ class TestRefreshClinvarControlsUnit:
         sample_refresh_clinvar_controls_job_run,
         setup_sample_alleles_with_caid,
     ):
-        """The resolved ClinVar allele id is absent from the version's TSV -> SKIPPED, no link."""
-        variant, _ = setup_sample_alleles_with_caid
+        """The resolved ClinVar allele id is absent from the version's TSV -> absent/no_record, no link."""
+        _, allele = setup_sample_alleles_with_caid
 
         with (
             patch(
@@ -189,9 +196,12 @@ class TestRefreshClinvarControlsUnit:
 
         assert result.status == JobStatus.SUCCEEDED
         assert session.scalars(select(ClinvarAlleleLink)).all() == []
-        vas = session.query(VariantAnnotationStatus).filter_by(variant_id=variant.id).one()
-        assert vas.status == AnnotationStatus.SKIPPED
-        assert vas.failure_category == AnnotationFailureCategory.EXTERNAL_REFERENCE_NOT_FOUND
+        # The CAID resolved to a ClinVar AlleleID, but it's absent from this release's snapshot — a
+        # genuine, version-scoped negative.
+        event = session.scalars(select(AnnotationEvent)).one()
+        assert event.disposition == Disposition.ABSENT
+        assert event.reason == EventReason.NO_RECORD
+        assert event.allele_id == allele.id and event.variant_id is None
 
     async def test_clingen_api_failure_fails_when_total(
         self,
@@ -202,7 +212,7 @@ class TestRefreshClinvarControlsUnit:
         setup_sample_alleles_with_caid,
     ):
         """A ClinGen API error with no successful links returns FAILED/DEPENDENCY_FAILURE."""
-        variant, _ = setup_sample_alleles_with_caid
+        _, allele = setup_sample_alleles_with_caid
 
         with (
             patch(
@@ -222,9 +232,10 @@ class TestRefreshClinvarControlsUnit:
 
         assert result.status == JobStatus.FAILED
         assert result.failure_category == FailureCategory.DEPENDENCY_FAILURE
-        vas = session.query(VariantAnnotationStatus).filter_by(variant_id=variant.id).one()
-        assert vas.status == AnnotationStatus.FAILED
-        assert vas.failure_category == AnnotationFailureCategory.EXTERNAL_API_ERROR
+        event = session.scalars(select(AnnotationEvent)).one()
+        assert event.disposition == Disposition.FAILED
+        assert event.reason == EventReason.API_ERROR
+        assert event.allele_id == allele.id and event.variant_id is None
 
     async def test_successful_link_new_control(
         self,
@@ -234,8 +245,8 @@ class TestRefreshClinvarControlsUnit:
         sample_refresh_clinvar_controls_job_run,
         setup_sample_alleles_with_caid,
     ):
-        """A resolved + present CAID creates a ClinvarControl, a live link, and a SUCCESS VAS."""
-        variant, allele = setup_sample_alleles_with_caid
+        """A resolved + present CAID creates a ClinvarControl, a live link, and a present/created event."""
+        _, allele = setup_sample_alleles_with_caid
 
         with (
             patch(
@@ -269,11 +280,13 @@ class TestRefreshClinvarControlsUnit:
         assert len(links) == 1
         assert links[0].clinvar_control_id == control.id
 
-        vas = session.query(VariantAnnotationStatus).filter_by(variant_id=variant.id).one()
-        assert vas.status == AnnotationStatus.SUCCESS
-        assert vas.annotation_metadata["action"] == "created"
+        event = session.scalars(select(AnnotationEvent)).one()
+        assert event.disposition == Disposition.PRESENT
+        assert event.reason == EventReason.CREATED
+        assert event.annotation_type == AnnotationType.CLINVAR_CONTROL
+        assert event.allele_id == allele.id and event.variant_id is None
 
-    async def test_links_rt_derived_allele_but_annotates_only_authoritative(
+    async def test_links_and_annotates_full_allele_set(
         self,
         mock_worker_ctx,
         session,
@@ -281,10 +294,13 @@ class TestRefreshClinvarControlsUnit:
         sample_refresh_clinvar_controls_job_run,
         setup_rt_derived_allele_with_caid,
     ):
-        """ClinVar linkage covers the full allele set: the RT-derived allele carries the matching CAID
-        and is linked, while per-variant VAS is written only for the authoritative link (the bandaid).
+        """ClinVar linkage covers the full allele set, not just authoritative links: the RT-derived
+        allele carries the matching CAID and is linked. Events are now allele-keyed, so the RT-derived
+        allele's present status is recorded directly — the limitation the per-variant bandaid had
+        (dropping the RT-derived allele's status) is lifted. Each allele gets its own event: present for
+        the linked RT allele, absent for the unmatched authoritative one.
         """
-        variant, authoritative_allele, rt_allele = setup_rt_derived_allele_with_caid
+        _, authoritative_allele, rt_allele = setup_rt_derived_allele_with_caid
         rt_caid = rt_allele.clingen_allele_id
 
         async def resolve(caid):
@@ -322,11 +338,17 @@ class TestRefreshClinvarControlsUnit:
             == []
         )
 
-        # VAS is written only for the authoritative link: exactly one row, keyed to the variant.
-        statuses = session.query(VariantAnnotationStatus).all()
-        assert len(statuses) == 1
-        assert statuses[0].variant_id == variant.id
-        assert statuses[0].annotation_type == AnnotationType.CLINVAR_CONTROL
+        # One allele-keyed event per allele (never per-variant): the linked RT allele is present, the
+        # unmatched authoritative allele is absent. The variant resolves its derived allele's status
+        # through the live links — no variant_id on the events.
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert all(e.annotation_type == AnnotationType.CLINVAR_CONTROL for e in events)
+        assert all(e.variant_id is None for e in events)
+        by_allele = {e.allele_id: e for e in events}
+        assert by_allele[rt_allele.id].disposition == Disposition.PRESENT
+        assert by_allele[rt_allele.id].reason == EventReason.CREATED
+        assert by_allele[authoritative_allele.id].disposition == Disposition.ABSENT
+        assert by_allele[authoritative_allele.id].reason == EventReason.NO_RECORD
 
     async def test_idempotent_rerun_skips_and_does_not_duplicate(
         self,
@@ -338,7 +360,7 @@ class TestRefreshClinvarControlsUnit:
     ):
         """A second run finds the allele already linked at the version, skips the resolution, reports
         preexisting, and creates neither a duplicate control nor a duplicate link."""
-        variant, allele = setup_sample_alleles_with_caid
+        _, allele = setup_sample_alleles_with_caid
 
         with (
             patch(
@@ -376,10 +398,15 @@ class TestRefreshClinvarControlsUnit:
         assert len(links) == 1
         assert links[0].valid_to is None
 
-        # Per-version VAS: two rows for the variant, only one current.
-        statuses = session.query(VariantAnnotationStatus).filter_by(variant_id=variant.id).all()
-        assert len(statuses) == 2
-        assert len([s for s in statuses if s.current]) == 1
+        # Per-version events: two allele-keyed events (one per run), no current flag. The first run
+        # created the link; the second found it preexisting. Latest event (by id) wins.
+        events = session.scalars(
+            select(AnnotationEvent).where(AnnotationEvent.allele_id == allele.id).order_by(AnnotationEvent.id)
+        ).all()
+        assert len(events) == 2
+        assert events[0].reason == EventReason.CREATED
+        assert events[1].reason == EventReason.PREEXISTING
+        assert all(e.disposition == Disposition.PRESENT for e in events)
 
     async def test_release_reresolution_supersedes_newest_wins(
         self,
@@ -522,7 +549,7 @@ class TestRefreshClinvarControlsArqContext:
         sample_refresh_clinvar_controls_job_run,
         setup_sample_alleles_with_caid,
     ):
-        """The job links an allele and records a SUCCESS annotation under an ARQ worker."""
+        """The job links an allele and records a present event under an ARQ worker."""
         with (
             patch(
                 "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
@@ -540,10 +567,11 @@ class TestRefreshClinvarControlsArqContext:
         assert len(session.scalars(select(ClinvarControl)).all()) >= 1
         assert len(session.scalars(select(ClinvarAlleleLink).where(ClinvarAlleleLink.current)).all()) == 1
 
-        statuses = session.query(VariantAnnotationStatus).all()
-        assert len(statuses) == 1
-        assert statuses[0].status == AnnotationStatus.SUCCESS
-        assert statuses[0].annotation_type == AnnotationType.CLINVAR_CONTROL
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 1
+        assert events[0].disposition == Disposition.PRESENT
+        assert events[0].annotation_type == AnnotationType.CLINVAR_CONTROL
+        assert events[0].allele_id is not None and events[0].variant_id is None
 
         session.refresh(sample_refresh_clinvar_controls_job_run)
         assert sample_refresh_clinvar_controls_job_run.status == JobStatus.SUCCEEDED
@@ -576,7 +604,7 @@ class TestRefreshClinvarControlsArqContext:
 
         mock_slack.assert_called_once()
         assert session.scalars(select(ClinvarAlleleLink)).all() == []
-        assert session.query(VariantAnnotationStatus).all() == []
+        assert session.scalars(select(AnnotationEvent)).all() == []
 
         session.refresh(sample_refresh_clinvar_controls_job_run)
         assert sample_refresh_clinvar_controls_job_run.status == JobStatus.ERRORED
