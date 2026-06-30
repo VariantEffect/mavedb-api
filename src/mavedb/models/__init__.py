@@ -42,6 +42,8 @@ __all__ = [
     "uniprot_offset",
     "user",
     "variant_annotation_status",
+    "annotation_event",
+    "annotation_event_view",
     "variant",
     "variant_translation",
     "vep_allele_consequence",
