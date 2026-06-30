@@ -337,10 +337,9 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                 annotation_counts["preexisting_link_count"] += 1
                 reason = EventReason.PREEXISTING
             else:
-                retired_at = datetime.now()
-                live_link.retire(at=retired_at)
-                job_manager.db.add(
-                    ClinvarAlleleLink(allele_id=allele_id, clinvar_control_id=clinvar_control.id, valid_from=retired_at)
+                live_link.supersede_with(
+                    job_manager.db,
+                    ClinvarAlleleLink(allele_id=allele_id, clinvar_control_id=clinvar_control.id),
                 )
                 annotation_counts["created_link_count"] += 1
                 reason = EventReason.SUPERSEDED

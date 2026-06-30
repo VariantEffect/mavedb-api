@@ -477,6 +477,11 @@ class TestRefreshClinvarControlsUnit:
         assert retired[0].valid_to is not None
         # Gap-free handoff: the retired link's valid_to equals the successor's valid_from.
         assert retired[0].valid_to == live_links[0].valid_from
+        # Stamped from the DB clock (func.now()), so the boundary is timezone-aware and comparable to
+        # every other func.now()-stamped valid-time row — a regression to a naive datetime.now() would
+        # land here as a tz-naive value.
+        assert live_links[0].valid_from.tzinfo is not None
+        assert retired[0].valid_to.tzinfo is not None
 
     async def test_force_reresolves_without_duplicating_link(
         self,
