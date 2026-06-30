@@ -11,7 +11,8 @@ variant interpretation and data sharing.
 import asyncio
 import functools
 import logging
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 from sqlalchemy import select
 
@@ -32,7 +33,9 @@ from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.allele import Allele as AlleleModel
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus, FailureCategory
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.event_reason import EventReason
+from mavedb.models.enums.job_pipeline import FailureCategory
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_set import ScoreSet
@@ -48,44 +51,33 @@ logger = logging.getLogger(__name__)
 class _AlleleEntry:
     post_mapped: dict | None
     existing_caid: str | None
-    # Variants for which THIS allele is the authoritative measurement — the only ones that receive a
-    # per-variant VAS row. INTERIM BANDAID (do not deploy as final): keying clingen's per-variant
-    # status to the single authoritative link sidesteps the multiple "current" rows a full allele
-    # fan-out would write for one variant. Durable fix is an allele-level event log; rationale and
-    # migration seam in docs/design/allele-annotation-status.md.
-    authoritative_variant_ids: list[int] = field(default_factory=list)
 
 
 def _annotate_caid(
     annotation_manager: AnnotationStatusManager,
-    variant_ids: list[int],
-    status: AnnotationStatus,
+    allele_id: int,
+    disposition: Disposition,
+    reason: EventReason,
     *,
-    failure_category: AnnotationFailureCategory | None = None,
     error_message: str | None = None,
     metadata: dict | None = None,
 ) -> None:
-    """Fan a CLINGEN_ALLELE_ID annotation out to every variant served by an allele.
+    """Record one CLINGEN_ALLELE_ID event for an allele (the CAID is an allele-level fact).
 
-    AAS migration seam: the single choke point for clingen's per-variant VAS writes. At migration it
-    becomes an allele-keyed event writer; the per-variant fan-out goes away, and the variant
-    association narrows to provenance (who caused the registration). See
-    docs/design/allele-annotation-status.md.
+    The single choke point for CAR's status writes. Provenance (which variants drove the
+    registration) is derived from the live links as-of the event, not fanned out here.
     """
-    annotation_data: dict = {"annotation_metadata": metadata or {}}
+    meta = dict(metadata or {})
     if error_message is not None:
-        annotation_data["error_message"] = error_message
+        meta["error_message"] = error_message
 
-    for variant_id in variant_ids:
-        annotation_manager.add_annotation(
-            variant_id=variant_id,
-            annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
-            version=None,
-            status=status,
-            failure_category=failure_category,
-            annotation_data=annotation_data,
-            current=True,
-        )
+    annotation_manager.record_event(
+        AnnotationType.CLINGEN_ALLELE_ID,
+        allele_id=allele_id,
+        disposition=disposition,
+        reason=reason,
+        metadata=meta or None,
+    )
 
 
 @with_pipeline_management
@@ -172,53 +164,59 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
         if row.allele_id not in allele_data:
             allele_data[row.allele_id] = _AlleleEntry(post_mapped=row.post_mapped, existing_caid=row.clingen_allele_id)
 
-        if row.is_authoritative:
-            allele_data[row.allele_id].authoritative_variant_ids.append(row.variant_id)
-
-    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
+    annotation_manager = AnnotationStatusManager(
+        job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
+    )
 
     # Track outcomes by distinct allele_id. clingen_allele_id is an allele-level fact (the CAID
     # lives on the Allele) and CAR's operation is per-allele, so the reported counts are in allele
-    # units — and they cover every allele submitted, including the RT-derived ones that produce no
-    # per-variant status row. Each allele has exactly one outcome (submitted once → one response), so
-    # these sets are disjoint by construction. (Per-variant VAS rows are still written via the
-    # authoritative link below — that is the interim bandaid, separate from these operation counts.)
+    # units — and they cover every allele submitted, including the RT-derived ones. Each allele has
+    # exactly one outcome (submitted once → one response), so these sets are disjoint by construction.
     linked_allele_ids: set[int] = set()
     preexisting_allele_ids: set[int] = set()
     failed_allele_ids: set[int] = set()
 
+    preexisting_alleles = []
+    pending_alleles = []
+    for aid, entry in allele_data.items():
+        if entry.existing_caid:
+            preexisting_alleles.append(aid)
+        elif force_reregister:
+            pending_alleles.append(aid)
+        elif not entry.existing_caid:
+            pending_alleles.append(aid)
+
     # Pre-existing CAIDs: record success without re-submitting unless force_reregister is set.
-    preexisting = [aid for aid, entry in allele_data.items() if entry.existing_caid] if not force_reregister else []
+    preexisting = preexisting_alleles if not force_reregister else []
     for allele_id in preexisting:
         entry = allele_data[allele_id]
 
         preexisting_allele_ids.add(allele_id)
         _annotate_caid(
             annotation_manager,
-            entry.authoritative_variant_ids,
-            AnnotationStatus.SUCCESS,
-            metadata={"clingen_allele_id": entry.existing_caid, "registration_source": "preexisting"},
+            allele_id,
+            Disposition.PRESENT,
+            EventReason.PREEXISTING,
+            metadata={"clingen_allele_id": entry.existing_caid},
         )
 
-    # Alleles that need CAR submission: new ones, or all when force_reregister=True.
-    pending_allele_ids = [aid for aid, entry in allele_data.items() if force_reregister or not entry.existing_caid]
-    job_manager.update_progress(10, 100, f"Preparing {len(pending_allele_ids)} alleles for CAR submission.")
+    job_manager.update_progress(10, 100, f"Preparing {len(pending_alleles)} alleles for CAR submission.")
 
     # Build HGVS → [allele_ids] map.  Multi-variant cis-phased blocks produce no HGVS
     # (combine_cis defaults to False); those alleles are annotated as failures immediately.
     hgvs_to_allele_ids: dict[str, list[int]] = {}
-    for allele_id in pending_allele_ids:
+    for allele_id in pending_alleles:
         entry = allele_data[allele_id]
         hgvs = get_hgvs_from_post_mapped(entry.post_mapped)
 
         if hgvs:
             hgvs_to_allele_ids.setdefault(hgvs, []).append(allele_id)
 
-        # Allele is registered but post_mapped can no longer produce HGVS — data
-        # regression worth surfacing, but the CAID is still valid so treat it as
-        # preexisting rather than failing the variant.
+        # TODO#780 - Allele is registered but post_mapped can no longer produce HGVS — data
+        # regression worth surfacing, but the CAID is still valid so treat it as preexisting
+        # rather than failing the variant.
         elif entry.existing_caid:
-            preexisting_allele_ids.add(allele_id)
+            preexisting_alleles.append(allele_id)
             logger.warning(
                 msg=(
                     f"Could not construct HGVS for allele {allele_id} during force re-registration "
@@ -228,12 +226,14 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
             )
             _annotate_caid(
                 annotation_manager,
-                entry.authoritative_variant_ids,
-                AnnotationStatus.SUCCESS,
-                metadata={"clingen_allele_id": entry.existing_caid, "registration_source": "reconfirmation_skipped"},
+                allele_id,
+                Disposition.PRESENT,
+                EventReason.RECONFIRMATION_SKIPPED,
+                metadata={"clingen_allele_id": entry.existing_caid},
             )
 
-        # No HGVS-- un-submittable.
+        # No HGVS-- un-submittable. The allele cannot produce an identifier to register,
+        # so treat this as not_applicable rather than a failure.
         else:
             failed_allele_ids.add(allele_id)
             logger.warning(
@@ -242,9 +242,9 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
             )
             _annotate_caid(
                 annotation_manager,
-                entry.authoritative_variant_ids,
-                AnnotationStatus.FAILED,
-                failure_category=AnnotationFailureCategory.MISSING_IDENTIFIER,
+                allele_id,
+                Disposition.NOT_APPLICABLE,
+                EventReason.NO_HGVS,
                 error_message="Could not extract a valid HGVS string from post-mapped allele data.",
             )
 
@@ -315,9 +315,9 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
                 failed_allele_ids.add(allele_id)
                 _annotate_caid(
                     annotation_manager,
-                    allele_data[allele_id].authoritative_variant_ids,
-                    AnnotationStatus.FAILED,
-                    failure_category=AnnotationFailureCategory.EXTERNAL_SERVICE_REJECTED,
+                    allele_id,
+                    Disposition.FAILED,
+                    EventReason.SERVICE_REJECTED,
                     error_message="Failed to register allele with ClinGen Allele Registry.",
                     metadata={
                         "submitted_hgvs": hgvs_string,
@@ -339,9 +339,9 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
                 failed_allele_ids.add(allele_id)
                 _annotate_caid(
                     annotation_manager,
-                    allele_data[allele_id].authoritative_variant_ids,
-                    AnnotationStatus.FAILED,
-                    failure_category=AnnotationFailureCategory.EXTERNAL_SERVICE_REJECTED,
+                    allele_id,
+                    Disposition.FAILED,
+                    EventReason.MALFORMED_RESPONSE,
                     error_message="ClinGen Allele Registry returned a malformed response with no allele identifier.",
                     metadata={"submitted_hgvs": hgvs_string},
                 )
@@ -353,7 +353,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
             entry = allele_data[allele_id]
             prior_caid = entry.existing_caid
 
-            # CAID is immutable — a different value returned by CAR is a hard invariant
+            # TODO#780 - CAID is immutable — a different value returned by CAR is a hard invariant
             # violation.  Do not overwrite; record a failure with full audit context.
             if prior_caid and prior_caid != caid:
                 logger.error(
@@ -368,9 +368,9 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
                 failed_allele_ids.add(allele_id)
                 _annotate_caid(
                     annotation_manager,
-                    entry.authoritative_variant_ids,
-                    AnnotationStatus.FAILED,
-                    failure_category=AnnotationFailureCategory.EXTERNAL_SERVICE_REJECTED,
+                    allele_id,
+                    Disposition.FAILED,
+                    EventReason.CAID_CONFLICT,
                     error_message="CAR returned a CAID that conflicts with the stored value.",
                     metadata={
                         "clingen_allele_id": prior_caid,
@@ -385,7 +385,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
                 allele = alleles_by_id[allele_id]
                 allele.clingen_allele_id = caid
 
-                registration_source = "reconfirmed" if prior_caid else "this_run"
+                reason = EventReason.RECONFIRMED if prior_caid else EventReason.CREATED
                 if prior_caid:
                     logger.info(
                         msg=f"Force re-registration confirmed same CAID {caid!r} for allele {allele_id}.",
@@ -394,9 +394,10 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
 
                 _annotate_caid(
                     annotation_manager,
-                    entry.authoritative_variant_ids,
-                    AnnotationStatus.SUCCESS,
-                    metadata={"clingen_allele_id": caid, "registration_source": registration_source},
+                    allele_id,
+                    Disposition.PRESENT,
+                    reason,
+                    metadata={"clingen_allele_id": caid},
                 )
 
     # Submitted HGVS with no trustworthy response: the truncated tail when the counts line up
@@ -408,9 +409,9 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
             failed_allele_ids.add(allele_id)
             _annotate_caid(
                 annotation_manager,
-                allele_data[allele_id].authoritative_variant_ids,
-                AnnotationStatus.FAILED,
-                failure_category=AnnotationFailureCategory.EXTERNAL_API_ERROR,
+                allele_id,
+                Disposition.FAILED,
+                EventReason.API_ERROR,
                 error_message="Failed to register allele with ClinGen Allele Registry.",
                 metadata={"submitted_hgvs": hgvs_string},
             )
@@ -496,17 +497,21 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
     # MappingRecord. RT-derived equivalence alleles are intentionally excluded — LDH links each
     # MaveDB score to its canonical mapped variant, not to every equivalent allele (unlike CAR,
     # which registers a CAID per allele).
-    variant_objects = job_manager.db.execute(
-        select(Variant, MappingRecord, AlleleModel)
-        .join(MappingRecord, MappingRecord.variant_id == Variant.id)
-        .join(MappingRecordAllele, MappingRecordAllele.mapping_record_id == MappingRecord.id)
-        .join(AlleleModel, AlleleModel.id == MappingRecordAllele.allele_id)
-        .where(Variant.score_set_id == score_set.id)
-        .where(MappingRecord.current)
-        .where(MappingRecordAllele.current)
-        .where(MappingRecordAllele.is_authoritative.is_(True))
-        .where(AlleleModel.post_mapped.is_not(None))
-    ).all()
+    variant_objects: Sequence[tuple[Variant, MappingRecord, AlleleModel]] = (
+        job_manager.db.execute(
+            select(Variant, MappingRecord, AlleleModel)
+            .join(MappingRecord, MappingRecord.variant_id == Variant.id)
+            .join(MappingRecordAllele, MappingRecordAllele.mapping_record_id == MappingRecord.id)
+            .join(AlleleModel, AlleleModel.id == MappingRecordAllele.allele_id)
+            .where(Variant.score_set_id == score_set.id)
+            .where(MappingRecord.current)
+            .where(MappingRecordAllele.current)
+            .where(MappingRecordAllele.is_authoritative.is_(True))
+            .where(AlleleModel.post_mapped.is_not(None))
+        )
+        .tuples()
+        .all()
+    )
 
     # Track total variants to submit
     job_manager.save_to_context({"total_variants_to_submit_ldh": len(variant_objects)})
@@ -521,11 +526,10 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
     job_manager.update_progress(10, 100, f"Submitting {len(variant_objects)} mapped variants to LDH.")
 
     # Build submission content
-    variant_content = []
-    variant_for_urn = {}
+    variant_content: list[tuple[str, Variant, MappingRecord, AlleleModel]] = []
+    variant_for_urn: dict[str, Variant] = {}
     for variant, mapping_record, allele in variant_objects:
-        # See the note above: cis-phased blocks are skipped here pending ClinGen guidance
-        # (https://github.com/VariantEffect/mavedb-api/issues/764).
+        # cis-phased blocks are skipped here pending ClinGen guidance TODO#764
         variation = get_hgvs_from_post_mapped(allele.post_mapped)
 
         if not variation:
@@ -536,7 +540,8 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
             continue
 
         variant_content.append((variation, variant, mapping_record, allele))
-        variant_for_urn[variant.urn] = variant
+        # TODO#372: nullable URNs
+        variant_for_urn[variant.urn] = variant  # type: ignore
 
     if not variant_content:
         logger.warning(
@@ -561,8 +566,10 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
         "ldh_submission_failures": len(submission_failures),
     })
 
-    # TODO prior to finalizing: Verify typing of ClinGen submission responses. See https://reg.clinicalgenome.org/doc/AlleleRegistry_1.01.xx_api_v1.pdf
-    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
+    # See https://reg.clinicalgenome.org/doc/AlleleRegistry_1.01.xx_api_v1.pdf
+    annotation_manager = AnnotationStatusManager(
+        job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
+    )
     submitted_variant_urns = set()
     for success in submission_successes:
         logger.debug(
@@ -572,24 +579,21 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
 
         submitted_urn = success["data"]["entId"]
         submitted_variant = variant_for_urn.get(submitted_urn)
+        # LDH echoed back an entId we never submitted — record it for investigation rather
+        # than crashing the whole job mid-batch.
         if submitted_variant is None:
-            # LDH echoed back an entId we never submitted — record it for investigation rather
-            # than crashing the whole job mid-batch.
             logger.warning(
                 msg=f"LDH returned an unrecognized entId not in this submission: {submitted_urn!r}.",
                 extra=job_manager.logging_context(),
             )
             continue
 
-        annotation_manager.add_annotation(
+        annotation_manager.record_event(
+            AnnotationType.LDH_SUBMISSION,
             variant_id=submitted_variant.id,
-            annotation_type=AnnotationType.LDH_SUBMISSION,
-            version=None,
-            status=AnnotationStatus.SUCCESS,
-            annotation_data={
-                "annotation_metadata": {"ldh_iri": success["data"]["ldhIri"], "ldh_id": success["data"]["ldhId"]},
-            },
-            current=True,
+            disposition=Disposition.PRESENT,
+            reason=EventReason.SUBMITTED,
+            metadata={"ldh_iri": success["data"]["ldhIri"], "ldh_id": success["data"]["ldhId"]},
         )
         submitted_variant_urns.add(submitted_urn)
 
@@ -606,16 +610,12 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
 
         failed_variant = variant_for_urn[failure_urn]
 
-        annotation_manager.add_annotation(
+        annotation_manager.record_event(
+            AnnotationType.LDH_SUBMISSION,
             variant_id=failed_variant.id,
-            annotation_type=AnnotationType.LDH_SUBMISSION,
-            version=None,
-            status=AnnotationStatus.FAILED,
-            failure_category=AnnotationFailureCategory.EXTERNAL_API_ERROR,
-            annotation_data={
-                "error_message": "Failed to submit variant to ClinGen Linked Data Hub.",
-            },
-            current=True,
+            disposition=Disposition.FAILED,
+            reason=EventReason.API_ERROR,
+            metadata={"error_message": "Failed to submit variant to ClinGen Linked Data Hub."},
         )
 
     annotation_manager.flush()
