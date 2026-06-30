@@ -7,8 +7,9 @@ pytest.importorskip("arq")
 from sqlalchemy import select
 
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationStatus, JobStatus, PipelineStatus
-from mavedb.models.variant_annotation_status import VariantAnnotationStatus
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
+from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
@@ -52,14 +53,14 @@ class TestE2EPopulateVepForScoreSet:
         assert live.functional_consequence is not None
         assert live.access_date is not None
 
-        annotation = session.scalars(
-            select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.variant_id == variant.id,
-                VariantAnnotationStatus.annotation_type == AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
-                VariantAnnotationStatus.current.is_(True),
+        # Events are allele-keyed now; the variant resolves its status through the live link.
+        event = session.scalars(
+            select(AnnotationEvent).where(
+                AnnotationEvent.allele_id == allele.id,
+                AnnotationEvent.annotation_type == AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
             )
         ).one()
-        assert annotation.status == AnnotationStatus.SUCCESS
+        assert event.disposition == Disposition.PRESENT
 
     async def test_populate_vep_e2e_with_recoder_path(
         self,
@@ -97,11 +98,11 @@ class TestE2EPopulateVepForScoreSet:
         assert live.functional_consequence is not None
         assert live.access_date is not None
 
-        annotation = session.scalars(
-            select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.variant_id == variant.id,
-                VariantAnnotationStatus.annotation_type == AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
-                VariantAnnotationStatus.current.is_(True),
+        # Events are allele-keyed now; the variant resolves its status through the live link.
+        event = session.scalars(
+            select(AnnotationEvent).where(
+                AnnotationEvent.allele_id == allele.id,
+                AnnotationEvent.annotation_type == AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
             )
         ).one()
-        assert annotation.status == AnnotationStatus.SUCCESS
+        assert event.disposition == Disposition.PRESENT

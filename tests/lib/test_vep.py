@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import select
 
 from mavedb.lib.vep import (
+    VepLinkVerdict,
     get_ensembl_release,
     get_functional_consequence,
     link_vep_consequences_to_alleles,
@@ -290,12 +291,12 @@ def test_link_vep_creates_new_consequence(session):
     """A consequence for an allele with no live row creates a single live row and is reported changed."""
     allele = _make_allele(session, vrs_digest="vrs-1")
 
-    changed = link_vep_consequences_to_alleles(
+    verdicts = link_vep_consequences_to_alleles(
         session, {allele.id: "missense_variant"}, source_version="116", access_date=date.today()
     )
     session.commit()
 
-    assert changed == {allele.id}
+    assert verdicts == {allele.id: VepLinkVerdict.CREATED}
     live = _live_rows_for(session, allele.id)
     assert len(live) == 1
     assert live[0].functional_consequence == "missense_variant"
@@ -305,7 +306,8 @@ def test_link_vep_creates_new_consequence(session):
 
 def test_link_vep_unchanged_bumps_version_and_date_in_place(session):
     """Re-confirming an unchanged consequence at a new release advances source_version and access_date
-    in place — no supersede, no new valid-time boundary, and the allele is not reported changed."""
+    in place — no supersede, no new valid-time boundary. The allele is reported UNCHANGED (status
+    preexisting) so the caller need not re-query consequence state."""
     allele = _make_allele(session, vrs_digest="vrs-1")
     session.add(
         VepAlleleConsequence(
@@ -317,12 +319,12 @@ def test_link_vep_unchanged_bumps_version_and_date_in_place(session):
     )
     session.commit()
 
-    changed = link_vep_consequences_to_alleles(
+    verdicts = link_vep_consequences_to_alleles(
         session, {allele.id: "missense_variant"}, source_version="116", access_date=date.today()
     )
     session.commit()
 
-    assert changed == set()
+    assert verdicts == {allele.id: VepLinkVerdict.UNCHANGED}
     # One row, still live, never retired — version and access_date advanced in place.
     all_rows = _all_rows_for(session, allele.id)
     assert len(all_rows) == 1
@@ -345,12 +347,12 @@ def test_link_vep_changed_consequence_supersedes(session):
     )
     session.commit()
 
-    changed = link_vep_consequences_to_alleles(
+    verdicts = link_vep_consequences_to_alleles(
         session, {allele.id: "missense_variant"}, source_version="116", access_date=date.today()
     )
     session.commit()
 
-    assert changed == {allele.id}
+    assert verdicts == {allele.id: VepLinkVerdict.CREATED}
     live = _live_rows_for(session, allele.id)
     assert len(live) == 1
     assert live[0].functional_consequence == "missense_variant"
@@ -363,7 +365,8 @@ def test_link_vep_changed_consequence_supersedes(session):
 
 def test_link_vep_none_leaves_live_row_untouched(session):
     """A transient None result must not overwrite a held consequence: the live row is left intact
-    (value, version, and date) and the allele is not reported changed."""
+    (value, version, and date). The held consequence is reported UNCHANGED (status preexisting) — the
+    allele still has a live consequence, it just was not re-confirmed this run."""
     allele = _make_allele(session, vrs_digest="vrs-1")
     session.add(
         VepAlleleConsequence(
@@ -375,12 +378,12 @@ def test_link_vep_none_leaves_live_row_untouched(session):
     )
     session.commit()
 
-    changed = link_vep_consequences_to_alleles(
+    verdicts = link_vep_consequences_to_alleles(
         session, {allele.id: None}, source_version="116", access_date=date.today()
     )
     session.commit()
 
-    assert changed == set()
+    assert verdicts == {allele.id: VepLinkVerdict.UNCHANGED}
     live = _live_rows_for(session, allele.id)
     assert len(live) == 1
     assert live[0].functional_consequence == "missense_variant"
@@ -390,14 +393,15 @@ def test_link_vep_none_leaves_live_row_untouched(session):
 
 
 def test_link_vep_none_with_no_live_row_writes_nothing(session):
-    """A None result for an allele with no live row writes nothing (the allele is re-queried next run),
-    mirroring gnomAD's no-match handling."""
+    """A None result for an allele with no live row writes nothing and leaves the allele out of the
+    verdict map (the caller reads that as a no-result and re-queries next run), mirroring gnomAD's
+    no-match handling."""
     allele = _make_allele(session, vrs_digest="vrs-1")
 
-    changed = link_vep_consequences_to_alleles(
+    verdicts = link_vep_consequences_to_alleles(
         session, {allele.id: None}, source_version="116", access_date=date.today()
     )
     session.commit()
 
-    assert changed == set()
+    assert verdicts == {}
     assert len(_all_rows_for(session, allele.id)) == 0

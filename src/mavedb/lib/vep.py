@@ -5,9 +5,9 @@ import functools
 import logging
 import os
 from datetime import date
-from typing import Mapping, Optional, Sequence
+from enum import Enum
+from typing import Mapping, NamedTuple, Optional, Sequence
 
-import requests
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -17,9 +17,9 @@ from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 
 logger = logging.getLogger(__name__)
 
+
 ENSEMBL_API_URL = os.environ.get("ENSEMBL_API_URL", "https://rest.ensembl.org")
 
-# List of all possible VEP consequences, in order from most to least severe
 VEP_CONSEQUENCES = [
     "transcript_ablation",
     "splice_acceptor_variant",
@@ -77,6 +77,40 @@ VEP_CONSEQUENCES = [
     "intron_variant",
     "intergenic_variant",
 ]
+"""
+List of all functional consequences VEP can return, in order of severity (most severe first).
+"""
+
+
+class VepLinkVerdict(str, Enum):
+    """Per-allele outcome of a VEP linking run, returned for every allele whose status is decided.
+
+    The single source of truth for what happened to an allele's consequence this run — the caller
+    derives annotation status from this, never by re-querying consequence state. An allele absent from
+    the map had no live consequence and resolved none this run (the caller reads that as "no result").
+
+    - ``CREATED`` — a new or changed consequence was created/superseded this run.
+    - ``UNCHANGED`` — a live consequence was retained (value matched, or held against a null run).
+    """
+
+    CREATED = "created"
+    UNCHANGED = "unchanged"
+
+
+class VepResolution(NamedTuple):
+    """Outcome of resolving a set of HGVS strings, splitting the two kinds of "no consequence".
+
+    This outcome allows us to differentiate between a genuine empty (VEP found nothing) and an
+    unknown (VEP failed to answer).
+
+    - ``consequences`` — HGVS that resolved to a most-severe consequence (the hits).
+    - ``errored`` — HGVS whose VEP/Recoder request *failed* (HTTP/transport error after retries); the
+      result is unknown and the allele should be retried, not treated as a negative.
+    - Any queried HGVS in neither set was answered (HTTP 200) with no consequence — a genuine **empty**.
+    """
+
+    consequences: dict[str, str]
+    errored: set[str]
 
 
 async def run_variant_recoder(missing_hgvs: Sequence[str]) -> dict[str, list[str]]:
@@ -86,35 +120,30 @@ async def run_variant_recoder(missing_hgvs: Sequence[str]) -> dict[str, list[str
         missing_hgvs (Sequence[str]): List of HGVS strings to recode.
 
     Returns:
-        dict[str, list[str]]: Mapping of input HGVS to list of genomic HGVS strings (hgvsg).
-                              Returns an empty dict if Ensembl rejects the batch (e.g. 400 for
-                              unrecognised identifiers) — callers treat missing entries as failures.
+        dict[str, list[str]]: Mapping of input HGVS to list of genomic HGVS strings (hgvsg). An input
+                              with no recodable genomic mapping is simply absent (a genuine empty).
+
+    Raises:
+        requests.exceptions.RequestException: if the Recoder request fails (HTTP/transport error after
+            retries). The caller attributes the failure to this batch's inputs so they are reported as
+            errored (unknown, retry) rather than silently conflated with a genuine empty.
     """
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
+
     # request_with_backoff is synchronous (requests lib + time.sleep backoff); run_in_executor
     # keeps the event loop free during the full request + any retry wait time.
     loop = asyncio.get_running_loop()
-    try:
-        response = await loop.run_in_executor(
-            None,
-            functools.partial(
-                request_with_backoff,
-                method="POST",
-                url=f"{ENSEMBL_API_URL}/variant_recoder/human",
-                headers=headers,
-                json={"ids": list(missing_hgvs)},
-                timeout=600,  # Variant Recoder can be very slow for large batches and 504s are common; generous timeout and backoff retries are needed
-            ),
-        )
-    except requests.exceptions.HTTPError as exc:
-        # A 4xx from Ensembl (e.g. 400 for an unrecognised identifier format) means the batch
-        # cannot be recoded.  Return empty so callers can handle these missing entries.
-        logger.warning(
-            f"Variant Recoder returned {exc.response.status_code if exc.response is not None else 'unknown'} "
-            f"for batch of {len(missing_hgvs)} HGVS strings — treating as no results.",
-            exc_info=exc,
-        )
-        return {}
+    response = await loop.run_in_executor(
+        None,
+        functools.partial(
+            request_with_backoff,
+            method="POST",
+            url=f"{ENSEMBL_API_URL}/variant_recoder/human",
+            headers=headers,
+            json={"ids": list(missing_hgvs)},
+            timeout=600,  # Variant Recoder can be very slow for large batches and 504s are common; generous timeout and backoff retries are needed
+        ),
+    )
 
     data = response.json()
     # request_with_backoff handles http errors, so no need to check response status
@@ -124,11 +153,13 @@ async def run_variant_recoder(missing_hgvs: Sequence[str]) -> dict[str, list[str
             hgvs_string = variant_data.get("input") if isinstance(variant_data, dict) else None
             if variant_str == "input" or not hgvs_string:
                 continue
+
             genomic_strings = variant_data.get("hgvsg") if isinstance(variant_data, dict) else None
             if genomic_strings:
                 for genomic_hgvs in genomic_strings:
                     if genomic_hgvs.startswith("NC_"):
                         hgvs_to_genomic.setdefault(hgvs_string, []).append(genomic_hgvs)
+
     return hgvs_to_genomic
 
 
@@ -143,11 +174,14 @@ async def get_functional_consequence(hgvs_strings: Sequence[str]) -> dict[str, O
         hgvs_strings (Sequence[str]): List of HGVS strings to process (max 200 per call).
 
     Returns:
-        dict[str, Optional[str]]: Mapping of HGVS string to functional consequence.
-                                  If no consequence found, maps to None.  Returns an empty dict
-                                  if Ensembl rejects the batch (e.g. 400 for unrecognised
-                                  identifiers) — callers treat missing entries as needing Recoder
-                                  fallback or as failures.
+        dict[str, Optional[str]]: Mapping of HGVS string to functional consequence. An HGVS the
+                                  successful response carried no consequence for maps to None (a genuine
+                                  miss — the caller may try Recoder, else treats it as empty).
+
+    Raises:
+        requests.exceptions.RequestException: if the VEP request fails (HTTP/transport error after
+            retries). The caller attributes the failure to this batch's inputs so they are reported as
+            errored (unknown, retry) rather than silently conflated with a genuine empty.
     """
     if len(hgvs_strings) > 200:
         raise ValueError(
@@ -160,27 +194,17 @@ async def get_functional_consequence(hgvs_strings: Sequence[str]) -> dict[str, O
     # request_with_backoff is synchronous (requests lib + time.sleep backoff); run_in_executor
     # keeps the event loop free during the full request + any retry wait time.
     loop = asyncio.get_running_loop()
-    try:
-        response = await loop.run_in_executor(
-            None,
-            functools.partial(
-                request_with_backoff,
-                method="POST",
-                url=f"{ENSEMBL_API_URL}/vep/human/hgvs",
-                headers=headers,
-                json={"hgvs_notations": list(hgvs_strings)},
-                timeout=60,  # VEP can be slow for large batches.
-            ),
-        )
-    except requests.exceptions.HTTPError as exc:
-        # A 4xx from Ensembl (e.g. 400 for an unrecognised identifier) means the batch cannot
-        # be resolved.  Return empty so the callers can handle these missing entries.
-        logger.warning(
-            f"VEP returned {exc.response.status_code if exc.response is not None else 'unknown'} "
-            f"for batch of {len(hgvs_strings)} HGVS strings — treating as no results.",
-            exc_info=exc,
-        )
-        return result
+    response = await loop.run_in_executor(
+        None,
+        functools.partial(
+            request_with_backoff,
+            method="POST",
+            url=f"{ENSEMBL_API_URL}/vep/human/hgvs",
+            headers=headers,
+            json={"hgvs_notations": list(hgvs_strings)},
+            timeout=60,  # VEP can be slow for large batches.
+        ),
+    )
 
     data = response.json()
     for entry in data:
@@ -222,7 +246,7 @@ def link_vep_consequences_to_alleles(
     *,
     source_version: str,
     access_date: date,
-) -> set[int]:
+) -> dict[int, VepLinkVerdict]:
     """Store VEP consequences against deduplicated alleles, superseding only on change.
 
     ``consequence_by_allele_id`` maps each queried allele to the consequence VEP resolved this run
@@ -239,12 +263,16 @@ def link_vep_consequences_to_alleles(
     - **None this run**: leave any live row in place — do not overwrite a held consequence with a null result.
       Log a warning if VEP found no consequence for an allele which previously had a live consequence.
 
-    Does not commit. Returns the allele ids whose consequence was created or superseded this run.
+    Does not commit. Returns a verdict per allele whose status is decided this run:
+    :attr:`VepLinkVerdict.CREATED` for a created/superseded consequence, :attr:`~VepLinkVerdict.UNCHANGED`
+    for a live consequence retained (value matched, or held against a null run). An allele absent from
+    the map had no live row and resolved nothing — the caller reads that as "no result". This is the
+    single source of truth for per-allele status; callers must not re-derive it from consequence state.
     """
     save_to_logging_context({"num_alleles_to_link_vep": len(consequence_by_allele_id)})
     logger.debug(msg="Linking VEP consequences to alleles", extra=logging_context())
 
-    changed_allele_ids: set[int] = set()
+    verdicts: dict[int, VepLinkVerdict] = {}
     for allele_id, consequence in consequence_by_allele_id.items():
         live = db.scalar(
             select(VepAlleleConsequence).where(
@@ -253,7 +281,9 @@ def link_vep_consequences_to_alleles(
             )
         )
 
-        # VEP found nothing this run. Do not overwrite a held consequence with a null result.
+        # TODO#780 - VEP found nothing this run. Do not overwrite a held consequence with a null result; a retained
+        # consequence is UNCHANGED (status preexisting), while no live row at all leaves the allele out of
+        # the map (the caller reads that as a no-result).
         if consequence is None:
             if live is not None:
                 logger.warning(
@@ -261,6 +291,7 @@ def link_vep_consequences_to_alleles(
                     f"'{live.functional_consequence}' in place.",
                     extra=logging_context(),
                 )
+                verdicts[allele_id] = VepLinkVerdict.UNCHANGED
 
             continue
 
@@ -268,6 +299,7 @@ def link_vep_consequences_to_alleles(
         if live is not None and live.functional_consequence == consequence:
             live.source_version = source_version
             live.access_date = access_date
+            verdicts[allele_id] = VepLinkVerdict.UNCHANGED
             continue
 
         # New or changed consequence: retire any live row, insert the successor.
@@ -283,11 +315,12 @@ def link_vep_consequences_to_alleles(
             ],
             VepAlleleConsequence.allele_id == allele_id,
         )
-        changed_allele_ids.add(allele_id)
+        verdicts[allele_id] = VepLinkVerdict.CREATED
 
-    save_to_logging_context({"changed_allele_count": len(changed_allele_ids)})
+    changed_allele_count = sum(1 for v in verdicts.values() if v is VepLinkVerdict.CREATED)
+    save_to_logging_context({"changed_allele_count": changed_allele_count})
     logger.info(
-        msg=f"Created or superseded {len(changed_allele_ids)} VEP allele consequences this run.",
+        msg=f"Created or superseded {changed_allele_count} VEP allele consequences this run.",
         extra=logging_context(),
     )
-    return changed_allele_ids
+    return verdicts
