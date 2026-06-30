@@ -5,8 +5,7 @@ scope: all current MappingRecordAllele links (authoritative and RT-derived) for 
 score set.  A single definition here prevents the two jobs from drifting apart.
 """
 
-from dataclasses import dataclass, field
-from typing import Callable, Generic, Iterable, NamedTuple, Optional, TypeVar
+from typing import Callable, Iterable, NamedTuple, Optional, TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -20,11 +19,9 @@ P = TypeVar("P")
 
 
 class ScoreSetAlleleRow(NamedTuple):
-    """One (allele, variant) link for a score set. An allele shared by multiple variants
-    appears once per variant so callers can fan annotation statuses out correctly.
-
-    ``is_authoritative`` is a property of the link, not the allele: the same VRS allele can be
-    the authoritative measurement for one variant and an RT-derived equivalence for another.
+    """One (allele, variant) link for a score set. An allele shared by multiple variants appears once
+    per variant; :func:`group_alleles_for_annotation` collapses those duplicates into one work-unit
+    per allele.
 
     ``hgvs_g``/``hgvs_c``/``hgvs_p`` are allele-level (stable by construction), carried here so the
     VEP job can build its HGVS payload without a second query. They are optional with a ``None``
@@ -35,7 +32,6 @@ class ScoreSetAlleleRow(NamedTuple):
     post_mapped: dict | None
     clingen_allele_id: str | None
     variant_id: int
-    is_authoritative: bool
     hgvs_g: str | None = None
     hgvs_c: str | None = None
     hgvs_p: str | None = None
@@ -57,7 +53,6 @@ def get_alleles_for_score_set(db: Session, score_set_id: int) -> list[ScoreSetAl
             Allele.post_mapped,
             Allele.clingen_allele_id,
             Variant.id.label("variant_id"),
-            MappingRecordAllele.is_authoritative,
             Allele.hgvs_g,
             Allele.hgvs_c,
             Allele.hgvs_p,
@@ -72,41 +67,21 @@ def get_alleles_for_score_set(db: Session, score_set_id: int) -> list[ScoreSetAl
     ).all()
 
     return [
-        ScoreSetAlleleRow(
-            r.id, r.post_mapped, r.clingen_allele_id, r.variant_id, r.is_authoritative, r.hgvs_g, r.hgvs_c, r.hgvs_p
-        )
+        ScoreSetAlleleRow(r.id, r.post_mapped, r.clingen_allele_id, r.variant_id, r.hgvs_g, r.hgvs_c, r.hgvs_p)
         for r in rows
     ]
-
-
-@dataclass
-class AlleleAnnotationGroup(Generic[P]):
-    """One allele's annotation work-unit: a job-specific ``payload`` plus the variants that receive a
-    per-variant annotation-status (VAS) row for it.
-
-    ``authoritative_variant_ids`` is the interim **bandaid seam** (see
-    docs/design/allele-annotation-status.md). An annotation is an allele-level fact, but VAS is
-    per-variant; fanning it to every variant the allele backs would write multiple ``current`` rows
-    for one variant. So status is fanned only to the variants for which this allele is the
-    *authoritative* measurement. At the AnnotationEvent migration the per-variant fan-out goes away
-    and this list is no longer needed. The allele is still grouped (and linked/annotated at the
-    allele level) regardless — a purely RT-derived allele simply has an empty list here.
-    """
-
-    payload: P
-    authoritative_variant_ids: list[int] = field(default_factory=list)
 
 
 def group_alleles_for_annotation(
     rows: Iterable[ScoreSetAlleleRow],
     payload: Callable[[ScoreSetAlleleRow], Optional[P]],
-) -> dict[int, AlleleAnnotationGroup[P]]:
+) -> dict[int, P]:
     """Collapse the per-(allele, variant) rows from :func:`get_alleles_for_score_set` into one
-    work-unit per allele, keyed by ``allele_id``.
+    job-specific payload per allele, keyed by ``allele_id``.
 
-    The same allele recurs once per variant that links it (and can be authoritative for one variant
-    while RT-derived for another). This groups those rows so every annotation job shares one shape:
-    one entry per allele, carrying the authoritative-variant fan-out set for the bandaid.
+    The same allele recurs once per variant that links it, so this dedups those rows down to one
+    entry per allele — the shape every allele-keyed annotation job wants now that annotation events
+    are allele-keyed (one event per allele, never fanned per-variant).
 
     ``payload`` builds the job-specific payload from the first row seen for an allele — the CAID for
     gnomAD/ClinVar, the HGVS for VEP, etc. Returning ``None`` skips the allele entirely (e.g. it
@@ -118,13 +93,15 @@ def group_alleles_for_annotation(
     is the permanent, never-reused surrogate. If annotation storage later keys on the digest, carry
     it on the row and store against it — the grouping contract here does not change.
     """
-    groups: dict[int, AlleleAnnotationGroup[P]] = {}
+    groups: dict[int, P] = {}
     for row in rows:
-        if row.allele_id not in groups:
-            built = payload(row)
-            if built is None:
-                continue
-            groups[row.allele_id] = AlleleAnnotationGroup(payload=built)
-        if row.is_authoritative:
-            groups[row.allele_id].authoritative_variant_ids.append(row.variant_id)
+        if row.allele_id in groups:
+            continue
+
+        built = payload(row)
+        if built is None:
+            continue
+
+        groups[row.allele_id] = built
+
     return groups
