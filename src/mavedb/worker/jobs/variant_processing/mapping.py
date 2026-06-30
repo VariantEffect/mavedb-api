@@ -31,7 +31,8 @@ from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.allele import Allele as AlleleDbModel
 from mavedb.models.enums.annotation_layer import AnnotationLayer
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus, FailureCategory
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.job_pipeline import FailureCategory
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
@@ -268,7 +269,8 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             f"Processing {total_variants} mapped variants for score set {score_set.urn}.",
             extra=job_manager.logging_context(),
         )
-        annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job.id)
+
+        annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job.id, score_set_id=score_set.id)
         for mapped_score in mapped_scores:
             variant_urn = mapped_score.get("mavedb_id")
             variant = job_manager.db.scalars(select(Variant).where(Variant.urn == variant_urn)).one()
@@ -349,32 +351,28 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             else:
                 job_manager.db.add(mapping_record)
 
-            # MAPPED -> success; benign absences -> skipped; FAILED -> failed. The raw outcome
-            # is preserved in annotation_metadata so the benign distinction survives.
+            # The mapper emits a MappingRecord for EVERY variant, so "a record exists" carries no
+            # signal — the signal is whether a real allele resulted. MAPPED yields an authoritative
+            # allele -> present. A benign absence (intronic, synonymous) produces a record but no
+            # allele: an informative biological negative -> absent. FAILED -> failed. `reason` reuses
+            # the MappingOutcome vocabulary so the intronic-vs-no-protein distinction survives.
             if outcome is MappingOutcome.MAPPED:
-                annotation_status = AnnotationStatus.SUCCESS
-                annotation_failure_category = None
+                disposition = Disposition.PRESENT
             elif outcome.is_benign_absence:
-                annotation_status = AnnotationStatus.SKIPPED
-                annotation_failure_category = None
+                disposition = Disposition.ABSENT
             else:
-                annotation_status = AnnotationStatus.FAILED
-                annotation_failure_category = AnnotationFailureCategory.EXTERNAL_SERVICE_REJECTED
+                disposition = Disposition.FAILED
 
-            annotation_manager.add_annotation(
-                variant_id=variant.id,  # type: ignore
-                annotation_type=AnnotationType.VRS_MAPPING,
-                version=tool_version,
-                status=annotation_status,
-                failure_category=annotation_failure_category,
-                annotation_data={
-                    "error_message": mapped_score.get("error_message", null()),
-                    "annotation_metadata": {
-                        "outcome": outcome.value,
-                        "mapped_assay_level_hgvs": assay_level_hgvs,
-                    },
+            annotation_manager.record_event(
+                AnnotationType.VRS_MAPPING,
+                variant_id=variant.id,
+                disposition=disposition,
+                reason=outcome.value,
+                source_version=tool_version,
+                metadata={
+                    "mapped_assay_level_hgvs": assay_level_hgvs,
+                    "error_message": mapped_score.get("error_message"),
                 },
-                current=True,
             )
 
             # Only variants with a post-mapped representation yield an authoritative Allele;
