@@ -6,10 +6,12 @@ import pytest
 
 pytest.importorskip("ga4gh.vrs")
 
+from ga4gh.core.models import iriReference
 from ga4gh.vrs.models import (
     Allele,
     CisPhasedBlock,
     LiteralSequenceExpression,
+    Range,
     ReferenceLengthExpression,
     SequenceLocation,
     SequenceReference,
@@ -192,3 +194,49 @@ def test_normalize_and_identify_coerces_rle_to_lse(monkeypatch):
 
     assert isinstance(result.state, LiteralSequenceExpression)
     assert result.id is not None and result.id.startswith("ga4gh:VA.")
+
+
+# The unions below (location.sequenceReference, location.start, rle.length) carry IRI-reference
+# and Range variants that a fully-resolved indel allele never has. _rle_to_lse and the RLE branch
+# of normalize_and_identify guard the inlined-and-integer contract with asserts; these tests pin
+# that the guards fire rather than letting an IRI/Range slip into the digest computation as a
+# silent AttributeError or wrong sequence read.
+_NEVER_READ = SimpleNamespace(get_sequence=lambda identifier, start, end: pytest.fail("proxy read despite bad input"))
+
+
+def test_rle_to_lse_rejects_iri_sequence_reference():
+    location = SequenceLocation(sequenceReference=iriReference("seqref:unresolved"), start=10, end=12)
+    rle = ReferenceLengthExpression(length=4, repeatSubunitLength=2)
+
+    with pytest.raises(AssertionError):
+        _rle_to_lse(rle, location, _NEVER_READ)
+
+
+def test_rle_to_lse_rejects_range_start():
+    location = SequenceLocation(sequenceReference=SequenceReference(refgetAccession=_SQ), start=Range([10, 12]), end=14)
+    rle = ReferenceLengthExpression(length=4, repeatSubunitLength=2)
+
+    with pytest.raises(AssertionError):
+        _rle_to_lse(rle, location, _NEVER_READ)
+
+
+def test_rle_to_lse_rejects_range_length():
+    location = SequenceLocation(sequenceReference=SequenceReference(refgetAccession=_SQ), start=10, end=12)
+    rle = ReferenceLengthExpression(length=Range([2, 4]), repeatSubunitLength=2)
+
+    with pytest.raises(AssertionError):
+        _rle_to_lse(rle, location, _NEVER_READ)
+
+
+def test_normalize_and_identify_rejects_iri_location_for_rle(monkeypatch):
+    # If normalization ever returned an RLE allele whose location is an unresolved IRI reference,
+    # _rle_to_lse could not read a sequence from it; the call-site assert must catch this before
+    # the digest is (mis)computed rather than crashing deeper with an AttributeError.
+    bad = Allele(
+        location=iriReference("loc:unresolved"),
+        state=ReferenceLengthExpression(length=2, repeatSubunitLength=2),
+    )
+    monkeypatch.setattr(vrs_utils, "normalize", lambda allele, data_proxy: bad)
+
+    with pytest.raises(AssertionError):
+        normalize_and_identify(bad, data_proxy=_NEVER_READ)

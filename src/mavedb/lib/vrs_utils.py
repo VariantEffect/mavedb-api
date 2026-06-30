@@ -21,6 +21,7 @@ from ga4gh.vrs.models import (
     LiteralSequenceExpression,
     ReferenceLengthExpression,
     SequenceLocation,
+    SequenceReference,
     Syntax,
 )
 from ga4gh.vrs.normalize import normalize
@@ -188,7 +189,10 @@ def normalize_and_identify(allele: Allele, data_proxy: Any) -> Allele:
     """
     allele = normalize(allele, data_proxy=data_proxy)
     if isinstance(allele.state, ReferenceLengthExpression):
+        # Normalization yields an inlined SequenceLocation here, never an IRI reference.
+        assert isinstance(allele.location, SequenceLocation)
         allele.state = _rle_to_lse(allele.state, allele.location, data_proxy)
+
     allele.id = identify_allele(allele)
     return allele
 
@@ -202,8 +206,14 @@ def _rle_to_lse(
     hashes identically to the mapper's authoritative allele for the same variant. Derives
     the literal sequence by tiling the repeat subunit out to ``rle.length``.
     """
+    # A normalized indel location has an inlined SequenceReference and integer bounds;
+    # the IRI-reference and Range branches of these unions should never reach this helper.
+    assert isinstance(location.sequenceReference, SequenceReference)
+    assert isinstance(location.start, int)
+    assert isinstance(rle.length, int)
+
     sequence_id = location.sequenceReference.refgetAccession
-    start: int = location.start
+    start = location.start
     end = start + rle.repeatSubunitLength
     subsequence = data_proxy.get_sequence(f"ga4gh:{sequence_id}", start, end)
     c = cycle(subsequence)
