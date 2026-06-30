@@ -127,6 +127,8 @@ class AnnotationEvent(Base):
         Index("ix_annotation_event_allele_type_version", "allele_id", "annotation_type", "source_version"),
         # audit by run
         Index("ix_annotation_event_job_run_id", "job_run_id"),
+        # backs the score-set ON DELETE SET NULL cascade and score-set-scoped audit queries
+        Index("ix_annotation_event_score_set_id", "score_set_id"),
     )
 
     def __repr__(self) -> str:
