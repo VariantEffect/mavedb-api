@@ -21,7 +21,7 @@ from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.target_gene_mapping import TargetGeneMapping
 from mavedb.models.variant import Variant
-from mavedb.models.variant_annotation_status import VariantAnnotationStatus
+from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.worker.jobs.variant_processing.mapping import map_variants_for_score_set
 from mavedb.worker.jobs.variant_processing.reverse_translation import (
     _build_translation_config,
@@ -143,17 +143,19 @@ async def _reverse_translate(session, mock_worker_ctx, rt_run):
         )
 
 
-def _cross_level_statuses(session, score_set_id, status=None):
+def _cross_level_events(session, score_set_id, disposition=None, reason=None):
     query = (
-        session.query(VariantAnnotationStatus)
-        .join(Variant, VariantAnnotationStatus.variant_id == Variant.id)
+        session.query(AnnotationEvent)
+        .join(Variant, AnnotationEvent.variant_id == Variant.id)
         .filter(
             Variant.score_set_id == score_set_id,
-            VariantAnnotationStatus.annotation_type == "cross_level_translation",
+            AnnotationEvent.annotation_type == "cross_level_translation",
         )
     )
-    if status is not None:
-        query = query.filter(VariantAnnotationStatus.status == status)
+    if disposition is not None:
+        query = query.filter(AnnotationEvent.disposition == disposition)
+    if reason is not None:
+        query = query.filter(AnnotationEvent.reason == reason)
     return query.all()
 
 
@@ -226,7 +228,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         # No candidate alleles, links, or annotations were produced.
         assert session.query(Allele).count() == 0
         assert _non_authoritative_links(session) == []
-        assert _cross_level_statuses(session, sample_score_set.id) == []
+        assert _cross_level_events(session, sample_score_set.id) == []
 
     async def test_creates_genomic_and_coding_candidate_alleles(
         self,
@@ -287,9 +289,9 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         mapping_record = session.query(MappingRecord).filter(MappingRecord.variant_id == variant.id).one()
         assert {link.mapping_record_id for link in non_auth_links} == {mapping_record.id}
 
-        statuses = _cross_level_statuses(session, sample_score_set.id)
-        assert len(statuses) == 1
-        assert statuses[0].status == "success"
+        events = _cross_level_events(session, sample_score_set.id)
+        assert len(events) == 1
+        assert events[0].disposition == "present"
 
     async def test_transcript_is_queryable_via_derived_expression(
         self,
@@ -604,10 +606,11 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         # The two candidate alleles are reused across runs, not duplicated.
         assert session.query(Allele).filter(Allele.vrs_digest.in_(["ga4gh:VA.genomic", "ga4gh:VA.coding"])).count() == 2
 
-        # The cross-level translation status is versioned the same way: prior retired, one current.
-        statuses = _cross_level_statuses(session, sample_score_set.id)
-        assert len(statuses) == 2
-        assert len([s for s in statuses if s.current]) == 1
+        # The cross-level translation log is append-only: the rerun adds a second event, and
+        # "current" is the latest by id (there is no current flag to desync).
+        events = _cross_level_events(session, sample_score_set.id)
+        assert len(events) == 2
+        assert max(events, key=lambda e: e.id).disposition == "present"
 
     async def test_all_failures_fail_the_job(
         self,
@@ -644,11 +647,11 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert result.data == {"translated": 0, "failed": 1, "skipped": 0, "alleles_created": 0}
 
         assert _non_authoritative_links(session) == []
-        failed_statuses = _cross_level_statuses(session, sample_score_set.id, status="failed")
-        assert len(failed_statuses) == 1
-        assert failed_statuses[0].error_message == "forward translation failed"
+        failed_events = _cross_level_events(session, sample_score_set.id, disposition="failed")
+        assert len(failed_events) == 1
+        assert failed_events[0].event_metadata["error_message"] == "forward translation failed"
         # Library/input-level failures still carry the assay-level HGVS as metadata.
-        assert failed_statuses[0].annotation_metadata == {"hgvs_input": assay_hgvs}
+        assert failed_events[0].event_metadata["hgvs_input"] == assay_hgvs
 
     async def test_partial_success_succeeds_with_mixed_annotations(
         self,
@@ -696,8 +699,8 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert result.status == JobStatus.SUCCEEDED
         assert result.data == {"translated": 1, "failed": 1, "skipped": 0, "alleles_created": 1}
 
-        assert len(_cross_level_statuses(session, sample_score_set.id, status="success")) == 1
-        assert len(_cross_level_statuses(session, sample_score_set.id, status="failed")) == 1
+        assert len(_cross_level_events(session, sample_score_set.id, disposition="present")) == 1
+        assert len(_cross_level_events(session, sample_score_set.id, disposition="failed")) == 1
         assert len(_non_authoritative_links(session)) == 1
 
     async def test_partial_candidate_translation_failure_keeps_success_with_metadata(
@@ -742,9 +745,9 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 1}
         assert len(_non_authoritative_links(session)) == 1
 
-        statuses = _cross_level_statuses(session, sample_score_set.id, status="success")
-        assert len(statuses) == 1
-        failed_candidates = statuses[0].annotation_metadata["failed_candidates"]
+        events = _cross_level_events(session, sample_score_set.id, disposition="present")
+        assert len(events) == 1
+        failed_candidates = events[0].event_metadata["failed_candidates"]
         assert failed_candidates == [{"hgvs": bad_candidate, "level": "genomic", "error": "untranslatable form"}]
 
     async def test_all_candidates_failing_translation_marks_variant_failed(
@@ -785,16 +788,16 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert result.data == {"translated": 0, "failed": 1, "skipped": 0, "alleles_created": 0}
         assert _non_authoritative_links(session) == []
 
-        failed_statuses = _cross_level_statuses(session, sample_score_set.id, status="failed")
-        assert len(failed_statuses) == 1
-        assert failed_statuses[0].error_message == "All candidate HGVS failed VRS translation."
-        metadata = failed_statuses[0].annotation_metadata
+        failed_events = _cross_level_events(session, sample_score_set.id, disposition="failed")
+        assert len(failed_events) == 1
+        assert failed_events[0].event_metadata["error_message"] == "All candidate HGVS failed VRS translation."
+        metadata = failed_events[0].event_metadata
         assert metadata["hgvs_input"] == assay_hgvs
         assert metadata["failed_candidates"] == [
             {"hgvs": bad_candidate, "level": "genomic", "error": "untranslatable form"}
         ]
 
-    async def test_no_coding_transcript_is_skipped_not_failed(
+    async def test_unresolved_transcript_is_tallied_as_skip_but_recorded_as_failed(
         self,
         session,
         with_independent_processing_runs,
@@ -804,8 +807,11 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         sample_independent_reverse_translation_run,
         sample_score_set,
     ):
-        """A target gene aligned only at the genomic level has no coding transcript, so its
-        variants are SKIPPED (no protein consequence) rather than attempted and failed."""
+        """A protein-coding target aligned only at the genomic level has no resolvable coding
+        transcript (transcript_unresolved). The job tallies it in its `skipped` counter, but the
+        recoverable gap is recorded as a `failed` event — distinct from a hard translation
+        failure (reason `translation_failed`) and from a true biological absence
+        (no_coding_transcript → `absent`)."""
         variant = Variant(
             score_set_id=sample_score_set.id,
             urn="variant:1",
@@ -831,8 +837,12 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         # No translation attempted: no candidate alleles or links, and the variant is
         # recorded as SKIPPED rather than FAILED.
         assert _non_authoritative_links(session) == []
-        assert _cross_level_statuses(session, sample_score_set.id, status="failed") == []
-        assert len(_cross_level_statuses(session, sample_score_set.id, status="skipped")) == 1
+        # The job counts this as a skip, but a protein-coding target with no resolvable coding
+        # transcript is a *recoverable* gap (transcript_unresolved) → recorded as a `failed` event,
+        # distinct from a hard translation failure (which carries reason `translation_failed`).
+        unresolved = _cross_level_events(session, sample_score_set.id, reason="transcript_unresolved")
+        assert len(unresolved) == 1
+        assert unresolved[0].disposition == "failed"
 
     async def test_genomic_accession_coding_target_is_reverse_translated(
         self,
@@ -875,7 +885,8 @@ class TestReverseTranslateVariantsForScoreSetUnit:
 
         assert result.status == JobStatus.SUCCEEDED
         assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 1}
-        assert _cross_level_statuses(session, sample_score_set.id, status="skipped") == []
+        events = _cross_level_events(session, sample_score_set.id)
+        assert events and all(e.disposition == "present" for e in events)
 
     def _run_mapped_date(self, session, target_gene_id):
         """The mapped_date the (mock) mapping run stamped on its TargetGeneMappings."""
@@ -999,9 +1010,9 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0}
-        skipped = _cross_level_statuses(session, sample_score_set.id, status="skipped")
+        skipped = _cross_level_events(session, sample_score_set.id, reason="transcript_unresolved")
         assert len(skipped) == 1
-        assert skipped[0].annotation_metadata["skip_category"] == "transcript_unresolved"
+        assert skipped[0].disposition == "failed"
 
     async def test_coding_target_skip_is_classified_recoverable(
         self,
@@ -1037,9 +1048,9 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0}
-        skipped = _cross_level_statuses(session, sample_score_set.id, status="skipped")
+        skipped = _cross_level_events(session, sample_score_set.id, reason="transcript_unresolved")
         assert len(skipped) == 1
-        assert skipped[0].annotation_metadata["skip_category"] == "transcript_unresolved"
+        assert skipped[0].disposition == "failed"
 
     async def test_regulatory_target_skip_is_classified_correct(
         self,
@@ -1077,9 +1088,9 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0}
-        skipped = _cross_level_statuses(session, sample_score_set.id, status="skipped")
+        skipped = _cross_level_events(session, sample_score_set.id, reason="no_coding_transcript")
         assert len(skipped) == 1
-        assert skipped[0].annotation_metadata["skip_category"] == "no_coding_transcript"
+        assert skipped[0].disposition == "absent"
 
     async def test_translation_config_param_overrides_job_defaults(
         self,

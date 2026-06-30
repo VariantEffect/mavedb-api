@@ -11,12 +11,13 @@ import asyncio
 import dataclasses
 import functools
 import logging
+from collections import Counter
 from datetime import date
-from enum import Enum
 from typing import Any, NamedTuple, Sequence
 
 from ga4gh.vrs.extras.translator import AlleleTranslator
 from sqlalchemy import select
+from variant_annotation import __version__ as variant_annotation_version
 from variant_annotation.lib.accessions import looks_like_refseq_protein_accession
 from variant_annotation.lib.translation import construct_equivalent_variants
 from variant_annotation.lib.translation.types import TranslationConfig, VariantInput, WtCodonMode
@@ -29,7 +30,9 @@ from mavedb.lib.vrs_utils import translate_hgvs_to_variation
 from mavedb.models.allele import Allele as AlleleDbModel
 from mavedb.models.enums.annotation_layer import AnnotationLayer
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus, FailureCategory
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.event_reason import EventReason
+from mavedb.models.enums.job_pipeline import FailureCategory
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
@@ -64,36 +67,21 @@ class _TranscriptResolution(NamedTuple):
     target_gene_id: int | None
 
 
-class _TranscriptResolutionSkipReason(Enum):
-    NO_ASSAY_LEVEL_HGVS = "no_assay_level_hgvs"
-    TRANSCRIPT_UNRESOLVED = "transcript_unresolved"
-    NO_CODING_TRANSCRIPT = "no_coding_transcript"
+def _classify_skip(
+    resolution: _TranscriptResolution, category: TargetCategory | None
+) -> tuple[EventReason, Disposition]:
+    """Classify why a record was skipped, returning its reason and event disposition.
 
-    @classmethod
-    def classify(
-        cls, resolution: _TranscriptResolution, category: TargetCategory | None
-    ) -> tuple["_TranscriptResolutionSkipReason", str]:
-        """Classify why a record was skipped.
-
-        Protein-coding target with no transcript → recoverable (transcript_unresolved).
-        Non-coding/regulatory target → correct skip (no_coding_transcript).
-        """
-        if not resolution.rec.hgvs_assay_level:
-            return (
-                cls.NO_ASSAY_LEVEL_HGVS,
-                "No assay-level HGVS available to reverse-translate.",
-            )
-        if category == TargetCategory.protein_coding:
-            return (
-                cls.TRANSCRIPT_UNRESOLVED,
-                "Protein-coding target but no coding transcript could be resolved "
-                "(no cdna TargetGeneMapping and no NP_->NM_ association). Recoverable: "
-                "re-map or check transcript selection.",
-            )
-        return (
-            cls.NO_CODING_TRANSCRIPT,
-            "Non-coding/regulatory target has no protein consequence to reverse-translate.",
-        )
+    ``no_assay_level_hgvs`` — no input to translate, we could not ask → ``not_applicable``.
+    ``transcript_unresolved`` — protein-coding target with no transcript, a recoverable pipeline
+    gap → ``failed``. ``no_coding_transcript`` — non-coding target has no protein consequence, a
+    biological negative → ``absent``.
+    """
+    if not resolution.rec.hgvs_assay_level:
+        return (EventReason.NO_ASSAY_LEVEL_HGVS, Disposition.NOT_APPLICABLE)
+    if category == TargetCategory.protein_coding:
+        return (EventReason.TRANSCRIPT_UNRESOLVED, Disposition.FAILED)
+    return (EventReason.NO_CODING_TRANSCRIPT, Disposition.ABSENT)
 
 
 def _coding_transcripts_for_proteins(protein_accessions: set[str]) -> dict[str, str]:
@@ -145,6 +133,33 @@ def _build_translation_config(overrides: dict[str, Any] | None) -> TranslationCo
         return TranslationConfig(**config_kwargs)
     except ValueError as exc:
         raise ValueError(f"Invalid translation_config: {exc}") from exc
+
+
+def _annotate_translation(
+    annotation_manager: AnnotationStatusManager,
+    variant_id: int,
+    disposition: Disposition,
+    reason: EventReason,
+    *,
+    error_message: str | None = None,
+    metadata: dict | None = None,
+) -> None:
+    """Record one CROSS_LEVEL_TRANSLATION event for an allele (the translation is a variant-level fact).
+
+    The single choke point for RT's status writes.
+    """
+    meta = dict(metadata or {})
+    if error_message is not None:
+        meta["error_message"] = error_message
+
+    annotation_manager.record_event(
+        AnnotationType.CROSS_LEVEL_TRANSLATION,
+        variant_id=variant_id,
+        disposition=disposition,
+        reason=reason,
+        source_version=variant_annotation_version,
+        metadata=meta or None,
+    )
 
 
 @with_pipeline_management
@@ -227,13 +242,15 @@ async def reverse_translate_variants_for_score_set(
         .all()
     )
 
+    annotation_counts: Counter[str] = Counter({"translated": 0, "failed": 0, "skipped": 0, "alleles_created": 0})
+
     if not rows:
         logger.warning(
             msg="No current and authoritative mapping records found for this score set.",
             extra=job_manager.logging_context(),
         )
         job_manager.db.flush()
-        return JobExecutionOutcome.succeeded(data={"translated": 0, "failed": 0, "skipped": 0, "alleles_created": 0})
+        return JobExecutionOutcome.succeeded(data=dict(annotation_counts))
 
     # Genomic/cdna records resolve via the cdna TargetGeneMapping; protein records have no
     # cdna reference_accession, so collect their NP_ accessions for a batched NP_→NM_ UTA lookup.
@@ -322,10 +339,9 @@ async def reverse_translate_variants_for_score_set(
         extra=job_manager.logging_context(),
     )
 
-    translated = 0
-    failed = 0
-    alleles_created = 0
-    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
+    annotation_manager = AnnotationStatusManager(
+        job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set_id
+    )
     allele_translator = AlleleTranslator(ctx["seqrepo"])
 
     current_record_ids = (
@@ -411,11 +427,12 @@ async def reverse_translate_variants_for_score_set(
             )
             candidate_count += 1
 
-        alleles_created += candidate_count
+        annotation_counts["alleles_created"] += candidate_count
         annotation_metadata = {
             "hgvs_input": result.input.hgvs,
             "hgvs_c_candidates": result.hgvs_c_candidates,
             "hgvs_g_candidates": result.hgvs_g_candidates,
+            "hgvs_p": result.hgvs_p,
             "alleles_created": candidate_count,
             "failed_candidates": failed_candidates,
         }
@@ -423,24 +440,23 @@ async def reverse_translate_variants_for_score_set(
         # No translatable candidates and failures mean the variant failed reverse translation. No
         # failures and no candidates is a success with no alleles created.
         if candidate_count == 0 and failed_candidates:
-            failed += 1
-            annotation_manager.add_annotation(
+            annotation_counts["failed"] += 1
+            _annotate_translation(
+                annotation_manager,
                 variant_id=variant.id,
-                annotation_type=AnnotationType.CROSS_LEVEL_TRANSLATION,
-                status=AnnotationStatus.FAILED,
-                failure_category=AnnotationFailureCategory.UNKNOWN,
-                annotation_data={
-                    "error_message": "All candidate HGVS failed VRS translation.",
-                    "annotation_metadata": annotation_metadata,
-                },
+                disposition=Disposition.FAILED,
+                reason=EventReason.TRANSLATION_FAILED,
+                error_message="All candidate HGVS failed VRS translation.",
+                metadata=annotation_metadata,
             )
         else:
-            translated += 1
-            annotation_manager.add_annotation(
+            annotation_counts["translated"] += 1
+            _annotate_translation(
+                annotation_manager,
                 variant_id=variant.id,
-                annotation_type=AnnotationType.CROSS_LEVEL_TRANSLATION,
-                status=AnnotationStatus.SUCCESS,
-                annotation_data={"annotation_metadata": annotation_metadata},
+                disposition=Disposition.PRESENT,
+                reason=EventReason.TRANSLATED,
+                metadata=annotation_metadata,
             )
 
     # Supersede prior live derived links atomically.
@@ -453,71 +469,56 @@ async def reverse_translate_variants_for_score_set(
         MappingRecordAllele.mapping_record_id.in_(current_record_ids),
     )
 
-    # TODO#767: non-substitution consequences (del/ins/delins/fs/ext) have no synonymous
+    # TODO#767: some non-substitution consequences (del/ins/delins/fs/ext) have no synonymous
     # equivalence class, so they arrive here as TranslationErrors and are miscounted as
     # FAILED. Classify by the protein consequence's edit type up front and map these to
     # SKIPPED instead of pattern-matching engine error strings.
     for error in errors:
         _rec, variant = variant_input_map[id(error.input)]
-        failed += 1
-        annotation_manager.add_annotation(
+        annotation_counts["failed"] += 1
+        _annotate_translation(
+            annotation_manager,
             variant_id=variant.id,
-            annotation_type=AnnotationType.CROSS_LEVEL_TRANSLATION,
-            status=AnnotationStatus.FAILED,
-            failure_category=AnnotationFailureCategory.UNKNOWN,
-            annotation_data={
-                "error_message": error.error,
-                "annotation_metadata": {"hgvs_input": error.input.hgvs},
-            },
+            disposition=Disposition.FAILED,
+            reason=EventReason.TRANSLATION_ERROR,
+            metadata={"hgvs_input": error.input.hgvs, "error_message": error.error},
         )
 
-    skipped = len(skipped_variants)
+    annotation_counts["skipped"] = len(skipped_variants)
     for p in skipped_variants:
         category = target_category_by_gene.get(p.target_gene_id) if p.target_gene_id is not None else None
-        skip_category, reason = _TranscriptResolutionSkipReason.classify(p, category)
-        annotation_manager.add_annotation(
+        reason, disposition = _classify_skip(p, category)
+        _annotate_translation(
+            annotation_manager,
             variant_id=p.variant.id,
-            annotation_type=AnnotationType.CROSS_LEVEL_TRANSLATION,
-            status=AnnotationStatus.SKIPPED,
-            annotation_data={
-                "annotation_metadata": {
-                    "hgvs_input": p.rec.hgvs_assay_level,
-                    "skip_category": skip_category.value,
-                    "reason": reason,
-                }
-            },
+            disposition=disposition,
+            reason=reason,
+            metadata={"hgvs_input": p.rec.hgvs_assay_level},
         )
 
     annotation_manager.flush()
 
-    job_manager.save_to_context(
-        {
-            "translated": translated,
-            "failed": failed,
-            "skipped": skipped,
-            "alleles_created": alleles_created,
-        }
-    )
+    outcome_data = dict(annotation_counts)
+    job_manager.save_to_context(outcome_data)
     logger.info(
         msg=(
-            f"Reverse translation complete: {translated} translated, {failed} failed, "
-            f"{skipped} skipped, {alleles_created} alleles created."
+            f"Reverse translation complete: {annotation_counts['translated']} translated, "
+            f"{annotation_counts['failed']} failed, {annotation_counts['skipped']} skipped, "
+            f"{annotation_counts['alleles_created']} alleles created."
         ),
         extra=job_manager.logging_context(),
     )
     job_manager.db.flush()
 
-    if translated == 0 and failed > 0:
+    if annotation_counts["translated"] == 0 and annotation_counts["failed"] > 0:
         logger.error(
             msg="All variant reverse translations failed.",
             extra=job_manager.logging_context(),
         )
         return JobExecutionOutcome.failed(
             reason="All variant reverse translations failed.",
-            data={"translated": 0, "failed": failed, "skipped": skipped, "alleles_created": 0},
+            data=outcome_data,
             failure_category=FailureCategory.DATA_ERROR,
         )
 
-    return JobExecutionOutcome.succeeded(
-        data={"translated": translated, "failed": failed, "skipped": skipped, "alleles_created": alleles_created}
-    )
+    return JobExecutionOutcome.succeeded(data=outcome_data)
