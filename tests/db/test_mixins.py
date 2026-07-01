@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import Column, ForeignKey, Index, Integer, select, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import aliased, declarative_base, relationship
 
 from mavedb.db.mixins import ValidTime
 
@@ -118,6 +118,47 @@ class TestCurrentAndAsOf:
         assert live_ids(T1) == [p.id]  # inside the window
         assert live_ids(T2) == []  # at valid_to (exclusive)
         assert live_ids(T2 + timedelta(days=1)) == []  # after the window closes
+
+
+class TestLiveAt:
+    """``live_at(as_of)`` is the one-call ``as_of(ts) if ts else current`` — same result, but it also
+    works on an ``aliased()`` entity, which the raw ternary at call sites does too, but only clumsily."""
+
+    def test_live_at_none_is_current_on_instance(self, session):
+        live = _parent(session, 1)
+        retired = _parent(session, 2)
+        retired.retire(session, at=T1)
+        assert live.live_at(None) is True
+        assert retired.live_at(None) is False
+
+    def test_live_at_ts_matches_the_window_on_instance(self, session):
+        p = _parent(session, 1, valid_from=T0)
+        p.retire(session, at=T2)
+        assert p.live_at(T0 - timedelta(days=1)) is False  # before the window opens
+        assert p.live_at(T0) is True  # at valid_from (inclusive)
+        assert p.live_at(T1) is True  # inside the window
+        assert p.live_at(T2) is False  # at valid_to (exclusive)
+
+    def test_live_at_expression_agrees_with_current_and_as_of(self, session):
+        p = _parent(session, 1, valid_from=T0)
+        p.retire(session, at=T2)
+        session.commit()
+
+        def ids(pred):
+            return [r.id for r in session.scalars(select(_VtParent).where(pred)).all()]
+
+        assert ids(_VtParent.live_at(None)) == ids(_VtParent.current) == []  # retired -> not current
+        assert ids(_VtParent.live_at(T1)) == ids(_VtParent.as_of(T1)) == [p.id]
+
+    def test_live_at_is_alias_aware(self, session):
+        # The point of live_at: it scopes to the alias, not the base table (a plain classmethod on an
+        # aliased entity is the trap this avoids). Both the compiled SQL and a query through the alias.
+        p = _parent(session, 1, valid_from=T0)
+        session.commit()
+        alias = aliased(_VtParent, name="pa")
+        assert "pa." in str(alias.live_at(T1))
+        rows = session.scalars(select(alias).where(alias.live_at(T1))).all()
+        assert [r.id for r in rows] == [p.id]
 
 
 class TestRetire:

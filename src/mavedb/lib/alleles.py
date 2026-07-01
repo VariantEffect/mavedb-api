@@ -35,10 +35,9 @@ def get_live_record_allele_links(
     applies the same half-open predicate to both the record and the links, so the set is evaluated at
     one instant. Returns ``[]`` when the variant has no live record.
     """
-    record_live = MappingRecord.as_of(as_of) if as_of is not None else MappingRecord.current
-    link_live = MappingRecordAllele.as_of(as_of) if as_of is not None else MappingRecordAllele.current
-
-    record_id = db.scalar(select(MappingRecord.id).where(MappingRecord.variant_id == variant_id).where(record_live))
+    record_id = db.scalar(
+        select(MappingRecord.id).where(MappingRecord.variant_id == variant_id).where(MappingRecord.live_at(as_of))
+    )
     if record_id is None:
         return []
 
@@ -46,7 +45,7 @@ def get_live_record_allele_links(
         db.scalars(
             select(MappingRecordAllele)
             .where(MappingRecordAllele.mapping_record_id == record_id)
-            .where(link_live)
+            .where(MappingRecordAllele.live_at(as_of))
             .options(joinedload(MappingRecordAllele.allele))
         ).all()
     )
@@ -69,10 +68,10 @@ def get_allele_translations(db: Session, allele_id: int, *, as_of: Optional[date
     instant. The retire-cascade invariant (a live link implies a live record) holds under ``as_of`` too,
     so filtering the links alone is sufficient.
     """
-    link_live = MappingRecordAllele.as_of(as_of) if as_of is not None else MappingRecordAllele.current
-
     record_ids = db.scalars(
-        select(MappingRecordAllele.mapping_record_id).where(MappingRecordAllele.allele_id == allele_id).where(link_live)
+        select(MappingRecordAllele.mapping_record_id)
+        .where(MappingRecordAllele.allele_id == allele_id)
+        .where(MappingRecordAllele.live_at(as_of))
     ).all()
     if not record_ids:
         return []
@@ -82,7 +81,7 @@ def get_allele_translations(db: Session, allele_id: int, *, as_of: Optional[date
             select(Allele)
             .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
             .where(MappingRecordAllele.mapping_record_id.in_(record_ids))
-            .where(link_live)
+            .where(MappingRecordAllele.live_at(as_of))
             .distinct()
         ).all()
     )

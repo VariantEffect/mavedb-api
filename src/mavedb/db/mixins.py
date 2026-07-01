@@ -3,8 +3,9 @@
 from datetime import datetime
 from typing import ClassVar, Optional, Sequence, TypeVar
 
-from sqlalchemy import ColumnElement, DateTime, Update, func, inspect as sa_inspect, select, update
-from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy import ColumnElement, DateTime, Update, func, select, update
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 T = TypeVar("T", bound="ValidTime")
@@ -96,6 +97,24 @@ class ValidTime:
     def as_of(cls, ts: datetime) -> ColumnElement[bool]:
         """Filter clause selecting the rows live at ``ts`` (half-open ``[valid_from, valid_to)``)."""
         return (cls.valid_from <= ts) & (cls.valid_to.is_(None) | (cls.valid_to > ts))
+
+    @hybrid_method
+    def live_at(self, as_of: Optional[datetime]) -> bool:
+        """Live at ``as_of``, or currently live when ``as_of`` is ``None``.
+
+        The one-call form of the ``as_of(ts) if ts is not None else current`` branch every temporal
+        read otherwise repeats. Same result as :attr:`current` / :meth:`as_of`, but usable uniformly on
+        the class, an instance, and an ``aliased()`` class (SQLAlchemy adapts the column refs to it)."""
+        if as_of is None:
+            return self.valid_to is None
+        return self.valid_from <= as_of and (self.valid_to is None or self.valid_to > as_of)
+
+    @live_at.expression
+    @classmethod
+    def _live_at_expression(cls, as_of: Optional[datetime]) -> ColumnElement[bool]:
+        if as_of is None:
+            return cls.valid_to.is_(None)
+        return (cls.valid_from <= as_of) & (cls.valid_to.is_(None) | (cls.valid_to > as_of))
 
     def retire(self, session: Optional[Session] = None, at: Optional[datetime] = None) -> None:
         """Close this row's validity window, cascading to the live child links named in
