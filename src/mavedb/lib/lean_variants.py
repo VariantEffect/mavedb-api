@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Integer, and_, cast, func, or_, select
+from sqlalchemy import Integer, and_, cast, func, select
 from sqlalchemy.orm import Session, aliased
 
 from mavedb.lib.hgvs import parse_simple_substitution
@@ -92,32 +92,34 @@ def get_lean_score_set_variants(
     histogram still see them. ``as_of`` reconstructs the annotation layer at a past instant (submitted
     HGVS and scores are immutable and unaffected); it defaults to the currently-live rows.
     """
-    # Content valid-time: each ValidTime layer is evaluated at the same instant, or at the current tail.
-    record_live = MappingRecord.as_of(as_of) if as_of is not None else MappingRecord.current
-    link_live = MappingRecordAllele.as_of(as_of) if as_of is not None else MappingRecordAllele.current
-    vep_live = VepAlleleConsequence.as_of(as_of) if as_of is not None else VepAlleleConsequence.current
-
-    # The post-mapped protein HGVS is the forward-translated protein consequence, stored in the hgvs_p
-    # column of the record's protein-level allele. Pull it as a correlated scalar subquery so the main
-    # query stays one row per variant. It is  null when no forward-translated protein is available. For
-    # a protein assay this is the measured allele, so it coincides with assay_level_hgvs.
+    # Per record, the forward-translated protein HGVS (hgvs_p) of its protein-level allele.
     prot_link = aliased(MappingRecordAllele)
     prot_allele = aliased(Allele)
-    prot_link_live = (
-        and_(prot_link.valid_from <= as_of, or_(prot_link.valid_to.is_(None), prot_link.valid_to > as_of))
-        if as_of is not None
-        else prot_link.valid_to.is_(None)
-    )
-    protein_hgvs_subquery = (
-        select(prot_allele.hgvs_p)
-        .join(prot_link, prot_link.allele_id == prot_allele.id)
-        .where(prot_link.mapping_record_id == MappingRecord.id)
-        .where(prot_link_live)
+    prot_record = aliased(MappingRecord)
+    prot_variant = aliased(Variant)
+    protein_allele = (
+        select(
+            prot_link.mapping_record_id.label("mapping_record_id"),
+            prot_allele.hgvs_p.label("protein_hgvs"),
+        )
+        # DISTINCT ON -> at most one protein level row per record.
+        .distinct(prot_link.mapping_record_id)
+        # link -> allele: level and hgvs_p live on the *allele*.
+        .join(prot_allele, prot_allele.id == prot_link.allele_id)
+        # link -> record -> variant: the bridge to scoreset_id, to scope the subquery (next).
+        .join(prot_record, prot_record.id == prot_link.mapping_record_id)
+        .join(prot_variant, prot_variant.id == prot_record.variant_id)
+        # Scope to this score set so the subquery's cost scales with the response.
+        .where(prot_variant.score_set_id == score_set.id)
+        # Live links only. A live link implies a live parent record (ValidTime invariant), so this also
+        # covers record-liveness — no prot_record.live_at needed; the MR join is just the scoping bridge.
+        .where(prot_link.live_at(as_of))
+        # Only the protein-level allele.
         .where(prot_allele.level == AnnotationLayer.protein.value)
-        .order_by(prot_allele.id)
-        .limit(1)
-        .correlate(MappingRecord)
-        .scalar_subquery()
+        # DISTINCT ON requires ORDER BY to lead with its column; allele.id then picks which row survives
+        # per record — inert today (only one protein allele exists).
+        .order_by(prot_link.mapping_record_id, prot_allele.id)
+        .subquery()
     )
 
     statement = (
@@ -128,26 +130,39 @@ def get_lean_score_set_variants(
             Variant.hgvs_pro,
             Variant.hgvs_splice,
             MappingRecord.hgvs_assay_level,
-            protein_hgvs_subquery.label("protein_hgvs"),
+            protein_allele.c.protein_hgvs.label("protein_hgvs"),
             Allele.vrs_digest,
             Allele.clingen_allele_id,
             VepAlleleConsequence.functional_consequence,
         )
-        .outerjoin(MappingRecord, and_(MappingRecord.variant_id == Variant.id, record_live))
-        # Only the authoritative (measured) allele is needed, so the link join stays 1:1 with the
-        # variant — one authoritative link per live record (the invariant the mapping job upholds).
+        # Variant -> its live mapping record. LEFT join so unmapped variants stay (with null mapped fields)
+        # for the table + score histogram. live_at rides in the ON clause, never a WHERE: a WHERE would
+        # reject the null-record row an outer join makes for an unmapped variant, silently collapsing the
+        # LEFT join to an inner one. Same pattern on every join below.
+        .outerjoin(MappingRecord, and_(MappingRecord.variant_id == Variant.id, MappingRecord.live_at(as_of)))
+        # The one authoritative (measured) allele. is_authoritative keeps this 1:1 with the variant
+        # (one authoritative link per live record — the invariant the mapping job upholds).
         .outerjoin(
             MappingRecordAllele,
             and_(
                 MappingRecordAllele.mapping_record_id == MappingRecord.id,
                 MappingRecordAllele.is_authoritative.is_(True),
-                link_live,
+                MappingRecordAllele.live_at(as_of),
             ),
         )
+        # The authoritative allele row itself (digest, ClinGen id). No live_at: alleles are immutable and
+        # deduplicated, not ValidTime — the live link already establishes what applies.
         .outerjoin(Allele, Allele.id == MappingRecordAllele.allele_id)
-        .outerjoin(VepAlleleConsequence, and_(VepAlleleConsequence.allele_id == Allele.id, vep_live))
+        # Its VEP consequence.
+        .outerjoin(
+            VepAlleleConsequence, and_(VepAlleleConsequence.allele_id == Allele.id, VepAlleleConsequence.live_at(as_of))
+        )
+        # The protein subquery, matched back by record id (a globally-unique PK -> the right protein row,
+        # no cross-set risk). LEFT: some rows have no protein projection (UTR/intronic) -> null.
+        .outerjoin(protein_allele, protein_allele.c.mapping_record_id == MappingRecord.id)
+        # The anchor: just this score set's variants.
         .where(Variant.score_set_id == score_set.id)
-        # Variant number (the integer after '#') is the natural table order; id breaks ties stably.
+        # Natural table order: variant number (the integer after '#'), id breaks ties stably.
         .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer), Variant.id)
     )
 
