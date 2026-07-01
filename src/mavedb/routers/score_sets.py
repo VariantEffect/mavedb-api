@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import requests
 from arq import ArqRedis
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import StreamingResponse
@@ -41,6 +41,7 @@ from mavedb.lib.identifiers import (
     find_or_create_doi_identifier,
     find_or_create_publication_identifier,
 )
+from mavedb.lib.lean_variants import get_lean_score_set_variants
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
     correlation_id_for_context,
@@ -98,6 +99,7 @@ from mavedb.routers.shared import (
 from mavedb.view_models import clinical_control, gnomad_variant, mapped_variant, score_set
 from mavedb.view_models.contributor import ContributorCreate
 from mavedb.view_models.doi_identifier import DoiIdentifierCreate
+from mavedb.view_models.lean_variant import LeanVariant
 from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
 from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 from mavedb.view_models.search import ScoreSetsSearch, ScoreSetsSearchFilterOptionsResponse, ScoreSetsSearchResponse
@@ -863,6 +865,46 @@ async def show_score_set(
     item = await fetch_score_set_by_urn(db, urn, user_data, None, False)
     enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
     return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
+
+
+@router.get(
+    "/score-sets/{urn}/variants",
+    status_code=200,
+    response_model=List[LeanVariant],
+    response_model_exclude_none=True,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Get the lean whole-set variant view for a score set",
+)
+async def get_score_set_lean_variants(
+    *,
+    urn: str,
+    response: Response,
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the annotation layer (mapping, allele links, VEP consequence) as it stood at "
+            "this instant, over the score set's fixed scores. ISO 8601, ideally timezone-aware. This is "
+            "content valid-time only — it never re-selects a score-set version. Defaults to current."
+        ),
+    ),
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+) -> Any:
+    """
+    Return the lean whole-set view for a score set: one pre-chewed record per variant carrying the
+    selection key (variant URN), score, a representative consequence, the bridge identifiers into the
+    annotation dimensions (ClinGen allele id, assay-level digest), and the DNA + protein parsed
+    position/ref/alt blocks that drive the heatmap's level toggle.
+
+    The full set is returned in one payload — the score-set page bins/sorts/filters across every
+    variant client-side. as_of time-travels the annotation layer only (scores are immutable); the
+    resolved value is echoed in the X-As-Of response header so the content-time is a visible fact.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "lean-variants", "as_of": as_of})
+    response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
+
+    score_set = await fetch_score_set_by_urn(db, urn, user_data, None, False)
+    return get_lean_score_set_variants(db, score_set, as_of=as_of)
 
 
 @router.get(

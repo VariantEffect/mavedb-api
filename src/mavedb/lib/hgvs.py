@@ -1,5 +1,6 @@
 import re
 import sys
+from dataclasses import dataclass
 from typing import Optional
 
 # Coordinate prefix of an HGVS variant description: a single type letter plus a dot
@@ -48,6 +49,72 @@ def strip_protein_prediction_parens(hgvs_p: str) -> str:
     consistency. A string with no prediction parens is returned unchanged.
     """
     return _HGVS_P_PREDICTION.sub(r":p.\1", hgvs_p)
+
+
+_NT_SUBSTITUTION = re.compile(r"^(?:[^:]+:)?[cgn]\.(\d+)([ACGTacgt])>([ACGTacgt])$")
+"""
+Nucleotide: only a purely numeric position yields a placeable block — UTR/intron coding positions
+(`c.*123`, `c.-12`, `c.12+3`) are not single integers and so are not parsed into a block (the 
+heatmap cannot place them either). ref/alt are single nucleotides.
+"""
+_PRO_SUBSTITUTION = re.compile(r"^(?:[^:]+:)?p\.\(?([A-Za-z]{3})(\d+)([A-Za-z]{3}|=|\*|-)\)?$")
+"""
+Protein: three-letter ref, integer position, and a three-letter alt or one of `=` (synonymous),
+`*` (Ter/stop), `-` (deletion) — matching MaveHGVS-pro and the heatmap's amino-acid rows.
+"""
+
+
+@dataclass(frozen=True)
+class SequenceBlock:
+    """A parsed single-locus substitution: 1-based ``position`` plus ``ref`` and ``alt`` residues.
+
+    For coding DNA ``ref``/``alt`` are single nucleotides; for protein they are three-letter amino-acid
+    codes or one of ``=`` (synonymous), ``*`` (Ter/stop), ``-`` (deletion).
+    """
+
+    position: int
+    ref: str
+    alt: str
+
+
+def parse_simple_nucleotide_substitution(hgvs: Optional[str]) -> Optional[SequenceBlock]:
+    """Parse a single-locus coding/genomic substitution (``c.1216G>A``) into a :class:`SequenceBlock`.
+
+    Returns ``None`` for anything that is not a numeric-position single-nucleotide substitution
+    (multivariant, indel, UTR/intron position, empty), so non-placeable variants simply yield no block.
+    """
+    if not hgvs:
+        return None
+    match = _NT_SUBSTITUTION.match(hgvs.strip())
+    if not match:
+        return None
+    return SequenceBlock(position=int(match.group(1)), ref=match.group(2), alt=match.group(3))
+
+
+def parse_simple_protein_substitution(hgvs: Optional[str]) -> Optional[SequenceBlock]:
+    """Parse a single-locus protein substitution (``p.Ala406Thr``, ``p.(Ala406Thr)``) into a
+    :class:`SequenceBlock`.
+
+    The alt is the raw MaveHGVS token: a three-letter code, ``=`` (synonymous), ``*`` (Ter), or ``-``
+    (deletion). Returns ``None`` for anything else (multivariant, frameshift, empty).
+    """
+    if not hgvs:
+        return None
+    match = _PRO_SUBSTITUTION.match(hgvs.strip())
+    if not match:
+        return None
+    return SequenceBlock(position=int(match.group(2)), ref=match.group(1), alt=match.group(3))
+
+
+def parse_simple_substitution(hgvs: Optional[str]) -> Optional[SequenceBlock]:
+    """Parse a single-locus nucleotide *or* protein substitution, auto-detecting by coordinate prefix.
+
+    The nucleotide (``c.``/``g.``/``n.``) and protein (``p.``) forms are disjoint, so trying both is
+    unambiguous — useful when the level is not known up front (e.g. the assay-level HGVS, which is
+    coding for a nucleotide assay and protein for a protein assay). Returns ``None`` for anything that
+    is not a placeable simple substitution.
+    """
+    return parse_simple_nucleotide_substitution(hgvs) or parse_simple_protein_substitution(hgvs)
 
 
 def split_cis_phased_hgvs(hgvs_string: str) -> list[str]:

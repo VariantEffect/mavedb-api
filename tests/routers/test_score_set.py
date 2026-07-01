@@ -24,9 +24,14 @@ from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
+from mavedb.models.allele import Allele
 from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
+from mavedb.models.mapping_record import MappingRecord
+from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
+from mavedb.models.vep_allele_consequence import VepAlleleConsequence
+from mavedb.view_models.lean_variant import LeanVariant
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
@@ -4559,3 +4564,164 @@ def test_cannot_fetch_gnomad_variants_for_score_set_when_none_exist(
         f"No gnomad variants matching the provided filters associated with score set URN {score_set['urn']} were found"
         in response_data["detail"]
     )
+
+
+def _seed_lean_mapping(session, variant_urn):
+    """Give one variant a live coding-measured mapping record (with an assay-level HGVS) whose
+    authoritative allele carries a digest + ClinGen id + a live VEP consequence."""
+    variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == variant_urn))
+    record = MappingRecord(
+        variant_id=variant.id,
+        assay_level="cdna",
+        hgvs_assay_level="NM_000546.6:c.1216G>A",
+        mapping_api_version="test.0.0",
+    )
+    session.add(record)
+    session.commit()
+
+    measured = Allele(vrs_digest="cdna-digest", level="cdna", post_mapped={"type": "Allele"}, clingen_allele_id="CA123")
+    protein = Allele(
+        vrs_digest="prot-digest", level="protein", post_mapped={"type": "Allele"}, hgvs_p="NP_000537.3:p.Ala406Thr"
+    )
+    session.add_all([measured, protein])
+    session.commit()
+
+    session.add_all(
+        [
+            MappingRecordAllele(mapping_record_id=record.id, allele_id=measured.id, is_authoritative=True),
+            MappingRecordAllele(mapping_record_id=record.id, allele_id=protein.id, is_authoritative=False),
+            VepAlleleConsequence(
+                allele_id=measured.id,
+                functional_consequence="missense_variant",
+                source_version="116",
+                access_date="2026-01-01",
+            ),
+        ]
+    )
+    session.commit()
+
+
+def test_get_lean_variants(client, session, data_provider, data_files, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    _seed_lean_mapping(session, f"{score_set['urn']}#1")
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants")
+
+    assert response.status_code == 200
+    records = response.json()
+    # All three variants are returned, ordered by variant number.
+    assert [r["variantUrn"] for r in records] == [f"{score_set['urn']}#{n}" for n in (1, 2, 3)]
+    for record in records:
+        LeanVariant.model_validate_json(json.dumps(record))
+
+    mapped = records[0]
+    assert mapped["score"] == 0.3
+    assert mapped["consequence"] == "missense_variant"
+    assert mapped["clingenAlleleId"] == "CA123"
+    assert mapped["assayLevelDigest"] == "cdna-digest"
+    # Submitted HGVS (from the uploaded CSV), each with its parsed block riding alongside.
+    assert mapped["hgvsNt"] == {"hgvs": "c.1A>T", "position": 1, "ref": "A", "alt": "T"}
+    assert mapped["hgvsPro"] == {"hgvs": "p.Thr1Ser", "position": 1, "ref": "Thr", "alt": "Ser"}
+    # Mapped assay-level HGVS (reference frame) and the mapped protein representation.
+    assert mapped["assayLevelHgvs"] == {"hgvs": "NM_000546.6:c.1216G>A", "position": 1216, "ref": "G", "alt": "A"}
+    assert mapped["proteinLevelHgvs"] == {
+        "hgvs": "NP_000537.3:p.Ala406Thr",
+        "position": 406,
+        "ref": "Ala",
+        "alt": "Thr",
+    }
+
+    # An unmapped variant keeps its submitted HGVS + score; the mapped fields are dropped (exclude_none).
+    unmapped = records[1]
+    assert unmapped["score"] == 1.0
+    assert unmapped["hgvsNt"]["hgvs"] == "c.2C>T"
+    for omitted in ("consequence", "clingenAlleleId", "assayLevelDigest", "assayLevelHgvs"):
+        assert omitted not in unmapped
+
+
+def test_get_lean_variants_unknown_score_set_is_404(client, setup_router_db):
+    response = client.get("/api/v1/score-sets/urn:mavedb:00000000-a-1/variants")
+    assert response.status_code == 404
+
+
+def test_get_lean_variants_echoes_as_of_header(client, session, data_provider, data_files, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    # Default is current — the resolved content-time is echoed for the client.
+    current = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants")
+    assert current.status_code == 200
+    assert current.headers["X-As-Of"] == "current"
+
+    # An explicit as_of is accepted and echoed back; before mapping exists everything is unmapped.
+    historical = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants", params={"as_of": "2020-01-01T00:00:00Z"})
+    assert historical.status_code == 200
+    assert historical.headers["X-As-Of"] == "2020-01-01T00:00:00+00:00"
+    assert all("assayLevelDigest" not in record for record in historical.json())
+
+
+def test_get_lean_variants_other_user_cannot_read_private(client, session, data_provider, data_files, setup_router_db):
+    """The endpoint gates on READ: a non-owner cannot read another user's private (unpublished) set."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants")
+
+    assert response.status_code == 404
+    assert f"score set with URN '{score_set['urn']}' not found" in response.json()["detail"]
+
+
+def test_get_lean_variants_anonymous_cannot_read_private(
+    client, session, data_provider, data_files, setup_router_db, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants")
+
+    assert response.status_code == 404
+
+
+def test_get_lean_variants_anonymous_can_read_published(
+    client, session, data_provider, data_files, setup_router_db, anonymous_app_overrides
+):
+    """A published score set is world-readable, so an anonymous caller gets the full lean set."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    published = publish_score_set(client, score_set["urn"])
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(f"/api/v1/score-sets/{published['urn']}/variants")
+
+    assert response.status_code == 200
+    assert len(response.json()) == 3
+
+
+def test_get_lean_variants_admin_can_read_private(
+    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants")
+
+    assert response.status_code == 200
+    assert len(response.json()) == 3

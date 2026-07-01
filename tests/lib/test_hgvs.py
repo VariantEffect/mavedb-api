@@ -1,11 +1,84 @@
 import pytest
 
 from mavedb.lib.hgvs import (
+    SequenceBlock,
     extract_accession,
     join_cis_phased_hgvs,
+    parse_simple_nucleotide_substitution,
+    parse_simple_protein_substitution,
+    parse_simple_substitution,
     split_cis_phased_hgvs,
     strip_protein_prediction_parens,
 )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("hgvs", "expected"),
+    [
+        # auto-detects the level from the disjoint coordinate prefix
+        ("NM_000546.6:c.1216G>A", SequenceBlock(position=1216, ref="G", alt="A")),
+        ("NP_000537.3:p.Ala406Thr", SequenceBlock(position=406, ref="Ala", alt="Thr")),
+        ("g.1000A>G", SequenceBlock(position=1000, ref="A", alt="G")),
+        # non-placeable in either grammar
+        ("c.122-6T>A", None),
+        ("c.[197A>G;472T>C]", None),
+        (None, None),
+    ],
+)
+def test_parse_simple_substitution(hgvs, expected):
+    assert parse_simple_substitution(hgvs) == expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("hgvs", "expected"),
+    [
+        # accession-qualified and bare coding substitutions
+        ("NM_000546.6:c.1216G>A", SequenceBlock(position=1216, ref="G", alt="A")),
+        ("c.5A>G", SequenceBlock(position=5, ref="A", alt="G")),
+        # genomic and non-coding levels parse the same way
+        ("NC_000001.11:g.1000A>G", SequenceBlock(position=1000, ref="A", alt="G")),
+        ("n.42C>T", SequenceBlock(position=42, ref="C", alt="T")),
+        # lowercase nucleotides are tolerated
+        ("c.5a>g", SequenceBlock(position=5, ref="a", alt="g")),
+        # non-placeable: UTR/intron positions, multivariant, indels, non-substitutions, empty
+        ("c.*123A>G", None),
+        ("c.-12A>G", None),
+        ("c.12+3A>G", None),
+        ("NM_000546.6:c.[197A>G;472T>C]", None),
+        ("c.76_78del", None),
+        ("p.Ala406Thr", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_parse_simple_nucleotide_substitution(hgvs, expected):
+    assert parse_simple_nucleotide_substitution(hgvs) == expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("hgvs", "expected"),
+    [
+        # accession-qualified, bare, and prediction-wrapped substitutions
+        ("NP_000537.3:p.Ala406Thr", SequenceBlock(position=406, ref="Ala", alt="Thr")),
+        ("p.Ala406Thr", SequenceBlock(position=406, ref="Ala", alt="Thr")),
+        ("NP_000537.3:p.(Ala406Thr)", SequenceBlock(position=406, ref="Ala", alt="Thr")),
+        # synonymous, stop, and deletion tokens are preserved as the raw alt
+        ("p.Ala406=", SequenceBlock(position=406, ref="Ala", alt="=")),
+        ("p.Tyr745*", SequenceBlock(position=745, ref="Tyr", alt="*")),
+        ("p.Ala406-", SequenceBlock(position=406, ref="Ala", alt="-")),
+        # non-placeable: multivariant, frameshift, single-letter codes, empty
+        ("p.[Ala406Thr;Gly12Cys]", None),
+        ("p.Arg97fs", None),
+        ("p.A406T", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_parse_simple_protein_substitution(hgvs, expected):
+    assert parse_simple_protein_substitution(hgvs) == expected
 
 
 @pytest.mark.parametrize(
