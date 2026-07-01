@@ -2,9 +2,43 @@ import re
 from typing import Any, Optional
 
 from mavedb.lib.hgvs import join_cis_phased_hgvs
+from mavedb.lib.mave.constants import REQUIRED_SCORE_COLUMN, VARIANT_SCORE_DATA
 from mavedb.lib.validation.constants.general import hgvs_columns
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.variant import Variant
+
+
+def score_from_variant_data(data: Optional[Any]) -> Optional[float]:
+    """The canonical numeric score in a variant's ``data`` JSONB (``score_data.score``), or ``None``.
+
+    The score column is required for every score set, but an individual variant may carry a null/NA
+    score. Returns ``None`` when the score is absent, null, or not coercible to a float; a numeric
+    string (``"1.5"``) coerces, but ``bool`` is rejected — a JSON ``true`` is not a score. Robust to
+    malformed JSONB: a non-mapping ``data`` or ``score_data`` yields ``None`` rather than raising.
+    Operates on the ``data`` mapping directly so it serves both ORM objects and bare ``Variant.data``
+    column reads.
+    """
+    if not isinstance(data, dict):
+        return None
+
+    score_data = data.get(VARIANT_SCORE_DATA)
+    if not isinstance(score_data, dict):
+        return None
+
+    value = score_data.get(REQUIRED_SCORE_COLUMN)
+    if value is None or isinstance(value, bool):
+        return None
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def variant_score(variant: Variant) -> Optional[float]:
+    """The canonical numeric score of a variant (see :func:`score_from_variant_data`)."""
+    return score_from_variant_data(variant.data)
+
 
 HGVS_G_REGEX = re.compile(r"(^|:)g\.")
 HGVS_P_REGEX = re.compile(r"(^|:)p\.")

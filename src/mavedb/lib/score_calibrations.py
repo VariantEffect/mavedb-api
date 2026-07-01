@@ -17,6 +17,7 @@ from mavedb.lib.validation.constants.general import (
     hgvs_pro_column,
 )
 from mavedb.lib.validation.utilities import inf_or_float
+from mavedb.lib.variants import score_from_variant_data
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
@@ -773,18 +774,8 @@ def variants_for_functional_classification(
                 continue
 
         elif functional_classification.range is not None and len(functional_classification.range) == 2:
-            try:
-                container = v.data.get("score_data") if isinstance(v.data, dict) else None
-                if not container or not isinstance(container, dict):
-                    continue
-
-                raw = container.get("score")
-                if raw is None:
-                    continue
-
-                score = float(raw)
-
-            except Exception:  # noqa: BLE001
+            score = score_from_variant_data(v.data)
+            if score is None:
                 continue
 
             if functional_classification.score_is_contained_in_range(score):

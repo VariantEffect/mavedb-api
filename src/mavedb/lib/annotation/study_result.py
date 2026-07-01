@@ -12,6 +12,7 @@ from mavedb.lib.annotation.method import (
     publication_identifiers_to_method,
 )
 from mavedb.lib.annotation.util import variation_from_mapped_variant
+from mavedb.lib.variants import variant_score
 from mavedb.models.mapped_variant import MappedVariant
 
 
@@ -21,7 +22,7 @@ def mapped_variant_to_experimental_variant_impact_study_result(
     return ExperimentalVariantFunctionalImpactStudyResult(
         description=f"Variant effect study result for {mapped_variant.variant.urn}.",
         focusVariant=variation_from_mapped_variant(mapped_variant),
-        functionalImpactScore=mapped_variant.variant.data["score_data"]["score"],  # type: ignore
+        functionalImpactScore=variant_score(mapped_variant.variant),
         specifiedBy=publication_identifiers_to_method(
             mapped_variant.variant.score_set.publication_identifier_associations
         ),

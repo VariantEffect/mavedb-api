@@ -6,6 +6,7 @@ from mavedb.lib.variants import (
     hgvs_from_vrs_allele,
     is_hgvs_g,
     is_hgvs_p,
+    score_from_variant_data,
 )
 from tests.helpers.constants import (
     TEST_HGVS_IDENTIFIER,
@@ -14,6 +15,28 @@ from tests.helpers.constants import (
     TEST_VALID_POST_MAPPED_VRS_CIS_PHASED_BLOCK,
     TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE,
 )
+
+### Tests for score_from_variant_data function ###
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        ({"score_data": {"score": -2.3}}, -2.3),
+        ({"score_data": {"score": 0}}, 0.0),  # a real 0.0 score is not "missing"
+        ({"score_data": {"score": "1.5"}}, 1.5),  # numeric strings coerce
+        ({"score_data": {"score": None}}, None),  # explicit NA
+        ({"score_data": {}}, None),  # no score key
+        ({"count_data": {"c": 1}}, None),  # no score_data block
+        ({"score_data": {"score": True}}, None),  # a JSON bool is not a score
+        ({"score_data": {"score": "NA"}}, None),  # non-numeric string
+        ({}, None),
+        (None, None),
+    ],
+)
+def test_score_from_variant_data(data, expected):
+    assert score_from_variant_data(data) == expected
+
 
 ### Tests for hgvs_from_vrs_allele function ###
 

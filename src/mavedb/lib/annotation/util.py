@@ -22,7 +22,7 @@ from mavedb.lib.annotation.classification import (
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.mapping import extract_ids_from_post_mapped_metadata
 from mavedb.lib.types.annotation import SequenceFeature
-from mavedb.lib.variants import target_for_variant
+from mavedb.lib.variants import target_for_variant, variant_score
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
@@ -187,8 +187,8 @@ def _can_annotate_variant_base_assumptions(mapped_variant: MappedVariant) -> boo
         bool: True if the variant can be annotated (has score ranges and
             a non-None score), False otherwise.
     """
-    # This property is guaranteed to exist for all variants.
-    if mapped_variant.variant.data["score_data"]["score"] is None:  # type: ignore
+    # A variant is annotatable only if it carries a real (non-null, numeric) score.
+    if variant_score(mapped_variant.variant) is None:
         return False
 
     return True
