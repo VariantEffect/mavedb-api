@@ -119,7 +119,12 @@ def get_lean_score_set_variants(
         # DISTINCT ON requires ORDER BY to lead with its column; allele.id then picks which row survives
         # per record — inert today (only one protein allele exists).
         .order_by(prot_link.mapping_record_id, prot_allele.id)
-        .subquery()
+        # MATERIALIZED forces this to run exactly once. The planner badly under-counted the DISTINCT ON
+        # cardinality (est. ~5 vs ~2.8k actual) and, left as a plain subquery, buries it on the inner
+        # side of a nested loop, re-running the whole projection once per variant. That is O(N^2) in the
+        # score set size. Materializing collapses it back to O(N).
+        .cte("protein_allele")
+        .prefix_with("MATERIALIZED")
     )
 
     statement = (
@@ -157,8 +162,9 @@ def get_lean_score_set_variants(
         .outerjoin(
             VepAlleleConsequence, and_(VepAlleleConsequence.allele_id == Allele.id, VepAlleleConsequence.live_at(as_of))
         )
-        # The protein subquery, matched back by record id (a globally-unique PK -> the right protein row,
-        # no cross-set risk). LEFT: some rows have no protein projection (UTR/intronic) -> null.
+        # The protein projection (materialized above), matched back by record id (a globally-unique PK ->
+        # the right protein row, no cross-set risk). LEFT: some rows have no protein projection
+        # (UTR/intronic) -> null.
         .outerjoin(protein_allele, protein_allele.c.mapping_record_id == MappingRecord.id)
         # The anchor: just this score set's variants.
         .where(Variant.score_set_id == score_set.id)
