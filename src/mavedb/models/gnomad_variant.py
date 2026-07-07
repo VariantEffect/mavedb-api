@@ -1,5 +1,5 @@
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Column, Date, Float, Integer, String
 from sqlalchemy.orm import Mapped, relationship
@@ -17,16 +17,16 @@ class GnomADVariant(Base):
 
     id: Mapped[int] = Column(Integer, primary_key=True)
 
-    db_name = Column(String, nullable=False)
-    db_identifier = Column(String, nullable=False, index=True)
-    db_version = Column(String, nullable=False)
+    db_name: Mapped[str] = Column(String, nullable=False)
+    db_identifier: Mapped[str] = Column(String, nullable=False, index=True)
+    db_version: Mapped[str] = Column(String, nullable=False)
 
-    allele_count = Column(Integer, nullable=False)
-    allele_number = Column(Integer, nullable=False)
-    allele_frequency = Column(Float, nullable=False)
+    allele_count: Mapped[int] = Column(Integer, nullable=False)
+    allele_number: Mapped[int] = Column(Integer, nullable=False)
+    allele_frequency: Mapped[float] = Column(Float, nullable=False)
 
-    faf95_max = Column(Float, nullable=True)
-    faf95_max_ancestry = Column(String, nullable=True)
+    faf95_max: Mapped[Optional[float]] = Column(Float, nullable=True)
+    faf95_max_ancestry: Mapped[Optional[str]] = Column(String, nullable=True)
 
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)

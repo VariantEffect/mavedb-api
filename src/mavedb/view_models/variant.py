@@ -9,7 +9,7 @@ from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.mapped_variant import MappedVariant, SavedMappedVariant
 
 if TYPE_CHECKING:
-    from mavedb.view_models.score_set import ScoreSet, ShortScoreSet
+    from mavedb.view_models.score_set import ShortScoreSet
 
 
 class VariantEffectMeasurementBase(BaseModel):
@@ -76,13 +76,6 @@ class VariantEffectMeasurement(SavedVariantEffectMeasurement):
     pass
 
 
-class VariantEffectMeasurementWithScoreSet(SavedVariantEffectMeasurement):
-    """Variant effect measurement view model with mapped variants and score set"""
-
-    score_set: "ScoreSet"
-    mapped_variants: list[MappedVariant]
-
-
 class VariantEffectMeasurementWithShortScoreSet(SavedVariantEffectMeasurement):
     """Variant effect measurement view model with mapped variants and a limited set of score set details"""
 
@@ -96,8 +89,11 @@ class ClingenAlleleIdVariantLookupsRequest(BaseModel):
     clingen_allele_ids: list[str]
 
 
-class Variant(BaseModel):
-    """View model for a variant, defined by its ClinGen allele id, with associated variant effect measurements"""
+class ClingenAlleleVariants(BaseModel):
+    """The assayed variants sharing one ClinGen allele id, with their variant effect measurements.
+
+    An allele-side grouping (keyed by ClinGen allele id), it is the mapped-allele view of "which
+    measurements share this molecular identity," not the assayed variant itself."""
 
     clingen_allele_id: str
     variant_effect_measurements: list[VariantEffectMeasurementWithShortScoreSet]
@@ -107,6 +103,6 @@ class ClingenAlleleIdVariantLookupResponse(BaseModel):
     """Response model for a variant lookup by ClinGen allele ID"""
 
     clingen_allele_id: str
-    exact_match: Optional[Variant] = None
-    equivalent_nt: list[Variant] = []
-    equivalent_aa: list[Variant] = []
+    exact_match: Optional[ClingenAlleleVariants] = None
+    equivalent_nt: list[ClingenAlleleVariants] = []
+    equivalent_aa: list[ClingenAlleleVariants] = []

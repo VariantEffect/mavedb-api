@@ -18,7 +18,7 @@ class Allele(Base):
 
     id: Mapped[int] = Column(Integer, primary_key=True)
 
-    vrs_digest = Column(String, nullable=False)
+    vrs_digest: Mapped[str] = Column(String, nullable=False)
     level = Column(String(length=16), nullable=False)
 
     hgvs_g = Column(String, nullable=True)

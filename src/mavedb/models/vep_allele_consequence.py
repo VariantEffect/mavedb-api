@@ -1,5 +1,5 @@
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Column, Date, ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, relationship
@@ -52,7 +52,7 @@ class VepAlleleConsequence(ValidTime, Base):
         ForeignKey("alleles.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    functional_consequence = Column(String, nullable=True)
+    functional_consequence: Mapped[Optional[str]] = Column(String, nullable=True)
     source_version: Mapped[str] = Column(String, nullable=False)
     access_date: Mapped[date] = Column(Date, nullable=False)
 

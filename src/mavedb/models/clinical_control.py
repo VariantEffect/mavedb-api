@@ -1,5 +1,5 @@
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Column, Date, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, relationship
@@ -22,18 +22,18 @@ class ClinvarControl(Base):
 
     id: Mapped[int] = Column(Integer, primary_key=True)
 
-    gene_symbol = Column(String, nullable=False, index=True)
+    gene_symbol: Mapped[str] = Column(String, nullable=False, index=True)
 
-    clinical_significance = Column(String, nullable=False)
-    clinical_review_status = Column(String, nullable=False)
+    clinical_significance: Mapped[str] = Column(String, nullable=False)
+    clinical_review_status: Mapped[str] = Column(String, nullable=False)
 
-    db_name = Column(String, nullable=False, index=True)
+    db_name: Mapped[str] = Column(String, nullable=False, index=True)
     # ClinVar Allele ID (row level link).
-    db_identifier = Column(String, nullable=False, index=True)
-    db_version = Column(String, nullable=False, index=True)
+    db_identifier: Mapped[str] = Column(String, nullable=False, index=True)
+    db_version: Mapped[str] = Column(String, nullable=False, index=True)
 
     # ClinVar Variation ID (variation level link).
-    clinvar_variation_id = Column(String, nullable=True)
+    clinvar_variation_id: Mapped[Optional[str]] = Column(String, nullable=True)
 
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
