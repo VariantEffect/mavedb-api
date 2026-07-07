@@ -4,7 +4,7 @@ import csv
 import json
 import re
 from copy import deepcopy
-from datetime import date
+from datetime import date, datetime, timezone
 from io import StringIO
 from unittest.mock import patch
 
@@ -24,13 +24,9 @@ from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
-from mavedb.models.allele import Allele
-from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
-from mavedb.models.mapping_record import MappingRecord
-from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
-from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 from mavedb.view_models.lean_variant import LeanVariant
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
@@ -80,11 +76,12 @@ from tests.helpers.util.score_calibration import (
     create_publish_and_promote_score_calibration,
     create_test_score_calibration_in_score_set_via_client,
 )
+from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
 from tests.helpers.util.score_set import (
     create_seq_score_set,
     create_seq_score_set_with_mapped_variants,
     create_seq_score_set_with_variants,
-    link_clinical_controls_to_mapped_variants,
+    link_clinical_controls_to_alleles,
     link_clinvar_control_to_mapped_variant,
     link_gnomad_variants_to_mapped_variants,
     publish_score_set,
@@ -3862,7 +3859,7 @@ def test_can_fetch_current_clinical_controls_for_score_set(client, setup_router_
     score_set = create_seq_score_set_with_mapped_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    link_clinical_controls_to_mapped_variants(session, score_set)
+    link_clinical_controls_to_alleles(session, score_set)
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls")
     assert response.status_code == 200
@@ -3890,7 +3887,7 @@ def test_can_fetch_current_clinical_controls_for_score_set_with_parameters(
     score_set = create_seq_score_set_with_mapped_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    link_clinical_controls_to_mapped_variants(session, score_set)
+    link_clinical_controls_to_alleles(session, score_set)
 
     query_string = "?"
     for param, accessor in parameters:
@@ -3915,7 +3912,7 @@ def test_cannot_fetch_clinical_controls_for_nonexistent_score_set(
     score_set = create_seq_score_set_with_mapped_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    link_clinical_controls_to_mapped_variants(session, score_set)
+    link_clinical_controls_to_alleles(session, score_set)
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn'] + 'xxx'}/clinical-controls")
 
@@ -3950,7 +3947,7 @@ def test_can_fetch_current_clinical_control_options_for_score_set(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
 
-    link_clinical_controls_to_mapped_variants(session, score_set)
+    link_clinical_controls_to_alleles(session, score_set)
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
     assert response.status_code == 200
@@ -3975,17 +3972,14 @@ def test_clinical_control_options_exclude_non_current(client, setup_router_db, s
     score_set = create_seq_score_set_with_mapped_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    link_clinical_controls_to_mapped_variants(session, score_set)
+    link_clinical_controls_to_alleles(session, score_set)
 
-    # Mark all mapped variants as non-current to simulate stale mapping data.
-    mapped_variants = session.scalars(
-        select(MappedVariantDbModel)
-        .join(VariantDbModel)
-        .join(ScoreSetDbModel)
-        .where(ScoreSetDbModel.urn == score_set["urn"])
-    ).all()
-    for mv in mapped_variants:
-        mv.current = False
+    # The options query only surfaces live allele → ClinVar links; retiring them (as a re-map would,
+    # by stamping valid_to) must leave no current controls and 404. Test-isolated DB, so these are
+    # the only links present.
+    links = session.scalars(select(ClinvarAlleleLink).where(ClinvarAlleleLink.valid_to.is_(None))).all()
+    for link in links:
+        link.valid_to = datetime.now(timezone.utc)
     session.commit()
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
@@ -4569,36 +4563,22 @@ def test_cannot_fetch_gnomad_variants_for_score_set_when_none_exist(
 def _seed_lean_mapping(session, variant_urn):
     """Give one variant a live coding-measured mapping record (with an assay-level HGVS) whose
     authoritative allele carries a digest + ClinGen id + a live VEP consequence."""
-    variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == variant_urn))
-    record = MappingRecord(
-        variant_id=variant.id,
+    seed_mapping_record(
+        session,
+        variant_urn,
         assay_level="cdna",
         hgvs_assay_level="NM_000546.6:c.1216G>A",
-        mapping_api_version="test.0.0",
-    )
-    session.add(record)
-    session.commit()
-
-    measured = Allele(vrs_digest="cdna-digest", level="cdna", post_mapped={"type": "Allele"}, clingen_allele_id="CA123")
-    protein = Allele(
-        vrs_digest="prot-digest", level="protein", post_mapped={"type": "Allele"}, hgvs_p="NP_000537.3:p.Ala406Thr"
-    )
-    session.add_all([measured, protein])
-    session.commit()
-
-    session.add_all(
-        [
-            MappingRecordAllele(mapping_record_id=record.id, allele_id=measured.id, is_authoritative=True),
-            MappingRecordAllele(mapping_record_id=record.id, allele_id=protein.id, is_authoritative=False),
-            VepAlleleConsequence(
-                allele_id=measured.id,
-                functional_consequence="missense_variant",
-                source_version="116",
-                access_date="2026-01-01",
+        alleles=[
+            AlleleSpec(
+                digest="cdna-digest",
+                level="cdna",
+                is_authoritative=True,
+                clingen_allele_id="CA123",
+                vep_consequence="missense_variant",
             ),
-        ]
+            AlleleSpec(digest="prot-digest", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr"),
+        ],
     )
-    session.commit()
 
 
 def test_get_lean_variants(client, session, data_provider, data_files, setup_router_db):

@@ -24,6 +24,7 @@ from tests.helpers.constants import (
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_PRE_MAPPED_VRS_CIS_PHASED_BLOCK,
 )
+from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
 from tests.helpers.util.variant import mock_worker_variant_insertion
 
 
@@ -204,25 +205,30 @@ def create_acc_score_set_with_variants(
     return score_set
 
 
-def link_clinical_controls_to_mapped_variants(db, score_set):
-    mapped_variants = db.scalars(
-        select(MappedVariantDbModel)
-        .join(VariantDbModel)
+def link_clinical_controls_to_alleles(db, score_set):
+    """Seed the new-model annotation graph for a score set's first two variants and link the two
+    seeded ClinVar controls to their alleles via ``ClinvarAlleleLink``.
+
+    The first variant's allele gets the ClinVar control (id 1), the second gets the generic control
+    (id 2) — mirroring the two-control shape the clinical-controls routes are asserted against.
+    """
+    variants = db.scalars(
+        select(VariantDbModel)
         .join(ScoreSetDbModel)
         .where(ScoreSetDbModel.urn == score_set["urn"])
+        .order_by(VariantDbModel.id)
     ).all()
 
-    # The first mapped variant gets the clinvar control, the second gets the generic control.
-    mapped_variants[0].clinical_controls.append(
-        db.scalar(select(ClinicalControlDbModel).where(ClinicalControlDbModel.id == 1))
+    seed_mapping_record(
+        db,
+        variants[0],
+        alleles=[AlleleSpec(digest="clinical-control-allele-0", is_authoritative=True, clinvar_control_ids=[1])],
     )
-    mapped_variants[1].clinical_controls.append(
-        db.scalar(select(ClinicalControlDbModel).where(ClinicalControlDbModel.id == 2))
+    seed_mapping_record(
+        db,
+        variants[1],
+        alleles=[AlleleSpec(digest="clinical-control-allele-1", is_authoritative=True, clinvar_control_ids=[2])],
     )
-
-    db.add(mapped_variants[0])
-    db.add(mapped_variants[1])
-    db.commit()
 
 
 def link_clinvar_control_to_mapped_variant(db, score_set):

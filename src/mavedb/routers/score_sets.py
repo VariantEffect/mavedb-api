@@ -17,8 +17,8 @@ from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from pydantic import ValidationError
 from sqlalchemy import or_, select
-from sqlalchemy.exc import MultipleResultsFound, IntegrityError
-from sqlalchemy.orm import Session, contains_eager
+from sqlalchemy.exc import IntegrityError, MultipleResultsFound
+from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.data_providers.services import CSV_UPLOAD_S3_BUCKET_NAME, s3_client
@@ -74,13 +74,17 @@ from mavedb.lib.urns import (
     generate_score_set_urn,
 )
 from mavedb.lib.workflow.pipeline_factory import PipelineFactory
+from mavedb.models.allele import Allele
 from mavedb.models.clinical_control import ClinvarControl
+from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.mapping_record import MappingRecord
+from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
@@ -2448,18 +2452,27 @@ async def publish_score_set(
 async def get_clinical_controls_for_score_set(
     *,
     urn: str,
+    response: Response,
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the allele → ClinVar link state as it stood at this instant. "
+            "ISO 8601, ideally timezone-aware. Defaults to current."
+        ),
+    ),
     # We'd prefer to reserve `db` as a query parameter.
     _db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(get_current_user),
     db: Optional[str] = None,
     version: Optional[str] = None,
-) -> Sequence[ClinvarControl]:
+) -> list[clinical_control.ClinicalControlWithMappedVariants]:
     """
     Fetch relevant clinical controls for a given score set.
     """
-    save_to_logging_context({"requested_resource": urn, "resource_property": "clinical_controls"})
+    save_to_logging_context({"requested_resource": urn, "resource_property": "clinical_controls", "as_of": as_of})
+    response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
 
-    # Rename user facing kwargs for consistency with code base naming conventions. My-py doesn't care for us redefining db.
+    # Rename user facing kwargs for consistency with code base naming conventions.
     db_name = db
     db_version = version
 
@@ -2474,25 +2487,38 @@ async def get_clinical_controls_for_score_set(
     assert_permission(user_data, item, Action.READ)
 
     clinical_controls_query = (
-        select(ClinvarControl)
-        .join(ClinvarControl.mapped_variants)
-        .join(MappedVariant.variant)
-        .options(contains_eager(ClinvarControl.mapped_variants).contains_eager(MappedVariant.variant))
-        .filter(MappedVariant.current.is_(True))
-        .filter(Variant.score_set_id == item.id)
+        select(ClinvarControl, Variant.urn.label("variant_urn"))
+        .join(ClinvarAlleleLink, ClinvarAlleleLink.clinvar_control_id == ClinvarControl.id)
+        .join(Allele, Allele.id == ClinvarAlleleLink.allele_id)
+        .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
+        .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
+        .join(Variant, Variant.id == MappingRecord.variant_id)
+        .where(ClinvarAlleleLink.live_at(as_of))
+        .where(MappingRecordAllele.live_at(as_of))
+        .where(MappingRecord.live_at(as_of))
+        .where(Variant.score_set_id == item.id)
+        .distinct()
     )
 
     if db_name is not None:
         save_to_logging_context({"db_name": db_name})
-        clinical_controls_query = clinical_controls_query.filter(ClinvarControl.db_name == db_name)
+        clinical_controls_query = clinical_controls_query.where(ClinvarControl.db_name == db_name)
 
     if db_version is not None:
         save_to_logging_context({"db_version": db_version})
-        clinical_controls_query = clinical_controls_query.filter(ClinvarControl.db_version == db_version)
+        clinical_controls_query = clinical_controls_query.where(ClinvarControl.db_version == db_version)
 
-    clinical_controls: Sequence[ClinvarControl] = _db.scalars(clinical_controls_query).unique().all()
+    rows = _db.execute(clinical_controls_query).tuples().all()
 
-    if not clinical_controls:
+    controls: dict[int, ClinvarControl] = {}
+    urns_by_control: dict[int, list[str]] = {}
+    for ctrl, variant_urn in rows:
+        if ctrl.id not in controls:
+            controls[ctrl.id] = ctrl
+            urns_by_control[ctrl.id] = []
+        urns_by_control[ctrl.id].append(variant_urn)
+
+    if not controls:
         logger.info(
             msg="No clinical control variants matching the provided filters are associated with the requested score set.",
             extra=logging_context(),
@@ -2502,9 +2528,25 @@ async def get_clinical_controls_for_score_set(
             detail=f"No clinical control variants matching the provided filters associated with score set URN {urn} were found",
         )
 
-    save_to_logging_context({"resource_count": len(clinical_controls)})
+    save_to_logging_context({"resource_count": len(controls)})
 
-    return clinical_controls
+    return [
+        clinical_control.ClinicalControlWithMappedVariants.model_validate(
+            {
+                "id": ctrl.id,
+                "db_identifier": ctrl.db_identifier,
+                "gene_symbol": ctrl.gene_symbol,
+                "clinical_significance": ctrl.clinical_significance,
+                "clinical_review_status": ctrl.clinical_review_status,
+                "db_version": ctrl.db_version,
+                "db_name": ctrl.db_name,
+                "modification_date": ctrl.modification_date,
+                "creation_date": ctrl.creation_date,
+                "mapped_variants": [{"variant_urn": v_urn} for v_urn in urns_by_control[ctrl.id]],
+            }
+        )
+        for ctrl in controls.values()
+    ]
 
 
 @router.get(
@@ -2518,6 +2560,13 @@ async def get_clinical_controls_for_score_set(
 async def get_clinical_controls_options_for_score_set(
     *,
     urn: str,
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the allele → ClinVar link state as it stood at this instant. "
+            "ISO 8601, ideally timezone-aware. Defaults to current."
+        ),
+    ),
     # We'd prefer to reserve `db` as a query parameter.
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(get_current_user),
@@ -2525,7 +2574,13 @@ async def get_clinical_controls_options_for_score_set(
     """
     Fetch clinical control options for a given score set.
     """
-    save_to_logging_context({"requested_resource": urn, "resource_property": "clinical_control_options"})
+    save_to_logging_context(
+        {
+            "requested_resource": urn,
+            "resource_property": "clinical_control_options",
+            "as_of": as_of,
+        }
+    )
 
     item: Optional[ScoreSet] = db.scalars(select(ScoreSet).where(ScoreSet.urn == urn)).one_or_none()
     if not item:
@@ -2539,13 +2594,19 @@ async def get_clinical_controls_options_for_score_set(
 
     clinical_controls_query = (
         select(ClinvarControl.db_name, ClinvarControl.db_version)
-        .join(MappedVariant, ClinvarControl.mapped_variants)
-        .join(Variant)
-        .where(MappedVariant.current.is_(True))
+        .join(ClinvarAlleleLink, ClinvarAlleleLink.clinvar_control_id == ClinvarControl.id)
+        .join(Allele, Allele.id == ClinvarAlleleLink.allele_id)
+        .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
+        .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
+        .join(Variant, Variant.id == MappingRecord.variant_id)
+        .where(ClinvarAlleleLink.live_at(as_of))
+        .where(MappingRecordAllele.live_at(as_of))
+        .where(MappingRecord.live_at(as_of))
         .where(Variant.score_set_id == item.id)
+        .distinct()
     )
 
-    clinical_controls_for_item = db.execute(clinical_controls_query).unique()
+    clinical_controls_for_item = db.execute(clinical_controls_query)
 
     # NOTE: We return options even for pairwise groupings which may have no associated mapped variants
     #       and 404 when ultimately requested together.
@@ -2563,8 +2624,15 @@ async def get_clinical_controls_options_for_score_set(
             detail=f"no clinical control variants associated with score set URN {urn} were found",
         )
 
+    def _version_sort_key(v: str) -> tuple[int, int]:
+        try:
+            month, year = v.split("_")
+            return int(year), int(month)
+        except (ValueError, AttributeError):
+            return (0, 0)
+
     return [
-        dict(zip(("db_name", "available_versions"), (db_name, db_versions)))
+        {"db_name": db_name, "available_versions": sorted(db_versions, key=_version_sort_key, reverse=True)}
         for db_name, db_versions in clinical_control_options.items()
     ]
 
