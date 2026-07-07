@@ -21,6 +21,14 @@ def test_infer_db_name_from_sequence_accession_np():
     assert result == "RefSeq_Protein"
 
 
+# Both versioned and unversioned ENSP accessions must route to Ensembl_Protein; the versioned case
+# guards that validate_ensembl_identifier's version handling continues to accept it.
+@pytest.mark.parametrize("ensembl_protein_accession", ["ENSP00000418960", "ENSP00000418960.3"])
+def test_infer_db_name_from_sequence_accession_ensp(ensembl_protein_accession):
+    result = infer_db_name_from_sequence_accession(ensembl_protein_accession)
+    assert result == "Ensembl_Protein"
+
+
 @pytest.mark.parametrize("invalid_accession", ["XP_000000", VALID_CHR_ACCESSION])
 def test_infer_db_name_from_sequence_accession_invalid(invalid_accession):
     with pytest.raises(NotImplementedError):
