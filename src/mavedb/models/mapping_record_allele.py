@@ -57,4 +57,18 @@ class MappingRecordAllele(ValidTime, Base):
             unique=True,
             postgresql_where=text("valid_to IS NULL"),
         ),
+        # At most one live *authoritative* link per mapping record. The index above keys on
+        # (record, allele) and so cannot stop two different alleles both being flagged authoritative
+        # for one record; this one enforces the "one authoritative (measured) allele per record"
+        # invariant directly. It is the backstop the serving layer relies on: the lean whole-set view
+        # (lib/score_set_variants) inner-joins the authoritative link expecting it 1:1 with the
+        # variant, so a second live authoritative link would silently duplicate the variant (and
+        # double-count its score) rather than raise. With this index, that mistake fails loud in the
+        # mapping job at write time instead.
+        Index(
+            "uq_mapping_record_alleles_live_authoritative",
+            "mapping_record_id",
+            unique=True,
+            postgresql_where=text("is_authoritative AND valid_to IS NULL"),
+        ),
     )
