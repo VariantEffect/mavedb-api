@@ -47,6 +47,7 @@ from mavedb.lib.logging.context import (
     logging_context,
     save_to_logging_context,
 )
+from mavedb.lib.clinical_controls import get_clinical_control_options, get_clinical_controls_with_variant_urns
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_calibrations import create_score_calibration
 from mavedb.lib.score_set_variants import get_lean_score_set_variants
@@ -74,17 +75,12 @@ from mavedb.lib.urns import (
     generate_score_set_urn,
 )
 from mavedb.lib.workflow.pipeline_factory import PipelineFactory
-from mavedb.models.allele import Allele
-from mavedb.models.clinical_control import ClinvarControl
-from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
-from mavedb.models.mapping_record import MappingRecord
-from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
@@ -2475,6 +2471,10 @@ async def get_clinical_controls_for_score_set(
     # Rename user facing kwargs for consistency with code base naming conventions.
     db_name = db
     db_version = version
+    if db_name is not None:
+        save_to_logging_context({"db_name": db_name})
+    if db_version is not None:
+        save_to_logging_context({"db_version": db_version})
 
     item: Optional[ScoreSet] = _db.scalars(select(ScoreSet).where(ScoreSet.urn == urn)).one_or_none()
     if not item:
@@ -2486,37 +2486,9 @@ async def get_clinical_controls_for_score_set(
 
     assert_permission(user_data, item, Action.READ)
 
-    clinical_controls_query = (
-        select(ClinvarControl, Variant.urn.label("variant_urn"))
-        .join(ClinvarAlleleLink, ClinvarAlleleLink.clinvar_control_id == ClinvarControl.id)
-        .join(Allele, Allele.id == ClinvarAlleleLink.allele_id)
-        .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
-        .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
-        .join(Variant, Variant.id == MappingRecord.variant_id)
-        .where(ClinvarAlleleLink.live_at(as_of))
-        .where(MappingRecordAllele.live_at(as_of))
-        .where(MappingRecord.live_at(as_of))
-        .where(Variant.score_set_id == item.id)
-        .distinct()
+    controls = get_clinical_controls_with_variant_urns(
+        _db, item.id, as_of=as_of, db_name=db_name, db_version=db_version
     )
-
-    if db_name is not None:
-        save_to_logging_context({"db_name": db_name})
-        clinical_controls_query = clinical_controls_query.where(ClinvarControl.db_name == db_name)
-
-    if db_version is not None:
-        save_to_logging_context({"db_version": db_version})
-        clinical_controls_query = clinical_controls_query.where(ClinvarControl.db_version == db_version)
-
-    rows = _db.execute(clinical_controls_query).tuples().all()
-
-    controls: dict[int, ClinvarControl] = {}
-    urns_by_control: dict[int, list[str]] = {}
-    for ctrl, variant_urn in rows:
-        if ctrl.id not in controls:
-            controls[ctrl.id] = ctrl
-            urns_by_control[ctrl.id] = []
-        urns_by_control[ctrl.id].append(variant_urn)
 
     if not controls:
         logger.info(
@@ -2542,10 +2514,10 @@ async def get_clinical_controls_for_score_set(
                 "db_name": ctrl.db_name,
                 "modification_date": ctrl.modification_date,
                 "creation_date": ctrl.creation_date,
-                "mapped_variants": [{"variant_urn": v_urn} for v_urn in urns_by_control[ctrl.id]],
+                "mapped_variants": [{"variant_urn": v_urn} for v_urn in variant_urns],
             }
         )
-        for ctrl in controls.values()
+        for ctrl, variant_urns in controls
     ]
 
 
@@ -2592,29 +2564,9 @@ async def get_clinical_controls_options_for_score_set(
 
     assert_permission(user_data, item, Action.READ)
 
-    clinical_controls_query = (
-        select(ClinvarControl.db_name, ClinvarControl.db_version)
-        .join(ClinvarAlleleLink, ClinvarAlleleLink.clinvar_control_id == ClinvarControl.id)
-        .join(Allele, Allele.id == ClinvarAlleleLink.allele_id)
-        .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
-        .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
-        .join(Variant, Variant.id == MappingRecord.variant_id)
-        .where(ClinvarAlleleLink.live_at(as_of))
-        .where(MappingRecordAllele.live_at(as_of))
-        .where(MappingRecord.live_at(as_of))
-        .where(Variant.score_set_id == item.id)
-        .distinct()
-    )
+    options = get_clinical_control_options(db, item.id, as_of=as_of)
 
-    clinical_controls_for_item = db.execute(clinical_controls_query)
-
-    # NOTE: We return options even for pairwise groupings which may have no associated mapped variants
-    #       and 404 when ultimately requested together.
-    clinical_control_options: dict[str, list[str]] = {}
-    for db_name, db_version in clinical_controls_for_item:
-        clinical_control_options.setdefault(db_name, []).append(db_version)
-
-    if not clinical_control_options:
+    if not options:
         logger.info(
             msg="Failed to fetch clinical control options for score set; No clinical control variants are associated with this score set.",
             extra=logging_context(),
@@ -2624,17 +2576,7 @@ async def get_clinical_controls_options_for_score_set(
             detail=f"no clinical control variants associated with score set URN {urn} were found",
         )
 
-    def _version_sort_key(v: str) -> tuple[int, int]:
-        try:
-            month, year = v.split("_")
-            return int(year), int(month)
-        except (ValueError, AttributeError):
-            return (0, 0)
-
-    return [
-        {"db_name": db_name, "available_versions": sorted(db_versions, key=_version_sort_key, reverse=True)}
-        for db_name, db_versions in clinical_control_options.items()
-    ]
+    return [{"db_name": db_name, "available_versions": available_versions} for db_name, available_versions in options]
 
 
 @router.get(
