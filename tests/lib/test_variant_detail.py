@@ -5,7 +5,7 @@ These pin the composition: the flat assay fields (level, target/reference HGVS, 
 off the live record + authoritative allele; the spec-pure Cat-VRS + MaveDB mode/member-relations off
 the on-the-fly builder; the digest-keyed annotation map; the per-calibration classifications
 (primary first, filterable by visibility); scores/counts passthrough; and the ``is_current`` /
-``superseded_by`` version standing. Cat-VRS/annotation internals are covered in their own suites — here
+``superseded_by_score_set`` version standing. Cat-VRS/annotation internals are covered in their own suites — here
 we assert they are wired in and keyed correctly.
 """
 
@@ -159,7 +159,7 @@ def test_full_envelope_for_a_coding_assay(session, setup_lib_db_with_score_set):
     assert detail.annotations["cdna-digest"].vep is not None
     assert detail.annotations["cdna-digest"].vep.consequence == "missense_variant"
     assert detail.is_current is True
-    assert detail.superseded_by is None
+    assert detail.superseded_by_score_set is None
 
 
 @pytest.mark.integration
@@ -245,4 +245,4 @@ def test_superseded_variant_self_describes(session, setup_lib_db_with_score_set)
     detail = get_variant_detail(session, variant, superseding_score_set=newer)
 
     assert detail.is_current is False
-    assert detail.superseded_by == "urn:mavedb:00000001-a-2"
+    assert detail.superseded_by_score_set == "urn:mavedb:00000001-a-2"

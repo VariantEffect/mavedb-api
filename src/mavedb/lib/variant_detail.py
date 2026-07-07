@@ -5,8 +5,8 @@ assay-level HGVS pair, digest, ClinGen id) plus the spec-pure GA4GH ``Categorica
 on the fly by :mod:`lib.cat_vrs`) and, riding alongside it keyed by VRS digest, the MaveDB layer —
 per-member relations and the digest-keyed external-annotation map (:mod:`lib.annotations`). Also
 carries the per-calibration functional ``classifications`` the variant falls into, and its version
-standing (``is_current`` / ``superseded_by``) so a superseded variant self-describes rather than
-reading as current (design §9.2).
+standing (``is_current`` / ``superseded_by_score_set``) so a superseded variant self-describes rather
+than reading as current (design §9.2).
 
 Temporal scope of ``as_of``: only the **molecular** layer is versioned — Cat-VRS membership and the
 VEP/gnomAD/ClinVar annotations reconstruct at the past instant. Scores are immutable (``Variant`` is
@@ -77,7 +77,11 @@ class VariantDetail:
 
     # Version standing — self-descriptive for a superseded variant.
     is_current: bool
-    superseded_by: Optional[str]  # URN of the superseding variant's score set, if any (and readable)
+    # URN of the score-set version that supersedes this variant's, if any (and readable). This is a
+    # *score set* URN, not a variant URN — supersession is versioned at the score-set level, and a newer
+    # version may add/drop/renumber variants, so there is no stable superseding-variant to point at;
+    # consumers resolve the current measurement by looking this variant up within that score set.
+    superseded_by_score_set: Optional[str]
 
 
 def _classifications_for_variant(
@@ -126,7 +130,7 @@ def get_variant_detail(
 
     ``superseding_score_set`` is the newer version the caller has already resolved for visibility
     (blanked when the user cannot read it, mirroring ``fetch_score_set_by_urn``); its presence drives
-    ``is_current``/``superseded_by``. ``visible_calibration_ids`` restricts classifications to
+    ``is_current``/``superseded_by_score_set``. ``visible_calibration_ids`` restricts classifications to
     readable calibrations. ``as_of`` reconstructs the molecular layer (Cat-VRS membership +
     annotations); scores and classifications are as-of-invariant. See the module docstring.
     """
@@ -176,5 +180,5 @@ def get_variant_detail(
         member_relations=member_relations,
         annotations=annotations,
         is_current=superseding_score_set is None,
-        superseded_by=superseding_score_set.urn if superseding_score_set is not None else None,
+        superseded_by_score_set=superseding_score_set.urn if superseding_score_set is not None else None,
     )

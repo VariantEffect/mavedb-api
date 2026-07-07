@@ -465,12 +465,12 @@ def get_variant(
 
     Flat assay-level fields for the common UI case plus the spec-pure GA4GH CategoricalVariant and a
     digest-keyed annotation map for machine/standard consumers. A superseded variant is served (it is
-    the citable unit) but self-describes via isCurrent/supersededBy rather than reading as current.
+    the citable unit) but self-describes via isCurrent/supersededByScoreSet rather than reading as current.
     """
     save_to_logging_context({"requested_resource": urn, "as_of": as_of})
     response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
     try:
-        variant = db.query(Variant).filter(Variant.urn == urn).one_or_none()
+        variant = db.scalars(select(Variant).where(Variant.urn == urn)).one_or_none()
     except MultipleResultsFound:
         logger.info(msg="Could not fetch the requested variant; Multiple such variants exist.", extra=logging_context())
         raise HTTPException(status_code=500, detail=f"multiple variants with URN '{urn}' were found")

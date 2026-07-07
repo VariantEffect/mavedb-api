@@ -109,7 +109,7 @@ def test_get_variant_detail_envelope(client, session, data_provider, data_files,
     assert body["memberRelations"] == {"prot-digest": "translation_of"}
     assert body["annotations"]["cdna-digest"]["vep"]["consequence"] == "missense_variant"
     assert body["isCurrent"] is True
-    assert "supersededBy" not in body  # dropped by exclude_none when current
+    assert "supersededByScoreSet" not in body  # dropped by exclude_none when current
     assert response.headers["X-As-Of"] == "current"
 
 
@@ -154,7 +154,7 @@ def test_superseded_variant_self_describes(client, session, data_provider, data_
     assert response.status_code == 200
     body = response.json()
     assert body["isCurrent"] is False
-    assert body["supersededBy"] == newer["urn"]
+    assert body["supersededByScoreSet"] == newer["urn"]
 
 
 def test_get_variant_detail_anonymous_cannot_read_private(

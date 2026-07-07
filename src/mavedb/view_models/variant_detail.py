@@ -36,7 +36,11 @@ class VariantDetail(BaseModel):
     is a client-side toggle, no refetch) plus the spec-pure GA4GH ``molecularRepresentation``
     (``CategoricalVariant``, no MaveDB fields inside). The MaveDB layer rides alongside keyed by VRS
     digest: ``memberRelations`` (member→defining relation) and the ``annotations`` map. ``isCurrent``
-    /``supersededBy`` let a superseded variant self-describe. Absent fields are omitted.
+    /``supersededByScoreSet`` let a superseded variant self-describe: ``supersededByScoreSet`` is the
+    superseding *score set*'s URN, not a variant URN. Supersession is versioned at the score-set level,
+    and a newer version may add, drop, or renumber variants — so there is no stable
+    superseding-*variant* pointer to hand back; a consumer resolves the current measurement by looking
+    this variant up within that score set. Absent fields are omitted.
     """
 
     urn: str
@@ -57,7 +61,7 @@ class VariantDetail(BaseModel):
     annotations: dict[str, AlleleAnnotations] = {}
 
     is_current: bool
-    superseded_by: Optional[str] = None
+    superseded_by_score_set: Optional[str] = None
 
     class Config:
         from_attributes = True
