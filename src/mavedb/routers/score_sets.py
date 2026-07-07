@@ -41,7 +41,6 @@ from mavedb.lib.identifiers import (
     find_or_create_doi_identifier,
     find_or_create_publication_identifier,
 )
-from mavedb.lib.lean_variants import get_lean_score_set_variants
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
     correlation_id_for_context,
@@ -50,6 +49,7 @@ from mavedb.lib.logging.context import (
 )
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_calibrations import create_score_calibration
+from mavedb.lib.score_set_variants import get_lean_score_set_variants
 from mavedb.lib.score_sets import (
     CLINVAR_NS_PATTERN,
     csv_data_to_df,

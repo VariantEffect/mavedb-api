@@ -1,6 +1,6 @@
 """Response view models for the lean whole-set view (``GET /score-sets/{urn}/variants``).
 
-The pydantic serialization boundary over the ``lib.lean_variants`` transit dataclasses. ``from_attributes``
+The pydantic serialization boundary over the ``lib.score_set_variants`` transit dataclasses. ``from_attributes``
 lets the route return the ``LeanVariantRecord`` dataclasses directly and have FastAPI's ``response_model``
 coerce them (field names line up); aliases camelize per the shared base config, so clients see
 ``variantUrn`` / ``assayLevelHgvs`` etc. ``response_model_exclude_none`` drops absent fields, so a slot

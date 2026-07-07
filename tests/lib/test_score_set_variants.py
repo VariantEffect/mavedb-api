@@ -1,5 +1,5 @@
 # ruff: noqa: E402
-"""Integration tests for the lean whole-set view assembly (``lib/lean_variants.py``).
+"""Integration tests for the lean whole-set view assembly (``lib/score_set_variants.py``).
 
 These pin the one-row-per-variant assembly: the submitted HGVS come off the variant, the mapped
 assay-level HGVS off the live mapping record, the digest/ClinGen id/VEP consequence off the
@@ -15,7 +15,7 @@ import pytest
 
 pytest.importorskip("psycopg2")
 
-from mavedb.lib.lean_variants import HgvsField, get_lean_score_set_variants
+from mavedb.lib.score_set_variants import HgvsField, get_lean_score_set_variants
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
