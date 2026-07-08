@@ -29,18 +29,37 @@ class VariantClassification(BaseModel):
         from_attributes = True
 
 
+class AlleleIdentity(BaseModel):
+    """The MaveDB molecular-identity facts for one of the variant's linked alleles.
+
+    An entry of the ``alleles`` sidecar, keyed by VRS digest. ``level`` + ``hgvs`` (the reference-frame
+    HGVS) are what the UI labels the per-level annotation panel by — never the digest (design §7.5).
+    ``relation`` is this allele's relation to the measured (defining) allele; ``null`` when it *is* the
+    measured allele, or when the allele is not a Cat-VRS member.
+    """
+
+    level: Optional[str] = None
+    hgvs: Optional[str] = None
+    clingen_allele_id: Optional[str] = None
+    relation: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class VariantDetail(BaseModel):
     """The assayed variant-detail envelope (``GET /variants/{urn}``, design §7.1).
 
     Two tiers: flat, UI-ergonomic assay fields (the ``targetHgvs``/``referenceHgvs`` coordinate pair
     is a client-side toggle, no refetch) plus the spec-pure GA4GH ``molecularRepresentation``
-    (``CategoricalVariant``, no MaveDB fields inside). The MaveDB layer rides alongside keyed by VRS
-    digest: ``memberRelations`` (member→defining relation) and the ``annotations`` map. ``isCurrent``
-    /``supersededByScoreSet`` let a superseded variant self-describe: ``supersededByScoreSet`` is the
-    superseding *score set*'s URN, not a variant URN. Supersession is versioned at the score-set level,
-    and a newer version may add, drop, or renumber variants — so there is no stable
-    superseding-*variant* pointer to hand back; a consumer resolves the current measurement by looking
-    this variant up within that score set. Absent fields are omitted.
+    (``CategoricalVariant``, no MaveDB fields inside). The MaveDB layer rides alongside, keyed by VRS
+    digest: the ``alleles`` identity sidecar (per-allele ``level`` / ``hgvs`` / ``clingenAlleleId`` /
+    ``relation`` — one entry per linked allele, sharing keys with ``annotations``) and the
+    ``annotations`` map. ``isCurrent``/``supersededByScoreSet`` let a superseded variant self-describe:
+    ``supersededByScoreSet`` is the superseding *score set*'s URN, not a variant URN. Supersession is
+    versioned at the score-set level, and a newer version may add, drop, or renumber variants — so there
+    is no stable superseding-*variant* pointer to hand back; a consumer resolves the current measurement
+    by looking this variant up within that score set. Absent fields are omitted.
     """
 
     urn: str
@@ -56,7 +75,7 @@ class VariantDetail(BaseModel):
 
     molecular_representation: Optional[dict[str, Any]] = None
     mode: Optional[str] = None
-    member_relations: dict[str, str] = {}
+    alleles: dict[str, AlleleIdentity] = {}
 
     annotations: dict[str, AlleleAnnotations] = {}
 

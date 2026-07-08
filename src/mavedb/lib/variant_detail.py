@@ -3,7 +3,8 @@
 Assembles the two-tier envelope for a single variant: flat, UI-ergonomic assay fields (the
 assay-level HGVS pair, digest, ClinGen id) plus the spec-pure GA4GH ``CategoricalVariant`` (built
 on the fly by :mod:`lib.cat_vrs`) and, riding alongside it keyed by VRS digest, the MaveDB layer —
-per-member relations and the digest-keyed external-annotation map (:mod:`lib.annotations`). Also
+the per-allele identity sidecar (level / HGVS / ClinGen id / member→defining relation) and the
+digest-keyed external-annotation map (:mod:`lib.allele_annotations`). Also
 carries the per-calibration functional ``classifications`` the variant falls into, and its version
 standing (``is_current`` / ``superseded_by_score_set``) so a superseded variant self-describes rather
 than reading as current (design §9.2).
@@ -53,6 +54,24 @@ class VariantClassificationRecord:
 
 
 @dataclass(frozen=True)
+class AlleleIdentity:
+    """The MaveDB molecular-identity facts for one of the variant's linked alleles.
+
+    Rides alongside the spec-pure Cat-VRS keyed by VRS digest (the ``alleles`` map). ``level`` and
+    ``hgvs`` (the reference-frame HGVS, exactly one of the allele's genomic/coding/protein columns) are
+    what the UI labels the per-level annotation panel by — *never* the digest. ``relation`` is this
+    allele's relation to the measured (defining) allele; ``None`` when it *is* the measured allele, or
+    when the allele is not a Cat-VRS member. (The Cat-VRS relation is a *member*→defining code, hence
+    absent for the defining allele — see ``cat_vrs.CategoricalVariantTransit.member_relations``.)
+    """
+
+    level: Optional[str]
+    hgvs: Optional[str]
+    clingen_allele_id: Optional[str]
+    relation: Optional[str]
+
+
+@dataclass(frozen=True)
 class VariantDetail:
     """The assembled variant-detail envelope (transit; serialized by ``view_models.variant``)."""
 
@@ -68,12 +87,14 @@ class VariantDetail:
     assay_level_digest: Optional[str]
     clingen_allele_id: Optional[str]
 
-    # Spec-pure GA4GH Cat-VRS (no MaveDB fields inside), plus the MaveDB layer riding alongside.
+    # Spec-pure GA4GH Cat-VRS (no MaveDB fields inside), plus the MaveDB layer riding alongside: the
+    # per-allele identity sidecar, keyed by VRS digest — one entry per linked allele (the record-scoped,
+    # all-levels set, sharing keys with `annotations`), carrying level + HGVS + ClinGen id + relation.
     molecular_representation: Optional[dict[str, Any]]
     mode: Optional[str]  # CatVrsMode value — projection | reverse_translation
-    member_relations: dict[str, str]  # member vrs_digest -> relation (member -> defining)
+    alleles: dict[str, AlleleIdentity]
 
-    # External annotations, keyed by VRS digest, joined to the Cat-VRS members.
+    # External annotations, keyed by VRS digest, joined to the Cat-VRS members / the alleles sidecar.
     annotations: dict[str, AlleleAnnotations]
 
     # Version standing — self-descriptive for a superseded variant.
@@ -161,16 +182,36 @@ def get_variant_detail(
 
     annotations = get_allele_annotations(db, [link.allele for link in links], as_of=as_of)
 
-    # Spec-pure Cat-VRS built on the fly, plus the MaveDB layer (mode + per-member relations).
+    # Spec-pure Cat-VRS built on the fly, plus the MaveDB layer (mode + per-member relations). The
+    # relations key the sidecar below; the defining allele is deliberately absent from them, so it
+    # gets relation=None.
     transit = categorical_variant_for_variant(db, variant.id, name=variant.urn or "", as_of=as_of)
     if transit is not None:
         molecular_representation = transit.categorical_variant.model_dump(mode="json", exclude_none=True)
         mode: Optional[str] = transit.mode.value
-        member_relations = {digest: relation.value for digest, relation in transit.member_relations.items()}
+        relations = transit.member_relations
     else:
         molecular_representation = None
         mode = None
-        member_relations = {}
+        relations = {}
+
+    # The per-allele identity sidecar: one entry per linked allele, keyed by VRS digest (the same
+    # record-scoped, all-levels link set that seeds `annotations`, so the two maps share keys). Carries
+    # the molecular-identity facts the UI labels annotations by — level, reference-frame HGVS (exactly one
+    # of hgvs_g/c/p is populated per allele), ClinGen id — and the member→defining relation.
+    alleles: dict[str, AlleleIdentity] = {}
+    for link in links:
+        allele = link.allele
+        if allele.vrs_digest is None:
+            continue
+
+        relation = relations.get(allele.vrs_digest)
+        alleles[allele.vrs_digest] = AlleleIdentity(
+            level=allele.level,
+            hgvs=allele.hgvs_g or allele.hgvs_c or allele.hgvs_p,
+            clingen_allele_id=allele.clingen_allele_id,
+            relation=relation.value if relation is not None else None,
+        )
 
     return VariantDetail(
         urn=variant.urn or "",
@@ -184,7 +225,7 @@ def get_variant_detail(
         clingen_allele_id=clingen_allele_id,
         molecular_representation=molecular_representation,
         mode=mode,
-        member_relations=member_relations,
+        alleles=alleles,
         annotations=annotations,
         is_current=superseding_score_set is None,
         superseded_by_score_set=superseding_score_set.urn if superseding_score_set is not None else None,

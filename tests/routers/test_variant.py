@@ -64,8 +64,16 @@ def _seed_mapping(session, variant_urn):
     session.add(record)
     session.commit()
 
-    measured = Allele(vrs_digest="cdna-digest", level="cdna", post_mapped=_post_mapped(), clingen_allele_id="CA123")
-    protein = Allele(vrs_digest="prot-digest", level="protein", post_mapped=_post_mapped())
+    measured = Allele(
+        vrs_digest="cdna-digest",
+        level="cdna",
+        post_mapped=_post_mapped(),
+        clingen_allele_id="CA123",
+        hgvs_c="NM_000546.6:c.1216G>A",
+    )
+    protein = Allele(
+        vrs_digest="prot-digest", level="protein", post_mapped=_post_mapped(), hgvs_p="NP_000537.3:p.Ala406Thr"
+    )
     session.add_all([measured, protein])
     session.commit()
 
@@ -106,7 +114,15 @@ def test_get_variant_detail_envelope(client, session, data_provider, data_files,
     assert body["mode"] == "projection"
     # Spec-pure Cat-VRS carries its own field names (no camelization of the nested GA4GH object).
     assert body["molecularRepresentation"]["type"] == "CategoricalVariant"
-    assert body["memberRelations"] == {"prot-digest": "translation_of"}
+    # The alleles identity sidecar serializes camelCase, keyed by digest; the protein member is a
+    # translation of the defining coding allele (which itself has no relation to itself).
+    assert body["alleles"]["cdna-digest"]["level"] == "cdna"
+    assert body["alleles"]["cdna-digest"]["hgvs"] == "NM_000546.6:c.1216G>A"
+    assert body["alleles"]["cdna-digest"]["clingenAlleleId"] == "CA123"
+    assert "relation" not in body["alleles"]["cdna-digest"]  # null relation dropped by exclude_none
+    assert body["alleles"]["prot-digest"]["level"] == "protein"
+    assert body["alleles"]["prot-digest"]["hgvs"] == "NP_000537.3:p.Ala406Thr"
+    assert body["alleles"]["prot-digest"]["relation"] == "translation_of"
     assert body["annotations"]["cdna-digest"]["vep"]["consequence"] == "missense_variant"
     assert body["isCurrent"] is True
     assert "supersededByScoreSet" not in body  # dropped by exclude_none when current

@@ -66,8 +66,16 @@ def _variant(session, score_set, suffix, *, data=None, hgvs_nt=None, hgvs_pro=No
     return variant
 
 
-def _allele(session, digest, *, level="cdna", clingen_allele_id=None):
-    allele = Allele(vrs_digest=digest, level=level, post_mapped=_post_mapped(), clingen_allele_id=clingen_allele_id)
+def _allele(session, digest, *, level="cdna", clingen_allele_id=None, hgvs_g=None, hgvs_c=None, hgvs_p=None):
+    allele = Allele(
+        vrs_digest=digest,
+        level=level,
+        post_mapped=_post_mapped(),
+        clingen_allele_id=clingen_allele_id,
+        hgvs_g=hgvs_g,
+        hgvs_c=hgvs_c,
+        hgvs_p=hgvs_p,
+    )
     session.add(allele)
     session.commit()
     return allele
@@ -134,8 +142,8 @@ def test_full_envelope_for_a_coding_assay(session, setup_lib_db_with_score_set):
         session, score_set, 1, data={"score_data": {"score": -2.3}}, hgvs_nt="c.1216G>A", hgvs_pro="p.Ala406Thr"
     )
     record = _record(session, variant, assay_level="cdna", hgvs_assay_level="NM_000546.6:c.1216G>A")
-    measured = _allele(session, "cdna-digest", level="cdna", clingen_allele_id="CA123")
-    protein = _allele(session, "prot-digest", level="protein")
+    measured = _allele(session, "cdna-digest", level="cdna", clingen_allele_id="CA123", hgvs_c="NM_000546.6:c.1216G>A")
+    protein = _allele(session, "prot-digest", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr")
     _link(session, record, measured, is_authoritative=True)
     _link(session, record, protein)
     _vep(session, measured, "missense_variant")
@@ -152,8 +160,19 @@ def test_full_envelope_for_a_coding_assay(session, setup_lib_db_with_score_set):
     assert detail.mode == "projection"
     assert detail.molecular_representation is not None
     assert detail.molecular_representation["type"] == "CategoricalVariant"
+    # The alleles sidecar carries one identity per linked allele, keyed by digest: level +
+    # reference-frame HGVS (coalesced from hgvs_g/c/p) + ClinGen id + member->defining relation.
+    assert set(detail.alleles) == {"cdna-digest", "prot-digest"}
+    measured_identity = detail.alleles["cdna-digest"]
+    assert measured_identity.level == "cdna"
+    assert measured_identity.hgvs == "NM_000546.6:c.1216G>A"  # coalesced from hgvs_c
+    assert measured_identity.clingen_allele_id == "CA123"
+    assert measured_identity.relation is None  # the defining allele has no relation to itself
+    protein_identity = detail.alleles["prot-digest"]
+    assert protein_identity.level == "protein"
+    assert protein_identity.hgvs == "NP_000537.3:p.Ala406Thr"  # coalesced from hgvs_p
     # The protein member is a translation of the measured coding allele (member -> defining).
-    assert detail.member_relations == {"prot-digest": "translation_of"}
+    assert protein_identity.relation == "translation_of"
     # Annotations keyed by digest, covering both linked alleles; VEP rode in on the measured allele.
     assert set(detail.annotations) == {"cdna-digest", "prot-digest"}
     assert detail.annotations["cdna-digest"].vep is not None
@@ -181,7 +200,11 @@ def test_protein_assay_targets_the_protein_frame(session, setup_lib_db_with_scor
     assert detail.reference_hgvs == "NP_000537.3:p.Ala406Thr"
     assert detail.assay_level_digest == "prot-digest"
     assert detail.mode == "reverse_translation"
-    assert detail.member_relations == {"cdna-digest": "encodes"}
+    # Defining protein allele has no relation to itself; the coding member encodes it.
+    assert detail.alleles["prot-digest"].level == "protein"
+    assert detail.alleles["prot-digest"].relation is None
+    assert detail.alleles["cdna-digest"].level == "cdna"
+    assert detail.alleles["cdna-digest"].relation == "encodes"
 
 
 @pytest.mark.integration
@@ -201,7 +224,7 @@ def test_unmapped_variant_has_null_molecular_layer(session, setup_lib_db_with_sc
     assert detail.clingen_allele_id is None
     assert detail.molecular_representation is None
     assert detail.mode is None
-    assert detail.member_relations == {}
+    assert detail.alleles == {}
     assert detail.annotations == {}
     assert detail.is_current is True
 
