@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from mavedb.lib.allele_annotations import AlleleAnnotations, get_allele_annotations
 from mavedb.lib.alleles import get_live_record_allele_links
 from mavedb.lib.cat_vrs import categorical_variant_for_variant
+from mavedb.lib.score_calibrations import calibration_preference_key
 from mavedb.models.enums.annotation_layer import AnnotationLayer
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.score_calibration import ScoreCalibration
@@ -88,31 +89,37 @@ def _classifications_for_variant(
     db: Session, variant: Variant, *, visible_calibration_ids: Optional[set[int]]
 ) -> list[VariantClassificationRecord]:
     """The functional classifications the variant belongs to (membership is materialized on the
-    calibration→classification→variant m2m). One row per calibration that classifies the variant;
-    the primary calibration sorts first. ``visible_calibration_ids`` restricts to calibrations the
-    caller resolved as readable (``None`` = no restriction, for lib-level use)."""
+    calibration→classification→variant m2m). One row per calibration that classifies the variant, ordered
+    by the shared calibration preference cascade (``calibration_preference_key`` + id) so the first entry
+    is the same default the UI and the allele-measurements card surface. ``visible_calibration_ids``
+    restricts to calibrations the caller resolved as readable (``None`` = no restriction, for lib-level use)."""
     statement = (
-        select(ScoreCalibrationFunctionalClassification, ScoreCalibration.primary, ScoreCalibration.id)
+        select(ScoreCalibrationFunctionalClassification, ScoreCalibration)
         .join(
             classification_variants,
             classification_variants.c.functional_classification_id == ScoreCalibrationFunctionalClassification.id,
         )
         .join(ScoreCalibration, ScoreCalibration.id == ScoreCalibrationFunctionalClassification.calibration_id)
         .where(classification_variants.c.variant_id == variant.id)
-        .order_by(ScoreCalibration.primary.desc(), ScoreCalibration.id)
     )
     if visible_calibration_ids is not None:
         statement = statement.where(ScoreCalibration.id.in_(visible_calibration_ids))
 
+    rows = sorted(
+        db.execute(statement).tuples().all(), key=lambda row: (*calibration_preference_key(row[1]), row[1].id)
+    )
     return [
-        VariantClassificationRecord(calibration_id=calibration_id, primary=primary, classification=classification)
-        for classification, primary, calibration_id in db.execute(statement)
+        VariantClassificationRecord(
+            calibration_id=calibration.id, primary=calibration.primary, classification=classification
+        )
+        for classification, calibration in rows
     ]
 
 
 def _submitted_assay_level_hgvs(variant: Variant, assay_level: Optional[str]) -> Optional[str]:
     """The depositor-submitted HGVS in the variant's assay frame: protein for a protein assay,
-    otherwise the nucleotide expression (genomic or coding share ``hgvs_nt``)."""
+    otherwise the nucleotide expression (genomic or coding share ``hgvs_nt`` and ``hgvs_splice`` is
+    never an index column)."""
     if assay_level == AnnotationLayer.protein.value:
         return variant.hgvs_pro
     return variant.hgvs_nt
