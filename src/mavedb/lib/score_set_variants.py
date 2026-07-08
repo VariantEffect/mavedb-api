@@ -1,8 +1,10 @@
 """The lean whole-set view backing the score-set page.
 
 The score-set table, heatmap, and score/effect histograms all compose from one pre-chewed per-variant
-dataset. This module assembles that dataset for an entire score set in a single bulk query and returns
-one record per variant.
+dataset. This module assembles that dataset for an entire score set in two O(N) bulk queries — a base
+per-variant projection plus a standalone protein-HGVS projection stitched back in Python — and returns
+one record per variant. (The protein projection is deliberately *not* a join: folded in, its opaque
+cardinality drives the SQL planner into an O(N^2) per-variant rescan; see ``get_lean_score_set_variants``.)
 
 Each record carries the HGVS in both frames the heatmap toggles between — the depositor-**submitted**
 strings (``hgvs_nt``/``hgvs_pro``/``hgvs_splice``, the target frame) and the **mapped** assay-level
@@ -92,50 +94,18 @@ def get_lean_score_set_variants(
     histogram still see them. ``as_of`` reconstructs the annotation layer at a past instant (submitted
     HGVS and scores are immutable and unaffected); it defaults to the currently-live rows.
     """
-    # Per record, the forward-translated protein HGVS (hgvs_p) of its protein-level allele.
-    prot_link = aliased(MappingRecordAllele)
-    prot_allele = aliased(Allele)
-    prot_record = aliased(MappingRecord)
-    prot_variant = aliased(Variant)
-    protein_allele = (
-        select(
-            prot_link.mapping_record_id.label("mapping_record_id"),
-            prot_allele.hgvs_p.label("protein_hgvs"),
-        )
-        # DISTINCT ON -> at most one protein level row per record.
-        .distinct(prot_link.mapping_record_id)
-        # link -> allele: level and hgvs_p live on the *allele*.
-        .join(prot_allele, prot_allele.id == prot_link.allele_id)
-        # link -> record -> variant: the bridge to scoreset_id, to scope the subquery (next).
-        .join(prot_record, prot_record.id == prot_link.mapping_record_id)
-        .join(prot_variant, prot_variant.id == prot_record.variant_id)
-        # Scope to this score set so the subquery's cost scales with the response.
-        .where(prot_variant.score_set_id == score_set.id)
-        # Live links only. A live link implies a live parent record (ValidTime invariant), so this also
-        # covers record-liveness — no prot_record.live_at needed; the MR join is just the scoping bridge.
-        .where(prot_link.live_at(as_of))
-        # Only the protein-level allele.
-        .where(prot_allele.level == AnnotationLayer.protein.value)
-        # DISTINCT ON requires ORDER BY to lead with its column; allele.id then picks which row survives
-        # per record — inert today (only one protein allele exists).
-        .order_by(prot_link.mapping_record_id, prot_allele.id)
-        # MATERIALIZED forces this to run exactly once. The planner badly under-counted the DISTINCT ON
-        # cardinality (est. ~5 vs ~2.8k actual) and, left as a plain subquery, buries it on the inner
-        # side of a nested loop, re-running the whole projection once per variant. That is O(N^2) in the
-        # score set size. Materializing collapses it back to O(N).
-        .cte("protein_allele")
-        .prefix_with("MATERIALIZED")
-    )
-
-    statement = (
+    # The base per-variant projection: the four annotation joins that stay strictly 1:1 with the variant,
+    # so this whole query is a stream of O(N) index-scan lookups. MappingRecord.id rides along as the key
+    # the protein projection (a *separate* query, below) is stitched back on.
+    base_statement = (
         select(
             Variant.urn,
             Variant.data,
             Variant.hgvs_nt,
             Variant.hgvs_pro,
             Variant.hgvs_splice,
+            MappingRecord.id.label("mapping_record_id"),
             MappingRecord.hgvs_assay_level,
-            protein_allele.c.protein_hgvs.label("protein_hgvs"),
             Allele.vrs_digest,
             Allele.clingen_allele_id,
             VepAlleleConsequence.functional_consequence,
@@ -162,15 +132,48 @@ def get_lean_score_set_variants(
         .outerjoin(
             VepAlleleConsequence, and_(VepAlleleConsequence.allele_id == Allele.id, VepAlleleConsequence.live_at(as_of))
         )
-        # The protein projection (materialized above), matched back by record id (a globally-unique PK ->
-        # the right protein row, no cross-set risk). LEFT: some rows have no protein projection
-        # (UTR/intronic) -> null.
-        .outerjoin(protein_allele, protein_allele.c.mapping_record_id == MappingRecord.id)
         # The anchor: just this score set's variants.
         .where(Variant.score_set_id == score_set.id)
         # Natural table order: variant number (the integer after '#'), id breaks ties stably.
         .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer), Variant.id)
     )
+
+    # The protein projection runs as its own query, NOT a join into the base statement. Joined in, it forces
+    # an O(N^2) plan: the DISTINCT ON cardinality is opaque to the planner (est. ~18 vs ~11.5k actual), so it
+    # buried the projection on the inner side of a nested loop and rescanned it in full once per variant —
+    # ~97% of the endpoint's total time. MATERIALIZED in the query above fixes the *construction* but not the
+    # per-variant *rescan*. Pulling out and stitching these queries by mapping_record_id in Python enables both
+    # queries to run in O(N) time, making this function (and the endpoint it serves) considerably faster.
+    prot_link = aliased(MappingRecordAllele)
+    prot_allele = aliased(Allele)
+    prot_record = aliased(MappingRecord)
+    prot_variant = aliased(Variant)
+    protein_statement = (
+        select(
+            prot_link.mapping_record_id.label("mapping_record_id"),
+            prot_allele.hgvs_p.label("protein_hgvs"),
+        )
+        # DISTINCT ON -> at most one protein level row per record.
+        .distinct(prot_link.mapping_record_id)
+        # link -> allele: level and hgvs_p live on the *allele*.
+        .join(prot_allele, prot_allele.id == prot_link.allele_id)
+        # link -> record -> variant: the bridge to scoreset_id, to scope the query.
+        .join(prot_record, prot_record.id == prot_link.mapping_record_id)
+        .join(prot_variant, prot_variant.id == prot_record.variant_id)
+        # Scope to this score set so the cost scales with the response.
+        .where(prot_variant.score_set_id == score_set.id)
+        # Live links only. A live link implies a live parent record (ValidTime invariant), so this also
+        # covers record-liveness — no prot_record.live_at needed; the MR join is just the scoping bridge.
+        .where(prot_link.live_at(as_of))
+        # Only the protein-level allele.
+        .where(prot_allele.level == AnnotationLayer.protein.value)
+        # DISTINCT ON requires ORDER BY to lead with its column; allele.id then picks which row survives
+        # per record — inert today (only one protein allele exists).
+        .order_by(prot_link.mapping_record_id, prot_allele.id)
+    )
+    # Keyed by record id (a globally-unique PK -> the right protein row, no cross-set risk). Some records
+    # have no protein projection (UTR/intronic) -> absent from the map -> null protein field below.
+    protein_hgvs_by_record = {row.mapping_record_id: row.protein_hgvs for row in db.execute(protein_statement)}
 
     return [
         LeanVariantRecord(
@@ -183,7 +186,7 @@ def get_lean_score_set_variants(
             hgvs_pro=_hgvs_field_for_str(row.hgvs_pro),
             hgvs_splice=_hgvs_field_for_str(row.hgvs_splice),
             assay_level_hgvs=_hgvs_field_for_str(row.hgvs_assay_level),
-            protein_level_hgvs=_hgvs_field_for_str(row.protein_hgvs),
+            protein_level_hgvs=_hgvs_field_for_str(protein_hgvs_by_record.get(row.mapping_record_id)),
         )
-        for row in db.execute(statement)
+        for row in db.execute(base_statement)
     ]
