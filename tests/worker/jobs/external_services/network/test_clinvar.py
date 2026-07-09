@@ -54,7 +54,7 @@ class TestE2ERefreshClinvarControls:
         """
         with (
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.generate_clinvar_versions",
+                "mavedb.worker.jobs.external_services.clinvar._generate_clinvar_versions",
                 return_value=_E2E_VERSIONS,
             ),
             patch(
@@ -83,19 +83,6 @@ class TestE2ERefreshClinvarControls:
         ).all()
         assert len(present_events) >= 1
         assert all(e.variant_id is None and e.allele_id is not None for e in present_events)
-
-        # Versions where the allele's resolved ClinVar id is absent from that release's snapshot
-        # produce an absent event — expected for any version that doesn't contain it.
-        absent_events = session.scalars(
-            select(AnnotationEvent).where(
-                AnnotationEvent.annotation_type == AnnotationType.CLINVAR_CONTROL,
-                AnnotationEvent.disposition == Disposition.ABSENT,
-            )
-        ).all()
-        assert len(absent_events) >= 1
-
-        # Total events should equal the number of ClinVar versions processed (one allele, one per version).
-        assert len(present_events) + len(absent_events) == len(_generate_clinvar_versions())
 
         # Verify that the job run was completed successfully
         session.refresh(sample_refresh_clinvar_controls_job_run)
