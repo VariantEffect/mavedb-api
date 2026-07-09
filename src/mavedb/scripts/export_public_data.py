@@ -11,6 +11,10 @@ See `src/mavedb/scripts/resources/README.md` for a full description of the archi
 
 Unpublished data and data sets licensed other than under the Creative Commons Zero license are not included in the dump,
 and user details are limited to ORCID IDs and names of contributors to published data sets.
+
+RELEASING A NEW VERSION: Before publishing a new version of this archive to Zenodo, add an entry describing what
+changed to `src/mavedb/scripts/resources/CHANGELOG.md` (it is bundled into the archive). The full release procedure
+is documented in `deployment/docs/zenodo-release.md`.
 """
 
 import json
@@ -129,10 +133,11 @@ def export_public_data(db: Session):
         # Write metadata for all data sets to a single JSON file.
         zipfile.writestr("main.json", json.dumps(jsonable_encoder(json_data)))
 
-        # Copy the CC0 license and README.
+        # Copy the CC0 license, README, and changelog.
         resources_dir = os.path.join(os.path.dirname(__file__), "resources")
         zipfile.write(os.path.join(resources_dir, "CC0_license.txt"), "LICENSE.txt")
         zipfile.write(os.path.join(resources_dir, "README.md"), "README.md")
+        zipfile.write(os.path.join(resources_dir, "CHANGELOG.md"), "CHANGELOG.md")
 
         # Write score and count files for each score set.
         num_score_sets = len(score_set_ids)
