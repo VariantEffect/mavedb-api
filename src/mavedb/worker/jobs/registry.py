@@ -71,8 +71,10 @@ BACKGROUND_CRONJOBS: List[CronJob] = [
     cron(
         cleanup_stalled_jobs,
         name="cleanup_stalled_jobs_cron",
-        minute={15, 45},  # Run at :15 and :45 past each hour (every 30 minutes)
-        keep_result=timedelta(minutes=25).total_seconds(),
+        # Every 10 minutes. Paired with the 20-min progress-stall window this gives an effective
+        # stall-detection latency of ~20-30 min (vs. up to 50 min on the old 30-min cadence).
+        minute={5, 15, 25, 35, 45, 55},
+        keep_result=timedelta(minutes=9).total_seconds(),
     ),
 ]
 

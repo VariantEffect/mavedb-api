@@ -13,6 +13,7 @@ Jobs can get stuck due to:
 The cleanup job acts as a safety net to ensure jobs don't remain in limbo forever.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -37,13 +38,29 @@ from mavedb.worker.lib.managers.utils import arq_job_id
 logger = logging.getLogger(__name__)
 
 # Timeout thresholds for detecting stalled jobs (in minutes).
-# RUNNING_TIMEOUT_MINUTES must stay below ArqWorkerSettings.job_timeout (currently 2 hours)
-# to avoid marking legitimately running jobs as stalled.
-RUNNING_TIMEOUT_MINUTES = 150  # RUNNING jobs should complete within 150 min (30 min buffer under ARQ timeout)
+#
+# RUNNING jobs are evaluated on two signals:
+#   1. PROGRESS_STALL_MINUTES — the primary signal. A healthy job checkpoints progress frequently
+#      (JobRun.progress_updated_at is bumped on every committing progress update via onupdate=now()).
+#      If the heartbeat has not advanced in this window the job is considered wedged, regardless of
+#      how long it has legitimately been running. This is what lets a multi-hour VEP fan-out run to
+#      completion without being killed, while still catching a job that has genuinely hung.
+#   2. RUNNING_TIMEOUT_MINUTES — a wall-clock backstop for jobs that never emit progress (or whose
+#      heartbeat column is somehow stuck). Sits ~30 min under ArqWorkerSettings.job_timeout (8h) so
+#      the DB-driven sweeper, not ARQ's hard kill, is what terminates a job — keeping DB state and
+#      actual work in sync.
+PROGRESS_STALL_MINUTES = 20  # RUNNING jobs should checkpoint progress at least this often
+RUNNING_TIMEOUT_MINUTES = 450  # Wall-clock backstop (7.5h), 30 min under the 8h ARQ ceiling
 PENDING_TIMEOUT_MINUTES = 5  # PENDING jobs which are actionable within pipelines should be enqueued within 5 minutes
 PIPELINE_STUCK_TIMEOUT_MINUTES = (
     5  # Pipelines in non-terminal states with no active jobs should resolve within 5 minutes
 )
+
+# How long the sweeper waits for an aborted RUNNING job to actually die before giving up. A job
+# cancelled at an await point dies within a poll cycle (sub-second); a job wedged in a blocking sync
+# call never honors the abort and will hit this timeout — in which case we do NOT re-drive it (see
+# _handle_stalled_running_job) to avoid running it twice.
+ABORT_CONFIRM_TIMEOUT_SECONDS = 15
 
 
 async def _handle_stalled_job_retry(
@@ -193,19 +210,90 @@ async def _handle_stalled_job_retry(
         return False
 
 
+async def _running_job_confirmed_dead(arq_id: str, redis: ArqRedis) -> bool:
+    """Abort a RUNNING job's current ARQ attempt and report whether it is safe to re-drive.
+
+    RUNNING recovery differs from QUEUED/PENDING recovery: a RUNNING job may still have a live
+    coroutine holding a worker slot. Re-enqueuing without cancelling it first may mean two
+    coroutines are running the same job simultaneously, which is unsafe.
+
+    We therefore issue Job.abort() on the current attempt and interpret the outcome:
+
+    - abort() returns True  -> the coroutine was alive and has now been cancelled + recorded a
+      terminal result. Safe to re-drive.
+    - abort() returns False -> the job is absent from ARQ (crashed worker / never enqueued / already
+      finished). Nothing is running. Safe to re-drive — this is the common crash-recovery path.
+    - abort() raises TimeoutError -> the job is still present in ARQ and did not die within the
+      window: a coroutine wedged in a blocking sync call that cannot honor cooperative cancellation.
+      NOT safe to re-drive; leave it for the next sweep or ARQ's own ceiling.
+    - any other error -> treat as not-confirmably-alive and allow re-drive; a genuinely live job
+      would have either confirmed the abort or timed out, not errored here.
+
+    Returns True when it is safe to re-drive the job, False when the job may still be running.
+    """
+    try:
+        await ArqJob(arq_id, redis).abort(timeout=ABORT_CONFIRM_TIMEOUT_SECONDS)
+        return True
+    except asyncio.TimeoutError:
+        logger.warning(
+            f"Abort of RUNNING job attempt {arq_id} did not confirm within "
+            f"{ABORT_CONFIRM_TIMEOUT_SECONDS}s; job may be wedged in a blocking call — not re-driving"
+        )
+        return False
+    except Exception as e:
+        logger.warning(f"Abort of RUNNING job attempt {arq_id} raised {e!r}; treating as not running and re-driving")
+        return True
+
+
+async def _handle_stalled_running_job(
+    job: JobRun,
+    manager: JobManager,
+    redis: ArqRedis,
+    stall_reason: str,
+    db: Session,
+) -> bool:
+    """Recover a stalled RUNNING job via abort-first ordering.
+
+    Aborts the current attempt (urn#N) BEFORE any retry bookkeeping, and only proceeds to re-drive
+    (which increments retry_count and enqueues urn#N+1) once the abort confirms the original is dead
+    or absent. If the original refuses to die, we leave it alone rather than risk a double-run.
+
+    Returns True if the sweeper acted on the job (re-drove or permanently failed it), False if it was
+    left in place because the abort could not be confirmed (so it should not be counted as cleaned).
+    """
+    arq_id = arq_job_id(job)
+
+    # Could not confirm the coroutine is dead. Leave the job RUNNING; the next sweep will retry
+    # the abort, and ARQ's job_timeout ceiling remains as a final backstop.
+    if not await _running_job_confirmed_dead(arq_id, redis):
+        logger.warning(
+            f"Leaving stalled RUNNING job {job.urn} in place — abort unconfirmed, re-driving would risk a double-run",
+            extra=manager.logging_context(),
+        )
+        return False
+
+    # Abort confirmed dead (or the job was absent from ARQ). Refresh our view — if the aborted
+    # coroutine's own lifecycle handler already marked the row terminal, we want to see that — then
+    # re-drive through the shared retry handler, which preserves pipeline dependency semantics.
+    db.refresh(job)
+    await _handle_stalled_job_retry(job, manager, redis, stall_reason, db)
+    return True
+
+
 @with_guaranteed_job_run_record("cron_job")
 @with_job_management
 async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutionOutcome:
     """Detect and handle jobs that have stalled in intermediate states.
 
-    This job runs periodically (every 15 minutes) to find jobs that have been
-    stuck in QUEUED, RUNNING, or PENDING states beyond reasonable timeouts
-    and handles them appropriately.
+    This job runs periodically to find jobs that have been stuck in QUEUED, RUNNING, or PENDING
+    states beyond reasonable timeouts and handles them appropriately.
 
     Stalled job detection criteria:
     - QUEUED: Present in DB as QUEUED but absent from ARQ's Redis queue
       (process crashed between prepare_queue and redis.enqueue_job)
-    - RUNNING: Started > 60 minutes ago but not finished (worker likely crashed)
+    - RUNNING: Progress heartbeat idle > PROGRESS_STALL_MINUTES, or wall-clock runtime past the
+      RUNNING_TIMEOUT_MINUTES backstop, and not finished. Recovered abort-first (see
+      _handle_stalled_running_job) so a wedged attempt is never re-driven alongside its own retry.
     - PENDING: Created > 5 minutes ago in a pipeline and currently runnable
       (coordination failure)
     - Pipeline stuck: Non-terminal pipeline with no active jobs older than 5 minutes
@@ -230,7 +318,8 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
 
         Job stalled in RUNNING (worker crash):
         - Worker started job, marked it RUNNING, then crashed
-        - After 60 minutes (longer than ARQ timeout), janitor detects and retries
+        - Once the progress heartbeat goes stale (or the wall-clock backstop is hit), the janitor
+          aborts the dead attempt and re-drives it
     """
     job_manager.save_to_context(
         {
@@ -305,14 +394,19 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
     job_manager.save_to_context({"cleaned_queued_jobs": queued_jobs})
     logger.debug("Completed cleaning stalled QUEUED jobs.", extra=job_manager.logging_context())
 
-    # Find RUNNING jobs that have been running too long OR have missing started_at
-    # These likely indicate worker crashes (worker died mid-execution) or data inconsistencies
+    # Find RUNNING jobs that are wedged. A job is a candidate when EITHER its progress heartbeat has
+    # gone stale (the primary, runtime-agnostic signal) OR it has blown past the wall-clock backstop
+    # (or is missing started_at entirely — a data inconsistency). Healthy long-running jobs keep
+    # bumping progress_updated_at and so are never selected until the backstop.
+    progress_stall_threshold = now - timedelta(minutes=PROGRESS_STALL_MINUTES)
     running_threshold = now - timedelta(minutes=RUNNING_TIMEOUT_MINUTES)
     running_jobs = job_manager.db.scalars(
         select(JobRun).where(
             JobRun.status == JobStatus.RUNNING,
-            (JobRun.started_at < running_threshold) | (JobRun.started_at.is_(None)),
             JobRun.finished_at.is_(None),
+            (JobRun.progress_updated_at < progress_stall_threshold)
+            | (JobRun.started_at < running_threshold)
+            | (JobRun.started_at.is_(None)),
         )
     ).all()
 
@@ -333,18 +427,26 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
             continue
 
         elapsed_minutes = (now - job.started_at).total_seconds() / 60
+        heartbeat_stale = job.progress_updated_at < progress_stall_threshold
+        if heartbeat_stale:
+            heartbeat_age = (now - job.progress_updated_at).total_seconds() / 60
+            stall_reason = (
+                f"Job stalled in RUNNING state: progress heartbeat idle for {heartbeat_age:.1f} minutes "
+                f"(running for {elapsed_minutes:.1f} minutes)"
+            )
+        else:
+            stall_reason = (
+                f"Job stalled in RUNNING state for {elapsed_minutes:.1f} minutes "
+                f"(exceeded {RUNNING_TIMEOUT_MINUTES} min backstop; likely worker crash)"
+            )
 
-        logger.warning(
-            f"Detected stalled RUNNING job {job.urn} "
-            f"(started {job.started_at}, running for {elapsed_minutes:.1f} minutes)",
-            extra=manager.logging_context(),
-        )
+        logger.warning(f"Detected stalled RUNNING job {job.urn}: {stall_reason}", extra=manager.logging_context())
 
-        stall_reason = f"Job stalled in RUNNING state for {elapsed_minutes:.1f} minutes (likely worker crash)"
-        await _handle_stalled_job_retry(job, manager, job_manager.redis, stall_reason, job_manager.db)
+        acted = await _handle_stalled_running_job(job, manager, job_manager.redis, stall_reason, job_manager.db)
 
         manager.db.commit()
-        cleaned_jobs["running"].append(job.urn)
+        if acted:
+            cleaned_jobs["running"].append(job.urn)
 
     job_manager.save_to_context({"cleaned_running_jobs": running_jobs})
     logger.debug("Completed cleaning stalled RUNNING jobs.", extra=job_manager.logging_context())
