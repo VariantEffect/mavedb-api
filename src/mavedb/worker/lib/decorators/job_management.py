@@ -5,6 +5,7 @@ Provides automatic job lifecycle tracking with support for async functions.
 Includes JobManager injection for advanced operations and robust error handling.
 """
 
+import asyncio
 import functools
 import inspect
 import logging
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from mavedb.lib.slack import send_slack_error, send_slack_job_error, send_slack_job_failure
 from mavedb.lib.types.workflow import JobExecutionOutcome
-from mavedb.models.enums.job_pipeline import JobStatus
+from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
 from mavedb.worker.lib.decorators.utils import ensure_ctx, ensure_job_id, ensure_session_ctx, is_test_mode
 from mavedb.worker.lib.managers import JobManager
 from mavedb.worker.lib.managers.constants import TERMINAL_JOB_STATUSES
@@ -142,6 +143,43 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
             db_session.commit()
 
         return result
+
+    # The coroutine is being cancelled — either ARQ hit job_timeout, or cleanup_stalled_jobs
+    # aborted this attempt (Job.abort()) as part of stall recovery. CancelledError is a
+    # BaseException, so the `except Exception` handler below never sees it; without this branch
+    # the JobRun row would be orphaned as RUNNING forever while the coroutine dies.
+    #
+    # We mark the row terminally (FAILED / TIMEOUT) so DB state matches reality, then RE-RAISE.
+    # Re-raising is essential: it lets ARQ record the cancellation as the job's result, which is
+    # what makes a concurrent Job.abort() confirm the job actually died.
+    except asyncio.CancelledError:
+        logger.warning(f"Job {job_id} cancelled (timeout or stall-recovery abort); marking FAILED before re-raising")
+        try:
+            db_session.rollback()
+            if job_manager is not None:
+                job_manager.fail_job(
+                    result=JobExecutionOutcome.failed(
+                        reason="Job cancelled due to timeout, stall-recovery, or internal ARQ abort",
+                        data={"reason": "cancelled"},
+                        failure_category=FailureCategory.TIMEOUT,
+                    )
+                )
+                db_session.commit()
+                job = job_manager.get_job()
+                send_slack_job_failure(
+                    job_urn=job.urn,
+                    job_function=job.job_function,
+                    reason="Job cancelled due to timeout.",
+                    failure_category=str(FailureCategory.TIMEOUT),
+                    retry_count=job.retry_count,
+                    max_retries=job.max_retries,
+                    will_retry=False,
+                )
+
+        except Exception as inner_e:
+            logger.critical(f"Failed to mark cancelled job {job_id} as failed: {inner_e}")
+            send_slack_error(inner_e)
+        raise
 
     except Exception as e:
         # Prioritize salvaging lifecycle state
