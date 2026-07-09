@@ -1,7 +1,7 @@
 """Add mapping_records, alleles, and mapping_record_alleles tables
 
 Revision ID: a1b2c3d4e5f6
-Revises: 398067c53257
+Revises: a7f3c2e9b104
 Create Date: 2026-05-29
 
 New parallel tables for the Better Reverse Translation epic (#746).
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "a1b2c3d4e5f6"
-down_revision = "398067c53257"
+down_revision = "a7f3c2e9b104"
 branch_labels = None
 depends_on = None
 
