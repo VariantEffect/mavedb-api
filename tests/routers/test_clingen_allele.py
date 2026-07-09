@@ -104,6 +104,42 @@ def test_superseded_measurement_is_opt_in(client, session, data_provider, data_f
     assert body[0]["supersededByScoreSet"] == newer["urn"]
 
 
+def test_nucleotide_siblings_are_opt_in(client, session, data_provider, data_files, setup_router_db):
+    """The sibling nt bucket is a discovery opt-in: a different DNA variant encoding the same protein
+    consequence is absent by default and pulled in as a ``nucleotide_encoding`` under
+    ``include_nucleotide_siblings``."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    prot = Allele(vrs_digest="prot-digest", level="protein", clingen_allele_id="PA9")
+    session.add(prot)
+    session.commit()
+
+    # Two coding measurements encoding the same protein consequence (PA9), each carrying its own CA.
+    for suffix, caid, digest in ((1, "CA111", "cdna-1"), (2, "CA222", "cdna-2")):
+        variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == f"{score_set['urn']}#{suffix}"))
+        record = MappingRecord(variant_id=variant.id, assay_level="cdna", mapping_api_version="test.0.0")
+        session.add(record)
+        session.commit()
+        nt = Allele(vrs_digest=digest, level="cdna", clingen_allele_id=caid)
+        session.add(nt)
+        session.commit()
+        session.add(MappingRecordAllele(mapping_record_id=record.id, allele_id=nt.id, is_authoritative=True))
+        session.add(MappingRecordAllele(mapping_record_id=record.id, allele_id=prot.id))
+        session.commit()
+
+    default = client.get("/api/v1/clingen-alleles/CA111/measurements")
+    assert {m["variantUrn"] for m in default.json()} == {f"{score_set['urn']}#1"}
+
+    widened = client.get("/api/v1/clingen-alleles/CA111/measurements", params={"include_nucleotide_siblings": True})
+    assert widened.status_code == 200
+    by_urn = {m["variantUrn"]: m for m in widened.json()}
+    assert set(by_urn) == {f"{score_set['urn']}#1", f"{score_set['urn']}#2"}
+    assert by_urn[f"{score_set['urn']}#1"]["relationship"] == "direct"
+    assert by_urn[f"{score_set['urn']}#2"]["relationship"] == "nucleotide_encoding"
+
+
 def test_anonymous_cannot_see_private_measurement(
     client, session, data_provider, data_files, setup_router_db, anonymous_app_overrides
 ):

@@ -50,6 +50,16 @@ def get_clingen_allele_measurements(
             "measurements are a deliberate power-user / citation path, never surfaced by discovery."
         ),
     ),
+    include_nucleotide_siblings: bool = Query(
+        default=False,
+        description=(
+            "For a nucleotide (CA) query only: also return sibling nucleotide changes — other DNA "
+            "variants encoding the same protein consequence that were themselves assayed at the "
+            "nucleotide level (relationship 'nucleotide_encoding'). Default false: the variant page "
+            "anchors strictly on the queried allele. Discovery surfaces (search) set it to surface all "
+            "evidence bearing on the consequence. No-op for a protein (PA) query."
+        ),
+    ),
     as_of: Optional[datetime] = Query(
         default=None,
         description=(
@@ -72,6 +82,7 @@ def get_clingen_allele_measurements(
             "requested_resource": clingen_allele_id,
             "as_of": as_of,
             "include_superseded": include_superseded,
+            "include_nucleotide_siblings": include_nucleotide_siblings,
         }
     )
     response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
@@ -81,5 +92,6 @@ def get_clingen_allele_measurements(
         clingen_allele_id,
         user_data=user_data,
         include_superseded=include_superseded,
+        include_nucleotide_siblings=include_nucleotide_siblings,
         as_of=as_of,
     )

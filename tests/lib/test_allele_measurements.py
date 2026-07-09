@@ -224,6 +224,39 @@ def test_sibling_nt_not_pulled_onto_ca_page(session, setup_lib_db_with_score_set
 
 
 @pytest.mark.integration
+def test_sibling_nt_pulled_onto_ca_page_with_flag(session, setup_lib_db_with_score_set):
+    """``include_nucleotide_siblings`` widens a CA page through the protein consequence: the sibling nt
+    change encoding the same protein is pulled in as a ``nucleotide_encoding`` while the direct measurement
+    is unchanged. A no-op for a PA query, which already returns every encoding."""
+    score_set = setup_lib_db_with_score_set
+    nt1 = _allele(session, "nt-1", level="cdna", clingen_allele_id="CA111")
+    nt2 = _allele(session, "nt-2", level="cdna", clingen_allele_id="CA222")
+    prot = _allele(session, "prot-P", level="protein", clingen_allele_id="PA9")
+
+    a = _variant(session, score_set, 1, data={"score_data": {"score": 1.0}})
+    ra = _record(session, a, assay_level="cdna")
+    _link(session, ra, nt1, is_authoritative=True)
+    _link(session, ra, prot)
+
+    c = _variant(session, score_set, 2, data={"score_data": {"score": 1.0}})
+    rc = _record(session, c, assay_level="cdna")
+    _link(session, rc, nt2, is_authoritative=True)
+    _link(session, rc, prot)
+
+    result = get_allele_measurements(session, "CA111", user_data=_user_data(session), include_nucleotide_siblings=True)
+    by_urn = {m.variant_urn: m for m in result}
+    assert set(by_urn) == {a.urn, c.urn}
+    assert by_urn[a.urn].relationship == "direct"
+    assert by_urn[c.urn].relationship == "nucleotide_encoding"
+    # Display order: the directly-measured change precedes its sibling nucleotide encoding.
+    assert [m.variant_urn for m in result] == [a.urn, c.urn]
+
+    # No-op for a protein anchor — it already returns every nt encoding.
+    pa = get_allele_measurements(session, "PA9", user_data=_user_data(session), include_nucleotide_siblings=True)
+    assert {m.variant_urn for m in pa} == {a.urn, c.urn}
+
+
+@pytest.mark.integration
 def test_private_score_set_measurement_excluded(session, setup_lib_db_with_score_set):
     """Score-set READ gates inclusion: a measurement in a score set the caller cannot read never leaks,
     even though it links the same (public, content-addressed) allele."""

@@ -1,15 +1,12 @@
 from datetime import date
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
 from pydantic import model_validator
 
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
-from mavedb.view_models.mapped_variant import MappedVariant, SavedMappedVariant
-
-if TYPE_CHECKING:
-    from mavedb.view_models.score_set import ShortScoreSet
+from mavedb.view_models.mapped_variant import SavedMappedVariant
 
 
 class VariantEffectMeasurementBase(BaseModel):
@@ -74,35 +71,3 @@ class VariantEffectMeasurement(SavedVariantEffectMeasurement):
     """Variant effect measurement view model returned to most clients"""
 
     pass
-
-
-class VariantEffectMeasurementWithShortScoreSet(SavedVariantEffectMeasurement):
-    """Variant effect measurement view model with mapped variants and a limited set of score set details"""
-
-    score_set: "ShortScoreSet"
-    mapped_variants: list[MappedVariant]
-
-
-class ClingenAlleleIdVariantLookupsRequest(BaseModel):
-    """A request to search for variants matching a list of ClinGen allele IDs"""
-
-    clingen_allele_ids: list[str]
-
-
-class ClingenAlleleVariants(BaseModel):
-    """The assayed variants sharing one ClinGen allele id, with their variant effect measurements.
-
-    An allele-side grouping (keyed by ClinGen allele id), it is the mapped-allele view of "which
-    measurements share this molecular identity," not the assayed variant itself."""
-
-    clingen_allele_id: str
-    variant_effect_measurements: list[VariantEffectMeasurementWithShortScoreSet]
-
-
-class ClingenAlleleIdVariantLookupResponse(BaseModel):
-    """Response model for a variant lookup by ClinGen allele ID"""
-
-    clingen_allele_id: str
-    exact_match: Optional[ClingenAlleleVariants] = None
-    equivalent_nt: list[ClingenAlleleVariants] = []
-    equivalent_aa: list[ClingenAlleleVariants] = []

@@ -8,8 +8,9 @@ list gathers the nt measurements of that change (**direct**) *and* the protein m
 consequence (**related**); a ``PA`` anchors on the protein allele, gathering the protein measurements of
 that change (**direct**) *and* every nt measurement that encodes it (**related**). The asymmetry falls
 out of *which* allele anchors the co-membership — a sibling nt change that also encodes the same protein
-is not pulled onto a CA page, because its record links the protein but not the anchor nt allele. See
-design §7.5.
+is not pulled onto a CA page, because its record links the protein but not the anchor nt allele.
+``include_nucleotide_siblings`` opts out of that asymmetry for discovery surfaces — see
+:func:`get_allele_measurements`.
 
 Distinct from :func:`lib.variant_detail.get_variant_detail`, which is the *record-scoped*, all-levels
 detail of one *selected* measurement. This list is the *cross-record* union — who else measured
@@ -53,9 +54,13 @@ class MeasurementRelationship(str, Enum):
     to the query.
     """
 
-    direct = "direct"  # the measurement was assayed *at* this allele
-    protein_consequence = "protein_consequence"  # CA query, protein measurement of consequence(N)
-    nucleotide_encoding = "nucleotide_encoding"  # PA query, nt measurement encoding P
+    # the measurement was assayed *at* this allele
+    direct = "direct"
+    # CA query, protein measurement of consequence(N)
+    protein_consequence = "protein_consequence"
+    # A nt measurement encoding the queried change's protein consequence: a PA query's encodings of P, or —
+    # only under ``include_nucleotide_siblings`` — a CA query's sibling nt changes that share consequence(N).
+    nucleotide_encoding = "nucleotide_encoding"
 
 
 @dataclass(frozen=True)
@@ -148,10 +153,16 @@ def get_allele_measurements(
     *,
     user_data: Optional[UserData],
     include_superseded: bool = False,
+    include_nucleotide_siblings: bool = False,
     as_of: Optional[datetime] = None,
 ) -> list[AlleleMeasurement]:
     """List the measurements in ``clingen_allele_id``'s cross-layer equivalence class. Returns
     ``[]`` when the id resolves to no allele or no live record.
+
+    ``include_nucleotide_siblings`` (a ``CA`` entry only; a no-op for ``PA``) widens the class through the
+    queried change's protein consequence to also surface the *sibling* nt changes — other nucleotide
+    variants that encode the same amino-acid change and were themselves assayed at the nucleotide level
+    (``relationship=nucleotide_encoding``).
     """
     anchor = db.execute(select(Allele.id, Allele.level).where(Allele.clingen_allele_id == clingen_allele_id)).all()
     if not anchor:
@@ -159,6 +170,23 @@ def get_allele_measurements(
 
     anchor_ids = [row.id for row in anchor]
     entry_is_protein = any(row.level == AnnotationLayer.protein.value for row in anchor)
+
+    # Sibling nucleotide changes (search discovery, CA only): fold the queried change's protein consequence
+    # — the protein alleles co-membered with the anchor nt alleles — into the anchor, so the single record
+    # union below also reaches every record encoding that consequence. a PA query already anchors on the protein, so
+    # this is exactly what makes a CA+siblings query behave like one. (This query would be redundant for a PA entry).
+    if include_nucleotide_siblings and not entry_is_protein:
+        anchor_link = aliased(MappingRecordAllele)
+        anchor_ids += db.scalars(
+            select(MappingRecordAllele.allele_id)
+            .join(anchor_link, anchor_link.mapping_record_id == MappingRecordAllele.mapping_record_id)
+            .join(Allele, Allele.id == MappingRecordAllele.allele_id)
+            .where(anchor_link.allele_id.in_(anchor_ids))
+            .where(anchor_link.live_at(as_of))
+            .where(MappingRecordAllele.live_at(as_of))
+            .where(Allele.level == AnnotationLayer.protein.value)
+            .distinct()
+        ).all()
 
     record_ids = db.scalars(
         select(MappingRecordAllele.mapping_record_id)
@@ -207,12 +235,15 @@ def get_allele_measurements(
         if not is_current and not include_superseded:
             continue
 
+        # Label by the measured level, not the entry level: direct when the measured allele *is* the query,
+        # else protein→protein_consequence / nucleotide→nucleotide_encoding. Without siblings the sibling-nt
+        # branch is unreachable (a record links the anchor only via itself or its protein consequence).
         if measured_allele.clingen_allele_id == clingen_allele_id:
             relationship = MeasurementRelationship.direct
-        elif entry_is_protein:
-            relationship = MeasurementRelationship.nucleotide_encoding
-        else:
+        elif measured_allele.level == AnnotationLayer.protein.value:
             relationship = MeasurementRelationship.protein_consequence
+        else:
+            relationship = MeasurementRelationship.nucleotide_encoding
 
         assay_level = record.assay_level
         measurement = AlleleMeasurement(
