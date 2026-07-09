@@ -30,6 +30,7 @@ Unpublished data, private datasets, and datasets published under other licenses 
 ```
 mavedb-dump.YYYYMMDDHHMMSS.zip
 ├── README.md                                  # This file
+├── CHANGELOG.md                               # What changed between archive versions
 ├── LICENSE.txt                                # Creative Commons CC0 1.0 license text
 ├── main.json                                  # Metadata for all included datasets
 ├── csv/
