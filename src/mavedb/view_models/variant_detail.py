@@ -34,14 +34,23 @@ class AlleleIdentity(BaseModel):
 
     An entry of the ``alleles`` sidecar, keyed by VRS digest. ``level`` + ``hgvs`` (the reference-frame
     HGVS) are what the UI labels the per-level annotation panel by — never the digest (design §7.5).
-    ``relation`` is this allele's relation to the measured (defining) allele; ``null`` when it *is* the
-    measured allele, or when the allele is not a Cat-VRS member.
+
+    Three independent axes:
+    - ``relation`` (Cat-VRS, structural): member→defining relation; ``null`` when it *is* the measured
+      allele, or when the allele is not a Cat-VRS member.
+    - ``derivation`` (provenance): ``authoritative`` (measured) / ``projection`` (deterministic,
+      precise) / ``candidate`` (reverse-translation, ambiguous). Orthogonal to ``relation`` — never
+      conflate them.
+    - ``projectionOf`` (provenance): the VRS digest of this allele's projection sibling (the paired c↔g member of
+      its projection pair group); ``null`` for the protein apex and pre-reverse-translation data.
     """
 
     level: Optional[str] = None
     hgvs: Optional[str] = None
     clingen_allele_id: Optional[str] = None
     relation: Optional[str] = None
+    derivation: Optional[str] = None
+    projection_of: Optional[str] = None
 
     class Config:
         from_attributes = True

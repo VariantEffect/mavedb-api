@@ -47,6 +47,7 @@ class AlleleSpec:
     hgvs_g: Optional[str] = None
     post_mapped: Optional[dict] = None
     vep_consequence: Optional[str] = None
+    projection_group: Optional[int] = None
     clinvar_control_ids: Sequence[int] = field(default_factory=tuple)
     gnomad_variant_ids: Sequence[int] = field(default_factory=tuple)
 
@@ -99,7 +100,10 @@ def seed_mapping_record(
 
         links: list[Any] = [
             MappingRecordAllele(
-                mapping_record_id=record.id, allele_id=allele.id, is_authoritative=spec.is_authoritative
+                mapping_record_id=record.id,
+                allele_id=allele.id,
+                is_authoritative=spec.is_authoritative,
+                projection_group=spec.projection_group,
             )
         ]
         if spec.vep_consequence is not None:

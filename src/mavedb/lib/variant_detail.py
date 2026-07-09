@@ -18,6 +18,7 @@ the currently-live rows.
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -53,22 +54,54 @@ class VariantClassificationRecord:
     classification: ScoreCalibrationFunctionalClassification
 
 
+class AlleleDerivation(str, Enum):
+    """How an allele's representation was arrived at — its confidence/provenance axis.
+
+    Distinct from (orthogonal to) the Cat-VRS ``relation`` axis: ``relation`` is *structural* (which
+    level relates to which, member→defining), whereas ``derivation`` is *epistemic* (how much to trust
+    the representation). See the design's "Semantics note — two axes, keep them separate". Derived at
+    serialization time from ``is_authoritative`` + the assay level — no stored column.
+    """
+
+    # The assay's actual measurement (the authoritative link). Precise by definition.
+    AUTHORITATIVE = "authoritative"
+    # Deterministic and precise. Every allele derived from a *nucleotide* measurement is a projection:
+    # nucleotide↔nucleotide and nucleotide→protein are both deterministic given (assembly, transcript).
+    PROJECTION = "projection"
+    # Reverse-translation output of a *protein* measurement — genuinely ambiguous (many synonymous
+    # codons). One member of the fanned-out equivalence class, not a precise coordinate.
+    CANDIDATE = "candidate"
+
+
 @dataclass(frozen=True)
 class AlleleIdentity:
     """The MaveDB molecular-identity facts for one of the variant's linked alleles.
 
     Rides alongside the spec-pure Cat-VRS keyed by VRS digest (the ``alleles`` map). ``level`` and
     ``hgvs`` (the reference-frame HGVS, exactly one of the allele's genomic/coding/protein columns) are
-    what the UI labels the per-level annotation panel by — *never* the digest. ``relation`` is this
-    allele's relation to the measured (defining) allele; ``None`` when it *is* the measured allele, or
-    when the allele is not a Cat-VRS member. (The Cat-VRS relation is a *member*→defining code, hence
-    absent for the defining allele — see ``cat_vrs.CategoricalVariantTransit.member_relations``.)
+    what the UI labels the per-level annotation panel by — *never* the digest.
+
+    Three axes ride here, deliberately independent:
+
+    - ``relation`` (Cat-VRS, structural): this allele's member→defining relation
+      (``is_protein_of`` / ``coordinate_representation_of`` / …). ``None`` when it *is* the measured
+      allele, or when the allele is not a Cat-VRS member. Sourced from
+      ``cat_vrs.CategoricalVariantTransit.member_relations``.
+    - ``derivation`` (provenance): :class:`AlleleDerivation` — authoritative / projection /
+      candidate. Orthogonal to ``relation``; never conflate the two (a protein member of a nucleotide
+      assay has ``relation=translation_of`` but ``derivation=projection``, whereas the same-shaped
+      member of a protein assay is ``derivation=candidate``).
+    - ``projection_of`` (provenance): the VRS digest of this allele's projection sibling — the ≤1 *other*
+      member of its ``projection_group`` (a c↔g pair). ``None`` for the protein apex (group ``NULL``),
+      for pre-reverse-translation data, and where a level's projection failed.
     """
 
     level: Optional[str]
     hgvs: Optional[str]
     clingen_allele_id: Optional[str]
     relation: Optional[str]
+    derivation: Optional[str]
+    projection_of: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -137,6 +170,29 @@ def _classifications_for_variant(
     ]
 
 
+def _derivation_for(*, is_authoritative: bool, assay_level: Optional[str]) -> AlleleDerivation:
+    """The provenance of a linked allele's representation, from ``is_authoritative`` + the assay level.
+
+    The measured allele is ``authoritative``. Every *other* allele's confidence is set by the *only*
+    ambiguous boundary in the stack — protein → codon:
+
+    - **nucleotide assay** (``assay_level`` genomic/cdna) → ``projection`` for all derived alleles.
+      nucleotide↔nucleotide and nucleotide→protein are deterministic, so the whole equivalence class
+      is precise.
+    - **protein assay** (``assay_level`` protein) → ``candidate`` for the derived (nucleotide) fan-out.
+      Reverse translation is genuinely ambiguous.
+
+    Only ``assay_level`` (not the allele's own level) distinguishes the two, because on a nucleotide
+    assay every derived level is deterministic and on a protein assay every derived allele is part of
+    the ambiguous nucleotide fan-out.
+    """
+    if is_authoritative:
+        return AlleleDerivation.AUTHORITATIVE
+    if assay_level == AnnotationLayer.protein.value:
+        return AlleleDerivation.CANDIDATE
+    return AlleleDerivation.PROJECTION
+
+
 def _submitted_assay_level_hgvs(variant: Variant, assay_level: Optional[str]) -> Optional[str]:
     """The depositor-submitted HGVS in the variant's assay frame: protein for a protein assay,
     otherwise the nucleotide expression (genomic or coding share ``hgvs_nt`` and ``hgvs_splice`` is
@@ -199,11 +255,28 @@ def get_variant_detail(
     # record-scoped, all-levels link set that seeds `annotations`, so the two maps share keys). Carries
     # the molecular-identity facts the UI labels annotations by — level, reference-frame HGVS (exactly one
     # of hgvs_g/c/p is populated per allele), ClinGen id — and the member→defining relation.
+    # Within-record projection grouping: projection_group -> the digests sharing it. A link's projection
+    # sibling is the ≤1 *other* digest in its group (the c↔g pair); the protein apex and any pre-RT link
+    # carry a NULL group and so appear in no bucket (projection_of stays None for them).
+    group_digests: dict[int, list[str]] = {}
+    for link in links:
+        if link.projection_group is not None and link.allele.vrs_digest is not None:
+            group_digests.setdefault(link.projection_group, []).append(link.allele.vrs_digest)
+
     alleles: dict[str, AlleleIdentity] = {}
     for link in links:
         allele = link.allele
         if allele.vrs_digest is None:
             continue
+
+        # The projection sibling: the other digest in this link's projection_group, if any. A group has
+        # ≤2 members, so there is at most one sibling — this allele's projection partner.
+        projection_of: Optional[str] = None
+        if link.projection_group is not None:
+            projection_of = next(
+                (digest for digest in group_digests.get(link.projection_group, []) if digest != allele.vrs_digest),
+                None,
+            )
 
         relation = relations.get(allele.vrs_digest)
         alleles[allele.vrs_digest] = AlleleIdentity(
@@ -211,6 +284,8 @@ def get_variant_detail(
             hgvs=allele.hgvs_g or allele.hgvs_c or allele.hgvs_p,
             clingen_allele_id=allele.clingen_allele_id,
             relation=relation.value if relation is not None else None,
+            derivation=_derivation_for(is_authoritative=link.is_authoritative, assay_level=assay_level).value,
+            projection_of=projection_of,
         )
 
     return VariantDetail(

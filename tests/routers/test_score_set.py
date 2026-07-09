@@ -4562,7 +4562,8 @@ def test_cannot_fetch_gnomad_variants_for_score_set_when_none_exist(
 
 def _seed_lean_mapping(session, variant_urn):
     """Give one variant a live coding-measured mapping record (with an assay-level HGVS) whose
-    authoritative allele carries a digest + ClinGen id + a live VEP consequence."""
+    authoritative allele carries a digest + ClinGen id + a live VEP consequence, plus its canonical
+    genomic projection sibling (shared ``projection_group``) and the protein apex — the full triple."""
     seed_mapping_record(
         session,
         variant_urn,
@@ -4575,6 +4576,13 @@ def _seed_lean_mapping(session, variant_urn):
                 is_authoritative=True,
                 clingen_allele_id="CA123",
                 vep_consequence="missense_variant",
+                projection_group=0,
+            ),
+            AlleleSpec(
+                digest="gen-digest",
+                level="genomic",
+                hgvs_g="NC_000017.11:g.7676154C>T",
+                projection_group=0,
             ),
             AlleleSpec(digest="prot-digest", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr"),
         ],
@@ -4605,21 +4613,31 @@ def test_get_lean_variants(client, session, data_provider, data_files, setup_rou
     # Submitted HGVS (from the uploaded CSV), each with its parsed block riding alongside.
     assert mapped["hgvsNt"] == {"hgvs": "c.1A>T", "position": 1, "ref": "A", "alt": "T"}
     assert mapped["hgvsPro"] == {"hgvs": "p.Thr1Ser", "position": 1, "ref": "Thr", "alt": "Ser"}
-    # Mapped assay-level HGVS (reference frame) and the mapped protein representation.
-    assert mapped["assayLevelHgvs"] == {"hgvs": "NM_000546.6:c.1216G>A", "position": 1216, "ref": "G", "alt": "A"}
-    assert mapped["proteinLevelHgvs"] == {
+    # The mapped triple (reference frame): the measured slot named by assayLevel, its projection_group
+    # genomic sibling, and the protein apex. mapped.cdna is the search key even here (measured at cdna).
+    assert mapped["assayLevel"] == "cdna"
+    assert mapped["mapped"]["cdna"] == {"hgvs": "NM_000546.6:c.1216G>A", "position": 1216, "ref": "G", "alt": "A"}
+    assert mapped["mapped"]["genomic"] == {
+        "hgvs": "NC_000017.11:g.7676154C>T",
+        "position": 7676154,
+        "ref": "C",
+        "alt": "T",
+    }
+    assert mapped["mapped"]["protein"] == {
         "hgvs": "NP_000537.3:p.Ala406Thr",
         "position": 406,
         "ref": "Ala",
         "alt": "Thr",
     }
 
-    # An unmapped variant keeps its submitted HGVS + score; the mapped fields are dropped (exclude_none).
+    # An unmapped variant keeps its submitted HGVS + score; the mapped fields are dropped (exclude_none),
+    # and the mapped triple serializes empty (no slots) since none is populated.
     unmapped = records[1]
     assert unmapped["score"] == 1.0
     assert unmapped["hgvsNt"]["hgvs"] == "c.2C>T"
-    for omitted in ("consequence", "clingenAlleleId", "assayLevelDigest", "assayLevelHgvs"):
+    for omitted in ("consequence", "clingenAlleleId", "assayLevelDigest", "assayLevel"):
         assert omitted not in unmapped
+    assert unmapped["mapped"] == {}
 
 
 def test_get_lean_variants_unknown_score_set_is_404(client, setup_router_db):

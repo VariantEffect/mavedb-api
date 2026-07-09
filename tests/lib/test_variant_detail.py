@@ -93,8 +93,13 @@ def _record(session, variant, *, assay_level="cdna", hgvs_assay_level=None):
     return record
 
 
-def _link(session, record, allele, *, is_authoritative=False):
-    link = MappingRecordAllele(mapping_record_id=record.id, allele_id=allele.id, is_authoritative=is_authoritative)
+def _link(session, record, allele, *, is_authoritative=False, projection_group=None):
+    link = MappingRecordAllele(
+        mapping_record_id=record.id,
+        allele_id=allele.id,
+        is_authoritative=is_authoritative,
+        projection_group=projection_group,
+    )
     session.add(link)
     session.commit()
     return link
@@ -143,8 +148,12 @@ def test_full_envelope_for_a_coding_assay(session, setup_lib_db_with_score_set):
     )
     record = _record(session, variant, assay_level="cdna", hgvs_assay_level="NM_000546.6:c.1216G>A")
     measured = _allele(session, "cdna-digest", level="cdna", clingen_allele_id="CA123", hgvs_c="NM_000546.6:c.1216G>A")
+    genomic = _allele(session, "gen-digest", level="genomic", hgvs_g="NC_000017.11:g.7676154C>T")
     protein = _allele(session, "prot-digest", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr")
-    _link(session, record, measured, is_authoritative=True)
+    # The measured cdna link and its genomic projection share a projection_group (the RT fold-in); the
+    # protein apex is in no pair (group None).
+    _link(session, record, measured, is_authoritative=True, projection_group=0)
+    _link(session, record, genomic, projection_group=0)
     _link(session, record, protein)
     _vep(session, measured, "missense_variant")
 
@@ -161,20 +170,33 @@ def test_full_envelope_for_a_coding_assay(session, setup_lib_db_with_score_set):
     assert detail.molecular_representation is not None
     assert detail.molecular_representation["type"] == "CategoricalVariant"
     # The alleles sidecar carries one identity per linked allele, keyed by digest: level +
-    # reference-frame HGVS (coalesced from hgvs_g/c/p) + ClinGen id + member->defining relation.
-    assert set(detail.alleles) == {"cdna-digest", "prot-digest"}
+    # reference-frame HGVS (coalesced from hgvs_g/c/p) + ClinGen id + member->defining relation +
+    # derivation + projection_of.
+    assert set(detail.alleles) == {"cdna-digest", "gen-digest", "prot-digest"}
     measured_identity = detail.alleles["cdna-digest"]
     assert measured_identity.level == "cdna"
     assert measured_identity.hgvs == "NM_000546.6:c.1216G>A"  # coalesced from hgvs_c
     assert measured_identity.clingen_allele_id == "CA123"
     assert measured_identity.relation is None  # the defining allele has no relation to itself
+    # The measured allele is authoritative and pairs with its genomic projection sibling.
+    assert measured_identity.derivation == "authoritative"
+    assert measured_identity.projection_of == "gen-digest"
+    genomic_identity = detail.alleles["gen-digest"]
+    # Nucleotide assay: the genomic sibling is a precise projection, paired back to the measured cdna.
+    assert genomic_identity.level == "genomic"
+    assert genomic_identity.derivation == "projection"
+    assert genomic_identity.projection_of == "cdna-digest"
     protein_identity = detail.alleles["prot-digest"]
     assert protein_identity.level == "protein"
     assert protein_identity.hgvs == "NP_000537.3:p.Ala406Thr"  # coalesced from hgvs_p
-    # The protein member is a translation of the measured coding allele (member -> defining).
+    # The protein member is a translation of the measured coding allele (member -> defining)...
     assert protein_identity.relation == "translation_of"
-    # Annotations keyed by digest, covering both linked alleles; VEP rode in on the measured allele.
-    assert set(detail.annotations) == {"cdna-digest", "prot-digest"}
+    # ...and, on a nucleotide assay, is itself a deterministic projection (axes are independent) with no
+    # projection sibling (the apex is in no c/g pair).
+    assert protein_identity.derivation == "projection"
+    assert protein_identity.projection_of is None
+    # Annotations keyed by digest, covering all linked alleles; VEP rode in on the measured allele.
+    assert set(detail.annotations) == {"cdna-digest", "gen-digest", "prot-digest"}
     assert detail.annotations["cdna-digest"].vep is not None
     assert detail.annotations["cdna-digest"].vep.consequence == "missense_variant"
     assert detail.is_current is True
@@ -183,15 +205,22 @@ def test_full_envelope_for_a_coding_assay(session, setup_lib_db_with_score_set):
 
 @pytest.mark.integration
 def test_protein_assay_targets_the_protein_frame(session, setup_lib_db_with_score_set):
-    """Mode 2 (protein measured): assay level is protein, target HGVS is the submitted p. string, and
-    the nt member `encodes` the defining protein allele."""
+    """Mode 2 (protein measured): assay level is protein, target HGVS is the submitted p. string, the nt
+    members `encode` the defining protein allele, and the fanned-out c/g candidates are labelled
+    `candidate` (ambiguous) while still pairing to each other via projection_of. The protein apex is in
+    no pair (group None). The `relation` (structural) and `derivation` (provenance) axes are independent:
+    the coding candidate is `encodes` + `candidate` here, versus `translation_of` + `projection` for the
+    protein member of a nucleotide assay."""
     score_set = setup_lib_db_with_score_set
     variant = _variant(session, score_set, 1, hgvs_nt="c.1216G>A", hgvs_pro="p.Ala406Thr")
     record = _record(session, variant, assay_level="protein", hgvs_assay_level="NP_000537.3:p.Ala406Thr")
     measured = _allele(session, "prot-digest", level="protein", clingen_allele_id="PA9")
-    coding = _allele(session, "cdna-digest", level="cdna")
-    _link(session, record, measured, is_authoritative=True)
-    _link(session, record, coding)
+    coding = _allele(session, "cdna-digest", level="cdna", hgvs_c="NM_000546.6:c.1216G>A")
+    genomic = _allele(session, "gen-digest", level="genomic", hgvs_g="NC_000017.11:g.7676154C>T")
+    _link(session, record, measured, is_authoritative=True)  # protein apex — group None
+    # One reverse-translation projection pair: a coding candidate paired with its genomic projection.
+    _link(session, record, coding, projection_group=0)
+    _link(session, record, genomic, projection_group=0)
 
     detail = get_variant_detail(session, variant)
 
@@ -200,11 +229,43 @@ def test_protein_assay_targets_the_protein_frame(session, setup_lib_db_with_scor
     assert detail.reference_hgvs == "NP_000537.3:p.Ala406Thr"
     assert detail.assay_level_digest == "prot-digest"
     assert detail.mode == "reverse_translation"
-    # Defining protein allele has no relation to itself; the coding member encodes it.
-    assert detail.alleles["prot-digest"].level == "protein"
-    assert detail.alleles["prot-digest"].relation is None
-    assert detail.alleles["cdna-digest"].level == "cdna"
-    assert detail.alleles["cdna-digest"].relation == "encodes"
+    # Defining protein allele has no relation to itself, is authoritative, and is in no c/g pair.
+    prot = detail.alleles["prot-digest"]
+    assert prot.level == "protein"
+    assert prot.relation is None
+    assert prot.derivation == "authoritative"
+    assert prot.projection_of is None
+    # The coding member `encodes` the protein (structural relation) but is an ambiguous `candidate`
+    # (provenance) — the two axes disagree by design — and pairs to its genomic projection.
+    coding_identity = detail.alleles["cdna-digest"]
+    assert coding_identity.relation == "encodes"
+    assert coding_identity.derivation == "candidate"
+    assert coding_identity.projection_of == "gen-digest"
+    genomic_identity = detail.alleles["gen-digest"]
+    assert genomic_identity.relation == "encodes"
+    assert genomic_identity.derivation == "candidate"
+    assert genomic_identity.projection_of == "cdna-digest"
+
+
+@pytest.mark.integration
+def test_pre_reverse_translation_data_degrades_projection_of_to_null(session, setup_lib_db_with_score_set):
+    """Links written before reverse translation ran carry a NULL projection_group: derivation is still
+    computed (authoritative / projection from is_authoritative + assay level), but projection_of degrades
+    to null — nothing pairs until the data is re-processed."""
+    score_set = setup_lib_db_with_score_set
+    variant = _variant(session, score_set, 1, hgvs_nt="c.1216G>A")
+    record = _record(session, variant, assay_level="cdna", hgvs_assay_level="NM_000546.6:c.1216G>A")
+    measured = _allele(session, "cdna-digest", level="cdna", hgvs_c="NM_000546.6:c.1216G>A")
+    protein = _allele(session, "prot-digest", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr")
+    _link(session, record, measured, is_authoritative=True)  # no projection_group (pre-RT)
+    _link(session, record, protein)
+
+    detail = get_variant_detail(session, variant)
+
+    assert detail.alleles["cdna-digest"].derivation == "authoritative"
+    assert detail.alleles["cdna-digest"].projection_of is None  # no group -> no sibling
+    assert detail.alleles["prot-digest"].derivation == "projection"
+    assert detail.alleles["prot-digest"].projection_of is None
 
 
 @pytest.mark.integration

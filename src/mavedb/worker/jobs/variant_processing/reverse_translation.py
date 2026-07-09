@@ -1,10 +1,19 @@
 """Reverse translation worker job — builds cross-level HGVS equivalence classes.
 
 For each mapped variant in a score set, calls construct_equivalent_variants from
-the variant-annotation library to produce all coding and genomic HGVS candidates
-encoding the same protein consequence, plus that protein consequence itself. The
-candidates (coding, genomic, and the protein) are written as non-authoritative
-Allele rows linked to the existing MappingRecord via MappingRecordAllele.
+the variant-annotation library to produce the coding/genomic HGVS candidates
+encoding the same protein consequence, plus that protein consequence itself. Each
+candidate is written as a non-authoritative Allele row linked to the existing
+MappingRecord via MappingRecordAllele.
+
+The library returns the equivalence class as a list of ProjectionPair objects,
+each one projection pair (a coding candidate and its deterministic genomic projection
+— the same change at two levels). The job preserves that pairing by stamping both
+links of a projection pair with a shared per-record ``projection_group`` id; the protein
+apex is shared across all projection pairs and carries no group. Where a projection pair member
+equals the record's authoritative (measured) allele, its group is folded onto the
+existing authoritative link rather than duplicated, so the canonical c/g projection
+is resolvable from the authoritative allele's group downstream.
 """
 
 import asyncio
@@ -355,19 +364,22 @@ async def reverse_translate_variants_for_score_set(
     # superseded atomically — retire and insert share a timestamp with no gap.
     new_links: list[MappingRecordAllele] = []
 
-    # The live authoritative (record, allele) pairs. A derived candidate that equals a record's
-    # authoritative allele is not linked again.
-    authoritative_pairs: set[tuple[int, int]] = {
-        (record_id, allele_id)
-        for record_id, allele_id in job_manager.db.execute(
-            select(MappingRecordAllele.mapping_record_id, MappingRecordAllele.allele_id)
+    # The live authoritative links for the current records, keyed by (record_id, allele_id).
+    # Held as ORM objects (not a bare pair set) because the authoritative fold-in updates them in
+    # place: when an RT candidate's allele equals a record's authoritative (measured) allele, that
+    # link already exists (is_authoritative=True, projection_group NULL, written by the mapping job)
+    # and uq_mapping_record_alleles_live forbids a derived duplicate — so the candidate's group is
+    # stamped onto this existing link instead of inserting a new one. Modifying the loaded object
+    # emits an UPDATE on flush; supersede_live_where at the end only retires derived links, leaving
+    # the authoritative link (and its freshly stamped group) intact.
+    authoritative_links: dict[tuple[int, int], MappingRecordAllele] = {
+        (link.mapping_record_id, link.allele_id): link
+        for link in job_manager.db.scalars(
+            select(MappingRecordAllele)
             .where(MappingRecordAllele.is_authoritative.is_(True))
             .where(MappingRecordAllele.current)
             .where(MappingRecordAllele.mapping_record_id.in_(current_record_ids))
-        )
-        .tuples()
-        .all()
-        if record_id is not None and allele_id is not None
+        ).all()
     }
 
     for result in results:
@@ -378,17 +390,28 @@ async def reverse_translate_variants_for_score_set(
         # Dedup by vrs_digest per mapping record to avoid duplicate links.
         seen_digests: set[str] = set()
         failed_candidates: list[dict[str, str]] = []
-        candidates: list[tuple[str, AnnotationLayer, str]] = [
-            (hgvs_g, AnnotationLayer.genomic, "hgvs_g") for hgvs_g in result.hgvs_g_candidates
-        ] + [(hgvs_c, AnnotationLayer.cdna, "hgvs_c") for hgvs_c in result.hgvs_c_candidates]
 
-        # Emit the protein consequence as the protein-level member of the equivalence set.
-        # Prediction parens (p.(Ala222Val)) are stripped before translation and storage.
-        # None for protein-assay inputs where the protein is already the authoritative allele.
+        # Flatten the projection pairs into a work list of (hgvs, level, field, projection_group) members,
+        # preserving the coding↔genomic pairing the library emits. Each ProjectionPair's coding and
+        # genomic members share the pair's per-record group id — its index in the equivalence class
+        # (0..N-1). hgvs_c is always present (the pair key); hgvs_g is None when the c→g projection
+        # failed, yielding a well-formed one-member (coding only) group rather than a desync. The
+        # group id is assigned once per pair here, so the two members are guaranteed to carry the
+        # same id even though they translate and link independently below.
+        members: list[tuple[str, AnnotationLayer, str, int | None]] = []
+        for group_id, pair in enumerate(result.projection_pairs):
+            members.append((pair.hgvs_c, AnnotationLayer.cdna, "hgvs_c", group_id))
+            if pair.hgvs_g is not None:
+                members.append((pair.hgvs_g, AnnotationLayer.genomic, "hgvs_g", group_id))
+
+        # The protein consequence is the apex of the equivalence set — shared across every
+        # pair, a member of none — so it carries no group (None). Prediction parens
+        # (p.(Ala222Val)) are stripped before translation and storage. None for protein-assay
+        # inputs, where the protein is already the authoritative allele.
         if result.hgvs_p:
-            candidates.append((strip_protein_prediction_parens(result.hgvs_p), AnnotationLayer.protein, "hgvs_p"))
+            members.append((strip_protein_prediction_parens(result.hgvs_p), AnnotationLayer.protein, "hgvs_p", None))
 
-        for hgvs, level, hgvs_field in candidates:
+        for hgvs, level, hgvs_field, projection_group in members:
             # A candidate may not be translatable (intronic projection, malformed expression).
             # Track per-candidate failures; a variant fails only if *all* candidates fail.
             try:
@@ -415,14 +438,20 @@ async def reverse_translate_variants_for_score_set(
             allele = get_or_create_allele(job_manager.db, draft_allele)
             job_manager.db.flush()
 
-            if (rec.id, allele.id) in authoritative_pairs:
-                continue  # already linked
+            authoritative_link = authoritative_links.get((rec.id, allele.id))
+            if authoritative_link is not None:
+                # Authoritative fold-in: this member is the record's measured allele, already
+                # linked authoritatively. Stamp it's projection group to preserve the c↔g pairing,
+                # and skip creating a new derived link.
+                authoritative_link.projection_group = projection_group
+                continue
 
             new_links.append(
                 MappingRecordAllele(
                     mapping_record_id=rec.id,
                     allele_id=allele.id,
                     is_authoritative=False,
+                    projection_group=projection_group,
                 )
             )
             candidate_count += 1
@@ -430,8 +459,11 @@ async def reverse_translate_variants_for_score_set(
         annotation_counts["alleles_created"] += candidate_count
         annotation_metadata = {
             "hgvs_input": result.input.hgvs,
-            "hgvs_c_candidates": result.hgvs_c_candidates,
-            "hgvs_g_candidates": result.hgvs_g_candidates,
+            # Serializable projection of the projection pairs (the pairing the links now encode).
+            "candidates": [
+                {"hgvs_c": pair.hgvs_c, "hgvs_g": pair.hgvs_g, "variant_type": pair.variant_type}
+                for pair in result.projection_pairs
+            ],
             "hgvs_p": result.hgvs_p,
             "alleles_created": candidate_count,
             "failed_candidates": failed_candidates,

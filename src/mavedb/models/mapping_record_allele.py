@@ -31,7 +31,21 @@ class MappingRecordAllele(ValidTime, Base):
     # synonymous translator. The flag lives on the link rather than on
     # ``Allele`` because the same VRS allele can be authoritative for one
     # mapping record and translator-derived for another.
-    is_authoritative = Column(Boolean, nullable=False, default=False)
+    is_authoritative: Mapped[bool] = Column(Boolean, nullable=False, default=False)
+    # Within-record projection grouping. The reverse-translation job fans a variant's protein
+    # consequence out into projection pairs, each a coding/genomic pair (the same change expressed
+    # at two levels). The two links of one pair share a ``projection_group`` value
+    # (an integer index, 0..N-1, local to this mapping record), so we can reconstruct projections
+    # onto transcripts for more precise provenance in consumers. ``NULL`` for links that belong to no
+    # pair: the shared protein apex, and any link written before reverse translation has run.
+    #
+    # It is a grouping key, NOT a cross-record identity — regenerated whenever a record is
+    # superseded and re-linked. Identity lives in the allele VRS digests; two records that happen to
+    # share a transcript and codon re-encode the pairing independently. Serving resolves the
+    # canonical projection by pairing this with ``is_authoritative``: the authoritative (measured)
+    # allele's group gathers its sibling links, yielding its c/g projection. See the RT job for the
+    # group-assignment and authoritative fold-in logic.
+    projection_group = Column(Integer, nullable=True)
 
     mapping_record: Mapped["MappingRecord"] = relationship("MappingRecord", back_populates="allele_links")
     allele: Mapped["Allele"] = relationship("Allele", back_populates="mapping_record_links")

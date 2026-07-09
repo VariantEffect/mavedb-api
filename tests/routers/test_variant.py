@@ -53,7 +53,8 @@ def _post_mapped() -> dict:
 
 def _seed_mapping(session, variant_urn):
     """Give a variant a live coding-measured mapping record whose authoritative allele carries a
-    digest + ClinGen id + a live VEP consequence, plus a protein member — enough to build Cat-VRS."""
+    digest + ClinGen id + a live VEP consequence, its genomic projection sibling (shared
+    projection_group), and a protein apex — enough to build Cat-VRS and exercise the projection axes."""
     variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == variant_urn))
     record = MappingRecord(
         variant_id=variant.id,
@@ -71,15 +72,25 @@ def _seed_mapping(session, variant_urn):
         clingen_allele_id="CA123",
         hgvs_c="NM_000546.6:c.1216G>A",
     )
+    genomic = Allele(
+        vrs_digest="gen-digest", level="genomic", post_mapped=_post_mapped(), hgvs_g="NC_000017.11:g.7676154C>T"
+    )
     protein = Allele(
         vrs_digest="prot-digest", level="protein", post_mapped=_post_mapped(), hgvs_p="NP_000537.3:p.Ala406Thr"
     )
-    session.add_all([measured, protein])
+    session.add_all([measured, genomic, protein])
     session.commit()
 
     session.add_all(
         [
-            MappingRecordAllele(mapping_record_id=record.id, allele_id=measured.id, is_authoritative=True),
+            # The measured cdna link and its genomic projection share a projection_group; the protein
+            # apex is in no pair (group None).
+            MappingRecordAllele(
+                mapping_record_id=record.id, allele_id=measured.id, is_authoritative=True, projection_group=0
+            ),
+            MappingRecordAllele(
+                mapping_record_id=record.id, allele_id=genomic.id, is_authoritative=False, projection_group=0
+            ),
             MappingRecordAllele(mapping_record_id=record.id, allele_id=protein.id, is_authoritative=False),
             VepAlleleConsequence(
                 allele_id=measured.id,
@@ -120,9 +131,17 @@ def test_get_variant_detail_envelope(client, session, data_provider, data_files,
     assert body["alleles"]["cdna-digest"]["hgvs"] == "NM_000546.6:c.1216G>A"
     assert body["alleles"]["cdna-digest"]["clingenAlleleId"] == "CA123"
     assert "relation" not in body["alleles"]["cdna-digest"]  # null relation dropped by exclude_none
+    # Provenance axis (derivation) + the projection pairing (projectionOf), camelCased.
+    assert body["alleles"]["cdna-digest"]["derivation"] == "authoritative"
+    assert body["alleles"]["cdna-digest"]["projectionOf"] == "gen-digest"
+    assert body["alleles"]["gen-digest"]["derivation"] == "projection"
+    assert body["alleles"]["gen-digest"]["projectionOf"] == "cdna-digest"
     assert body["alleles"]["prot-digest"]["level"] == "protein"
     assert body["alleles"]["prot-digest"]["hgvs"] == "NP_000537.3:p.Ala406Thr"
     assert body["alleles"]["prot-digest"]["relation"] == "translation_of"
+    # The apex is a deterministic projection here but pairs with nothing (projectionOf dropped as null).
+    assert body["alleles"]["prot-digest"]["derivation"] == "projection"
+    assert "projectionOf" not in body["alleles"]["prot-digest"]
     assert body["annotations"]["cdna-digest"]["vep"]["consequence"] == "missense_variant"
     assert body["isCurrent"] is True
     assert "supersededByScoreSet" not in body  # dropped by exclude_none when current
