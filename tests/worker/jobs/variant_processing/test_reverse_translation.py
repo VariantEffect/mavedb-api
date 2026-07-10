@@ -18,7 +18,7 @@ from variant_annotation.lib.translation.types import (
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.allele import Allele
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.job_run import JobRun
@@ -315,14 +315,14 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert len(non_auth_links) == 2
 
         genomic_allele = session.query(Allele).filter(Allele.vrs_digest == "ga4gh:VA.genomic").one()
-        assert genomic_allele.level == AnnotationLayer.genomic.value
+        assert genomic_allele.level == SequenceLevel.genomic.value
         assert genomic_allele.hgvs_g == g_candidate
         assert genomic_allele.hgvs_c is None
         assert genomic_allele.transcript == "NC_000001.11"
         assert genomic_allele.post_mapped == {"type": "Allele", "id": "ga4gh:VA.genomic"}
 
         coding_allele = session.query(Allele).filter(Allele.vrs_digest == "ga4gh:VA.coding").one()
-        assert coding_allele.level == AnnotationLayer.cdna.value
+        assert coding_allele.level == SequenceLevel.cdna.value
         assert coding_allele.hgvs_c == c_candidate
         assert coding_allele.hgvs_g is None
         assert coding_allele.transcript == "NM_000001.1"
@@ -431,7 +431,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         protein_allele = session.query(Allele).filter(Allele.vrs_digest == "ga4gh:VA.protein").one()
-        assert protein_allele.level == AnnotationLayer.protein.value
+        assert protein_allele.level == SequenceLevel.protein.value
         assert protein_allele.hgvs_p == p_stripped  # stored without the prediction parens
 
         # Linked to the record as a non-authoritative member of the equivalence set, but grouped
@@ -485,7 +485,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 2}
 
         block_allele = session.query(Allele).filter(Allele.vrs_digest == "ga4gh:CPB.block").one()
-        assert block_allele.level == AnnotationLayer.genomic.value
+        assert block_allele.level == SequenceLevel.genomic.value
         # The full bracketed expression is stored verbatim; its accession anchors the row.
         assert block_allele.hgvs_g == block_candidate
         assert block_allele.transcript == "NC_000001.11"
@@ -1152,7 +1152,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             session.query(TargetGeneMapping)
             .filter(
                 TargetGeneMapping.target_gene_id == target_gene_id,
-                TargetGeneMapping.alignment_level == AnnotationLayer.genomic,
+                TargetGeneMapping.alignment_level == SequenceLevel.genomic,
             )
             .first()
             .mapped_date
@@ -1192,7 +1192,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         session.add(
             TargetGeneMapping(
                 target_gene_id=target_gene.id,
-                alignment_level=AnnotationLayer.cdna,
+                alignment_level=SequenceLevel.cdna,
                 reference_accession="NM_111111.1",
                 preferred=False,
                 tool_version="pytest.0.0",
@@ -1253,7 +1253,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         session.add(
             TargetGeneMapping(
                 target_gene_id=target_gene.id,
-                alignment_level=AnnotationLayer.cdna,
+                alignment_level=SequenceLevel.cdna,
                 reference_accession="NM_888888.1",
                 preferred=False,
                 tool_version="pytest.0.0",

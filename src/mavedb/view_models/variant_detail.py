@@ -8,6 +8,7 @@ own module — mirroring ``lib/variant_detail.py`` and the ``lean_variant`` prec
 
 from typing import Any, Optional
 
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.view_models.allele_annotation import AlleleAnnotations
 from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.score_calibration import SavedFunctionalClassification
@@ -76,7 +77,7 @@ class VariantDetail(BaseModel):
     counts: Optional[dict[str, Any]] = None
     classifications: list[VariantClassification] = []
 
-    assay_level: Optional[str] = None
+    assay_level: Optional[SequenceLevel] = None
     target_hgvs: Optional[str] = None
     reference_hgvs: Optional[str] = None
     assay_level_digest: Optional[str] = None

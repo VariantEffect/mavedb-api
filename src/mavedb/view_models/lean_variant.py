@@ -10,6 +10,7 @@ slot with no parsed block serializes as just ``{"hgvs": "..."}`` and a null mapp
 
 from typing import Optional
 
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.view_models.base.base import BaseModel
 
 
@@ -52,7 +53,7 @@ class LeanVariant(BaseModel):
     ``variantUrn`` is the universal selection key; ``assayLevelDigest`` bridges into the digest-keyed
     annotation dimensions. The submitted HGVS (``hgvsNt``/``hgvsPro``/``hgvsSplice``, target frame) carry
     the depositor's frame for the heatmap's raw↔mapped toggle. The mapped (reference) frame is the
-    ``mapped`` :class:`MappedTriple` plus the ``assayLevel`` pointer (an ``AnnotationLayer`` value) naming
+    ``mapped`` :class:`MappedTriple` plus the ``assayLevel`` pointer (an ``SequenceLevel`` value) naming
     the measured/canonical slot: ``mapped[assayLevel]`` is the measured representation and ``mapped.cdna``
     the level-invariant search key. Fields are omitted when null.
     """
@@ -65,7 +66,7 @@ class LeanVariant(BaseModel):
     hgvs_nt: Optional[HgvsField] = None
     hgvs_pro: Optional[HgvsField] = None
     hgvs_splice: Optional[HgvsField] = None
-    assay_level: Optional[str] = None
+    assay_level: Optional[SequenceLevel] = None
     mapped: MappedTriple = MappedTriple()
 
     class Config:

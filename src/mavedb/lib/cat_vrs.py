@@ -31,7 +31,7 @@ from mavedb.lib.alleles import get_live_record_allele_links
 from mavedb.lib.annotation.util import vrs_object_from_mapped_variant
 from mavedb.lib.logging.context import logging_context
 from mavedb.models.allele import Allele
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ class CatVrsMode(str, Enum):
     REVERSE_TRANSLATION = "reverse_translation"  # Mode 2 — protein measured; score is implied.
 
 
-_NUCLEOTIDE_LEVELS = {AnnotationLayer.genomic.value, AnnotationLayer.cdna.value}
+_NUCLEOTIDE_LEVELS = {SequenceLevel.genomic.value, SequenceLevel.cdna.value}
 
 
 @dataclass
@@ -80,11 +80,11 @@ def _relation_for(defining_level: Optional[str], member_level: Optional[str]) ->
     the (defining, member) level pair, never on a chain between members.
     """
     # Mode 2 — protein measured. Every nt member encodes it; the protein member is the defining.
-    if defining_level == AnnotationLayer.protein.value:
+    if defining_level == SequenceLevel.protein.value:
         return CatVrsRelation.ENCODES if member_level in _NUCLEOTIDE_LEVELS else None
 
     # Mode 1 — nt measured (genomic or cdna).
-    if member_level == AnnotationLayer.protein.value:
+    if member_level == SequenceLevel.protein.value:
         return CatVrsRelation.TRANSLATION_OF
     if member_level in _NUCLEOTIDE_LEVELS:
         return CatVrsRelation.COORDINATE_REPRESENTATION_OF
@@ -141,7 +141,7 @@ def build_categorical_variant(links: list[MappingRecordAllele], *, name: str) ->
         return None
 
     defining_level = defining_allele.level
-    mode = CatVrsMode.REVERSE_TRANSLATION if defining_level == AnnotationLayer.protein.value else CatVrsMode.PROJECTION
+    mode = CatVrsMode.REVERSE_TRANSLATION if defining_level == SequenceLevel.protein.value else CatVrsMode.PROJECTION
 
     members: list[VrsAllele | CisPhasedBlock | iriReference] = [defining_vrs]
     member_relations: dict[str, CatVrsRelation] = {}

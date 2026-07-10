@@ -37,7 +37,7 @@ from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variant_translations import get_or_create_allele
 from mavedb.lib.vrs_utils import translate_hgvs_to_variation
 from mavedb.models.allele import Allele as AlleleDbModel
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
@@ -221,7 +221,7 @@ async def reverse_translate_variants_for_score_set(
             )
             .join(TargetGene, TargetGene.id == TargetGeneMapping.target_gene_id)
             .where(TargetGene.score_set_id == score_set_id)
-            .where(TargetGeneMapping.alignment_level == AnnotationLayer.cdna)
+            .where(TargetGeneMapping.alignment_level == SequenceLevel.cdna)
             .where(TargetGeneMapping.reference_accession.isnot(None))
             .order_by(TargetGeneMapping.id)
         )
@@ -398,18 +398,18 @@ async def reverse_translate_variants_for_score_set(
         # failed, yielding a well-formed one-member (coding only) group rather than a desync. The
         # group id is assigned once per pair here, so the two members are guaranteed to carry the
         # same id even though they translate and link independently below.
-        members: list[tuple[str, AnnotationLayer, str, int | None]] = []
+        members: list[tuple[str, SequenceLevel, str, int | None]] = []
         for group_id, pair in enumerate(result.projection_pairs):
-            members.append((pair.hgvs_c, AnnotationLayer.cdna, "hgvs_c", group_id))
+            members.append((pair.hgvs_c, SequenceLevel.cdna, "hgvs_c", group_id))
             if pair.hgvs_g is not None:
-                members.append((pair.hgvs_g, AnnotationLayer.genomic, "hgvs_g", group_id))
+                members.append((pair.hgvs_g, SequenceLevel.genomic, "hgvs_g", group_id))
 
         # The protein consequence is the apex of the equivalence set — shared across every
         # pair, a member of none — so it carries no group (None). Prediction parens
         # (p.(Ala222Val)) are stripped before translation and storage. None for protein-assay
         # inputs, where the protein is already the authoritative allele.
         if result.hgvs_p:
-            members.append((strip_protein_prediction_parens(result.hgvs_p), AnnotationLayer.protein, "hgvs_p", None))
+            members.append((strip_protein_prediction_parens(result.hgvs_p), SequenceLevel.protein, "hgvs_p", None))
 
         for hgvs, level, hgvs_field, projection_group in members:
             # A candidate may not be translatable (intronic projection, malformed expression).

@@ -13,7 +13,7 @@ from sqlalchemy.exc import NoResultFound
 from mavedb.lib.mapping import EXCLUDED_PREMAPPED_ANNOTATION_KEYS
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.allele import Allele
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.mapping_record import MappingRecord
@@ -514,7 +514,7 @@ class TestMapVariantsForScoreSetUnit:
         assert result.status == JobStatus.SUCCEEDED
 
         cdna_tgms = (
-            session.query(TargetGeneMapping).filter(TargetGeneMapping.alignment_level == AnnotationLayer.cdna).all()
+            session.query(TargetGeneMapping).filter(TargetGeneMapping.alignment_level == SequenceLevel.cdna).all()
         )
         assert len(cdna_tgms) == len(sample_score_set.target_genes)
         tgm = cdna_tgms[0]
@@ -894,7 +894,7 @@ class TestMapVariantsForScoreSetUnit:
         session.commit()
         mapping_record = MappingRecord(
             variant_id=variant.id,
-            assay_level=AnnotationLayer.genomic,
+            assay_level=SequenceLevel.genomic,
             mapped_date=date(2023, 1, 1),
             mapping_api_version="v1.0.0",
         )
@@ -902,7 +902,7 @@ class TestMapVariantsForScoreSetUnit:
         session.commit()
         # Link the prior record to an authoritative allele. Re-mapping must retire this link too,
         # not just the record — a live link dangling off a retired record breaks the temporal model.
-        prior_allele = Allele(vrs_digest="ga4gh:VA.prior", level=AnnotationLayer.genomic.value)
+        prior_allele = Allele(vrs_digest="ga4gh:VA.prior", level=SequenceLevel.genomic.value)
         session.add(prior_allele)
         session.commit()
         prior_link = MappingRecordAllele(
@@ -1421,7 +1421,7 @@ class TestMapVariantsForScoreSetIntegration:
         for variant in variants:
             mapping_record = MappingRecord(
                 variant_id=variant.id,
-                assay_level=AnnotationLayer.genomic,
+                assay_level=SequenceLevel.genomic,
                 mapped_date=date(2023, 1, 1),
                 mapping_api_version="v1.0.0",
             )

@@ -275,7 +275,7 @@ def test_ordered_by_variant_number(session, setup_lib_db_with_score_set):
 
 
 @pytest.mark.integration
-def test_as_of_reconstructs_the_historical_annotation_layer(session, setup_lib_db_with_score_set):
+def test_as_of_reconstructs_the_historical_assay_level(session, setup_lib_db_with_score_set):
     """A re-map retires the old record and inserts a new one; as_of reconstructs the mapped layer live at
     a past instant, while the immutable submitted HGVS and score are unaffected."""
     score_set = setup_lib_db_with_score_set

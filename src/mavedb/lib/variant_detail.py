@@ -28,7 +28,7 @@ from mavedb.lib.allele_annotations import AlleleAnnotations, get_allele_annotati
 from mavedb.lib.alleles import get_live_record_allele_links
 from mavedb.lib.cat_vrs import categorical_variant_for_variant
 from mavedb.lib.score_calibrations import calibration_preference_key
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
@@ -114,7 +114,7 @@ class VariantDetail:
     classifications: list[VariantClassificationRecord]
 
     # Flat, UI-ergonomic assay-level fields.
-    assay_level: Optional[str]
+    assay_level: Optional[SequenceLevel]
     target_hgvs: Optional[str]  # submitted, target/assay coordinates
     reference_hgvs: Optional[str]  # mapped, reference coordinates, assay level
     assay_level_digest: Optional[str]
@@ -170,7 +170,7 @@ def _classifications_for_variant(
     ]
 
 
-def _derivation_for(*, is_authoritative: bool, assay_level: Optional[str]) -> AlleleDerivation:
+def _derivation_for(*, is_authoritative: bool, assay_level: Optional[SequenceLevel]) -> AlleleDerivation:
     """The provenance of a linked allele's representation, from ``is_authoritative`` + the assay level.
 
     The measured allele is ``authoritative``. Every *other* allele's confidence is set by the *only*
@@ -188,16 +188,16 @@ def _derivation_for(*, is_authoritative: bool, assay_level: Optional[str]) -> Al
     """
     if is_authoritative:
         return AlleleDerivation.AUTHORITATIVE
-    if assay_level == AnnotationLayer.protein.value:
+    if assay_level == SequenceLevel.protein.value:
         return AlleleDerivation.CANDIDATE
     return AlleleDerivation.PROJECTION
 
 
-def _submitted_assay_level_hgvs(variant: Variant, assay_level: Optional[str]) -> Optional[str]:
+def _submitted_assay_level_hgvs(variant: Variant, assay_level: Optional[SequenceLevel]) -> Optional[str]:
     """The depositor-submitted HGVS in the variant's assay frame: protein for a protein assay,
     otherwise the nucleotide expression (genomic or coding share ``hgvs_nt`` and ``hgvs_splice`` is
     never an index column)."""
-    if assay_level == AnnotationLayer.protein.value:
+    if assay_level == SequenceLevel.protein.value:
         return variant.hgvs_pro
     return variant.hgvs_nt
 
@@ -226,7 +226,7 @@ def get_variant_detail(
     record = db.scalar(
         select(MappingRecord).where(MappingRecord.variant_id == variant.id).where(MappingRecord.live_at(as_of))
     )
-    assay_level = record.assay_level if record is not None else None
+    assay_level = SequenceLevel(record.assay_level) if record is not None else None
     reference_hgvs = record.hgvs_assay_level if record is not None else None
 
     # The live allele links: the authoritative allele gives the assay-level digest + ClinGen id; all

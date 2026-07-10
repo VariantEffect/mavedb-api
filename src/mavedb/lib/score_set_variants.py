@@ -37,7 +37,7 @@ from sqlalchemy.orm import Session, aliased
 from mavedb.lib.hgvs import parse_simple_substitution
 from mavedb.lib.variants import score_from_variant_data
 from mavedb.models.allele import Allele
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_set import ScoreSet
@@ -84,7 +84,7 @@ class LeanVariantRecord:
     """One pre-chewed per-variant record: the selection key (``variant_urn``), the baseline ``score``,
     a representative (lossy) VEP ``consequence``, the bridge identifiers into the annotation dimensions
     (``clingen_allele_id``, ``assay_level_digest``), the submitted HGVS at each level, and the mapped
-    (reference-frame) representation as an ``assay_level`` pointer (an ``AnnotationLayer`` value naming
+    (reference-frame) representation as an ``assay_level`` pointer (an ``SequenceLevel`` value naming
     the measured/canonical slot) plus a ``mapped`` :class:`MappedTriple`. ``mapped[assay_level]`` is the
     measured representation; ``mapped.cdna`` is the level-invariant search key. Any field is ``None``
     when its source is absent (unmapped variant → null ``assay_level`` + empty triple)."""
@@ -97,8 +97,14 @@ class LeanVariantRecord:
     hgvs_nt: Optional[HgvsField]
     hgvs_pro: Optional[HgvsField]
     hgvs_splice: Optional[HgvsField]
-    assay_level: Optional[str]
+    assay_level: Optional[SequenceLevel]
     mapped: MappedTriple
+
+
+def _level(value: Optional[str]) -> Optional[SequenceLevel]:
+    """Coerce a stored assay-level string (the ``mapping_records.assay_level`` column) into the closed
+    :class:`SequenceLevel` set. ``None`` for an absent value."""
+    return SequenceLevel(value) if value else None
 
 
 def _hgvs_field_for_str(hgvs: Optional[str]) -> Optional[HgvsField]:
@@ -114,7 +120,7 @@ def _hgvs_field_for_str(hgvs: Optional[str]) -> Optional[HgvsField]:
 
 def _mapped_triple(
     *,
-    assay_level: Optional[str],
+    assay_level: Optional[SequenceLevel],
     assay_level_hgvs: Optional[str],
     sibling_level: Optional[str],
     sibling_hgvs: Optional[str],
@@ -133,19 +139,19 @@ def _mapped_triple(
     """
     slots: dict[str, Optional[HgvsField]] = {}
     # Protein assay: the measured slot *is* protein. No canonical c/g — do not fabricate one.
-    if assay_level == AnnotationLayer.protein.value:
-        slots[AnnotationLayer.protein.value] = _hgvs_field_for_str(assay_level_hgvs)
-    elif assay_level in (AnnotationLayer.cdna.value, AnnotationLayer.genomic.value):
-        slots[assay_level] = _hgvs_field_for_str(assay_level_hgvs)
+    if assay_level == SequenceLevel.protein:
+        slots[SequenceLevel.protein.value] = _hgvs_field_for_str(assay_level_hgvs)
+    elif assay_level in (SequenceLevel.cdna, SequenceLevel.genomic):
+        slots[assay_level.value] = _hgvs_field_for_str(assay_level_hgvs)
         # The other nucleotide level, from the projection_group sibling (null where unpopulated).
         if sibling_level is not None:
             slots[sibling_level] = _hgvs_field_for_str(sibling_hgvs)
-        slots[AnnotationLayer.protein.value] = _hgvs_field_for_str(protein_hgvs)
+        slots[SequenceLevel.protein.value] = _hgvs_field_for_str(protein_hgvs)
 
     return MappedTriple(
-        genomic=slots.get(AnnotationLayer.genomic.value),
-        cdna=slots.get(AnnotationLayer.cdna.value),
-        protein=slots.get(AnnotationLayer.protein.value),
+        genomic=slots.get(SequenceLevel.genomic.value),
+        cdna=slots.get(SequenceLevel.cdna.value),
+        protein=slots.get(SequenceLevel.protein.value),
     )
 
 
@@ -258,7 +264,7 @@ def get_lean_score_set_variants(
         # covers record-liveness — no prot_record.live_at needed; the MR join is just the scoping bridge.
         .where(prot_link.live_at(as_of))
         # Only the protein-level allele.
-        .where(prot_allele.level == AnnotationLayer.protein.value)
+        .where(prot_allele.level == SequenceLevel.protein.value)
         # DISTINCT ON requires ORDER BY to lead with its column; allele.id then picks which row survives
         # per record — inert today (only one protein allele exists).
         .order_by(prot_link.mapping_record_id, prot_allele.id)
@@ -279,9 +285,9 @@ def get_lean_score_set_variants(
             hgvs_nt=_hgvs_field_for_str(row.hgvs_nt),
             hgvs_pro=_hgvs_field_for_str(row.hgvs_pro),
             hgvs_splice=_hgvs_field_for_str(row.hgvs_splice),
-            assay_level=row.assay_level,
+            assay_level=_level(row.assay_level),
             mapped=_mapped_triple(
-                assay_level=row.assay_level,
+                assay_level=_level(row.assay_level),
                 assay_level_hgvs=row.hgvs_assay_level,
                 sibling_level=row.sibling_level,
                 sibling_hgvs=row.sibling_hgvs,

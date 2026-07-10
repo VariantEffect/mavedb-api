@@ -37,7 +37,7 @@ from mavedb.lib.score_calibrations import calibration_preference_key, classifica
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.variants import variant_score
 from mavedb.models.allele import Allele
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_calibration import ScoreCalibration
@@ -76,7 +76,7 @@ class AlleleMeasurement:
 
     variant_urn: str
     score: Optional[float]
-    assay_level: Optional[str]
+    assay_level: Optional[SequenceLevel]
     relationship: str
     assay_level_hgvs: Optional[str]
     submitted_hgvs: Optional[str]
@@ -169,7 +169,7 @@ def get_allele_measurements(
         return []
 
     anchor_ids = [row.id for row in anchor]
-    entry_is_protein = any(row.level == AnnotationLayer.protein.value for row in anchor)
+    entry_is_protein = any(row.level == SequenceLevel.protein.value for row in anchor)
 
     # Sibling nucleotide changes (search discovery, CA only): fold the queried change's protein consequence
     # — the protein alleles co-membered with the anchor nt alleles — into the anchor, so the single record
@@ -184,7 +184,7 @@ def get_allele_measurements(
             .where(anchor_link.allele_id.in_(anchor_ids))
             .where(anchor_link.live_at(as_of))
             .where(MappingRecordAllele.live_at(as_of))
-            .where(Allele.level == AnnotationLayer.protein.value)
+            .where(Allele.level == SequenceLevel.protein.value)
             .distinct()
         ).all()
 
@@ -240,19 +240,19 @@ def get_allele_measurements(
         # branch is unreachable (a record links the anchor only via itself or its protein consequence).
         if measured_allele.clingen_allele_id == clingen_allele_id:
             relationship = MeasurementRelationship.direct
-        elif measured_allele.level == AnnotationLayer.protein.value:
+        elif measured_allele.level == SequenceLevel.protein.value:
             relationship = MeasurementRelationship.protein_consequence
         else:
             relationship = MeasurementRelationship.nucleotide_encoding
 
-        assay_level = record.assay_level
+        assay_level = SequenceLevel(record.assay_level) if record.assay_level else None
         measurement = AlleleMeasurement(
             variant_urn=variant.urn or "",
             score=variant_score(variant),
             assay_level=assay_level,
             relationship=relationship,
             assay_level_hgvs=record.hgvs_assay_level,
-            submitted_hgvs=variant.hgvs_pro if assay_level == AnnotationLayer.protein.value else variant.hgvs_nt,
+            submitted_hgvs=variant.hgvs_pro if assay_level == SequenceLevel.protein.value else variant.hgvs_nt,
             score_set_urn=score_set.urn or "",
             score_set_title=score_set.title or "",
             primary_classification=_preferred_classification(db, variant, user_data=user_data),

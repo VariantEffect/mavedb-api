@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, relationship
 from mavedb.db.base import Base
 from mavedb.db.mixins import ValidTime
 from mavedb.lib.hgvs import extract_accession
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 
 if TYPE_CHECKING:
     from .mapping_record_allele import MappingRecordAllele
@@ -30,8 +30,24 @@ class MappingRecord(ValidTime, Base):
     vrs_digest = Column(String, nullable=True)
     pre_mapped: Optional[Any] = Column(JSONB(none_as_null=True), nullable=True)
 
-    # Level at which the variant was *assayed* — distinct from alignment_level (QC).
-    assay_level = Column(String(length=16), nullable=False)
+    # Level at which the variant was *assayed* — distinct from alignment_level (QC). Same closed
+    # SequenceLevel set as its sibling below. The prod CHECK (ck_mapping_records_assay_level_valid)
+    # predates this column being typed as an Enum; native_enum=False keeps it a VARCHAR(16), so
+    # declaring the Enum here needs no migration — it self-documents the model and gives the
+    # metadata-built (test) schema the same guard.
+    assay_level: Mapped[SequenceLevel] = Column(
+        # Distinct `name` so the generated CHECK doesn't collide with alignment_level's in this same
+        # table (both default to "sequencelevel", which Postgres rejects as a duplicate per table).
+        Enum(
+            SequenceLevel,
+            name="assay_level",
+            create_constraint=True,
+            length=16,
+            native_enum=False,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
     hgvs_assay_level = Column(String, nullable=True)
 
     @hybrid_property
@@ -60,7 +76,7 @@ class MappingRecord(ValidTime, Base):
 
     # Per-mapping QC fields from dcd-mapping.
     alignment_level = Column(
-        Enum(AnnotationLayer, create_constraint=True, length=16, native_enum=False, validate_strings=True),
+        Enum(SequenceLevel, create_constraint=True, length=16, native_enum=False, validate_strings=True),
         nullable=True,
     )
     at_mismatched_locus = Column(Boolean, nullable=True)

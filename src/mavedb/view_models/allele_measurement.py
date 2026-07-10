@@ -8,6 +8,7 @@ The pydantic serialization boundary over the ``lib.allele_measurements`` transit
 from typing import Optional
 
 from mavedb.lib.allele_measurements import MeasurementRelationship
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.score_calibration import SavedFunctionalClassification
 
@@ -27,7 +28,7 @@ class AlleleMeasurement(BaseModel):
 
     variant_urn: str
     score: Optional[float] = None
-    assay_level: Optional[str] = None
+    assay_level: Optional[SequenceLevel] = None
     relationship: MeasurementRelationship
     assay_level_hgvs: Optional[str] = None
     submitted_hgvs: Optional[str] = None

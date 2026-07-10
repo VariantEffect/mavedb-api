@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Optional, Sequence
 from pydantic import model_validator
 
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.target_gene_mapping import SavedTargetGeneMapping, TargetGeneMapping
@@ -28,7 +28,7 @@ class MappedVariantBase(BaseModel):
     current: bool
 
     # Per-mapping QC annotations/warnings.
-    alignment_level: Optional[AnnotationLayer] = None
+    alignment_level: Optional[SequenceLevel] = None
     at_mismatched_locus: Optional[bool] = None
     near_gap: Optional[bool] = None
 

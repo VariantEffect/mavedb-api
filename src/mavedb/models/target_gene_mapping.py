@@ -19,7 +19,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 
 if TYPE_CHECKING:
     from mavedb.models.mapped_variant import MappedVariant
@@ -36,7 +36,7 @@ class TargetGeneMapping(Base):
     target_gene: Mapped["TargetGene"] = relationship("TargetGene", back_populates="target_gene_mappings")
 
     alignment_level = Column(
-        Enum(AnnotationLayer, create_constraint=True, length=16, native_enum=False, validate_strings=True),
+        Enum(SequenceLevel, create_constraint=True, length=16, native_enum=False, validate_strings=True),
         nullable=False,
     )
     preferred = Column(Boolean, nullable=False, default=False, server_default="false")

@@ -29,7 +29,7 @@ from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variant_translations import get_or_create_allele
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.allele import Allele as AlleleDbModel
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.job_pipeline import FailureCategory
@@ -184,7 +184,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             for annotation_layer in reference_metadata[target_gene_identifier]["layers"]:
                 # ``annotation_layer`` arrives as a dcd-mapping wire code (``p``/``c``/``g``);
                 # we persist metadata under the corresponding full-name enum value.
-                layer_name = AnnotationLayer.from_wire(annotation_layer).value
+                layer_name = SequenceLevel.from_wire(annotation_layer).value
                 layer_premapped = reference_metadata[target_gene_identifier]["layers"][annotation_layer].get(
                     "computed_reference_sequence"
                 )
@@ -225,7 +225,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
                 target_gene_mapping = TargetGeneMapping(
                     target_gene=target_gene,
-                    alignment_level=AnnotationLayer.from_wire(level_value),
+                    alignment_level=SequenceLevel.from_wire(level_value),
                     preferred=bool(tm.get("preferred", False)),
                     reference_assembly=tm.get("reference_assembly"),
                     reference_accession=tm.get("reference_accession"),
@@ -314,7 +314,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
             pre_mapped_allele: dict = mapped_score.get("pre_mapped") or {}
             post_mapped_allele: dict = mapped_score.get("post_mapped") or {}
-            annotation_layer = AnnotationLayer.from_wire(score_alignment_level)
+            sequence_level = SequenceLevel.from_wire(score_alignment_level)
             assay_level_hgvs = get_hgvs_from_post_mapped(post_mapped_allele, combine_cis=True)
 
             # dcd-mapping guarantees every mapped score is attributable to a TargetGeneMapping
@@ -331,13 +331,13 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 variant_id=variant.id,
                 vrs_digest=pre_mapped_allele.get("id"),
                 pre_mapped=pre_mapped_allele or None,
-                assay_level=annotation_layer,
+                assay_level=sequence_level,
                 hgvs_assay_level=assay_level_hgvs,
                 mapped_date=mapping_results["mapped_date"],
                 vrs_version=mapped_score.get("vrs_version", None),
                 mapping_api_version=tool_version,
                 target_gene_mapping_id=target_gene_mapping_row.id,
-                alignment_level=annotation_layer,
+                alignment_level=sequence_level,
                 at_mismatched_locus=mapped_score.get("at_mismatched_locus"),
                 near_gap=mapped_score.get("near_gap"),
             )
@@ -380,10 +380,10 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             if post_mapped_allele:
                 allele_draft = AlleleDbModel(
                     vrs_digest=post_mapped_allele["id"],
-                    level=annotation_layer,
-                    hgvs_g=assay_level_hgvs if annotation_layer == AnnotationLayer.genomic else None,
-                    hgvs_c=assay_level_hgvs if annotation_layer == AnnotationLayer.cdna else None,
-                    hgvs_p=assay_level_hgvs if annotation_layer == AnnotationLayer.protein else None,
+                    level=sequence_level,
+                    hgvs_g=assay_level_hgvs if sequence_level == SequenceLevel.genomic else None,
+                    hgvs_c=assay_level_hgvs if sequence_level == SequenceLevel.cdna else None,
+                    hgvs_p=assay_level_hgvs if sequence_level == SequenceLevel.protein else None,
                     post_mapped=post_mapped_allele,
                 )
                 authoritative_allele = get_or_create_allele(job_manager.db, allele_draft)
