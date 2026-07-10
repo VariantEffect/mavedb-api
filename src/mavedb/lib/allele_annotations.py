@@ -2,8 +2,8 @@
 
 Gathers a set of alleles' external annotations — VEP consequence, gnomAD frequency, ClinVar
 assertions — keyed by ``vrs_digest``. The digest is the join key the serving envelopes use to ride
-annotations *alongside* the spec-pure Cat-VRS members (design §8): Cat-VRS itself carries no
-annotation slot, so annotations travel beside it in a flat digest-keyed map.
+annotations *alongside* the spec-pure Cat-VRS members: Cat-VRS itself carries no annotation slot, so
+annotations travel beside it in a flat digest-keyed map.
 
 All three sources are ``ValidTime`` and ``allele_id``-keyed with no reverse collection on
 ``Allele`` (they are navigated set-wise from the link tables). ``as_of`` reconstructs them at a past

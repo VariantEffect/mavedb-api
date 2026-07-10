@@ -7,7 +7,7 @@ the per-allele identity sidecar (level / HGVS / ClinGen id / member→defining r
 digest-keyed external-annotation map (:mod:`lib.allele_annotations`). Also
 carries the per-calibration functional ``classifications`` the variant falls into, and its version
 standing (``is_current`` / ``superseded_by_score_set``) so a superseded variant self-describes rather
-than reading as current (design §9.2).
+than reading as current.
 
 Temporal scope of ``as_of``: only the **molecular** layer is versioned — Cat-VRS membership and the
 VEP/gnomAD/ClinVar annotations reconstruct at the past instant. Scores are immutable (``Variant`` is

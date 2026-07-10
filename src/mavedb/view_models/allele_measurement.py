@@ -1,5 +1,5 @@
 """Response view model for the variant page's measurements list
-(``GET /clingen-alleles/{caid}/measurements``, design §7.5).
+(``GET /clingen-alleles/{caid}/measurements``).
 
 The pydantic serialization boundary over the ``lib.allele_measurements`` transit dataclass
 (``from_attributes`` coerces it directly); aliases camelize per the shared base config.

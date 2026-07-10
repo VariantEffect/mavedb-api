@@ -1,6 +1,6 @@
 # ruff: noqa: E402
 """Router tests for the ClinGen-allele measurements endpoint
-(``GET /clingen-alleles/{caid}/measurements``, design §7.5).
+(``GET /clingen-alleles/{caid}/measurements``).
 
 Exercise the HTTP surface: the equivalence-class list serializes and validates, the ``as_of``
 content-time is echoed in ``X-As-Of``, an unknown id is an empty list (not a 404), superseded

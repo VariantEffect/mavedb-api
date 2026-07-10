@@ -1,4 +1,4 @@
-"""Response view models for the assayed variant-detail view (``GET /variants/{urn}``, design §7.1).
+"""Response view models for the assayed variant-detail view (``GET /variants/{urn}``).
 
 The pydantic serialization boundary over the ``lib.variant_detail`` transit dataclasses
 (``from_attributes`` coerces them directly); aliases camelize per the shared base config. Kept in its
@@ -34,7 +34,7 @@ class AlleleIdentity(BaseModel):
     """The MaveDB molecular-identity facts for one of the variant's linked alleles.
 
     An entry of the ``alleles`` sidecar, keyed by VRS digest. ``level`` + ``hgvs`` (the reference-frame
-    HGVS) are what the UI labels the per-level annotation panel by — never the digest (design §7.5).
+    HGVS) are what the UI labels the per-level annotation panel by — never the digest.
 
     Three independent axes:
     - ``relation`` (Cat-VRS, structural): member→defining relation; ``null`` when it *is* the measured
@@ -58,7 +58,7 @@ class AlleleIdentity(BaseModel):
 
 
 class VariantDetail(BaseModel):
-    """The assayed variant-detail envelope (``GET /variants/{urn}``, design §7.1).
+    """The assayed variant-detail envelope (``GET /variants/{urn}``).
 
     Two tiers: flat, UI-ergonomic assay fields (the ``targetHgvs``/``referenceHgvs`` coordinate pair
     is a client-side toggle, no refetch) plus the spec-pure GA4GH ``molecularRepresentation``
