@@ -15,7 +15,14 @@ import pytest
 
 pytest.importorskip("psycopg2")
 
-from mavedb.lib.allele_measurements import get_allele_measurements
+from datetime import date
+
+from mavedb.lib.allele_measurements import (
+    AlleleMeasurement,
+    MeasurementRelationship,
+    _ordering_key,
+    get_allele_measurements,
+)
 from mavedb.lib.types.authentication import UserData
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
@@ -402,3 +409,65 @@ def test_ordering_direct_first_then_strongest_pathogenic(session, setup_lib_db_w
 @pytest.mark.integration
 def test_unknown_clingen_id_returns_empty(session, setup_lib_db_with_score_set):
     assert get_allele_measurements(session, "CA000", user_data=_user_data(session)) == []
+
+
+def _oddspaths_classification(ratio):
+    """A transient functional classification carrying only an oddspaths ratio — enough for
+    ``classification_evidence_strength`` (which reads ``acmg_classification`` [None here] then the ratio)
+    to rank it, with no DB round-trip."""
+    return ScoreCalibrationFunctionalClassification(oddspaths_ratio=ratio)
+
+
+def _measurement(urn, *, relationship=MeasurementRelationship.direct, classification=None, is_current=True):
+    """A transit ``AlleleMeasurement`` with just the fields ``_ordering_key`` reads; the rest are filler."""
+    return AlleleMeasurement(
+        variant_urn=urn,
+        score=None,
+        assay_level=None,
+        relationship=relationship,
+        assay_level_hgvs=None,
+        submitted_hgvs=None,
+        score_set_urn="",
+        score_set_title="",
+        primary_classification=classification,
+        is_current=is_current,
+        superseded_by_score_set=None,
+    )
+
+
+def test_ordering_key_ranks_every_dimension():
+    """Pin the full precedence chain of ``_ordering_key`` as a pure unit (no DB, no calibration fixtures):
+    current → direct → classified → strongest magnitude → pathogenic direction → newest published → urn.
+    Each adjacent pair below differs by exactly the next-lower key, so sorting a shuffled copy must
+    reproduce this exact order."""
+    strong_path = _oddspaths_classification(100.0)  # magnitude |ln 100|, pathogenic
+    strong_benign = _oddspaths_classification(0.01)  # equal magnitude, benign
+    weak_path = _oddspaths_classification(2.0)  # smaller magnitude, pathogenic
+
+    # (measurement, published_date), already in the expected ranked order.
+    ranked = [
+        (_measurement("u#1", classification=strong_path), date(2024, 1, 1)),  # strongest evidence, pathogenic
+        (_measurement("u#2", classification=strong_benign), date(2024, 1, 1)),  # equal magnitude, benign loses
+        (_measurement("u#3", classification=weak_path), date(2024, 1, 1)),  # weaker magnitude
+        (_measurement("u#4a", classification=None), date(2024, 6, 1)),  # unclassified; newer published leads its tie
+        (_measurement("u#4b", classification=None), date(2024, 1, 1)),  # unclassified, older published
+        (_measurement("u#4c", classification=None), date(2024, 1, 1)),  # unclassified, same date → urn tiebreak
+        (_measurement("u#5", relationship=MeasurementRelationship.protein_consequence), date(2024, 6, 1)),  # related
+        (_measurement("u#6", is_current=False), date(2024, 6, 1)),  # superseded sorts last
+    ]
+
+    shuffled = [ranked[i] for i in (5, 0, 7, 2, 4, 1, 6, 3)]
+    ordered = sorted(shuffled, key=lambda pair: _ordering_key(pair[0], pair[1]))
+
+    assert [m.variant_urn for m, _ in ordered] == [m.variant_urn for m, _ in ranked]
+
+
+def test_ordering_key_missing_published_date_sorts_after_dated():
+    """A null published date is treated as oldest (``0`` ordinal), so a dated measurement leads an
+    otherwise-identical undated one."""
+    dated = (_measurement("u#dated"), date(2024, 1, 1))
+    undated = (_measurement("u#undated"), None)
+
+    ordered = sorted([undated, dated], key=lambda pair: _ordering_key(pair[0], pair[1]))
+
+    assert [m.variant_urn for m, _ in ordered] == ["u#dated", "u#undated"]

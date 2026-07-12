@@ -131,13 +131,15 @@ def _preferred_classification(
 
 def _ordering_key(measurement: AlleleMeasurement, published_date: Optional[date]) -> tuple:
     """Sort order:
-    1. Direct measurements, then related (protein_consequence / nucleotide_encoding)
-    2. Within each, the strongest evidence first (pathogenic wins ties)
-    3. Within each, the newest-published first
-    4. Within each, the URN for a stable tiebreak
+    1. Current measurements first, then superseded (the latter only if ``include_superseded``)
+    2. Direct measurements first, then related (protein_consequence / nucleotide_encoding)
+    3. Within each, the strongest evidence first (pathogenic wins ties)
+    4. Within each, the newest-published first
+    5. Within each, the URN for a stable tiebreak
     """
     magnitude, direction = classification_evidence_strength(measurement.primary_classification)
     return (
+        0 if measurement.is_current else 1,
         0 if measurement.relationship == MeasurementRelationship.direct else 1,
         0 if measurement.primary_classification is not None else 1,
         -magnitude,
