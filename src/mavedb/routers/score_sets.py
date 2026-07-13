@@ -2440,7 +2440,7 @@ async def publish_score_set(
 @router.get(
     "/score-sets/{urn}/clinical-controls",
     status_code=200,
-    response_model=list[clinical_control.ClinicalControlWithMappedVariants],
+    response_model=list[clinical_control.ClinicalControlWithClinvarLinks],
     response_model_exclude_none=True,
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Get clinical controls for a score set",
@@ -2461,7 +2461,7 @@ async def get_clinical_controls_for_score_set(
     user_data: UserData = Depends(get_current_user),
     db: Optional[str] = None,
     version: Optional[str] = None,
-) -> list[clinical_control.ClinicalControlWithMappedVariants]:
+) -> list[clinical_control.ClinicalControlWithClinvarLinks]:
     """
     Fetch relevant clinical controls for a given score set.
     """
@@ -2503,7 +2503,7 @@ async def get_clinical_controls_for_score_set(
     save_to_logging_context({"resource_count": len(controls)})
 
     return [
-        clinical_control.ClinicalControlWithMappedVariants.model_validate(
+        clinical_control.ClinicalControlWithClinvarLinks.model_validate(
             {
                 "id": ctrl.id,
                 "db_identifier": ctrl.db_identifier,
@@ -2514,10 +2514,12 @@ async def get_clinical_controls_for_score_set(
                 "db_name": ctrl.db_name,
                 "modification_date": ctrl.modification_date,
                 "creation_date": ctrl.creation_date,
-                "mapped_variants": [{"variant_urn": v_urn} for v_urn in variant_urns],
+                "clinvar_links": [
+                    {"variant_urn": link.variant_urn, "allele_digest": link.allele_digest} for link in links
+                ],
             }
         )
-        for ctrl, variant_urns in controls
+        for ctrl, links in controls
     ]
 
 

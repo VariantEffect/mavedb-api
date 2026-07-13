@@ -9,6 +9,7 @@ chain, so it lives here once: the two cannot drift, and the ``as_of`` semantics 
 place.
 """
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional, TypeVar
 
@@ -23,6 +24,21 @@ from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.variant import Variant
 
 SelectT = TypeVar("SelectT", bound=Select[Any])
+
+
+@dataclass(frozen=True)
+class ControlVariantLink:
+    """One (score-set variant, annotated allele) pair that a clinical control reaches.
+
+    ``allele_digest`` is the VRS digest of the allele the control actually annotates — the entity
+    ClinVar made its call on. A client applies **D78 precedence** by comparing it to the variant's
+    authoritative ``assay_level_digest``: a match is a call *on the assayed level* (which wins), a
+    mismatch is a call on a *projection sibling* (the fallback that only fires when the assayed level
+    is unannotated). Without the digest the two are indistinguishable and precedence is unimplementable.
+    """
+
+    variant_urn: str
+    allele_digest: str
 
 
 def _scope_to_live_score_set_controls(stmt: SelectT, score_set_id: int, as_of: Optional[datetime]) -> SelectT:
@@ -50,12 +66,15 @@ def get_clinical_controls_with_variant_urns(
     as_of: Optional[datetime] = None,
     db_name: Optional[str] = None,
     db_version: Optional[str] = None,
-) -> list[tuple[ClinvarControl, list[str]]]:
-    """The live ClinVar controls for a score set, each paired with the URNs of the score-set variants
-    that link to it. Optionally narrowed to one control DB (``db_name``) and/or release (``db_version``).
-    Controls come back in first-seen order; each control's variant URNs preserve query order."""
+) -> list[tuple[ClinvarControl, list[ControlVariantLink]]]:
+    """The live ClinVar controls for a score set, each paired with the score-set variants that link to
+    it — every link carrying the digest of the allele the control annotates (see
+    :class:`ControlVariantLink`). Optionally narrowed to one control DB (``db_name``) and/or release
+    (``db_version``). Controls come back in first-seen order; each control's links preserve query order."""
     stmt = _scope_to_live_score_set_controls(
-        select(ClinvarControl, Variant.urn.label("variant_urn")), score_set_id, as_of
+        select(ClinvarControl, Variant.urn.label("variant_urn"), Allele.vrs_digest.label("allele_digest")),
+        score_set_id,
+        as_of,
     )
     if db_name is not None:
         stmt = stmt.where(ClinvarControl.db_name == db_name)
@@ -63,18 +82,20 @@ def get_clinical_controls_with_variant_urns(
         stmt = stmt.where(ClinvarControl.db_version == db_version)
 
     controls: dict[int, ClinvarControl] = {}
-    urns_by_control: dict[int, list[str]] = {}
-    for ctrl, variant_urn in db.execute(stmt).tuples():
-        # A persisted variant reached through the join always carries a URN (unique, set at creation);
-        # narrow the nullable column so the URN list matches the view model's required `str`.
+    links_by_control: dict[int, list[ControlVariantLink]] = {}
+
+    # A persisted variant reached through the join always carries a URN (unique, set at creation);
+    # narrow the nullable column so the URN matches the view model's required `str`.
+    for ctrl, variant_urn, allele_digest in db.execute(stmt).tuples():
         if variant_urn is None:
             continue
+
         if ctrl.id not in controls:
             controls[ctrl.id] = ctrl
-            urns_by_control[ctrl.id] = []
-        urns_by_control[ctrl.id].append(variant_urn)
+            links_by_control[ctrl.id] = []
+        links_by_control[ctrl.id].append(ControlVariantLink(variant_urn=variant_urn, allele_digest=allele_digest))
 
-    return [(ctrl, urns_by_control[ctrl.id]) for ctrl in controls.values()]
+    return [(ctrl, links_by_control[ctrl.id]) for ctrl in controls.values()]
 
 
 def get_clinical_control_options(

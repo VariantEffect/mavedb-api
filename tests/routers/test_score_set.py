@@ -2892,9 +2892,7 @@ def test_search_score_sets_not_affected_by_experiment_metadata(
     assert response.json()["numScoreSets"] == num_score_sets
 
 
-def test_cannot_create_multiple_superseding_versions(
-        session, data_provider, client, setup_router_db, data_files
-):
+def test_cannot_create_multiple_superseding_versions(session, data_provider, client, setup_router_db, data_files):
     """Attempting to create multiple superseding versions should fail."""
     experiment = create_experiment(client, {"title": "Original Experiment"})
     score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Original Score Set"})
@@ -2920,7 +2918,9 @@ def test_cannot_create_multiple_superseding_versions(
 
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     assert response.status_code == 409
-    assert (f"This score set has been superseded by score set: {first_superseding['urn']}.") in response.json()["detail"]
+    assert (f"This score set has been superseded by score set: {first_superseding['urn']}.") in response.json()[
+        "detail"
+    ]
 
 
 def test_search_score_sets_not_affected_by_an_unpublishing_superseding_versions(
@@ -3867,13 +3867,64 @@ def test_can_fetch_current_clinical_controls_for_score_set(client, setup_router_
     response_data = response.json()
     assert len(response_data) == 2
     for control in response_data:
-        mapped_variants = control.pop("mappedVariants")
-        assert len(mapped_variants) == 1
+        clinvar_links = control.pop("clinvarLinks")
+        assert len(clinvar_links) == 1
+        # Each link carries the digest of the allele the control annotates — the D78 precedence signal.
+        assert clinvar_links[0]["alleleDigest"] in ("clinical-control-allele-0", "clinical-control-allele-1")
         assert all(
             control[k] in (TEST_SAVED_CLINVAR_CONTROL[k], TEST_SAVED_GENERIC_CLINICAL_CONTROL[k])
             for k in TEST_SAVED_CLINVAR_CONTROL.keys()
-            if k != "mappedVariants"
+            if k != "clinvarLinks"
         )
+
+
+def test_clinical_controls_tag_each_link_with_the_annotating_allele_digest(
+    client, setup_router_db, session, data_provider, data_files
+):
+    """A protein-change variant whose DNA siblings carry conflicting ClinVar calls surfaces *both*
+    controls against the *same* variant URN — distinguishable only by the digest of the allele each
+    one annotates. That digest is D78's precedence signal: the control on the variant's authoritative
+    (assayed-level) allele is the direct call; the control on a projection sibling is the fallback.
+    Without it the two collapse to one variant and precedence is unimplementable."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    variant_urn = session.scalars(
+        select(VariantDbModel.urn)
+        .join(ScoreSetDbModel)
+        .where(ScoreSetDbModel.urn == score_set["urn"])
+        .order_by(VariantDbModel.id)
+    ).first()
+
+    # One variant, two alleles in its equivalence class: the assayed (authoritative) allele carries the
+    # ClinVar control (id 1); a projection sibling carries the generic control (id 2).
+    seed_mapping_record(
+        session,
+        variant_urn,
+        assay_level="protein",
+        alleles=[
+            AlleleSpec(digest="assayed-level-allele", level="protein", is_authoritative=True, clinvar_control_ids=[1]),
+            AlleleSpec(
+                digest="projection-sibling-allele", level="cdna", is_authoritative=False, clinvar_control_ids=[2]
+            ),
+        ],
+    )
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls")
+    assert response.status_code == 200
+
+    controls = {c["dbIdentifier"]: c for c in response.json()}
+    assert len(controls) == 2
+
+    assayed = controls[TEST_SAVED_CLINVAR_CONTROL["dbIdentifier"]]  # control 1, on the authoritative allele
+    sibling = controls[TEST_SAVED_GENERIC_CLINICAL_CONTROL["dbIdentifier"]]  # control 2, on the sibling
+
+    # Both controls point at the same variant, so only the annotating allele's digest tells them apart.
+    assert [link["variantUrn"] for link in assayed["clinvarLinks"]] == [variant_urn]
+    assert [link["variantUrn"] for link in sibling["clinvarLinks"]] == [variant_urn]
+    assert assayed["clinvarLinks"][0]["alleleDigest"] == "assayed-level-allele"
+    assert sibling["clinvarLinks"][0]["alleleDigest"] == "projection-sibling-allele"
 
 
 @pytest.mark.parametrize("clinical_control", [TEST_SAVED_CLINVAR_CONTROL, TEST_SAVED_GENERIC_CLINICAL_CONTROL])

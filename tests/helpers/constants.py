@@ -1781,14 +1781,14 @@ TEST_CLINVAR_CONTROL = {
 
 
 TEST_SAVED_CLINVAR_CONTROL = {
-    "recordType": "ClinicalControlWithMappedVariants",
+    "recordType": "ClinicalControlWithClinvarLinks",
     "dbIdentifier": "183058",
     "geneSymbol": "PTEN",
     "clinicalSignificance": "Likely benign",
     "clinicalReviewStatus": "criteria provided, multiple submitters, no conflicts",
     "dbName": "ClinVar",
     "dbVersion": "11_2024",
-    "mappedVariants": [],
+    "clinvarLinks": [],
 }
 
 
@@ -1803,14 +1803,14 @@ TEST_GENERIC_CLINICAL_CONTROL = {
 
 
 TEST_SAVED_GENERIC_CLINICAL_CONTROL = {
-    "recordType": "ClinicalControlWithMappedVariants",
+    "recordType": "ClinicalControlWithClinvarLinks",
     "dbIdentifier": "ABC123",
     "geneSymbol": "BRCA1",
     "clinicalSignificance": "benign",
     "clinicalReviewStatus": "lots of convincing evidence",
     "dbName": "GenDB",
     "dbVersion": "2024",
-    "mappedVariants": [],
+    "clinvarLinks": [],
 }
 
 
