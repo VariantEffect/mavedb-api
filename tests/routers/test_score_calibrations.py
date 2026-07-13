@@ -459,6 +459,550 @@ def test_admin_user_can_get_score_calibration_when_public(
     assert calibration_response["private"] is False
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+async def test_anonymous_user_cannot_get_superseding_score_calibration_when_private(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/{superseding_calibration['urn']}")
+
+    assert response.status_code == 404
+    error = response.json()
+    assert f"score calibration with URN '{superseding_calibration['urn']}' not found" in error["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_other_user_cannot_get_superseding_score_calibration_when_private(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/{superseding_calibration['urn']}")
+
+    assert response.status_code == 404
+    error = response.json()
+    assert f"score calibration with URN '{superseding_calibration['urn']}' not found" in error["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_creating_user_can_get_superseding_score_calibration_when_private(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+
+    response = client.get(f"/api/v1/score-calibrations/{superseding_calibration['urn']}")
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["urn"] == superseding_calibration["urn"]
+    assert calibration_response["private"] is True
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_contributing_user_can_get_superseding_score_calibration_when_private_and_investigator_provided(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        EXTRA_USER["username"],
+        EXTRA_USER["first_name"],
+        EXTRA_USER["last_name"],
+    )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/{superseding_calibration['urn']}")
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["urn"] == superseding_calibration["urn"]
+    assert calibration_response["private"] is True
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_contributing_user_cannot_get_superseding_score_calibration_when_private_and_not_investigator_provided(
+    client,
+    setup_router_db,
+    mock_publication_fetch,
+    session,
+    data_provider,
+    data_files,
+    extra_user_app_overrides,
+    admin_app_overrides,
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    with DependencyOverrider(admin_app_overrides):
+        superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+            client,
+            score_set["urn"],
+            deepcamelize(superseding_calibration_data),
+        )
+
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        EXTRA_USER["username"],
+        EXTRA_USER["first_name"],
+        EXTRA_USER["last_name"],
+    )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/{superseding_calibration['urn']}")
+
+    assert response.status_code == 404
+    error = response.json()
+    assert f"score calibration with URN '{superseding_calibration['urn']}' not found" in error["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_admin_user_can_get_superseding_score_calibration_when_private(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    with DependencyOverrider(admin_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/{superseding_calibration['urn']}")
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["urn"] == superseding_calibration["urn"]
+    assert calibration_response["private"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+async def test_anonymous_user_can_get_superseding_score_calibration_when_public(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    published_superseding_calibration = publish_test_score_calibration_via_client(client, superseding_calibration["urn"])
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/{published_superseding_calibration['urn']}")
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["urn"] == published_superseding_calibration["urn"]
+    assert calibration_response["private"] is False
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_other_user_can_get_superseding_score_calibration_when_public(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    published_superseding_calibration = publish_test_score_calibration_via_client(client, superseding_calibration["urn"])
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/{published_superseding_calibration['urn']}")
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["urn"] == published_superseding_calibration["urn"]
+    assert calibration_response["private"] is False
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_creating_user_can_get_superseding_score_calibration_when_public(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    published_superseding_calibration = publish_test_score_calibration_via_client(client, superseding_calibration["urn"])
+
+    response = client.get(f"/api/v1/score-calibrations/{published_superseding_calibration['urn']}")
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["urn"] == published_superseding_calibration["urn"]
+    assert calibration_response["private"] is False
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_contributing_user_can_get_superseding_score_calibration_when_public(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    published_superseding_calibration = publish_test_score_calibration_via_client(client, superseding_calibration["urn"])
+
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        EXTRA_USER["username"],
+        EXTRA_USER["first_name"],
+        EXTRA_USER["last_name"],
+    )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/{published_superseding_calibration['urn']}")
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["urn"] == published_superseding_calibration["urn"]
+    assert calibration_response["private"] is False
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_admin_user_can_get_superseding_score_calibration_when_public(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    published_superseding_calibration = publish_test_score_calibration_via_client(client, superseding_calibration["urn"])
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/{published_superseding_calibration['urn']}")
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["urn"] == published_superseding_calibration["urn"]
+    assert calibration_response["private"] is False
+
+
 ###########################################################
 #  GET /score-calibrations/score-set/{score_set_urn}
 ###########################################################
@@ -1069,6 +1613,743 @@ def test_admin_user_can_get_score_calibrations_for_score_set_when_public(
     assert created_calibration["private"] is False
 
 
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_anonymous_user_cannot_get_superseding_score_calibrations_for_score_set_when_private(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+
+    assert response.status_code == 404
+    error = response.json()
+    assert f"score set with URN '{score_set['urn']}' not found" in error["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_other_user_cannot_get_superseding_score_calibrations_for_score_set_when_private(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+
+    assert response.status_code == 404
+    error = response.json()
+    assert f"score set with URN '{score_set['urn']}' not found" in error["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_anonymous_user_can_get_superseded_score_calibrations_for_score_set_when_published_but_superseding_calibrations_private(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+
+    assert response.status_code == 200
+    calibrations_response = response.json()
+    assert len(calibrations_response) == 1
+    assert calibrations_response[0]["urn"] == published_calibration["urn"]
+    assert calibrations_response[0]["urn"] != superseding_calibration["urn"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_other_user_can_get_superseded_score_calibrations_for_score_set_when_published_but_superseding_calibrations_private(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+
+    assert response.status_code == 200
+    calibrations_response = response.json()
+    assert len(calibrations_response) == 1
+    assert calibrations_response[0]["urn"] == published_calibration["urn"]
+    assert calibrations_response[0]["urn"] != superseding_calibration["urn"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_creating_user_can_get_superseding_score_calibrations_for_score_set_when_private(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+
+    response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+
+    assert response.status_code == 200
+    calibrations_response = response.json()
+    assert len(calibrations_response) == 1
+    assert calibrations_response[0]["urn"] == superseding_calibration["urn"]
+    assert calibrations_response[0]["private"] is True
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_contributing_user_can_get_investigator_provided_superseding_score_calibrations_for_score_set_when_private(
+    client,
+    setup_router_db,
+    mock_publication_fetch,
+    session,
+    data_provider,
+    data_files,
+    extra_user_app_overrides,
+    admin_app_overrides,
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    with DependencyOverrider(admin_app_overrides):
+        create_test_score_calibration_in_score_set_via_client(
+            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        )
+
+    investigator_calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, investigator_calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        EXTRA_USER["username"],
+        EXTRA_USER["first_name"],
+        EXTRA_USER["last_name"],
+    )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+
+    assert response.status_code == 200
+    calibrations_response = response.json()
+    assert len(calibrations_response) == 1
+    assert calibrations_response[0]["urn"] == superseding_calibration["urn"]
+    assert calibrations_response[0]["private"] is True
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_admin_user_can_get_superseding_score_calibrations_for_score_set_when_private(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    with DependencyOverrider(admin_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+
+    assert response.status_code == 200
+    calibrations_response = response.json()
+    assert len(calibrations_response) == 1
+    assert calibrations_response[0]["urn"] == superseding_calibration["urn"]
+    assert calibrations_response[0]["private"] is True
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_anonymous_user_can_get_superseding_score_calibrations_for_score_set_when_public(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    private_calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    # add another calibration that will remain private. The anonymous user should not see this one
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    published_superseding_calibration = publish_test_score_calibration_via_client(client, superseding_calibration["urn"])
+
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+
+    assert response.status_code == 200
+    calibrations_response = response.json()
+    assert len(calibrations_response) == 1
+    assert calibrations_response[0]["urn"] == published_superseding_calibration["urn"]
+    assert calibrations_response[0]["private"] is False
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_other_user_can_get_superseding_score_calibrations_for_score_set_when_public(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    published_superseding_calibration = publish_test_score_calibration_via_client(client, superseding_calibration["urn"])
+
+    # add another calibration that will remain private. The other user should not see this one
+    create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+
+    assert response.status_code == 200
+    calibrations_response = response.json()
+    assert len(calibrations_response) == 1
+    assert calibrations_response[0]["urn"] == published_superseding_calibration["urn"]
+    assert calibrations_response[0]["private"] is False
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_anonymous_user_cannot_get_superseding_score_calibrations_for_score_set_when_calibrations_public_score_set_private(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    private_calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    # add another calibration that will remain private. The anonymous user should not see this one
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    publish_test_score_calibration_via_client(client, superseding_calibration["urn"])
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+
+    assert response.status_code == 404
+    error = response.json()
+    assert f"score set with URN '{score_set['urn']}' not found" in error["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_other_user_cannot_get_superseding_score_calibrations_for_score_set_when_calibrations_public_score_set_private(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    # add another calibration that will remain private. The other user should not see this one
+    create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    publish_test_score_calibration_via_client(client, superseding_calibration["urn"])
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+
+    assert response.status_code == 404
+    error = response.json()
+    assert f"score set with URN '{score_set['urn']}' not found" in error["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_creating_user_can_get_superseding_score_calibrations_for_score_set_when_public(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    publish_test_score_calibration_via_client(client, superseding_calibration["urn"])
+
+    # add another calibration that is private. The creating user should see this one too
+    create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+
+    assert response.status_code == 200
+    calibrations_response = response.json()
+    assert len(calibrations_response) == 2
+    assert calibrations_response[0]["urn"] == superseding_calibration["urn"]
+    assert calibrations_response[0]["private"] is False
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_contributing_user_can_get_superseding_score_calibrations_for_score_set_when_public(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    publish_test_score_calibration_via_client(client, superseding_calibration["urn"])
+
+    # add another calibration that is private. The contributing user should see this one too
+    create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        EXTRA_USER["username"],
+        EXTRA_USER["first_name"],
+        EXTRA_USER["last_name"],
+    )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+
+    assert response.status_code == 200
+    calibrations_response = response.json()
+    assert len(calibrations_response) == 2
+    assert calibrations_response[0]["urn"] == superseding_calibration["urn"]
+    assert calibrations_response[0]["private"] is False
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_admin_user_can_get_superseding_score_calibrations_for_score_set_when_public(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    publish_test_score_calibration_via_client(client, superseding_calibration["urn"])
+
+    # add another calibration that is private. The admin user should see this one too
+    create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+
+    assert response.status_code == 200
+    calibrations_response = response.json()
+    assert len(calibrations_response) == 2
+    assert calibrations_response[0]["urn"] == superseding_calibration["urn"]
+    assert calibrations_response[0]["private"] is False
+
+
 ###########################################################
 # GET /score-calibrations/score-set/{score_set_urn}/primary
 ###########################################################
@@ -1215,6 +2496,50 @@ def test_get_primary_score_calibration_for_score_set_when_multiple_exist(
     assert response.status_code == 500
     error = response.json()
     assert "Multiple primary score calibrations found for the requested score set" in error["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_get_superseding_primary_score_calibration_for_score_set_when_exists(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": calibration["urn"],
+    }
+
+    superseding_calibration = create_publish_and_promote_score_calibration(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+
+    response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}/primary")
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["urn"] == superseding_calibration["urn"]
+    assert calibration_response["private"] is False
 
 
 ###########################################################
@@ -1731,6 +3056,670 @@ def test_can_create_class_based_score_calibration_form(
     assert all(
         classification["variantCount"] == 1 for classification in calibration_response["functionalClassifications"]
     )
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_superseding_score_calibration_when_csv_file_fails_decoding(
+    client, setup_router_db, session, data_provider, data_files, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_csv_path = data_files / "calibration_classes_by_urn.csv"
+    with (
+        open(superseding_calibration_csv_path, "rb") as class_file,
+        patch(
+            "mavedb.routers.score_calibrations.csv_data_to_df",
+            side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "invalid start byte"),
+        ),
+    ):
+        response = client.post(
+            "/api/v1/score-calibrations",
+            files={"classes_file": (superseding_calibration_csv_path.name, class_file, "text/csv")},
+            data={
+                "calibration_json": json.dumps(
+                    {
+                        "scoreSetUrn": score_set["urn"],
+                        "supersededCalibrationUrn": published_calibration["urn"],
+                        **TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED,
+                    }
+                ),
+            },
+        )
+
+    assert response.status_code == 400
+    error = response.json()
+    assert "Error decoding file:" in str(error["detail"])
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_superseding_score_calibration_when_validation_error_is_raised_from_score_calibration_file_standardization(
+    client, setup_router_db, session, data_provider, data_files, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_csv_path = data_files / "calibration_classes_by_urn.csv"
+    with (
+        open(superseding_calibration_csv_path, "rb") as class_file,
+        patch(
+            "mavedb.routers.score_calibrations.validate_and_standardize_calibration_classes_dataframe",
+            side_effect=ValidationError("Test validation error"),
+        ),
+    ):
+        response = client.post(
+            "/api/v1/score-calibrations",
+            files={"classes_file": (superseding_calibration_csv_path.name, class_file, "text/csv")},
+            data={
+                "calibration_json": json.dumps(
+                    {
+                        "scoreSetUrn": score_set["urn"],
+                        "supersededCalibrationUrn": published_calibration["urn"],
+                        **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED)}
+                ),
+            },
+        )
+
+    assert response.status_code == 422
+    error = response.json()
+    assert "Test validation error" in str(error["detail"][0]["msg"])
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_superseding_score_calibration_when_score_set_not_owned_by_user(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.post(
+            "/api/v1/score-calibrations",
+            json={
+                "scoreSetUrn": score_set["urn"],
+                "supersededCalibrationUrn": published_calibration["urn"],
+                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+            },
+        )
+
+    assert response.status_code == 404
+    error = response.json()
+    assert f"score set with URN '{score_set['urn']}' not found" in error["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_create_superseding_score_calibration_in_public_score_set_as_non_contributor(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.post(
+            "/api/v1/score-calibrations",
+            json={
+                "scoreSetUrn": score_set["urn"],
+                "supersededCalibrationUrn": published_calibration["urn"],
+                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+            },
+        )
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["scoreSetUrn"] == score_set["urn"]
+    assert calibration_response["investigatorProvided"] is False
+    assert calibration_response["private"] is True
+    assert calibration_response["supersededCalibration"]["urn"] == published_calibration["urn"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_superseding_class_based_score_calibration_without_classes_file(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    response = client.post(
+        "/api/v1/score-calibrations",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            "supersededCalibrationUrn": published_calibration["urn"],
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED),
+        },
+    )
+
+    assert response.status_code == 422
+    error = response.json()
+    assert "A classes_file must be provided when creating a class-based calibration" in str(error["detail"])
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+@pytest.mark.parametrize(
+    "calibration_csv_path",
+    ["calibration_classes_by_urn.csv", "calibration_classes_by_hgvs_nt.csv", "calibration_classes_by_hgvs_prot.csv"],
+)
+def test_cannot_create_superseding_range_based_score_calibration_with_classes_file(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, calibration_csv_path
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    classification_csv_path = data_files / calibration_csv_path
+    with open(classification_csv_path, "rb") as class_file:
+        response = client.post(
+            "/api/v1/score-calibrations",
+            files={"classes_file": (classification_csv_path.name, class_file, "text/csv")},
+            data={
+                "calibration_json": json.dumps(
+                    {
+                        "scoreSetUrn": score_set["urn"],
+                        "supersededCalibrationUrn": published_calibration["urn"],
+                        **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)}
+                ),
+            },
+        )
+
+    assert response.status_code == 422
+    error = response.json()
+    assert "A classes_file should not be provided when creating a range-based calibration" in str(error["detail"])
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_superseding_score_calibration_as_anonymous_user(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.post(
+            "/api/v1/score-calibrations",
+            json={
+                "scoreSetUrn": score_set["urn"],
+                "supersededCalibrationUrn": published_calibration["urn"],
+                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+            },
+        )
+
+    assert response.status_code == 401
+    error = response.json()
+    assert "Could not validate credentials" in error["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_create_superseding_score_calibration_as_score_set_owner(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    response = client.post(
+        "/api/v1/score-calibrations",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            "supersededCalibrationUrn": published_calibration["urn"],
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        },
+    )
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["scoreSetUrn"] == score_set["urn"]
+    assert calibration_response["private"] is True
+    assert calibration_response["supersededCalibration"]["urn"] == published_calibration["urn"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_create_superseding_score_calibration_as_score_set_owner_form(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    response = client.post(
+        "/api/v1/score-calibrations",
+        data={
+            "calibration_json": json.dumps(
+                {
+                    "scoreSetUrn": score_set["urn"],
+                    "supersededCalibrationUrn": published_calibration["urn"],
+                    **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)}
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["scoreSetUrn"] == score_set["urn"]
+    assert calibration_response["private"] is True
+    assert calibration_response["supersededCalibration"]["urn"] == published_calibration["urn"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_create_superseding_score_calibration_as_score_set_contributor(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        EXTRA_USER["username"],
+        EXTRA_USER["first_name"],
+        EXTRA_USER["last_name"],
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.post(
+            "/api/v1/score-calibrations",
+            json={
+                "scoreSetUrn": score_set["urn"],
+                "supersededCalibrationUrn": published_calibration["urn"],
+                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+            },
+        )
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["scoreSetUrn"] == score_set["urn"]
+    assert calibration_response["private"] is True
+    assert calibration_response["supersededCalibration"]["urn"] == published_calibration["urn"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_create_superseding_score_calibration_as_admin_user(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.post(
+            "/api/v1/score-calibrations",
+            json={
+                "scoreSetUrn": score_set["urn"],
+                "supersededCalibrationUrn": published_calibration["urn"],
+                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+            },
+        )
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["scoreSetUrn"] == score_set["urn"]
+    assert calibration_response["private"] is True
+    assert calibration_response["supersededCalibration"]["urn"] == published_calibration["urn"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+@pytest.mark.parametrize(
+    "calibration_csv_path",
+    ["calibration_classes_by_urn.csv", "calibration_classes_by_hgvs_nt.csv", "calibration_classes_by_hgvs_prot.csv"],
+)
+def test_can_create_superseding_class_based_score_calibration_form(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, calibration_csv_path
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    classification_csv_path = data_files / calibration_csv_path
+    with open(classification_csv_path, "rb") as class_file:
+        response = client.post(
+            "/api/v1/score-calibrations",
+            files={"classes_file": (classification_csv_path.name, class_file, "text/csv")},
+            data={
+                "calibration_json": json.dumps(
+                    {
+                        "scoreSetUrn": score_set["urn"],
+                        "supersededCalibrationUrn": published_calibration["urn"],
+                        **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED)}
+                ),
+            },
+        )
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["scoreSetUrn"] == score_set["urn"]
+    assert calibration_response["private"] is True
+    assert calibration_response["supersededCalibration"]["urn"] == published_calibration["urn"]
+    assert all(
+        classification["variantCount"] == 1 for classification in calibration_response["functionalClassifications"]
+    )
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_superseding_score_calibration_when_private(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    response = client.post(
+        "/api/v1/score-calibrations",
+        data={
+            "calibration_json": json.dumps(
+                {
+                    "scoreSetUrn": score_set["urn"],
+                    "supersededCalibrationUrn": calibration["urn"],
+                    **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)}
+            ),
+        },
+    )
+
+    assert response.status_code == 422
+    error = response.json()
+    assert f"Cannot supersede a private calibration. Please edit it instead." in error["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_create_superseding_score_calibration_when_public(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    response = client.post(
+        "/api/v1/score-calibrations",
+        data={
+            "calibration_json": json.dumps(
+                {
+                    "scoreSetUrn": score_set["urn"],
+                    "supersededCalibrationUrn": published_calibration["urn"],
+                    **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)}
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["scoreSetUrn"] == score_set["urn"]
+    assert calibration_response["private"] is True
+    assert calibration_response["supersededCalibration"]["urn"] == published_calibration["urn"]
 
 
 ###########################################################
@@ -2703,6 +4692,55 @@ def test_can_modify_score_calibration_to_class_based(
     )
 
 
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_update_superseded_calibration_when_score_calibration_private(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    response = client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        data={
+            "calibration_json": json.dumps(
+                {
+                    "scoreSetUrn": score_set["urn"],
+                    "supersededCalibrationUrn": calibration["urn"],
+                    **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION)
+                }
+            ),
+        }
+    )
+
+    assert response.status_code == 422
+    error = response.json()
+    detail = error["detail"]
+    assert any(
+        err.get("msg") == "Extra inputs are not permitted"
+        and err.get("loc") == ["supersededCalibrationUrn"]
+        for err in detail
+    )
+
+
 ###########################################################
 # DELETE /score-calibrations/{calibration_urn}
 ###########################################################
@@ -3337,9 +5375,8 @@ def test_cannot_promote_private_calibration_to_primary(
     calibration = create_test_score_calibration_in_score_set_via_client(
         client,
         score_set["urn"],
-        deepcamelize({**TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, "private": True}),
+        deepcamelize({**TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED}),
     )
-
     response = client.post(f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary")
 
     assert response.status_code == 400
@@ -3470,6 +5507,167 @@ def test_score_set_owner_can_promote_to_primary_with_demote_existing_flag_on_com
     assert promoted["primary"] is True
 
     # verify the previous primary was demoted
+    get_response = client.get(f"/api/v1/score-calibrations/{primary_calibration['urn']}")
+    assert get_response.status_code == 200
+    previous_primary = get_response.json()
+    assert previous_primary["primary"] is False
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_promote_superseding_score_calibration_if_superseded_is_not_primary(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    published_superseding_calibration = publish_test_score_calibration_via_client(client,
+                                                                                  superseding_calibration["urn"])
+
+    response = client.post(f"/api/v1/score-calibrations/{published_superseding_calibration['urn']}/promote-to-primary")
+
+    assert response.status_code == 200
+    promotion_response = response.json()
+    assert promotion_response["urn"] == published_superseding_calibration["urn"]
+    assert promotion_response["scoreSetUrn"] == score_set["urn"]
+    assert promotion_response["primary"] is True
+
+    get_response = client.get(f"/api/v1/score-calibrations/{published_calibration['urn']}")
+    assert get_response.status_code == 200
+    previous_primary = get_response.json()
+    assert previous_primary["primary"] is False
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_promote_superseding_score_calibration_if_superseded_is_primary(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    primary_calibration = create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": primary_calibration["urn"],
+    }
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    published_superseding_calibration = publish_test_score_calibration_via_client(client,
+                                                                                  superseding_calibration["urn"])
+
+    response = client.post(f"/api/v1/score-calibrations/{published_superseding_calibration['urn']}/promote-to-primary")
+
+    assert response.status_code == 200
+    promotion_response = response.json()
+    assert promotion_response["urn"] == published_superseding_calibration["urn"]
+    assert promotion_response["scoreSetUrn"] == score_set["urn"]
+    assert promotion_response["primary"] is True
+
+    # verify the previous primary is no longer primary
+    get_response = client.get(f"/api/v1/score-calibrations/{primary_calibration['urn']}")
+    assert get_response.status_code == 200
+    previous_primary = get_response.json()
+    assert previous_primary["primary"] is False
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_promote_superseding_calibration_to_primary_if_primary_exists_when_demote_existing_is_true(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    primary_calibration = create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    secondary_calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION)
+    )
+    published_secondary_calibration = publish_test_score_calibration_via_client(client, secondary_calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_secondary_calibration["urn"],
+    }
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    published_superseding_calibration = publish_test_score_calibration_via_client(client,
+                                                                                  superseding_calibration["urn"])
+
+    response = client.post(
+        f"/api/v1/score-calibrations/{published_superseding_calibration['urn']}/promote-to-primary?demoteExistingPrimary=true",
+    )
+
+    assert response.status_code == 200
+    promotion_response = response.json()
+    assert promotion_response["urn"] == published_superseding_calibration["urn"]
+    assert promotion_response["scoreSetUrn"] == score_set["urn"]
+    assert promotion_response["primary"] is True
+
+    # verify the previous primary is no longer primary
     get_response = client.get(f"/api/v1/score-calibrations/{primary_calibration['urn']}")
     assert get_response.status_code == 200
     previous_primary = get_response.json()
@@ -3719,6 +5917,59 @@ def test_can_demote_non_primary_score_calibration(
     assert demotion_response["primary"] is False
 
 
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_demote_superseding_score_calibration_as_score_set_owner(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": calibration["urn"],
+    }
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    published_superseding_calibration = publish_test_score_calibration_via_client(client,
+                                                                                  superseding_calibration["urn"])
+
+    response = client.post(
+        f"/api/v1/score-calibrations/{published_superseding_calibration['urn']}/demote-from-primary",
+    )
+
+    assert response.status_code == 200
+    demotion_response = response.json()
+    assert demotion_response["urn"] == published_superseding_calibration["urn"]
+    assert demotion_response["scoreSetUrn"] == score_set["urn"]
+    assert demotion_response["primary"] is False
+    assert demotion_response["supersededCalibration"]["urn"] == calibration["urn"]
+
+    get_response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
+    assert get_response.status_code == 200
+    previous_primary = get_response.json()
+    assert previous_primary["primary"] is False
+
+
 ###########################################################
 # POST /score-calibrations/{calibration_urn}/publish
 ###########################################################
@@ -3929,6 +6180,57 @@ def test_can_publish_already_published_calibration(
     assert publish_response_2.status_code == 200
     published_calibration_2 = publish_response_2.json()
     assert published_calibration_2["private"] is False
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_can_publish_superseding_score_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+
+    response = client.post(f"/api/v1/score-calibrations/{superseding_calibration['urn']}/publish")
+
+    assert response.status_code == 200
+    publish_response = response.json()
+    assert publish_response["urn"] == superseding_calibration["urn"]
+    assert publish_response["scoreSetUrn"] == score_set["urn"]
+    assert publish_response["private"] is False
+    assert publish_response["supersededCalibration"]["urn"] == calibration["urn"]
+
+    get_response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+    assert get_response.status_code == 200
+    score_set_response = get_response.json()
+    assert len(score_set_response) == 1
 
 
 ###########################################################
@@ -5025,3 +7327,110 @@ def test_user_sees_calibrations_across_multiple_score_sets(
     returned_urns = {c["urn"] for c in calibrations}
     assert cal_1["urn"] in returned_urns
     assert cal_2["urn"] in returned_urns
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_authenticated_user_sees_own_calibrations_including_private_superseded_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+
+    response = client.get("/api/v1/score-calibrations/me")
+
+    assert response.status_code == 200
+    calibrations = response.json()
+    assert len(calibrations) == 2
+    superseding_calibration = next(
+        c for c in calibrations if c["urn"] == superseding_calibration["urn"]
+    )
+    assert superseding_calibration["private"] is True
+    superseded_calibration = next(
+        c for c in calibrations if c["urn"] == published_calibration["urn"]
+    )
+    assert superseded_calibration["private"] is False
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_authenticated_user_sees_own_calibrations_including_public_superseded_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    published_calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    superseding_calibration_data = {
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        "superseded_calibration_urn": published_calibration["urn"],
+    }
+
+    superseding_calibration = create_test_score_calibration_in_score_set_via_client(
+        client,
+        score_set["urn"],
+        deepcamelize(superseding_calibration_data),
+    )
+    publish_test_score_calibration_via_client(client, superseding_calibration["urn"])
+
+    response = client.get("/api/v1/score-calibrations/me")
+
+    assert response.status_code == 200
+    calibrations = response.json()
+    assert len(calibrations) == 2
+    superseding_calibration = next(
+        c for c in calibrations if c["urn"] == superseding_calibration["urn"]
+    )
+    assert superseding_calibration["private"] is False
+    superseded_calibration = next(
+        c for c in calibrations if c["urn"] == published_calibration["urn"]
+    )
+    assert superseded_calibration["private"] is False

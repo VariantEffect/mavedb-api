@@ -437,6 +437,9 @@ class ScoreCalibrationModify(ScoreCalibrationBase):
     evidence_sources: Sequence[PublicationIdentifierCreate]
     method_sources: Sequence[PublicationIdentifierCreate]
 
+    class Config:
+        extra = "forbid"
+
     # TODO#668: Move this validator to ScoreCalibrationBase once legacy calibrations have been
     # backfilled with publication associations. Currently on the write model only so that existing
     # calibrations without publications can still be serialized for API read responses.
@@ -497,6 +500,18 @@ class ScoreCalibrationCreate(ScoreCalibrationModify):
 
         return v
 
+
+class ShorterScoreCalibration(BaseModel):
+    urn: str
+    record_type: str = None  # type: ignore
+
+    _record_type_factory = record_type_validator()(set_record_type)
+
+    class Config:
+        from_attributes = True
+        arbitrary_types_allowed = True
+
+
 class SavedScoreCalibration(ScoreCalibrationBase):
     """Persisted score calibration model (includes identifiers and source lists)."""
 
@@ -515,8 +530,8 @@ class SavedScoreCalibration(ScoreCalibrationBase):
     threshold_sources: Sequence[SavedPublicationIdentifier]
     evidence_sources: Sequence[SavedPublicationIdentifier]
     method_sources: Sequence[SavedPublicationIdentifier]
-    superseded_calibration: Optional[ScoreCalibrationBase] = None
-    superseding_calibration: Optional[ScoreCalibrationBase] = None
+    superseded_calibration: Optional[ShorterScoreCalibration] = None
+    superseding_calibration: Optional[ShorterScoreCalibration] = None
 
     created_by: Optional[SavedUser] = None
     modified_by: Optional[SavedUser] = None

@@ -137,9 +137,20 @@ async def get_score_calibrations_for_score_set(
         .all()
     )
 
-    permitted_calibrations = [
+    visible_calibrations = [
         calibration for calibration in calibrations if has_permission(user_data, calibration, Action.READ).permitted
     ]
+
+    superseded_ids = [sc.superseded_calibration_id for sc in visible_calibrations if
+                      sc.superseded_calibration_id is not None]
+
+    permitted_calibrations = [sc for sc in visible_calibrations if sc.id not in superseded_ids]
+
+    # Solve Pydantic model validation error
+    for sc in permitted_calibrations:
+        sc.superseded_calibration = None
+        sc.superseding_calibration = None
+
     if not permitted_calibrations:
         logger.debug("No score calibrations found for the requested score set", extra=logging_context())
         raise HTTPException(status_code=404, detail="No score calibrations found for the requested score set")
@@ -339,9 +350,12 @@ async def create_score_calibration_route(
                 detail=[{"loc": [e.custom_loc or "classesFile"], "msg": str(e), "type": "value_error"}],
             )
 
-    created_calibration = await create_score_calibration_in_score_set(
-        db, calibration, user_data, variant_classes if classes_file else None
-    )
+    try:
+        created_calibration = await create_score_calibration_in_score_set(
+            db, calibration, user_data, variant_classes if classes_file else None
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
     db.commit()
     db.refresh(created_calibration)
@@ -598,6 +612,10 @@ async def promote_score_calibration_to_primary_route(
     if item.private:
         logger.debug("Private score calibrations cannot be promoted to primary", extra=logging_context())
         raise HTTPException(status_code=400, detail="Private score calibrations cannot be promoted to primary")
+
+    if item.superseding_calibration:
+        logger.debug("Superseded score calibrations cannot be promoted to primary", extra=logging_context())
+        raise HTTPException(status_code=400, detail="Superseded score calibrations cannot be promoted to primary")
 
     # We've already checked whether the item matching the calibration URN is primary, so this
     # will necessarily be a different calibration, if it exists.

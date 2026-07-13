@@ -179,7 +179,10 @@ async def _create_score_calibration(
             db.add(pub)
             db.flush()
 
-    superseded_calibration = validate_superseded_score_calibration(db, calibration_create, user_data)
+    if calibration_create.superseded_calibration_urn:
+        superseded_calibration = validate_superseded_score_calibration(db, calibration_create, user_data)
+    else:
+        superseded_calibration = None
 
     calibration = ScoreCalibration(
         **calibration_create.model_dump(
@@ -527,6 +530,10 @@ def publish_score_calibration(db: Session, calibration: ScoreCalibration, user: 
     calibration.modified_by = user
 
     db.add(calibration)
+
+    if calibration.superseded_calibration and calibration.superseded_calibration.primary:
+        promote_score_calibration_to_primary(db, calibration, user, force=True)
+
     return calibration
 
 
@@ -559,6 +566,7 @@ def promote_score_calibration_to_primary(
               - If the calibration is already primary.
               - If the calibration is research-use-only.
               - If the calibration is private.
+              - If the calibration is superseded.
               - If another primary calibration exists for the score set and force is False.
 
     Side Effects:
@@ -577,6 +585,9 @@ def promote_score_calibration_to_primary(
 
     if calibration.private:
         raise ValueError("Cannot promote a private calibration to primary.")
+
+    if calibration.superseding_calibration:
+        raise ValueError("Cannot promote a superseded calibration to primary.")
 
     existing_primary_calibrations = (
         db.query(ScoreCalibration)

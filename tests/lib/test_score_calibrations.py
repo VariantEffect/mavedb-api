@@ -1378,6 +1378,93 @@ async def test_public_calibration_supersedes_a_published_calibration(
     ],
     indirect=["mock_publication_fetch"],
 )
+async def test_supersede_a_calibration_that_its_score_set_has_multiple_calibrations(
+        client, setup_lib_db_with_score_set, session, mock_publication_fetch
+):
+    test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
+
+    existing_calibration_1 = await create_test_range_based_score_calibration_in_score_set(
+        session, setup_lib_db_with_score_set.urn, test_user_data
+    )
+    assert existing_calibration_1.private is True
+    existing_calibration_2 = await create_test_range_based_score_calibration_in_score_set(
+        session, existing_calibration_1.score_set.urn, test_user_data
+    )
+    assert existing_calibration_2.private is True
+
+    published_first_calibration = publish_score_calibration(session, existing_calibration_1, test_user)
+    assert published_first_calibration.private is False
+
+    superseding_calibration_create = ScoreCalibrationCreate(
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        score_set_urn=published_first_calibration.score_set.urn,
+        superseded_calibration_urn=published_first_calibration.urn,
+    )
+
+    superseding_calibration = await create_score_calibration_in_score_set(
+        session, superseding_calibration_create, test_user_data
+    )
+    session.commit()
+    session.refresh(superseding_calibration)
+
+    assert published_first_calibration.superseding_calibration.urn == superseding_calibration.urn
+
+    score_set_db = session.execute(
+        select(ScoreSet).where(ScoreSet.urn == superseding_calibration.score_set.urn)).scalars().first()
+    score_set_response = client.get(f"/api/v1/score-sets/{score_set_db.urn}")
+    score_set = score_set_response.json()
+    assert score_set_response.status_code == 200
+    assert len(score_set["scoreCalibrations"]) == 2
+    cal_urns = {cal["urn"] for cal in score_set["scoreCalibrations"]}
+
+    assert superseding_calibration.urn in cal_urns
+    assert existing_calibration_2.urn in cal_urns
+    assert published_first_calibration.urn not in cal_urns
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ],
+    ],
+    indirect=["mock_publication_fetch"],
+)
+async def test_cannot_supersede_none_exist_calibration(
+        setup_lib_db_with_score_set, session, mock_publication_fetch
+):
+    test_user = session.execute(select(User)).scalars().first()
+    test_user_data = UserData(user=test_user, active_roles=[])
+
+    invalid_urn = "urn:mavedb:calibration-00000000-0000-0000-0000-000000000000"
+
+    superseding_calibration_create = ScoreCalibrationCreate(
+        **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+        score_set_urn=setup_lib_db_with_score_set.urn,
+        superseded_calibration_urn=invalid_urn,
+    )
+
+    with pytest.raises(ValueError, match="Superseded calibration does not exist."):
+        await create_score_calibration_in_score_set(
+            session, superseding_calibration_create, test_user_data
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ],
+    ],
+    indirect=["mock_publication_fetch"],
+)
 async def test_private_calibration_cannot_supersedes_a_private_calibration(
         setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
