@@ -20,8 +20,9 @@ class AlleleMeasurement(BaseModel):
     ``genomic``) — always shown, since the measured level is the clinically load-bearing fact.
     ``relationship`` says how the measurement relates to the queried ClinGen id: ``direct`` (assayed at
     this allele), ``protein_consequence`` (a protein measurement of a nt query's consequence), or
-    ``nucleotide_encoding`` (a nt measurement encoding a protein query). ``primaryClassification`` is the
-    primary readable functional classification, omitted when absent or gated. ``isCurrent`` /
+    ``nucleotide_encoding`` (a nt measurement encoding a protein query). ``preferredClassification`` is the
+    readable functional classification the UI defaults to (primary-first cascade, RUO excluded), omitted
+    when absent or gated. ``isCurrent`` /
     ``supersededByScoreSet`` let a superseded measurement (surfaced only under ``include_superseded``)
     self-describe; ``supersededByScoreSet`` is the superseding *score set*'s URN.
     """
@@ -34,7 +35,7 @@ class AlleleMeasurement(BaseModel):
     submitted_hgvs: Optional[str] = None
     score_set_urn: str
     score_set_title: str
-    primary_classification: Optional[SavedFunctionalClassification] = None
+    preferred_classification: Optional[SavedFunctionalClassification] = None
     is_current: bool
     superseded_by_score_set: Optional[str] = None
 

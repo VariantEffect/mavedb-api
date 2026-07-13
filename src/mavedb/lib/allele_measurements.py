@@ -70,8 +70,8 @@ class AlleleMeasurement:
 
     ``assay_level`` is the level at which *this* measurement was assayed (protein/cdna/genomic) — the
     clinically load-bearing fact, always shown. ``relationship`` says how it relates to the queried
-    ClinGen id. ``primary_classification`` is the primary readable functional classification (``None``
-    when the score set has none or the caller cannot read the calibration).
+    ClinGen id. ``preferred_classification`` is the readable functional classification the UI defaults to
+    (primary-first cascade, RUO excluded; ``None`` when none applies or the calibration is unreadable).
     """
 
     variant_urn: str
@@ -82,7 +82,7 @@ class AlleleMeasurement:
     submitted_hgvs: Optional[str]
     score_set_urn: str
     score_set_title: str
-    primary_classification: Optional[ScoreCalibrationFunctionalClassification]
+    preferred_classification: Optional[ScoreCalibrationFunctionalClassification]
     is_current: bool
     superseded_by_score_set: Optional[str]
 
@@ -94,12 +94,15 @@ def _preferred_classification(
 
     A variant falls into one classification per calibration (non-overlapping ranges); we surface the one
     the UI would default to, mirroring its calibration preference cascade: ``primary`` first, then
-    ``investigator_provided``, then non-``research_use_only``. Within a tier we take the strongest
-    evidence (the VA-Spec posture — the strongest calibration is the evidence calibration), then ``id``
-    only for determinism. The UI's "any with ranges / any calibration" tail steps collapse here: this
-    query only surfaces calibrations that already classify the variant. Only calibrations the caller can
-    read (calibration READ) are considered, so a private calibration is skipped rather than blanking a
-    readable call. Kept in sync with the UI's `activeCalibrationOptions` default selection.
+    ``investigator_provided``. Within a tier we take the strongest evidence (the VA-Spec posture — the
+    strongest calibration is the evidence calibration), then ``id`` only for determinism.
+
+    This is a clinical surface, so research-use-only calibrations are excluded outright (not merely deprioritized
+    as in the shared cascade) — a RUO call is never the classification shown here.
+
+    Only calibrations the caller can read (calibration READ) are considered, so a private calibration is
+    skipped rather than blanking a readable call. Kept in sync with the UI's `activeCalibrationOptions`
+    default selection.
     """
     candidates = [
         (classification, calibration)
@@ -111,6 +114,7 @@ def _preferred_classification(
             )
             .join(ScoreCalibration, ScoreCalibration.id == ScoreCalibrationFunctionalClassification.calibration_id)
             .where(classification_variants.c.variant_id == variant.id)
+            .where(ScoreCalibration.research_use_only.is_(False))
         ).all()
         if has_permission(user_data, calibration, Action.READ).permitted
     ]
@@ -137,11 +141,11 @@ def _ordering_key(measurement: AlleleMeasurement, published_date: Optional[date]
     4. Within each, the newest-published first
     5. Within each, the URN for a stable tiebreak
     """
-    magnitude, direction = classification_evidence_strength(measurement.primary_classification)
+    magnitude, direction = classification_evidence_strength(measurement.preferred_classification)
     return (
         0 if measurement.is_current else 1,
         0 if measurement.relationship == MeasurementRelationship.direct else 1,
-        0 if measurement.primary_classification is not None else 1,
+        0 if measurement.preferred_classification is not None else 1,
         -magnitude,
         direction,
         -(published_date.toordinal()) if published_date is not None else 0,
@@ -257,7 +261,7 @@ def get_allele_measurements(
             submitted_hgvs=variant.hgvs_pro if assay_level == SequenceLevel.protein.value else variant.hgvs_nt,
             score_set_urn=score_set.urn or "",
             score_set_title=score_set.title or "",
-            primary_classification=_preferred_classification(db, variant, user_data=user_data),
+            preferred_classification=_preferred_classification(db, variant, user_data=user_data),
             is_current=is_current,
             superseded_by_score_set=superseding.urn if superseding is not None else None,
         )
