@@ -507,6 +507,7 @@ async def test_create_score_calibration_propagates_errors_from_publication_find_
         evidence_sources=(list, []),
         method_sources=(list, []),
         functional_classifications=(list, []),
+        superseded_calibration_urn=(str | None, None),
     )
     with (
         pytest.raises(

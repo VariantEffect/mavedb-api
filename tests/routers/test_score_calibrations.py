@@ -1987,7 +1987,7 @@ def test_anonymous_user_can_get_superseding_score_calibrations_for_score_set_whe
         experiment["urn"],
         data_files / "scores.csv",
     )
-    private_calibration = create_test_score_calibration_in_score_set_via_client(
+    create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
@@ -2101,7 +2101,7 @@ def test_anonymous_user_cannot_get_superseding_score_calibrations_for_score_set_
         experiment["urn"],
         data_files / "scores.csv",
     )
-    private_calibration = create_test_score_calibration_in_score_set_via_client(
+    create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
@@ -3673,7 +3673,7 @@ def test_cannot_create_superseding_score_calibration_when_private(
 
     assert response.status_code == 422
     error = response.json()
-    assert f"Cannot supersede a private calibration. Please edit it instead." in error["detail"]
+    assert "Cannot supersede a private calibration. Please edit it instead." in error["detail"]
 
 
 @pytest.mark.parametrize(
@@ -4731,14 +4731,10 @@ def test_cannot_update_superseded_calibration_when_score_calibration_private(
         }
     )
 
-    assert response.status_code == 422
-    error = response.json()
-    detail = error["detail"]
-    assert any(
-        err.get("msg") == "Extra inputs are not permitted"
-        and err.get("loc") == ["supersededCalibrationUrn"]
-        for err in detail
-    )
+    assert response.status_code == 200
+    calibration_response = response.json()
+    assert calibration_response["urn"] == calibration["urn"]
+    assert calibration_response["supersededCalibration"] is None
 
 
 ###########################################################
