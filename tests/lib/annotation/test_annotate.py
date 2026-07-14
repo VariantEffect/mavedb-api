@@ -15,6 +15,7 @@ pytest.importorskip("psycopg2")
 
 from mavedb.lib.annotation.annotate import (
     variant_functional_impact_statement,
+    variant_highest_level_annotation,
     variant_pathogenicity_statement,
     variant_study_result,
 )
@@ -294,3 +295,38 @@ class TestVariantPathogenicityStatement:
                     evidence_item, dict
                 ), "hasEvidenceItems contained a raw dict instead of a model instance"
                 assert evidence_item.type == "Statement"
+
+
+@pytest.mark.unit
+class TestVariantHighestLevelAnnotation:
+    """Unit tests for the highest-materialized-layer resolver used by the public data dump."""
+
+    def test_study_result_when_uncalibrated(self, mock_mapped_variant):
+        result = variant_highest_level_annotation(mock_mapped_variant)
+
+        assert result is not None
+        assert result.type == "ExperimentalVariantFunctionalImpactStudyResult"
+
+    def test_functional_statement_when_functional_only(self, mock_mapped_variant_with_functional_calibration_score_set):
+        # The functional calibration fixture has no ACMG classifications, so the variant qualifies for the
+        # functional layer but not pathogenicity.
+        result = variant_highest_level_annotation(mock_mapped_variant_with_functional_calibration_score_set)
+
+        assert result is not None
+        assert result.type == "Statement"
+        assert result.proposition.type == "ExperimentalVariantFunctionalImpactProposition"
+
+    def test_pathogenicity_statement_when_calibrated(
+        self, mock_mapped_variant_with_pathogenicity_calibration_score_set
+    ):
+        result = variant_highest_level_annotation(mock_mapped_variant_with_pathogenicity_calibration_score_set)
+
+        assert result is not None
+        assert result.type == "Statement"
+        assert result.proposition.type == "VariantPathogenicityProposition"
+
+    def test_none_when_unmapped(self, mock_mapped_variant):
+        mock_mapped_variant.post_mapped = None
+
+        result = variant_highest_level_annotation(mock_mapped_variant)
+        assert result is None

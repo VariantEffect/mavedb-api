@@ -1,7 +1,10 @@
 name: Run Tests
 on:
   push:
-    # Run all tests on main, fast tests on other branches
+    branches:
+      - main
+      - 'release-*'
+  pull_request:
 
 env:
   LOG_CONFIG: test
@@ -51,11 +54,30 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev
-    - name: Run fast tests on non-main branches
-      if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+    - name: Run fast tests on PRs
+      if: github.event_name == 'pull_request'
       run: poetry run pytest tests/ -m "not network and not slow"
-    - name: Run full tests on main
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    - name: Run full tests on main and release branches
+      if: github.event_name == 'push'
+      run: poetry run pytest tests/
+
+  run-tests-3_12-core-dependencies:
+    runs-on: ubuntu-latest
+    name: Pytest on Core Dependencies-- Python 3.12
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+    - run: pip install --upgrade pip
+    - run: pip install poetry
+    - run: poetry install --with dev
+    - name: Run fast tests on PRs
+      if: github.event_name == 'pull_request'
+      run: poetry run pytest tests/ -m "not network and not slow"
+    - name: Run all tests on main and release branches
+      if: github.event_name == 'push'
       run: poetry run pytest tests/
 
   run-tests-3_11:
@@ -72,49 +94,17 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev --extras server
-    - name: Run fast tests on non-main branches
-      if: github.ref != 'refs/heads/main'
-      run: poetry run pytest tests/ -m "not network and not slow" --show-capture=stdout
-    - name: Run all tests with coverage on main branch
-      if: github.ref == 'refs/heads/main'
-      run: poetry run pytest tests/ --show-capture=stdout --cov=src
-
-  run-tests-3_12-core-dependencies:
-    runs-on: ubuntu-latest
-    name: Pytest on Core Dependencies-- Python 3.12
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
+    - name: Run fast tests with coverage on PRs
+      if: github.event_name == 'pull_request'
+      run: |
+        mkdir -p coverage
+        poetry run pytest tests/ -m "not network and not slow" --show-capture=stdout --cov=src --cov-report=term-missing --cov-report=lcov:coverage/lcov.info
+    - name: Run all tests with coverage on main and release branches
+      if: github.event_name == 'push'
+      run: |
+        mkdir -p coverage
+        poetry run pytest tests/ --show-capture=stdout --cov=src --cov-report=term-missing --cov-report=lcov:coverage/lcov.info
+    - name: Upload coverage to Coveralls
+      uses: coverallsapp/github-action@v2
       with:
-        python-version: "3.12"
-        cache: 'pip'
-    - run: pip install --upgrade pip
-    - run: pip install poetry
-    - run: poetry install --with dev
-    - name: Run fast tests on non-main branches
-      if: github.ref != 'refs/heads/main'
-      run: poetry run pytest tests/ -m "not network and not slow"
-    - name: Run all tests on main branch
-      if: github.ref == 'refs/heads/main'
-      run: poetry run pytest tests/
-
-  run-tests-3_12:
-    runs-on: ubuntu-latest
-    name: Pytest on Optional Dependencies-- Python 3.12
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
-        cache: 'pip'
-    - run: sudo apt-get update
-    - run: sudo apt-get install -y tabix
-    - run: pip install --upgrade pip
-    - run: pip install poetry
-    - run: poetry install --with dev --extras server
-    - name: Run fast tests on non-main branches
-      if: github.ref != 'refs/heads/main'
-      run: poetry run pytest tests/ -m "not network and not slow" --show-capture=stdout
-    - name: Run all tests with coverage on main branch
-      if: github.ref == 'refs/heads/main'
-      run: poetry run pytest tests/ --show-capture=stdout --cov=src
+        path-to-lcov: coverage/lcov.info

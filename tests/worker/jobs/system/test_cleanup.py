@@ -12,6 +12,7 @@ import pytest
 
 pytest.importorskip("arq")  # Skip tests if arq is not installed
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
@@ -29,6 +30,7 @@ from mavedb.models.pipeline import Pipeline
 from mavedb.worker.jobs.system.cleanup import (
     PENDING_TIMEOUT_MINUTES,
     PIPELINE_STUCK_TIMEOUT_MINUTES,
+    PROGRESS_STALL_MINUTES,
     RUNNING_TIMEOUT_MINUTES,
     cleanup_stalled_jobs,
 )
@@ -40,17 +42,55 @@ pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
 @pytest.fixture
 def mock_arq_job_not_found():
-    """Mock ArqJob.status() to return not_found, simulating a crashed-enqueue QUEUED job."""
+    """Mock ArqJob for a crashed-enqueue QUEUED job: status() is not_found, and abort() confirms dead."""
     with patch("mavedb.worker.jobs.system.cleanup.ArqJob") as mock_arq_job:
         mock_arq_job.return_value.status = AsyncMock(return_value=ArqJobStatus.not_found)
+        mock_arq_job.return_value.abort = AsyncMock(return_value=True)
         yield mock_arq_job
 
 
 @pytest.fixture
 def mock_arq_job_in_redis():
-    """Mock ArqJob.status() to return queued, simulating a legitimately queued job in ARQ Redis."""
+    """Mock ArqJob for a legitimately queued job: status() is queued, and abort() confirms dead."""
     with patch("mavedb.worker.jobs.system.cleanup.ArqJob") as mock_arq_job:
         mock_arq_job.return_value.status = AsyncMock(return_value=ArqJobStatus.queued)
+        mock_arq_job.return_value.abort = AsyncMock(return_value=True)
+        yield mock_arq_job
+
+
+@pytest.fixture
+def mock_arq_abort_confirmed():
+    """Mock ArqJob.abort() to return True — the stalled RUNNING attempt was alive and is now dead.
+
+    This is the signal that makes it safe for the sweeper to re-drive a stalled RUNNING job.
+    """
+    with patch("mavedb.worker.jobs.system.cleanup.ArqJob") as mock_arq_job:
+        mock_arq_job.return_value.status = AsyncMock(return_value=ArqJobStatus.not_found)
+        mock_arq_job.return_value.abort = AsyncMock(return_value=True)
+        yield mock_arq_job
+
+
+@pytest.fixture
+def mock_arq_abort_absent():
+    """Mock ArqJob.abort() to return False — the job is absent from ARQ (crashed / never enqueued).
+
+    Nothing is running, so it is still safe to re-drive.
+    """
+    with patch("mavedb.worker.jobs.system.cleanup.ArqJob") as mock_arq_job:
+        mock_arq_job.return_value.status = AsyncMock(return_value=ArqJobStatus.not_found)
+        mock_arq_job.return_value.abort = AsyncMock(return_value=False)
+        yield mock_arq_job
+
+
+@pytest.fixture
+def mock_arq_abort_wedged():
+    """Mock ArqJob.abort() to time out — the coroutine is wedged in a blocking call and won't die.
+
+    The sweeper must NOT re-drive such a job (it could still be running), to avoid a double-run.
+    """
+    with patch("mavedb.worker.jobs.system.cleanup.ArqJob") as mock_arq_job:
+        mock_arq_job.return_value.status = AsyncMock(return_value=ArqJobStatus.in_progress)
+        mock_arq_job.return_value.abort = AsyncMock(side_effect=asyncio.TimeoutError())
         yield mock_arq_job
 
 
@@ -148,7 +188,7 @@ class TestCleanupStalledJobsUnit:
         assert "stalled" in stalled_job.error_message.lower()
 
     async def test_cleanup_stalled_running_job_with_retries(
-        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_abort_confirmed
     ):
         """Test cleanup of a stalled RUNNING job with retries remaining."""
         # Create a stalled RUNNING job in the database
@@ -184,7 +224,7 @@ class TestCleanupStalledJobsUnit:
         assert stalled_job.finished_at is None
 
     async def test_cleanup_stalled_running_job_max_retries_reached(
-        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_abort_confirmed
     ):
         """Test cleanup of a stalled RUNNING job with max retries reached."""
         # Create a stalled RUNNING job with max retries
@@ -256,6 +296,115 @@ class TestCleanupStalledJobsUnit:
         session.refresh(stalled_job)
         assert stalled_job.status == JobStatus.RUNNING
         assert stalled_job.retry_count == 0
+
+    async def test_cleanup_detects_running_job_by_stale_heartbeat(
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_abort_confirmed
+    ):
+        """A RUNNING job with a recent started_at but a stale progress heartbeat is detected and re-driven.
+
+        This is the primary staleness signal: staleness is judged by progress_updated_at, not total runtime.
+        """
+        stalled_job = JobRun(
+            job_type="test_job",
+            job_function="test_function",
+            status=JobStatus.RUNNING,
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=40),
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=30),  # well within the wall-clock backstop
+            progress_updated_at=datetime.now(timezone.utc) - timedelta(minutes=PROGRESS_STALL_MINUTES + 5),
+            finished_at=None,
+            max_retries=3,
+            retry_count=0,
+            job_params={},
+        )
+        session.add(stalled_job)
+        session.commit()
+
+        result = await cleanup_stalled_jobs(
+            mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
+        )
+
+        # Abort of the wedged attempt was confirmed, so the job was re-driven.
+        mock_arq_abort_confirmed.return_value.abort.assert_awaited_once()
+        mock_worker_ctx["redis"].enqueue_job.assert_called_once()
+
+        assert result.data["total_cleaned"] == 1
+        assert stalled_job.urn in result.data["running_jobs"]
+
+        session.refresh(stalled_job)
+        assert stalled_job.status == JobStatus.QUEUED
+        assert stalled_job.retry_count == 1
+
+    async def test_cleanup_leaves_running_job_with_fresh_heartbeat(
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+    ):
+        """A RUNNING job that has been running a long time but is still checkpointing progress is left alone.
+
+        This is the VEP fan-out case: legitimate multi-hour runtime, well past the old 150-min limit,
+        but under the wall-clock backstop and with a fresh heartbeat — must NOT be treated as stalled.
+        """
+        healthy_job = JobRun(
+            job_type="test_job",
+            job_function="test_function",
+            status=JobStatus.RUNNING,
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=310),
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=300),  # 5h — past old limit, under backstop
+            progress_updated_at=datetime.now(timezone.utc) - timedelta(minutes=2),  # fresh heartbeat
+            finished_at=None,
+            max_retries=3,
+            retry_count=0,
+            job_params={},
+        )
+        session.add(healthy_job)
+        session.commit()
+
+        result = await cleanup_stalled_jobs(
+            mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
+        )
+
+        assert result.data["total_cleaned"] == 0
+        assert healthy_job.urn not in result.data["running_jobs"]
+
+        session.refresh(healthy_job)
+        assert healthy_job.status == JobStatus.RUNNING
+        assert healthy_job.retry_count == 0
+
+    async def test_cleanup_does_not_redrive_wedged_running_job(
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_abort_wedged
+    ):
+        """A stalled RUNNING job whose abort does not confirm is left in place, not re-driven.
+
+        Re-driving a job that may still be executing (wedged in a blocking sync call) would recreate
+        the historical double-run, so the sweeper takes no action and leaves it for a later sweep.
+        """
+        wedged_job = JobRun(
+            job_type="test_job",
+            job_function="test_function",
+            status=JobStatus.RUNNING,
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=40),
+            started_at=datetime.now(timezone.utc) - timedelta(minutes=30),
+            progress_updated_at=datetime.now(timezone.utc) - timedelta(minutes=PROGRESS_STALL_MINUTES + 5),
+            finished_at=None,
+            max_retries=3,
+            retry_count=0,
+            job_params={},
+        )
+        session.add(wedged_job)
+        session.commit()
+
+        result = await cleanup_stalled_jobs(
+            mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
+        )
+
+        # Abort was attempted but never confirmed, so no retry was enqueued.
+        mock_arq_abort_wedged.return_value.abort.assert_awaited_once()
+        mock_worker_ctx["redis"].enqueue_job.assert_not_called()
+
+        assert result.data["total_cleaned"] == 0
+        assert wedged_job.urn not in result.data["running_jobs"]
+
+        session.refresh(wedged_job)
+        assert wedged_job.status == JobStatus.RUNNING
+        assert wedged_job.retry_count == 0
 
     async def test_cleanup_stalled_pending_job_with_retries(
         self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
@@ -477,7 +626,7 @@ class TestCleanupStalledJobsUnit:
         assert "Failed to enqueue after stall recovery" in stalled_job.error_message
 
     async def test_cleanup_stalled_running_standalone_job_enqueue_failure(
-        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_abort_confirmed
     ):
         """Test that stalled standalone RUNNING job is marked FAILED if ARQ enqueue fails."""
 
@@ -559,7 +708,7 @@ class TestCleanupStalledJobsUnit:
         assert stalled_job.retry_count == 1
 
     async def test_cleanup_stalled_running_pipeline_job_dependencies_satisfied(
-        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_abort_confirmed
     ):
         """Test that stalled pipeline RUNNING job with satisfied dependencies is enqueued."""
         # Create a pipeline with all dependencies satisfied
@@ -735,7 +884,7 @@ class TestCleanupStalledJobsUnit:
         assert stalled_job.retry_count == 1
 
     async def test_cleanup_stalled_running_pipeline_job_dependencies_failed(
-        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_abort_confirmed
     ):
         """Test that stalled pipeline RUNNING job with failed dependencies is skipped."""
         # Create a pipeline
@@ -867,7 +1016,7 @@ class TestCleanupStalledJobsUnit:
         assert stalled_job.retry_count == 0
 
     async def test_cleanup_stalled_running_pipeline_job_dependencies_not_ready(
-        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_abort_confirmed
     ):
         """Test that stalled pipeline RUNNING job with dependencies not ready is skipped."""
         # Create a pipeline
@@ -1249,7 +1398,7 @@ class TestCleanupStalledJobsUnit:
         assert call_kwargs["max_retries"] == 3
 
     async def test_cleanup_sends_slack_when_max_retries_reached_running_job(
-        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job
+        self, session, mock_worker_ctx, sample_cleanup_job_run, with_cleanup_job, mock_arq_abort_confirmed
     ):
         """Test that send_slack_job_failure is called when sweeper permanently fails a stalled RUNNING job."""
         stalled_job = JobRun(
