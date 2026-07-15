@@ -8,7 +8,7 @@ from typing import Optional, Union
 import requests
 from jose import jwt
 
-from mavedb.lib.clingen.constants import GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD
+from mavedb.lib.clingen.constants import CLINGEN_HTTP_TIMEOUT, GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
 from mavedb.lib.types.clingen import ClinGenAllele, ClinGenSubmissionError, LdhSubmission
 from mavedb.lib.utils import batched
@@ -80,6 +80,7 @@ class ClinGenAlleleRegistryService:
             response = requests.put(
                 url=request_url,
                 data="\n".join(content_submissions),
+                timeout=CLINGEN_HTTP_TIMEOUT,
             )
             response.raise_for_status()
 
@@ -165,10 +166,10 @@ class ClinGenLdhService:
 
         auth_url = f"https://genboree.org/auth/usr/gb:{GENBOREE_ACCOUNT_NAME}/auth"
         auth_body = {"type": "plain", "val": GENBOREE_ACCOUNT_PASSWORD}
-        auth_response = requests.post(auth_url, json=auth_body)
         try:
+            auth_response = requests.post(auth_url, json=auth_body, timeout=CLINGEN_HTTP_TIMEOUT)
             auth_response.raise_for_status()
-        except requests.exceptions.HTTPError as exc:
+        except requests.exceptions.RequestException as exc:
             save_to_logging_context(format_raised_exception_info_as_dict(exc))
             logger.error(msg="Failed to authenticate with Genboree services.", exc_info=exc, extra=logging_context())
             raise exc
@@ -221,16 +222,17 @@ class ClinGenLdhService:
         logger.info(msg=f"Dispatching {len(submissions)} ldh submissions...", extra=logging_context())
         for idx, content in enumerate(submissions):
             try:
-                logger.debug(msg=f"Dispatching submission {idx+1}.", extra=logging_context())
+                logger.debug(msg=f"Dispatching submission {idx + 1}.", extra=logging_context())
                 response = requests.put(
                     url=self.url,
                     json=content,
                     headers={"Authorization": f"Bearer {self.authenticate()}", "Content-Type": "application/json"},
+                    timeout=CLINGEN_HTTP_TIMEOUT,
                 )
                 response.raise_for_status()
                 submission_successes.append(response.json())
                 logger.info(
-                    msg=f"Successfully dispatched ldh submission ({idx+1} / {len(submissions)}).",
+                    msg=f"Successfully dispatched ldh submission ({idx + 1} / {len(submissions)}).",
                     extra=logging_context(),
                 )
 

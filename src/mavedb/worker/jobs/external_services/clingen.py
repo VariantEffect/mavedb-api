@@ -21,6 +21,7 @@ from mavedb.lib.clingen.alleles import get_alleles_for_score_set
 from mavedb.lib.clingen.constants import (
     CAR_SUBMISSION_ENDPOINT,
     CLIN_GEN_SUBMISSION_ENABLED,
+    DEFAULT_CAR_SUBMISSION_BATCH_SIZE,
     DEFAULT_LDH_SUBMISSION_BATCH_SIZE,
     LDH_SUBMISSION_ENDPOINT,
 )
@@ -30,6 +31,7 @@ from mavedb.lib.clingen.services import (
     ClinGenLdhService,
 )
 from mavedb.lib.types.workflow import JobExecutionOutcome
+from mavedb.lib.utils import batched
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.allele import Allele as AlleleModel
 from mavedb.models.enums.annotation_type import AnnotationType
@@ -113,12 +115,14 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
     correlation_id = job.job_params["correlation_id"]  # type: ignore
     force_reregister = bool(job.job_params.get("force_reregister", False))  # type: ignore[union-attr]
 
-    job_manager.save_to_context({
-        "application": "mavedb-worker",
-        "function": "submit_score_set_mappings_to_car",
-        "resource": score_set.urn,
-        "correlation_id": correlation_id,
-    })
+    job_manager.save_to_context(
+        {
+            "application": "mavedb-worker",
+            "function": "submit_score_set_mappings_to_car",
+            "resource": score_set.urn,
+            "correlation_id": correlation_id,
+        }
+    )
     job_manager.update_progress(0, 100, "Starting CAR mapped resource submission.")
     logger.info(msg="Started CAR mapped resource submission", extra=job_manager.logging_context())
 
@@ -276,9 +280,6 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
 
     job_manager.update_progress(15, 100, "Submitting alleles to CAR.")
     car_service = ClinGenAlleleRegistryService(url=CAR_SUBMISSION_ENDPOINT)
-    hgvs_list = list(hgvs_to_allele_ids.keys())
-    registered_alleles = car_service.dispatch_submissions(hgvs_list)
-    job_manager.update_progress(60, 100, "Processing registered alleles from CAR.")
 
     # Bulk-load every allele that could be linked in one query, keyed by id, rather than
     # issuing a SELECT per CAID inside the response loop.
@@ -287,132 +288,152 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
         for allele in job_manager.db.scalars(select(AlleleModel).where(AlleleModel.id.in_(submitted_allele_ids))).all()
     }
 
-    # CAR's contract is one result per submitted HGVS, in order — that is what makes the
-    # positional zip below valid. A different count (including the empty list dispatch returns
-    # on request failure) means alignment cannot be trusted for ANY position, so we register
-    # nothing and fail the whole batch rather than risk writing a CAID to the wrong allele.
-    aligned = len(registered_alleles) == len(hgvs_list)
-    if not aligned:
-        logger.error(
-            msg=(
-                f"CAR returned {len(registered_alleles)} results for {len(hgvs_list)} submitted HGVS; "
-                "positional alignment cannot be trusted. Failing the entire batch."
-            ),
-            extra=job_manager.logging_context(),
+    # Reverse translation can push allele counts high enough that a single PUT is untenable, so
+    # dispatch in fixed-size chunks. Each batch is reconciled independently: a transient failure
+    # (or a broken one-result-per-input contract) fails only that batch's alleles, not the run.
+    batches = list(batched(list(hgvs_to_allele_ids.keys()), DEFAULT_CAR_SUBMISSION_BATCH_SIZE))
+    job_manager.save_to_context(
+        {
+            "car_submission_batch_size": DEFAULT_CAR_SUBMISSION_BATCH_SIZE,
+            "car_submission_batch_count": len(batches),
+        }
+    )
+
+    for batch_idx, hgvs_list in enumerate(batches):
+        # Spread the 15→60 window across batches so progress advances as each chunk is dispatched.
+        job_manager.update_progress(
+            15 + (45 * batch_idx) // len(batches),
+            100,
+            f"Submitting alleles to CAR (batch {batch_idx + 1} / {len(batches)}).",
         )
+        registered_alleles = car_service.dispatch_submissions(hgvs_list)
 
-    for hgvs_string, response in zip(hgvs_list, registered_alleles if aligned else []):
-        allele_ids_for_hgvs = hgvs_to_allele_ids[hgvs_string]
-
-        if "errorType" in response:
-            logger.warning(
-                msg=f"CAR rejected HGVS '{hgvs_string}' ({response.get('errorType', 'unknown')}): {response.get('message', 'unknown')}",
-                extra=job_manager.logging_context(),
-            )
-            for allele_id in allele_ids_for_hgvs:
-                failed_allele_ids.add(allele_id)
-                _annotate_caid(
-                    annotation_manager,
-                    allele_id,
-                    Disposition.FAILED,
-                    EventReason.SERVICE_REJECTED,
-                    error_message="Failed to register allele with ClinGen Allele Registry.",
-                    metadata={
-                        "submitted_hgvs": hgvs_string,
-                        "car_error_type": response.get("errorType"),
-                        "car_error_message": response.get("message"),
-                    },
-                )
-
-            continue
-
-        # A response that is neither an error nor a registration (no "@id") is malformed.
-        caid_iri = response.get("@id")
-        if not caid_iri:
+        # CAR's contract is one result per submitted HGVS, in order — that is what makes the
+        # positional zip below valid. A different count (including the empty list dispatch returns
+        # on request failure) means alignment cannot be trusted for ANY position, so we register
+        # nothing and fail this batch rather than risk writing a CAID to the wrong allele.
+        aligned = len(registered_alleles) == len(hgvs_list)
+        if not aligned:
             logger.error(
-                msg=f"CAR returned a response for HGVS '{hgvs_string}' with neither an error nor an allele identifier.",
+                msg=(
+                    f"CAR returned {len(registered_alleles)} results for {len(hgvs_list)} submitted HGVS; "
+                    "positional alignment cannot be trusted. Failing this batch."
+                ),
                 extra=job_manager.logging_context(),
             )
-            for allele_id in allele_ids_for_hgvs:
-                failed_allele_ids.add(allele_id)
-                _annotate_caid(
-                    annotation_manager,
-                    allele_id,
-                    Disposition.FAILED,
-                    EventReason.MALFORMED_RESPONSE,
-                    error_message="ClinGen Allele Registry returned a malformed response with no allele identifier.",
-                    metadata={"submitted_hgvs": hgvs_string},
-                )
 
-            continue
+        for hgvs_string, response in zip(hgvs_list, registered_alleles if aligned else []):
+            allele_ids_for_hgvs = hgvs_to_allele_ids[hgvs_string]
 
-        caid = caid_iri.split("/")[-1]
-        for allele_id in allele_ids_for_hgvs:
-            entry = allele_data[allele_id]
-            prior_caid = entry.existing_caid
-
-            # TODO#780 - CAID is immutable — a different value returned by CAR is a hard invariant
-            # violation.  Do not overwrite; record a failure with full audit context.
-            if prior_caid and prior_caid != caid:
-                logger.error(
-                    msg=(
-                        f"CAR returned a different CAID for allele {allele_id}: "
-                        f"stored={prior_caid!r}, returned={caid!r}. "
-                        "Not overwriting. Investigate immediately."
-                    ),
+            if "errorType" in response:
+                logger.warning(
+                    msg=f"CAR rejected HGVS '{hgvs_string}' ({response.get('errorType', 'unknown')}): {response.get('message', 'unknown')}",
                     extra=job_manager.logging_context(),
                 )
+                for allele_id in allele_ids_for_hgvs:
+                    failed_allele_ids.add(allele_id)
+                    _annotate_caid(
+                        annotation_manager,
+                        allele_id,
+                        Disposition.FAILED,
+                        EventReason.SERVICE_REJECTED,
+                        error_message="Failed to register allele with ClinGen Allele Registry.",
+                        metadata={
+                            "submitted_hgvs": hgvs_string,
+                            "car_error_type": response.get("errorType"),
+                            "car_error_message": response.get("message"),
+                        },
+                    )
 
-                failed_allele_ids.add(allele_id)
-                _annotate_caid(
-                    annotation_manager,
-                    allele_id,
-                    Disposition.FAILED,
-                    EventReason.CAID_CONFLICT,
-                    error_message="CAR returned a CAID that conflicts with the stored value.",
-                    metadata={
-                        "clingen_allele_id": prior_caid,
-                        "conflicting_caid": caid,
-                        "submitted_hgvs": hgvs_string,
-                    },
+                continue
+
+            # A response that is neither an error nor a registration (no "@id") is malformed.
+            caid_iri = response.get("@id")
+            if not caid_iri:
+                logger.error(
+                    msg=f"CAR returned a response for HGVS '{hgvs_string}' with neither an error nor an allele identifier.",
+                    extra=job_manager.logging_context(),
                 )
+                for allele_id in allele_ids_for_hgvs:
+                    failed_allele_ids.add(allele_id)
+                    _annotate_caid(
+                        annotation_manager,
+                        allele_id,
+                        Disposition.FAILED,
+                        EventReason.MALFORMED_RESPONSE,
+                        error_message="ClinGen Allele Registry returned a malformed response with no allele identifier.",
+                        metadata={"submitted_hgvs": hgvs_string},
+                    )
 
-            # CAID is new or matches the stored value — link it to the allele and record success.
-            else:
-                linked_allele_ids.add(allele_id)
-                allele = alleles_by_id[allele_id]
-                allele.clingen_allele_id = caid
+                continue
 
-                reason = EventReason.RECONFIRMED if prior_caid else EventReason.CREATED
-                if prior_caid:
-                    logger.info(
-                        msg=f"Force re-registration confirmed same CAID {caid!r} for allele {allele_id}.",
+            caid = caid_iri.split("/")[-1]
+            for allele_id in allele_ids_for_hgvs:
+                entry = allele_data[allele_id]
+                prior_caid = entry.existing_caid
+
+                # TODO#780 - CAID is immutable — a different value returned by CAR is a hard invariant
+                # violation.  Do not overwrite; record a failure with full audit context.
+                if prior_caid and prior_caid != caid:
+                    logger.error(
+                        msg=(
+                            f"CAR returned a different CAID for allele {allele_id}: "
+                            f"stored={prior_caid!r}, returned={caid!r}. "
+                            "Not overwriting. Investigate immediately."
+                        ),
                         extra=job_manager.logging_context(),
                     )
 
+                    failed_allele_ids.add(allele_id)
+                    _annotate_caid(
+                        annotation_manager,
+                        allele_id,
+                        Disposition.FAILED,
+                        EventReason.CAID_CONFLICT,
+                        error_message="CAR returned a CAID that conflicts with the stored value.",
+                        metadata={
+                            "clingen_allele_id": prior_caid,
+                            "conflicting_caid": caid,
+                            "submitted_hgvs": hgvs_string,
+                        },
+                    )
+
+                # CAID is new or matches the stored value — link it to the allele and record success.
+                else:
+                    linked_allele_ids.add(allele_id)
+                    allele = alleles_by_id[allele_id]
+                    allele.clingen_allele_id = caid
+
+                    reason = EventReason.RECONFIRMED if prior_caid else EventReason.CREATED
+                    if prior_caid:
+                        logger.info(
+                            msg=f"Force re-registration confirmed same CAID {caid!r} for allele {allele_id}.",
+                            extra=job_manager.logging_context(),
+                        )
+
+                    _annotate_caid(
+                        annotation_manager,
+                        allele_id,
+                        Disposition.PRESENT,
+                        reason,
+                        metadata={"clingen_allele_id": caid},
+                    )
+
+        # Submitted HGVS with no trustworthy response: the truncated tail when the counts line up
+        # (network drop, service-side omission), or the entire batch when the response count
+        # violated CAR's one-result-per-input contract and we rejected it above.
+        unattributed_hgvs = hgvs_list if not aligned else hgvs_list[len(registered_alleles) :]
+        for hgvs_string in unattributed_hgvs:
+            for allele_id in hgvs_to_allele_ids[hgvs_string]:
+                failed_allele_ids.add(allele_id)
                 _annotate_caid(
                     annotation_manager,
                     allele_id,
-                    Disposition.PRESENT,
-                    reason,
-                    metadata={"clingen_allele_id": caid},
+                    Disposition.FAILED,
+                    EventReason.API_ERROR,
+                    error_message="Failed to register allele with ClinGen Allele Registry.",
+                    metadata={"submitted_hgvs": hgvs_string},
                 )
-
-    # Submitted HGVS with no trustworthy response: the truncated tail when the counts line up
-    # (network drop, service-side omission), or the entire batch when the response count
-    # violated CAR's one-result-per-input contract and we rejected it above.
-    unattributed_hgvs = hgvs_list if not aligned else hgvs_list[len(registered_alleles) :]
-    for hgvs_string in unattributed_hgvs:
-        for allele_id in hgvs_to_allele_ids[hgvs_string]:
-            failed_allele_ids.add(allele_id)
-            _annotate_caid(
-                annotation_manager,
-                allele_id,
-                Disposition.FAILED,
-                EventReason.API_ERROR,
-                error_message="Failed to register allele with ClinGen Allele Registry.",
-                metadata={"submitted_hgvs": hgvs_string},
-            )
 
     annotation_manager.flush()
 
@@ -477,12 +498,14 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
     correlation_id = job.job_params["correlation_id"]  # type: ignore
 
     # Setup initial context and progress
-    job_manager.save_to_context({
-        "application": "mavedb-worker",
-        "function": "submit_score_set_mappings_to_ldh",
-        "resource": score_set.urn,
-        "correlation_id": correlation_id,
-    })
+    job_manager.save_to_context(
+        {
+            "application": "mavedb-worker",
+            "function": "submit_score_set_mappings_to_ldh",
+            "resource": score_set.urn,
+            "correlation_id": correlation_id,
+        }
+    )
     job_manager.update_progress(0, 100, "Starting LDH mapped resource submission.")
     logger.info(msg="Started LDH mapped resource submission", extra=job_manager.logging_context())
 
@@ -496,8 +519,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
     # MaveDB score to its canonical mapped variant, not to every equivalent allele (unlike CAR,
     # which registers a CAID per allele).
     variant_objects: Sequence[tuple[Variant, MappingRecord, AlleleModel]] = (
-        job_manager.db
-        .execute(
+        job_manager.db.execute(
             select(Variant, MappingRecord, AlleleModel)
             .join(MappingRecord, MappingRecord.variant_id == Variant.id)
             .join(MappingRecordAllele, MappingRecordAllele.mapping_record_id == MappingRecord.id)
@@ -560,10 +582,12 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
     loop = asyncio.get_running_loop()
     submission_successes, submission_failures = await loop.run_in_executor(ctx["pool"], blocking)
     job_manager.update_progress(90, 100, "Finalizing LDH mapped resource submission.")
-    job_manager.save_to_context({
-        "ldh_submission_successes": len(submission_successes),
-        "ldh_submission_failures": len(submission_failures),
-    })
+    job_manager.save_to_context(
+        {
+            "ldh_submission_successes": len(submission_successes),
+            "ldh_submission_failures": len(submission_failures),
+        }
+    )
 
     # See https://reg.clinicalgenome.org/doc/AlleleRegistry_1.01.xx_api_v1.pdf
     annotation_manager = AnnotationStatusManager(

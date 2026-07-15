@@ -917,6 +917,171 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             assert event.event_metadata["clingen_allele_id"] == "CA_STORED"
             assert event.event_metadata["conflicting_caid"] == "CA_DIFFERENT"
 
+    async def _add_derived_alleles_with_distinct_hgvs(self, session, count):
+        """Attach ``count`` extra alleles to the score set, each carrying a distinct HGVS so the CAR
+        job produces ``count + 1`` distinct submission lines (one per HGVS). Returns every allele."""
+        authoritative_allele = session.scalars(select(Allele)).one()
+        a_link = session.scalars(
+            select(MappingRecordAllele).where(MappingRecordAllele.allele_id == authoritative_allele.id)
+        ).first()
+
+        alleles = [authoritative_allele]
+        for i in range(count):
+            post_mapped = deepcopy(authoritative_allele.post_mapped)
+            post_mapped["expressions"][0]["value"] = f"NC_000001.11:g.{1000 + i}A>T"
+            derived = Allele(
+                vrs_digest=f"{authoritative_allele.vrs_digest}-d{i}",
+                level=authoritative_allele.level,
+                post_mapped=post_mapped,
+            )
+            session.add(derived)
+            session.flush()
+            session.add(
+                MappingRecordAllele(
+                    mapping_record_id=a_link.mapping_record_id,
+                    allele_id=derived.id,
+                    is_authoritative=False,
+                )
+            )
+            alleles.append(derived)
+
+        session.flush()
+        return alleles
+
+    async def test_submit_score_set_mappings_to_car_batches_submissions(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        """A large allele set is dispatched in fixed-size chunks rather than one PUT: 4 distinct HGVS
+        with a batch size of 2 yields two dispatch calls, and every allele is still registered."""
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+        alleles = await self._add_derived_alleles_with_distinct_hgvs(session, count=3)
+
+        dispatched_batches = []
+
+        def fake_dispatch(hgvs_list):
+            dispatched_batches.append(list(hgvs_list))
+            return [{"@id": f"CA/{hgvs}", "type": "nucleotide", "genomicAlleles": []} for hgvs in hgvs_list]
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                side_effect=fake_dispatch,
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.DEFAULT_CAR_SUBMISSION_BATCH_SIZE", 2),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+
+        # 4 distinct HGVS at batch size 2 → two dispatch calls, neither exceeding the batch size, and
+        # together covering every submitted line exactly once.
+        assert len(dispatched_batches) == 2
+        assert all(len(batch) <= 2 for batch in dispatched_batches)
+        assert sum(len(batch) for batch in dispatched_batches) == 4
+
+        # Every allele across both batches is registered.
+        for allele in alleles:
+            session.refresh(allele)
+            assert allele.clingen_allele_id is not None
+
+        events = session.scalars(
+            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(events) == 4
+        assert all(event.disposition == "present" for event in events)
+
+    async def test_submit_score_set_mappings_to_car_batch_failure_isolated(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        """A failed batch fails only its own alleles: the first chunk returns nothing (request failure)
+        while the second registers normally. Per-batch reconciliation keeps the two independent."""
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+        await self._add_derived_alleles_with_distinct_hgvs(session, count=3)
+
+        call_count = {"n": 0}
+
+        def fake_dispatch(hgvs_list):
+            call_count["n"] += 1
+            # First batch mimics a request failure (dispatch_submissions returns [] on error); the rest
+            # register normally.
+            if call_count["n"] == 1:
+                return []
+            return [{"@id": f"CA/{hgvs}", "type": "nucleotide", "genomicAlleles": []} for hgvs in hgvs_list]
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                side_effect=fake_dispatch,
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.DEFAULT_CAR_SUBMISSION_BATCH_SIZE", 2),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
+            )
+
+        # The good batch links alleles, so the job overall succeeds despite the failed batch.
+        assert result.status == JobStatus.SUCCEEDED
+        assert call_count["n"] == 2
+
+        # Exactly the second batch's two alleles are registered; the first batch's two are not.
+        registered = session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()
+        assert len(registered) == 2
+
+        events = session.scalars(
+            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+        ).all()
+        assert len(events) == 4
+        assert sum(event.disposition == "present" for event in events) == 2
+        failed = [event for event in events if event.disposition == "failed"]
+        assert len(failed) == 2
+        assert all(event.reason == "api_error" for event in failed)
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio
