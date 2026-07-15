@@ -24,8 +24,10 @@ class ScoreSetAlleleRow(NamedTuple):
     per allele.
 
     ``hgvs_g``/``hgvs_c``/``hgvs_p`` are allele-level (stable by construction), carried here so the
-    VEP job can build its HGVS payload without a second query. They are optional with a ``None``
-    default so payloads keying only on the CAID (gnomAD/ClinVar) need not name them.
+    VEP job can build its HGVS payload without a second query. ``level`` is the allele's sequence
+    level (``protein``/``cdna``/``genomic``), carried so jobs annotating just nucleotide alleles can
+    skip protein alleles without a second query. All are optional with a ``None`` default so payloads keying
+    only on the CAID need not name them; real DB rows always populate them.
     """
 
     allele_id: int
@@ -35,6 +37,7 @@ class ScoreSetAlleleRow(NamedTuple):
     hgvs_g: str | None = None
     hgvs_c: str | None = None
     hgvs_p: str | None = None
+    level: str | None = None
 
 
 def get_alleles_for_score_set(db: Session, score_set_id: int) -> list[ScoreSetAlleleRow]:
@@ -56,6 +59,7 @@ def get_alleles_for_score_set(db: Session, score_set_id: int) -> list[ScoreSetAl
             Allele.hgvs_g,
             Allele.hgvs_c,
             Allele.hgvs_p,
+            Allele.level,
         )
         .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
         .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
@@ -67,7 +71,7 @@ def get_alleles_for_score_set(db: Session, score_set_id: int) -> list[ScoreSetAl
     ).all()
 
     return [
-        ScoreSetAlleleRow(r.id, r.post_mapped, r.clingen_allele_id, r.variant_id, r.hgvs_g, r.hgvs_c, r.hgvs_p)
+        ScoreSetAlleleRow(r.id, r.post_mapped, r.clingen_allele_id, r.variant_id, r.hgvs_g, r.hgvs_c, r.hgvs_p, r.level)
         for r in rows
     ]
 

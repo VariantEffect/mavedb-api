@@ -30,6 +30,9 @@ class EventReason(str, Enum):
     NO_CAID = "no_caid"  # no ClinGen allele id to key on (gnomAD, ClinVar)
     NO_HGVS = "no_hgvs"  # no HGVS to submit/resolve (CAR, VEP)
     MULTI_VARIANT_CAID = "multi_variant_caid"  # cis-block CAID cannot be used (ClinVar)
+    PROTEIN_LEVEL_ALLELE = (
+        "protein_level_allele"  # protein allele excluded from nucleotide-level annotation (ClinVar, gnomAD)
+    )
     NO_ASSAY_LEVEL_HGVS = "no_assay_level_hgvs"  # no assay-level HGVS to translate (RT)
 
     # failed — errored

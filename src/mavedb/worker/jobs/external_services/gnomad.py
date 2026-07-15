@@ -24,6 +24,7 @@ from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.score_set import ScoreSet
@@ -111,13 +112,12 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
     job_manager.update_progress(0, 100, "Starting gnomAD mapped resource linkage.")
     logger.info(msg="Started gnomAD mapped resource linkage", extra=job_manager.logging_context())
 
-    # One work-unit per allele (payload = CAID; alleles without one are skipped). Covers ALL the score
-    # set's alleles — authoritative and RT-derived — since the genomic allele gnomAD knows is often the
-    # RT-derived one. Events are allele-keyed, so every linked allele is recorded.
-    allele_data = group_alleles_for_annotation(
-        get_alleles_for_score_set(job_manager.db, score_set.id),
-        payload=lambda row: row.clingen_allele_id,
-    )
+    # One work-unit per allele (payload = CAID; alleles without one are skipped). Covers the score
+    # set's alleles — authoritative and RT-derived — since the genomic allele gnomAD knows
+    # is often the RT-derived one. Events are allele-keyed, so every linked allele is recorded.
+    allele_rows = get_alleles_for_score_set(job_manager.db, score_set.id)
+    allele_data = group_alleles_for_annotation(allele_rows, payload=lambda row: row.clingen_allele_id)
+    allele_levels = {row.allele_id: row.level for row in allele_rows}
 
     annotation_counts: Counter[str] = Counter(
         {
@@ -159,7 +159,15 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
     # Skip alleles already linked at the current version (they can't change). force re-fetches
     # all; the linker still supersedes only on change, so a forced no-op writes nothing.
     already_current = set() if force else alleles_linked_at_current_version(set(allele_data.keys()))
-    variant_caids = sorted({allele_data[aid] for aid in allele_data if aid not in already_current})
+    # Never query Athena for protein alleles — gnomAD is nucleotide-level, so they can't match. They
+    # are still recorded as not-applicable in the loop below; this only spares them the round-trip.
+    variant_caids = sorted(
+        {
+            allele_data[aid]
+            for aid in allele_data
+            if aid not in already_current and allele_levels.get(aid) != SequenceLevel.protein.value
+        }
+    )
 
     job_manager.save_to_context(
         {
@@ -195,6 +203,19 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
         job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
     )
     for allele_id, caid in allele_data.items():
+        # gnomAD is a nucleotide-level, genomic-coordinate resource. Skip any protein alleles.
+        if allele_levels.get(allele_id) == SequenceLevel.protein.value:
+            annotation_counts["skipped_allele_count"] += 1
+            _annotate_gnomad(
+                annotation_manager,
+                allele_id,
+                Disposition.NOT_APPLICABLE,
+                EventReason.PROTEIN_LEVEL_ALLELE,
+                error_message="Protein-level alleles are not linked to gnomAD; see nucleotide siblings.",
+                metadata={"clingen_allele_id": caid},
+            )
+            continue
+
         verdict = verdicts.get(allele_id)
         if verdict is GnomadLinkVerdict.CREATED:
             annotation_counts["created_allele_count"] += 1

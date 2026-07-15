@@ -11,6 +11,9 @@ from sqlalchemy import select
 from mavedb.lib import gnomad as gnomad_lib
 from mavedb.lib.gnomad import GNOMAD_DATA_VERSION
 from mavedb.lib.types.workflow import JobExecutionOutcome
+from mavedb.models.enums.annotation_type import AnnotationType
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
@@ -71,6 +74,44 @@ class TestLinkGnomadVariantsUnit:
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
+
+    async def test_link_gnomad_variants_protein_level_allele_skipped(
+        self,
+        session,
+        with_populated_domain_data,
+        with_gnomad_linking_job,
+        mock_worker_ctx,
+        sample_link_gnomad_variants_run,
+        setup_sample_alleles_with_caid,
+    ):
+        """A protein-level allele is never linked to gnomAD (a nucleotide-level, genomic-coordinate
+        resource): its frequencies come from its g./c. siblings. Skipped as not-applicable, and it
+        never reaches the Athena query — sparing the round-trip."""
+        _, allele = setup_sample_alleles_with_caid
+        allele.level = "protein"
+        session.commit()
+
+        with patch(
+            "mavedb.worker.jobs.external_services.gnomad.gnomad_variant_data_for_caids",
+        ) as fetch_spy:
+            result = await link_gnomad_variants(
+                mock_worker_ctx,
+                1,
+                JobManager(session, mock_worker_ctx["redis"], sample_link_gnomad_variants_run.id),
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert session.scalars(select(GnomadAlleleLink)).all() == []
+        # The protein allele's CAID was dropped from the query set, so Athena is never queried.
+        fetch_spy.assert_not_called()
+
+        # Allele-keyed not-applicable event: gnomAD is nucleotide-level, so a protein allele is a
+        # structural gap, not a statement about the source.
+        event = session.scalars(select(AnnotationEvent)).one()
+        assert event.annotation_type == AnnotationType.GNOMAD_ALLELE_FREQUENCY
+        assert event.disposition == Disposition.NOT_APPLICABLE
+        assert event.reason == EventReason.PROTEIN_LEVEL_ALLELE
+        assert event.allele_id == allele.id and event.variant_id is None
 
     async def test_link_gnomad_variants_call_linking_method(
         self,

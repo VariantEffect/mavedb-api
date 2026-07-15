@@ -132,6 +132,50 @@ class TestRefreshClinvarControlsUnit:
         assert event.reason == EventReason.MULTI_VARIANT_CAID
         assert event.allele_id == allele.id and event.variant_id is None
 
+    async def test_protein_level_allele_skipped(
+        self,
+        mock_worker_ctx,
+        session,
+        with_refresh_clinvar_controls_job,
+        sample_refresh_clinvar_controls_job_run,
+        setup_sample_alleles_with_caid,
+    ):
+        """A protein-level allele is never linked to ClinVar (a nucleotide-level DB): its clinical
+        calls come from its g./c. siblings. Skipped as not-applicable before any resolution runs."""
+        _, allele = setup_sample_alleles_with_caid
+        allele.level = "protein"
+        session.commit()
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
+                return_value="VCV000000123",
+            ) as resolve_spy,
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
+            ),
+        ):
+            result = await refresh_clinvar_controls(
+                mock_worker_ctx,
+                sample_refresh_clinvar_controls_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert session.scalars(select(ClinvarAlleleLink)).all() == []
+        assert session.scalars(select(ClinvarControl)).all() == []
+        # Short-circuited before touching ClinGen — a protein allele can never resolve to a ClinVar id.
+        resolve_spy.assert_not_awaited()
+
+        # Allele-keyed not-applicable event: ClinVar is nucleotide-level, so a protein allele is a
+        # structural gap (like a multi-variant CAID), not a statement about the source.
+        event = session.scalars(select(AnnotationEvent)).one()
+        assert event.annotation_type == AnnotationType.CLINVAR_CONTROL
+        assert event.disposition == Disposition.NOT_APPLICABLE
+        assert event.reason == EventReason.PROTEIN_LEVEL_ALLELE
+        assert event.allele_id == allele.id and event.variant_id is None
+
     async def test_no_associated_clinvar_allele_id_skipped(
         self,
         mock_worker_ctx,

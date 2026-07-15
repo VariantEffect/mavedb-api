@@ -30,6 +30,7 @@ from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.job_pipeline import FailureCategory
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.score_set import ScoreSet
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
@@ -120,34 +121,38 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
 
     versions = _generate_clinvar_versions()
 
-    job_manager.save_to_context({
-        "application": "mavedb-worker",
-        "function": "refresh_clinvar_controls",
-        "resource": score_set.urn,
-        "correlation_id": correlation_id,
-        "versions": versions,
-        "total_versions": len(versions),
-        "force": force,
-    })
+    job_manager.save_to_context(
+        {
+            "application": "mavedb-worker",
+            "function": "refresh_clinvar_controls",
+            "resource": score_set.urn,
+            "correlation_id": correlation_id,
+            "versions": versions,
+            "total_versions": len(versions),
+            "force": force,
+        }
+    )
     job_manager.update_progress(0, 100, f"Starting ClinVar refresh across {len(versions)} versions.")
     logger.info(f"Starting ClinVar refresh across {len(versions)} versions", extra=job_manager.logging_context())
 
-    # One work-unit per allele (payload = CAID; alleles without one are dropped). Covers ALL the score
-    # set's alleles — authoritative and RT-derived — since the genomic allele ClinVar keys on is often
-    # the RT-derived one. Events are allele-keyed, so every allele is recorded per release (no fan-out).
-    allele_data = group_alleles_for_annotation(
-        get_alleles_for_score_set(job_manager.db, score_set.id),
-        payload=lambda row: row.clingen_allele_id,
-    )
+    # One work-unit per allele (payload = CAID; alleles without one are dropped). Covers the score
+    # set's alleles — authoritative and RT-derived — since the genomic allele ClinVar keys
+    # on is often the RT-derived one. Events are allele-keyed, so every allele is recorded per release
+    # (no fan-out).
+    allele_rows = get_alleles_for_score_set(job_manager.db, score_set.id)
+    allele_data = group_alleles_for_annotation(allele_rows, payload=lambda row: row.clingen_allele_id)
+    allele_levels = {row.allele_id: row.level for row in allele_rows}
     job_manager.save_to_context({"num_alleles_with_caids": len(allele_data)})
 
     # Link counts accumulate across all versions (an allele may link in every release it appears in).
-    annotation_counts: Counter[str] = Counter({
-        "created_link_count": 0,
-        "preexisting_link_count": 0,
-        "skipped_link_count": 0,
-        "failed_link_count": 0,
-    })
+    annotation_counts: Counter[str] = Counter(
+        {
+            "created_link_count": 0,
+            "preexisting_link_count": 0,
+            "skipped_link_count": 0,
+            "failed_link_count": 0,
+        }
+    )
 
     if not allele_data:
         logger.warning(
@@ -204,6 +209,20 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
             job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
         )
         for allele_id, caid in allele_data.items():
+            # ClinVar is a nucleotide-level database, skip any protein level alleles.
+            if allele_levels.get(allele_id) == SequenceLevel.protein.value:
+                annotation_counts["skipped_link_count"] += 1
+                _annotate_clinvar(
+                    annotation_manager,
+                    allele_id,
+                    Disposition.NOT_APPLICABLE,
+                    EventReason.PROTEIN_LEVEL_ALLELE,
+                    source_version=clinvar_version,
+                    error_message="Protein-level alleles are not linked to ClinVar; see nucleotide siblings.",
+                    metadata={"clingen_allele_id": caid},
+                )
+                continue
+
             if allele_id in already_linked:
                 annotation_counts["preexisting_link_count"] += 1
                 _annotate_clinvar(
