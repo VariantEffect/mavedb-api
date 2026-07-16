@@ -2706,14 +2706,14 @@ test = ["flake8", "nbdime", "nbval", "notebook", "pytest"]
 
 [[package]]
 name = "mavehgvs"
-version = "0.7.0"
+version = "0.8.0"
 description = "Regular expression-based validation of HGVS-style variant strings for Multiplexed Assays of Variant Effect."
 optional = false
 python-versions = ">=3.6"
 groups = ["main"]
 files = [
-    {file = "mavehgvs-0.7.0-py3-none-any.whl", hash = "sha256:a89d2ee16cf18a6a6ecfc2b6f5e280c3c699ddfe106b4389540fb0423f98e922"},
-    {file = "mavehgvs-0.7.0.tar.gz", hash = "sha256:09cc3311b6ccf53a3ce3e474611af9e28b87fa02b8e690343f99a85534f25eae"},
+    {file = "mavehgvs-0.8.0-py3-none-any.whl", hash = "sha256:228f96a93b52192d6dc983f3ddabd3d890b7abaa42690e5e10b6ea280a470f45"},
+    {file = "mavehgvs-0.8.0.tar.gz", hash = "sha256:9b26412de5fbdab6df0a6c9b18686b201a31e179e214896316edc1b7072c927a"},
 ]
 
 [package.dependencies]
@@ -5103,4 +5103,4 @@ server = ["aiocache", "alembic", "alembic-utils", "arq", "authlib", "biocommons"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "64ca4755b1a5c8930882a7ad3b25feee434f42ffb02ba2841f38c86de56cc948"
+content-hash = "270f882db7e5eb3b2ddb642291a0d9234e05e6dd2adeae6ef7a78915f74ef8d5"
