@@ -57,16 +57,20 @@ def _post_mapped() -> dict:
 _DEFAULT_POST_MAPPED = object()
 
 
-def _link(*, level: str, digest: str, is_authoritative: bool, post_mapped=_DEFAULT_POST_MAPPED) -> MappingRecordAllele:
+def _link(
+    *, level: str, digest: str, is_authoritative: bool, post_mapped=_DEFAULT_POST_MAPPED, projection_group=None
+) -> MappingRecordAllele:
     """A transient (record, allele) link with its allele attached — no session needed.
 
     ``digest`` is the ``Allele.vrs_digest`` *column* (the key the builder uses for member relations),
     deliberately distinct from the spec-valid VRS digest embedded in post_mapped. Pass
-    ``post_mapped=None`` to model an un-hydratable allele.
+    ``post_mapped=None`` to model an un-hydratable allele. ``projection_group`` pairs a c↔g projection
+    (the two links of one precise change share a value; the protein apex carries ``None``); the builder
+    uses it in projection mode to keep only the measured change's precise coordinate partner.
     """
     pm = _post_mapped() if post_mapped is _DEFAULT_POST_MAPPED else post_mapped
     allele = Allele(level=level, vrs_digest=digest, post_mapped=pm)
-    return MappingRecordAllele(is_authoritative=is_authoritative, allele=allele)
+    return MappingRecordAllele(is_authoritative=is_authoritative, allele=allele, projection_group=projection_group)
 
 
 @pytest.mark.unit
@@ -101,10 +105,10 @@ def test_mode_2_protein_measured_reverse_translation():
 
 @pytest.mark.unit
 def test_mode_1_coding_measured_projection():
-    """Coding measured: nt sibling is a coordinate representation; protein member is a translation."""
+    """Coding measured: the projection_group partner is a coordinate representation; protein is a translation."""
     links = [
-        _link(level="cdna", digest="cdna", is_authoritative=True),
-        _link(level="genomic", digest="gen", is_authoritative=False),
+        _link(level="cdna", digest="cdna", is_authoritative=True, projection_group=0),
+        _link(level="genomic", digest="gen", is_authoritative=False, projection_group=0),
         _link(level="protein", digest="prot", is_authoritative=False),
     ]
 
@@ -120,6 +124,91 @@ def test_mode_1_coding_measured_projection():
     constraint = transit.categorical_variant.constraints[0].root
     codes = {str(r.primaryCoding.code.root) for r in constraint.relations}
     assert codes == {"coordinate_representation_of", "translation_of"}
+
+
+@pytest.mark.unit
+def test_mode_1_projection_includes_sibling_encoders():
+    """Coding measured, full closure (default include_convergent=True): the reverse-translation fan on the
+    record (other encoders of the same protein consequence, in *different* projection groups) is kept as
+    members wearing the ``co_encodes`` relation, so the object is the full closure. The measured change's
+    own coordinate partner and protein consequence stay coordinate_representation_of / translation_of."""
+    links = [
+        _link(level="cdna", digest="cdna", is_authoritative=True, projection_group=0),
+        _link(level="genomic", digest="gen", is_authoritative=False, projection_group=0),
+        # A sibling encoder of the same protein change — a distinct variant, different projection group.
+        _link(level="cdna", digest="sibling_cdna", is_authoritative=False, projection_group=1),
+        _link(level="genomic", digest="sibling_gen", is_authoritative=False, projection_group=1),
+        _link(level="protein", digest="prot", is_authoritative=False),
+    ]
+
+    transit = build_categorical_variant(links, name="urn:mavedb:test#2b")
+    assert transit is not None
+
+    # The coordinate partner + protein consequence keep their faithful relations; the two cousins ride as
+    # co_encodes (distinct, unmeasured synonymous variants).
+    assert transit.member_relations == {
+        "gen": CatVrsRelation.COORDINATE_REPRESENTATION_OF,
+        "prot": CatVrsRelation.TRANSLATION_OF,
+        "sibling_cdna": CatVrsRelation.CO_ENCODES,
+        "sibling_gen": CatVrsRelation.CO_ENCODES,
+    }
+    # members = defining cdna + gen partner + protein apex + the two cousins (full closure).
+    assert len(transit.categorical_variant.members) == 5
+    # The distinct relation kinds surface on the constraint, including co_encodes.
+    constraint = transit.categorical_variant.constraints[0].root
+    codes = {str(r.primaryCoding.code.root) for r in constraint.relations}
+    assert codes == {"coordinate_representation_of", "translation_of", "co_encodes"}
+
+
+@pytest.mark.unit
+def test_mode_1_projection_narrow_object_drops_sibling_encoders():
+    """Coding measured, narrow object (include_convergent=False, the VA subject): the synonymous cousins
+    in other projection groups are dropped — only the measured change's coordinate partner and protein
+    consequence remain. This pins the shape the VA-Spec path builds."""
+    links = [
+        _link(level="cdna", digest="cdna", is_authoritative=True, projection_group=0),
+        _link(level="genomic", digest="gen", is_authoritative=False, projection_group=0),
+        _link(level="cdna", digest="sibling_cdna", is_authoritative=False, projection_group=1),
+        _link(level="genomic", digest="sibling_gen", is_authoritative=False, projection_group=1),
+        _link(level="protein", digest="prot", is_authoritative=False),
+    ]
+
+    transit = build_categorical_variant(links, name="urn:mavedb:test#2b-narrow", include_convergent=False)
+    assert transit is not None
+
+    # Only the measured change's coordinate partner + the protein consequence; the cousins are excluded.
+    assert transit.member_relations == {
+        "gen": CatVrsRelation.COORDINATE_REPRESENTATION_OF,
+        "prot": CatVrsRelation.TRANSLATION_OF,
+    }
+    # members = defining cdna + gen partner + protein apex (the two cousins are dropped).
+    assert len(transit.categorical_variant.members) == 3
+
+
+@pytest.mark.unit
+def test_mode_2_reverse_translation_keeps_the_full_encoder_class():
+    """Protein measured: every nt encoder stays, across projection groups — the full equivalence class
+    is what the protein claim ranges over (no sibling filtering in reverse-translation mode)."""
+    links = [
+        _link(level="protein", digest="prot", is_authoritative=True),
+        _link(level="cdna", digest="cdna_a", is_authoritative=False, projection_group=0),
+        _link(level="genomic", digest="gen_a", is_authoritative=False, projection_group=0),
+        _link(level="cdna", digest="cdna_b", is_authoritative=False, projection_group=1),
+        _link(level="genomic", digest="gen_b", is_authoritative=False, projection_group=1),
+    ]
+
+    transit = build_categorical_variant(links, name="urn:mavedb:test#2c")
+    assert transit is not None
+
+    assert transit.mode == CatVrsMode.REVERSE_TRANSLATION
+    # All four nt encoders `encodes` the defining protein; none dropped.
+    assert transit.member_relations == {
+        "cdna_a": CatVrsRelation.ENCODES,
+        "gen_a": CatVrsRelation.ENCODES,
+        "cdna_b": CatVrsRelation.ENCODES,
+        "gen_b": CatVrsRelation.ENCODES,
+    }
+    assert len(transit.categorical_variant.members) == 5
 
 
 @pytest.mark.unit

@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from mavedb.lib.allele_annotations import AlleleAnnotations, get_allele_annotations
 from mavedb.lib.alleles import get_live_record_allele_links
-from mavedb.lib.cat_vrs import categorical_variant_for_variant
+from mavedb.lib.cat_vrs import categorical_variant_for_variant, is_convergent_cousin
 from mavedb.lib.score_calibrations import calibration_preference_key
 from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.mapping_record import MappingRecord
@@ -65,12 +65,18 @@ class AlleleDerivation(str, Enum):
 
     # The assay's actual measurement (the authoritative link). Precise by definition.
     AUTHORITATIVE = "authoritative"
-    # Deterministic and precise. Every allele derived from a *nucleotide* measurement is a projection:
-    # nucleotide↔nucleotide and nucleotide→protein are both deterministic given (assembly, transcript).
+    # Deterministic and precise. Derived from the measured change itself: nucleotide↔nucleotide (its
+    # coordinate partner) and nucleotide→protein (its consequence) are both deterministic given
+    # (assembly, transcript).
     PROJECTION = "projection"
     # Reverse-translation output of a *protein* measurement — genuinely ambiguous (many synonymous
     # codons). One member of the fanned-out equivalence class, not a precise coordinate.
     CANDIDATE = "candidate"
+    # A distinct, precisely-known nucleotide change that *converges* on the measured protein consequence
+    # from a different codon (a synonymous cousin under a nucleotide assay). Not ambiguous like a
+    # candidate, and not a projection *of* the measured change — a separate, unmeasured variant that
+    # merely shares the consequence. Pairs with the ``co_encodes`` Cat-VRS relation.
+    CONVERGENT = "convergent"
 
 
 @dataclass(frozen=True)
@@ -87,10 +93,11 @@ class AlleleIdentity:
       (``is_protein_of`` / ``coordinate_representation_of`` / …). ``None`` when it *is* the measured
       allele, or when the allele is not a Cat-VRS member. Sourced from
       ``cat_vrs.CategoricalVariantTransit.member_relations``.
-    - ``derivation`` (provenance): :class:`AlleleDerivation` — authoritative / projection /
-      candidate. Orthogonal to ``relation``; never conflate the two (a protein member of a nucleotide
-      assay has ``relation=translation_of`` but ``derivation=projection``, whereas the same-shaped
-      member of a protein assay is ``derivation=candidate``).
+    - ``derivation`` (provenance): :class:`AlleleDerivation` — authoritative / projection / candidate /
+      convergent. Orthogonal to ``relation``; never conflate the two (a protein member of a nucleotide
+      assay has ``relation=translation_of`` but ``derivation=projection``; a synonymous cousin has
+      ``relation=co_encodes`` and ``derivation=convergent``; the nucleotide fan-out of a protein assay is
+      ``derivation=candidate``).
     - ``projection_of`` (provenance): the VRS digest of this allele's projection sibling — the ≤1 *other*
       member of its ``projection_group`` (a c↔g pair). ``None`` for the protein apex (group ``NULL``),
       for pre-reverse-translation data, and where a level's projection failed.
@@ -170,26 +177,34 @@ def _classifications_for_variant(
     ]
 
 
-def _derivation_for(*, is_authoritative: bool, assay_level: Optional[SequenceLevel]) -> AlleleDerivation:
+def _derivation_for(
+    *, is_authoritative: bool, assay_level: Optional[SequenceLevel], is_cousin: bool
+) -> AlleleDerivation:
     """The provenance of a linked allele's representation, from ``is_authoritative`` + the assay level.
 
-    The measured allele is ``authoritative``. Every *other* allele's confidence is set by the *only*
-    ambiguous boundary in the stack — protein → codon:
+    The measured allele is ``authoritative``. Every *other* allele's provenance turns on the protein →
+    codon boundary, which surfaces three ways:
 
-    - **nucleotide assay** (``assay_level`` genomic/cdna) → ``projection`` for all derived alleles.
-      nucleotide↔nucleotide and nucleotide→protein are deterministic, so the whole equivalence class
-      is precise.
-    - **protein assay** (``assay_level`` protein) → ``candidate`` for the derived (nucleotide) fan-out.
-      Reverse translation is genuinely ambiguous.
+    - **protein assay** (``assay_level`` protein) → ``candidate`` for the whole derived (nucleotide)
+      fan-out: reverse translation is genuinely ambiguous (which codon was measured is unknown).
+    - **nucleotide assay** (``assay_level`` genomic/cdna), synonymous *cousin* (``is_cousin``) → an nt
+      member in a different projection group: a distinct, precisely-known variant that merely
+      *converges* on the measured protein consequence. It is ``convergent`` — not ambiguous (so not a
+      ``candidate``) and not a projection *of* the measured change.
+    - **nucleotide assay**, otherwise → ``projection`` for the precise class derived from the measured
+      change itself (its coordinate partner and its protein consequence, both deterministic).
 
-    Only ``assay_level`` (not the allele's own level) distinguishes the two, because on a nucleotide
-    assay every derived level is deterministic and on a protein assay every derived allele is part of
-    the ambiguous nucleotide fan-out.
+    ``is_cousin`` is :func:`cat_vrs.is_convergent_cousin` for this allele, keeping the ``derivation``
+    (provenance) axis in lockstep with the Cat-VRS ``relation`` axis — ``co_encodes`` ↔ ``convergent``,
+    ``coordinate_representation_of`` / ``translation_of`` ↔ ``projection``, protein-assay ``encodes`` ↔
+    ``candidate``.
     """
     if is_authoritative:
         return AlleleDerivation.AUTHORITATIVE
     if assay_level == SequenceLevel.protein.value:
         return AlleleDerivation.CANDIDATE
+    if is_cousin:
+        return AlleleDerivation.CONVERGENT
     return AlleleDerivation.PROJECTION
 
 
@@ -263,11 +278,13 @@ def get_variant_detail(
         if link.projection_group is not None and link.allele.vrs_digest is not None:
             group_digests.setdefault(link.projection_group, []).append(link.allele.vrs_digest)
 
+    # The measured change's projection group anchors the cousin test: an nt member in a *different* group
+    # is a synonymous cousin (co_encodes / convergent), not the measured change's coordinate partner.
+    defining_group = authoritative.projection_group if authoritative is not None else None
+
     alleles: dict[str, AlleleIdentity] = {}
     for link in links:
         allele = link.allele
-        if allele.vrs_digest is None:
-            continue
 
         # The projection sibling: the other digest in this link's projection_group, if any. A group has
         # ≤2 members, so there is at most one sibling — this allele's projection partner.
@@ -279,12 +296,15 @@ def get_variant_detail(
             )
 
         relation = relations.get(allele.vrs_digest)
+        is_cousin = is_convergent_cousin(allele.level, link.projection_group, defining_group=defining_group)
         alleles[allele.vrs_digest] = AlleleIdentity(
             level=allele.level,
             hgvs=allele.hgvs_g or allele.hgvs_c or allele.hgvs_p,
             clingen_allele_id=allele.clingen_allele_id,
             relation=relation.value if relation is not None else None,
-            derivation=_derivation_for(is_authoritative=link.is_authoritative, assay_level=assay_level).value,
+            derivation=_derivation_for(
+                is_authoritative=link.is_authoritative, assay_level=assay_level, is_cousin=is_cousin
+            ).value,
             projection_of=projection_of,
         )
 

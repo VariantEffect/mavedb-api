@@ -28,29 +28,32 @@ from ga4gh.vrs.models import CisPhasedBlock
 from sqlalchemy.orm import Session
 
 from mavedb.lib.alleles import get_live_record_allele_links
-from mavedb.lib.annotation.util import vrs_object_from_mapped_variant
 from mavedb.lib.logging.context import logging_context
+from mavedb.lib.vrs import vrs_object_from_mapped_variant
 from mavedb.models.allele import Allele
 from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 
 logger = logging.getLogger(__name__)
 
-# MaveDB-namespaced relation codes, read as `member -> defining` (the star model, design D54). No
-# off-the-shelf vocabulary fits, so these are namespaced now and raised with the GA4GH Cat-VRS group
-# for standardization; `mappings` to a standard term can be added later without a shape change.
+# MaveDB-namespaced relation codes, read as `member -> defining`. Namespaced for MaveDB now,
+# TODO: Harmonize with GA4GH Cat-VRS group for standardization.
 _RELATION_SYSTEM = "https://mavedb.org/cat-vrs/relations"
 
 
+# TODO: Verify Cat-VRS relation names with GA4GH Cat-VRS group; these are the MaveDB-namespaced codes we raised for standardization.
 class CatVrsRelation(str, Enum):
     """Relation of a member allele to the single defining (measured) allele."""
 
-    # defining is nt; member is the same variant in other nt coordinates (genomic<->coding). Faithful.
-    COORDINATE_REPRESENTATION_OF = "coordinate_representation_of"
     # defining is protein; member is an nt allele (coding or genomic) that encodes it. Implied.
     ENCODES = "encodes"
+    # defining is nt; member is the same variant in other nt coordinates (genomic<->coding). Faithful.
+    COORDINATE_REPRESENTATION_OF = "coordinate_representation_of"
     # defining is nt; member is the protein consequence. Consequence, no independent score.
     TRANSLATION_OF = "translation_of"
+    # defining is nt; member is a *synonymous cousin* — an nt allele in a different projection group that
+    # encodes the same protein consequence as the measured change.
+    CO_ENCODES = "co_encodes"
 
 
 class CatVrsMode(str, Enum):
@@ -73,23 +76,65 @@ class CategoricalVariantTransit:
     member_relations: dict[str, CatVrsRelation]
 
 
-def _relation_for(defining_level: Optional[str], member_level: Optional[str]) -> Optional[CatVrsRelation]:
+def is_convergent_cousin(
+    member_level: Optional[str], member_group: Optional[int], *, defining_group: Optional[int]
+) -> bool:
+    """Whether a projection-mode member is a *synonymous cousin* of the measured change.
+
+    Concretely:
+    - The defining (measured) allele is nt (genomic or cdna).
+    - The member is nt (genomic or cdna).
+    - The member is in a different projection group than the defining (measured) allele.
+    """
+    return (
+        member_level in _NUCLEOTIDE_LEVELS
+        and member_group is not None
+        and defining_group is not None
+        and member_group != defining_group
+    )
+
+
+def _relation_for(
+    defining_level: Optional[str],
+    member_level: Optional[str],
+    *,
+    defining_group: Optional[int] = None,
+    member_group: Optional[int] = None,
+) -> Optional[CatVrsRelation]:
     """Derive the member -> defining relation from the two levels, or None for the defining itself.
 
-    Star model: every member relates to the single defining allele, so the relation depends only on
-    the (defining, member) level pair, never on a chain between members.
+    Star model: every member relates to the single defining allele, so the relation depends only on the
+    (defining, member) level pair — plus, in projection mode, on whether the nt member shares the measured
+    change's ``projection_group`` (its coordinate partner) or lives in another group (a synonymous cousin).
     """
-    # Mode 2 — protein measured. Every nt member encodes it; the protein member is the defining.
+    # Protein measured. Every nt member encodes it, the protein member is the defining. Grouping is irrelevant.
     if defining_level == SequenceLevel.protein.value:
         return CatVrsRelation.ENCODES if member_level in _NUCLEOTIDE_LEVELS else None
 
-    # Mode 1 — nt measured (genomic or cdna).
+    # Nt measured (genomic or cdna).
     if member_level == SequenceLevel.protein.value:
         return CatVrsRelation.TRANSLATION_OF
     if member_level in _NUCLEOTIDE_LEVELS:
+        if is_convergent_cousin(member_level, member_group, defining_group=defining_group):
+            return CatVrsRelation.CO_ENCODES
         return CatVrsRelation.COORDINATE_REPRESENTATION_OF
 
     return None  # pragma: no cover -- the levels are constrained by the DB and the mapping job
+
+
+def _is_precise_projection_member(
+    member_level: Optional[str], member_group: Optional[int], *, defining_group: Optional[int]
+) -> bool:
+    """In projection mode, whether a member is a *precise* representation of the measured change.
+
+    True for the protein consequence (the apex, shared by the whole equivalence class) and the measured
+    change's own coordinate partner — the other member of its ``projection_group`` (a c↔g pair). False for
+    the synonymous cousins in other projection groups.
+    """
+    if member_level == SequenceLevel.protein.value:
+        return True
+
+    return not is_convergent_cousin(member_level, member_group, defining_group=defining_group)
 
 
 def _relation_concept(relation: CatVrsRelation) -> MappableConcept:
@@ -115,12 +160,30 @@ def _hydrate_vrs(allele: Allele) -> Optional[VrsAllele | CisPhasedBlock]:
     return variation
 
 
-def build_categorical_variant(links: list[MappingRecordAllele], *, name: str) -> Optional[CategoricalVariantTransit]:
+def build_categorical_variant(
+    links: list[MappingRecordAllele], *, name: str, include_convergent: bool = True
+) -> Optional[CategoricalVariantTransit]:
     """Assemble a Cat-VRS ``CategoricalVariant`` from a variant's live allele links.
 
     ``links`` is the record-scoped live link set from ``get_live_record_allele_links`` — exactly one
     is authoritative (the measured/defining allele), the rest are derived members. Returns ``None``
     when there is no authoritative, hydratable link to anchor on (e.g. an unmapped variant).
+
+    **The categorical variant always anchors on the measured allele**. Member selection therefore differs by mode:
+
+    - **Reverse translation** (protein measured): the defining allele is the protein change and every
+      nt allele in the record ``encodes`` it, so the **full equivalence class** is unfurled — that class
+      is exactly what the protein measurement's claim ranges over. ``include_convergent`` is inert here.
+    - **Projection** (nt measured): the record also carries the reverse-translation fan — the synonymous
+      *cousins* (other nt encoders of the same protein consequence, in different projection groups), which
+      are distinct, unmeasured variants rather than representations of the measured change.
+      ``include_convergent`` selects how they are handled:
+
+      - ``True`` (default; the detail envelope): the cousins are kept as members wearing the
+        :attr:`CatVrsRelation.CO_ENCODES` relation, so the object is the full closure. The measured change's
+        coordinate partner and protein consequence stay ``coordinate_representation_of`` / ``translation_of``.
+      - ``False`` (the VA-Spec subject): the cousins are dropped (see :func:`_is_precise_projection_member`)
+        and only the measured change's precise coordinate partner and protein consequence remain.
     """
     defining_link = next((link for link in links if link.is_authoritative), None)
     if defining_link is None:
@@ -152,6 +215,19 @@ def build_categorical_variant(links: list[MappingRecordAllele], *, name: str) ->
             continue
 
         allele = link.allele
+
+        # Projection mode, narrow object (include_convergent=False): drop any synonymous cousins the
+        # reverse-translation fan left on the record, keeping only the measured change's precise coordinate
+        # partner and its protein consequence.
+        if (
+            mode is CatVrsMode.PROJECTION
+            and not include_convergent
+            and not _is_precise_projection_member(
+                allele.level, link.projection_group, defining_group=defining_link.projection_group
+            )
+        ):
+            continue
+
         member_vrs = _hydrate_vrs(allele)
         # A live link to an allele with no post_mapped is an unexpected data state.
         if member_vrs is None:
@@ -165,7 +241,12 @@ def build_categorical_variant(links: list[MappingRecordAllele], *, name: str) ->
             continue
 
         members.append(member_vrs)
-        relation = _relation_for(defining_level, allele.level)
+        relation = _relation_for(
+            defining_level,
+            allele.level,
+            defining_group=defining_link.projection_group,
+            member_group=link.projection_group,
+        )
         if relation is not None and allele.vrs_digest is not None:
             member_relations[allele.vrs_digest] = relation
             relations_present[relation] = None

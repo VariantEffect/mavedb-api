@@ -150,11 +150,15 @@ def test_full_envelope_for_a_coding_assay(session, setup_lib_db_with_score_set):
     measured = _allele(session, "cdna-digest", level="cdna", clingen_allele_id="CA123", hgvs_c="NM_000546.6:c.1216G>A")
     genomic = _allele(session, "gen-digest", level="genomic", hgvs_g="NC_000017.11:g.7676154C>T")
     protein = _allele(session, "prot-digest", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr")
+    # A synonymous cousin: an nt encoder of the same protein consequence in a *different* projection group
+    # — a distinct, unmeasured variant carried by the reverse-translation fan.
+    cousin = _allele(session, "cousin-digest", level="cdna", hgvs_c="NM_000546.6:c.1218C>T")
     # The measured cdna link and its genomic projection share a projection_group (the RT fold-in); the
-    # protein apex is in no pair (group None).
+    # protein apex is in no pair (group None); the cousin is in its own group.
     _link(session, record, measured, is_authoritative=True, projection_group=0)
     _link(session, record, genomic, projection_group=0)
     _link(session, record, protein)
+    _link(session, record, cousin, projection_group=1)
     _vep(session, measured, "missense_variant")
 
     detail = get_variant_detail(session, variant)
@@ -169,10 +173,13 @@ def test_full_envelope_for_a_coding_assay(session, setup_lib_db_with_score_set):
     assert detail.mode == "projection"
     assert detail.molecular_representation is not None
     assert detail.molecular_representation["type"] == "CategoricalVariant"
+    # State A: the full-closure Cat-VRS member set agrees with the sidecar — every linked allele is a
+    # member, and vice versa (the cousin included).
+    assert len(detail.molecular_representation["members"]) == len(detail.alleles)
     # The alleles sidecar carries one identity per linked allele, keyed by digest: level +
     # reference-frame HGVS (coalesced from hgvs_g/c/p) + ClinGen id + member->defining relation +
     # derivation + projection_of.
-    assert set(detail.alleles) == {"cdna-digest", "gen-digest", "prot-digest"}
+    assert set(detail.alleles) == {"cdna-digest", "gen-digest", "prot-digest", "cousin-digest"}
     measured_identity = detail.alleles["cdna-digest"]
     assert measured_identity.level == "cdna"
     assert measured_identity.hgvs == "NM_000546.6:c.1216G>A"  # coalesced from hgvs_c
@@ -195,8 +202,17 @@ def test_full_envelope_for_a_coding_assay(session, setup_lib_db_with_score_set):
     # projection sibling (the apex is in no c/g pair).
     assert protein_identity.derivation == "projection"
     assert protein_identity.projection_of is None
+    # The synonymous cousin (different projection group) is a member wearing co_encodes (structural), and
+    # labelled `convergent` (provenance) — a distinct, precise change that converges on the measured
+    # consequence, not an ambiguous candidate and not a projection of the measured change. It pairs with
+    # nothing (its group has a single member).
+    cousin_identity = detail.alleles["cousin-digest"]
+    assert cousin_identity.level == "cdna"
+    assert cousin_identity.relation == "co_encodes"
+    assert cousin_identity.derivation == "convergent"
+    assert cousin_identity.projection_of is None
     # Annotations keyed by digest, covering all linked alleles; VEP rode in on the measured allele.
-    assert set(detail.annotations) == {"cdna-digest", "gen-digest", "prot-digest"}
+    assert set(detail.annotations) == {"cdna-digest", "gen-digest", "prot-digest", "cousin-digest"}
     assert detail.annotations["cdna-digest"].vep is not None
     assert detail.annotations["cdna-digest"].vep.consequence == "missense_variant"
     assert detail.is_current is True

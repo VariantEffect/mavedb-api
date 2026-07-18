@@ -40,8 +40,9 @@ class AlleleIdentity(BaseModel):
     - ``relation`` (Cat-VRS, structural): member→defining relation; ``null`` when it *is* the measured
       allele, or when the allele is not a Cat-VRS member.
     - ``derivation`` (provenance): ``authoritative`` (measured) / ``projection`` (deterministic,
-      precise) / ``candidate`` (reverse-translation, ambiguous). Orthogonal to ``relation`` — never
-      conflate them.
+      precise, derived from the measured change) / ``candidate`` (protein-assay reverse-translation,
+      ambiguous) / ``convergent`` (a distinct, precise nucleotide change that converges on the measured
+      protein consequence). Orthogonal to ``relation``. Do not conflate them.
     - ``projectionOf`` (provenance): the VRS digest of this allele's projection sibling (the paired c↔g member of
       its projection pair group); ``null`` for the protein apex and pre-reverse-translation data.
     """
