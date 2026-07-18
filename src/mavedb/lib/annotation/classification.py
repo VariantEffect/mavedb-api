@@ -6,7 +6,7 @@ from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
 
 from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassificationOptions
-from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.variant import Variant
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 
@@ -22,22 +22,22 @@ class ExperimentalVariantFunctionalImpactClassification(StrEnum):
 
 
 def functional_classification_of_variant(
-    mapped_variant: MappedVariant, score_calibration: ScoreCalibration
+    variant: Variant, score_calibration: ScoreCalibration
 ) -> tuple[Optional[ScoreCalibrationFunctionalClassification], ExperimentalVariantFunctionalImpactClassification]:
     """Classify a variant's functional impact as normal, abnormal, or indeterminate.
 
     Uses the primary score calibration and its functional ranges.
     Raises ValueError if required calibration or score is missing.
     """
-    if not mapped_variant.variant.score_set.score_calibrations:
+    if not variant.score_set.score_calibrations:
         raise ValueError(
-            f"Variant {mapped_variant.variant.urn} does not have a score set with score calibrations."
+            f"Variant {variant.urn} does not have a score set with score calibrations."
             " Unable to classify functional impact."
         )
 
     if not score_calibration.functional_classifications:
         raise ValueError(
-            f"Variant {mapped_variant.variant.urn} does not have ranges defined in its primary score calibration."
+            f"Variant {variant.urn} does not have ranges defined in its primary score calibration."
             " Unable to classify functional impact."
         )
 
@@ -45,7 +45,7 @@ def functional_classification_of_variant(
     #           DB-agnostic function. Resolve class-based matches in an upstream DB-aware layer using the association table,
     #           pass matched functional classification IDs into this function, and use O(1) ID membership checks here.
     for functional_range in score_calibration.functional_classifications:
-        if mapped_variant.variant in functional_range.variants:
+        if variant in functional_range.variants:
             if functional_range.functional_classification is FunctionalClassificationOptions.normal:
                 return functional_range, ExperimentalVariantFunctionalImpactClassification.NORMAL
             elif functional_range.functional_classification is FunctionalClassificationOptions.abnormal:
@@ -56,7 +56,7 @@ def functional_classification_of_variant(
 
 
 def pathogenicity_classification_of_variant(
-    mapped_variant: MappedVariant,
+    variant: Variant,
     score_calibration: ScoreCalibration,
 ) -> tuple[
     Optional[ScoreCalibrationFunctionalClassification],
@@ -75,15 +75,15 @@ def pathogenicity_classification_of_variant(
 
     Raises ValueError if required calibration, score, or evidence strength is missing.
     """
-    if not mapped_variant.variant.score_set.score_calibrations:
+    if not variant.score_set.score_calibrations:
         raise ValueError(
-            f"Variant {mapped_variant.variant.urn} does not have a score set with score calibrations."
+            f"Variant {variant.urn} does not have a score set with score calibrations."
             " Unable to classify clinical impact."
         )
 
     if not score_calibration.functional_classifications:
         raise ValueError(
-            f"Variant {mapped_variant.variant.urn} does not have ranges defined in its primary score calibration."
+            f"Variant {variant.urn} does not have ranges defined in its primary score calibration."
             " Unable to classify clinical impact."
         )
 
@@ -91,7 +91,7 @@ def pathogenicity_classification_of_variant(
     #           DB-agnostic function. Resolve class-based matches in an upstream DB-aware layer using the association table,
     #           pass matched functional classification IDs into this function, and use O(1) ID membership checks here.
     for pathogenicity_range in score_calibration.functional_classifications:
-        if mapped_variant.variant in pathogenicity_range.variants:
+        if variant in pathogenicity_range.variants:
             if pathogenicity_range.acmg_classification is None:
                 return (pathogenicity_range, VariantPathogenicityEvidenceLine.Criterion.PS3, None)
 
@@ -130,7 +130,7 @@ def pathogenicity_classification_of_variant(
                 not in VariantPathogenicityEvidenceLine.Criterion._member_names_
             ):  # pragma: no cover - enforced by model validators in FunctionalClassification view model
                 raise ValueError(
-                    f"Variant {mapped_variant.variant.urn} is contained in a clinical calibration range with an invalid criterion."
+                    f"Variant {variant.urn} is contained in a clinical calibration range with an invalid criterion."
                     " Unable to classify clinical impact."
                 )
 

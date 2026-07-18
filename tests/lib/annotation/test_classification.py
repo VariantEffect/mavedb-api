@@ -63,7 +63,7 @@ class TestFunctionalClassificationOfVariantUnit:
         functional_range = create_mock_functional_classification(FunctionalClassificationOptions.normal)
         score_calibration = create_mock_score_calibration(functional_classifications=[functional_range])
 
-        result = functional_classification_of_variant(mapped_variant, score_calibration)
+        result = functional_classification_of_variant(mapped_variant.variant, score_calibration)
 
         assert result[0] == functional_range
         assert result[1] == ExperimentalVariantFunctionalImpactClassification.NORMAL
@@ -76,7 +76,7 @@ class TestFunctionalClassificationOfVariantUnit:
         functional_range = create_mock_functional_classification(FunctionalClassificationOptions.abnormal)
         score_calibration = create_mock_score_calibration(functional_classifications=[functional_range])
 
-        result = functional_classification_of_variant(mapped_variant, score_calibration)
+        result = functional_classification_of_variant(mapped_variant.variant, score_calibration)
 
         assert result[0] == functional_range
         assert result[1] == ExperimentalVariantFunctionalImpactClassification.ABNORMAL
@@ -89,7 +89,7 @@ class TestFunctionalClassificationOfVariantUnit:
         functional_range = create_mock_functional_classification(FunctionalClassificationOptions.not_specified)
         score_calibration = create_mock_score_calibration(functional_classifications=[functional_range])
 
-        result = functional_classification_of_variant(mapped_variant, score_calibration)
+        result = functional_classification_of_variant(mapped_variant.variant, score_calibration)
 
         assert result[0] == functional_range
         assert result[1] == ExperimentalVariantFunctionalImpactClassification.INDETERMINATE
@@ -104,7 +104,7 @@ class TestFunctionalClassificationOfVariantUnit:
         )
         score_calibration = create_mock_score_calibration(functional_classifications=[functional_range])
 
-        result = functional_classification_of_variant(mapped_variant, score_calibration)
+        result = functional_classification_of_variant(mapped_variant.variant, score_calibration)
 
         assert result[0] is None
         assert result[1] == ExperimentalVariantFunctionalImpactClassification.INDETERMINATE
@@ -122,7 +122,7 @@ class TestFunctionalClassificationOfVariantUnit:
         second_range = create_mock_functional_classification(FunctionalClassificationOptions.abnormal)
         score_calibration = create_mock_score_calibration(functional_classifications=[first_range, second_range])
 
-        result = functional_classification_of_variant(mapped_variant, score_calibration)
+        result = functional_classification_of_variant(mapped_variant.variant, score_calibration)
 
         assert result[0] == first_range
         assert result[1] == ExperimentalVariantFunctionalImpactClassification.NORMAL
@@ -134,7 +134,7 @@ class TestFunctionalClassificationOfVariantUnit:
         score_calibration = create_mock_score_calibration()
 
         with pytest.raises(ValueError, match="does not have a score set with score calibrations"):
-            functional_classification_of_variant(mapped_variant, score_calibration)
+            functional_classification_of_variant(mapped_variant.variant, score_calibration)
 
     def test_empty_score_calibrations_raises_error(self):
         """Test that empty score calibrations list raises ValueError."""
@@ -143,7 +143,7 @@ class TestFunctionalClassificationOfVariantUnit:
         score_calibration = create_mock_score_calibration()
 
         with pytest.raises(ValueError, match="does not have a score set with score calibrations"):
-            functional_classification_of_variant(mapped_variant, score_calibration)
+            functional_classification_of_variant(mapped_variant.variant, score_calibration)
 
     def test_missing_functional_classifications_raises_error(self):
         """Test that missing functional classifications raises ValueError."""
@@ -152,7 +152,7 @@ class TestFunctionalClassificationOfVariantUnit:
         score_calibration = create_mock_score_calibration(functional_classifications=[])
 
         with pytest.raises(ValueError, match="does not have ranges defined in its primary score calibration"):
-            functional_classification_of_variant(mapped_variant, score_calibration)
+            functional_classification_of_variant(mapped_variant.variant, score_calibration)
 
 
 @pytest.mark.unit
@@ -168,7 +168,7 @@ class TestPathogenicityClassificationOfVariantUnit:
         pathogenicity_range = create_mock_pathogenicity_range(acmg_classification)
         score_calibration = create_mock_score_calibration(functional_classifications=[pathogenicity_range])
 
-        result = pathogenicity_classification_of_variant(mapped_variant, score_calibration)
+        result = pathogenicity_classification_of_variant(mapped_variant.variant, score_calibration)
 
         assert result[0] == pathogenicity_range
         assert result[1] == VariantPathogenicityEvidenceLine.Criterion.PS3
@@ -186,7 +186,7 @@ class TestPathogenicityClassificationOfVariantUnit:
         pathogenicity_range = create_mock_pathogenicity_range(acmg_classification)
         score_calibration = create_mock_score_calibration(functional_classifications=[pathogenicity_range])
 
-        result = pathogenicity_classification_of_variant(mapped_variant, score_calibration)
+        result = pathogenicity_classification_of_variant(mapped_variant.variant, score_calibration)
 
         # Verify the mapped evidence strength is MODERATE, not MODERATE_PLUS
         assert result[0] == pathogenicity_range
@@ -201,7 +201,7 @@ class TestPathogenicityClassificationOfVariantUnit:
         pathogenicity_range = create_mock_pathogenicity_range(acmg_classification=None)
         score_calibration = create_mock_score_calibration(functional_classifications=[pathogenicity_range])
 
-        result = pathogenicity_classification_of_variant(mapped_variant, score_calibration)
+        result = pathogenicity_classification_of_variant(mapped_variant.variant, score_calibration)
 
         assert result[0] == pathogenicity_range
         assert result[1] == VariantPathogenicityEvidenceLine.Criterion.PS3
@@ -216,7 +216,7 @@ class TestPathogenicityClassificationOfVariantUnit:
         pathogenicity_range = create_mock_pathogenicity_range(acmg_classification, variant_in_range=False)
         score_calibration = create_mock_score_calibration(functional_classifications=[pathogenicity_range])
 
-        result = pathogenicity_classification_of_variant(mapped_variant, score_calibration)
+        result = pathogenicity_classification_of_variant(mapped_variant.variant, score_calibration)
 
         assert result[0] is None
         assert result[1] == VariantPathogenicityEvidenceLine.Criterion.PS3
@@ -229,7 +229,7 @@ class TestPathogenicityClassificationOfVariantUnit:
         score_calibration = create_mock_score_calibration()
 
         with pytest.raises(ValueError, match="does not have a score set with score calibrations"):
-            pathogenicity_classification_of_variant(mapped_variant, score_calibration)
+            pathogenicity_classification_of_variant(mapped_variant.variant, score_calibration)
 
     def test_empty_score_calibrations_raises_error(self):
         """Test that empty score calibrations list raises ValueError."""
@@ -238,7 +238,7 @@ class TestPathogenicityClassificationOfVariantUnit:
         score_calibration = create_mock_score_calibration()
 
         with pytest.raises(ValueError, match="does not have a score set with score calibrations"):
-            pathogenicity_classification_of_variant(mapped_variant, score_calibration)
+            pathogenicity_classification_of_variant(mapped_variant.variant, score_calibration)
 
     def test_missing_functional_classifications_raises_error(self):
         """Test that missing functional classifications raises ValueError."""
@@ -247,7 +247,7 @@ class TestPathogenicityClassificationOfVariantUnit:
         score_calibration = create_mock_score_calibration(functional_classifications=[])
 
         with pytest.raises(ValueError, match="does not have ranges defined in its primary score calibration"):
-            pathogenicity_classification_of_variant(mapped_variant, score_calibration)
+            pathogenicity_classification_of_variant(mapped_variant.variant, score_calibration)
 
     def test_moderate_plus_evidence_strength_maps_to_moderate(self):
         """Test that MODERATE_PLUS evidence strength maps to Moderate."""
@@ -258,7 +258,7 @@ class TestPathogenicityClassificationOfVariantUnit:
         pathogenicity_range = create_mock_pathogenicity_range(acmg_classification)
         score_calibration = create_mock_score_calibration(functional_classifications=[pathogenicity_range])
 
-        result = pathogenicity_classification_of_variant(mapped_variant, score_calibration)
+        result = pathogenicity_classification_of_variant(mapped_variant.variant, score_calibration)
 
         assert result[0] == pathogenicity_range
         assert result[1] == VariantPathogenicityEvidenceLine.Criterion.PS3
@@ -282,7 +282,7 @@ class TestPathogenicityClassificationOfVariantUnit:
         pathogenicity_range = create_mock_pathogenicity_range(acmg_classification)
         score_calibration = create_mock_score_calibration(functional_classifications=[pathogenicity_range])
 
-        result = pathogenicity_classification_of_variant(mapped_variant, score_calibration)
+        result = pathogenicity_classification_of_variant(mapped_variant.variant, score_calibration)
 
         assert result[0] == pathogenicity_range
         assert result[1] == VariantPathogenicityEvidenceLine.Criterion[criterion]
@@ -301,7 +301,7 @@ class TestPathogenicityClassificationOfVariantUnit:
 
         score_calibration = create_mock_score_calibration(functional_classifications=[first_range, second_range])
 
-        result = pathogenicity_classification_of_variant(mapped_variant, score_calibration)
+        result = pathogenicity_classification_of_variant(mapped_variant.variant, score_calibration)
 
         assert result[0] == first_range
         assert result[1] == VariantPathogenicityEvidenceLine.Criterion.PS3
