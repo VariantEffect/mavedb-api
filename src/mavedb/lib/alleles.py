@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, joinedload
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.variant import Variant
 
 
 def get_live_record_allele_links(
@@ -49,6 +50,34 @@ def get_live_record_allele_links(
             .options(joinedload(MappingRecordAllele.allele))
         ).all()
     )
+
+
+def find_variants_by_vrs_identifier(
+    db: Session, identifier: str, *, as_of: Optional[datetime] = None
+) -> list[tuple[Variant, Allele]]:
+    """Resolve a GA4GH VRS identifier to the variants whose mapping links an allele bearing it.
+
+    Matches ``identifier`` against a deduplicated allele's ``vrs_digest``, then walks ``Allele →
+    MappingRecordAllele → MappingRecord → Variant``. Because alleles are deduplicated by ``vrs_digest``
+    and shared across variants/score sets, one identifier can resolve to several variants; the
+    paired allele carries the ClinGen id + level the caller surfaces alongside the URN.
+
+    The live link + record set (``valid_to IS NULL`` / ``as_of``) is used to filter results. Returns distinct
+    ``(variant, matched_allele)`` pairs. Include an ``as_of`` timestamp to reconstruct the set as it stood
+    at a past instant.
+    """
+    stmt = (
+        select(Variant, Allele)
+        .select_from(Allele)
+        .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
+        .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
+        .join(Variant, Variant.id == MappingRecord.variant_id)
+        .where(Allele.vrs_digest == identifier)
+        .where(MappingRecordAllele.live_at(as_of))
+        .where(MappingRecord.live_at(as_of))
+    )
+
+    return [(row[0], row[1]) for row in db.execute(stmt).unique().all()]
 
 
 def get_allele_translations(db: Session, allele_id: int, *, as_of: Optional[datetime] = None) -> list[Allele]:

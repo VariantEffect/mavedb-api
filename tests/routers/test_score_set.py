@@ -85,10 +85,10 @@ from tests.helpers.util.score_set import (
     link_clinvar_control_to_mapped_variant,
     link_gnomad_variants_to_mapped_variants,
     publish_score_set,
+    seed_annotation_substrate,
 )
 from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import (
-    clear_first_mapped_variant_post_mapped,
     create_mapped_variants_for_score_set,
     mock_worker_variant_insertion,
 )
@@ -4055,9 +4055,14 @@ def test_cannot_get_annotated_variants_for_nonexistent_score_set(client, setup_r
 
 
 @pytest.mark.parametrize("annotation_type", ["pathogenicity-statement", "functional-statement", "study-result"])
-def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
+def test_get_annotated_variants_for_score_set_with_no_mapped_variants_streams_empty(
     client, session, data_provider, data_files, setup_router_db, annotation_type
 ):
+    """A score set that exists but has no annotatable variants is an empty collection, not a 404.
+
+    The route resolves (the URN names a real, readable score set), so it returns 200 with an empty NDJSON
+    body and ``X-Total-Count: 0``. 404 is reserved for an unresolvable URN or a permission failure.
+    """
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -4082,13 +4087,47 @@ def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
     assert "hgvs_splice" not in columns
 
     response = client.get(f"/api/v1/score-sets/{publish_score_set['urn']}/annotated-variants/{annotation_type}")
-    response_data = response.json()
 
-    assert response.status_code == 404
-    assert (
-        f"No mapped variants associated with score set URN {publish_score_set['urn']} were found"
-        in response_data["detail"]
+    assert response.status_code == 200
+    assert response.headers["X-Total-Count"] == "0"
+    assert parse_ndjson_response(response) == []
+
+
+@pytest.mark.parametrize("annotation_type", ["pathogenicity-statement", "functional-statement", "study-result"])
+def test_annotated_variants_honor_as_of(client, session, data_provider, data_files, setup_router_db, annotation_type):
+    """The streaming annotation routes time-travel their annotatable set via ``as_of``.
+
+    ``as_of`` is threaded into ``get_annotatable_variants`` (which allele links are live at that instant),
+    not only into the per-variant context. So a far-future instant sees the freshly-seeded substrate as
+    live (the full set streams, and the route echoes the instant on ``X-As-Of``); a far-past instant sees
+    no live mapping data (the annotatable set is empty). Either way the route returns 200 — ``as_of`` is a
+    filter, so an empty match is an empty collection, never a 404. This pins the wiring so the set
+    enumeration and the per-variant annotation cannot drift to different instants.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
+    seed_annotation_substrate(session, score_set)
+
+    url = f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/{annotation_type}"
+
+    # Far future: the seeded mapping records are live, so the whole set streams and X-As-Of echoes back.
+    future = datetime(2999, 1, 1, tzinfo=timezone.utc)
+    future_response = client.get(url, params={"as_of": future.isoformat()})
+
+    assert future_response.status_code == 200
+    assert datetime.fromisoformat(future_response.headers["X-As-Of"]) == future
+    assert len(parse_ndjson_response(future_response)) == score_set["numVariants"]
+
+    # Far past: nothing was live yet, so the annotatable set is empty — an empty 200 stream, not a 404.
+    past = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    past_response = client.get(url, params={"as_of": past.isoformat()})
+
+    assert past_response.status_code == 200
+    assert datetime.fromisoformat(past_response.headers["X-As-Of"]) == past
+    assert past_response.headers["X-Total-Count"] == "0"
+    assert parse_ndjson_response(past_response) == []
 
 
 # Tests that annotated variants of the correct type are returned when appropriate. The contents of these
@@ -4119,6 +4158,7 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
+    seed_annotation_substrate(session, score_set)
 
     # The contents of the annotated variants objects should be tested in more detail elsewhere.
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-statement")
@@ -4150,6 +4190,10 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_thre
         data_files / "scores.csv",
     )
 
+    # Variants are mapped on the allele substrate, so they are annotatable; the null annotation comes from
+    # the missing calibration/thresholds, not from missing mapping.
+    seed_annotation_substrate(session, score_set)
+
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-statement")
     response_data = parse_ndjson_response(response)
 
@@ -4172,6 +4216,9 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_cali
         experiment["urn"],
         data_files / "scores.csv",
     )
+
+    # Variants are mapped on the allele substrate (so annotatable); the null comes from the absent calibration.
+    seed_annotation_substrate(session, score_set)
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-statement")
     response_data = parse_ndjson_response(response)
@@ -4209,21 +4256,21 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_vari
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
+    first_var_urn = seed_annotation_substrate(session, score_set, skip_first=True)[0].urn
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/pathogenicity-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
-    assert len(response_data) == score_set["numVariants"]
+    # The first variant is unmapped on the allele substrate, so it is not annotatable and is omitted from
+    # the stream entirely (rather than emitted with a null annotation).
+    assert len(response_data) == score_set["numVariants"] - 1
+    assert first_var_urn not in {annotation_response.get("variant_urn") for annotation_response in response_data}
 
     for annotation_response in response_data:
         variant_urn = annotation_response.get("variant_urn")
         annotated_variant = annotation_response.get("annotation")
-        if variant_urn == first_var.urn:
-            assert annotated_variant is None
-        else:
-            assert f"Variant pathogenicity statement for {variant_urn}" in annotated_variant.get("description", "")
+        assert f"Variant pathogenicity statement for {variant_urn}" in annotated_variant.get("description", "")
 
 
 @pytest.mark.parametrize(
@@ -4250,6 +4297,7 @@ def test_get_annotated_functional_impact_statement_for_score_set(
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
+    seed_annotation_substrate(session, score_set)
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-statement")
     response_data = parse_ndjson_response(response)
@@ -4283,6 +4331,9 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_calib
         },
     )
 
+    # Mapped on the allele substrate (so annotatable); the null comes from the absent promoted calibration.
+    seed_annotation_substrate(session, score_set)
+
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-statement")
     response_data = parse_ndjson_response(response)
 
@@ -4305,6 +4356,9 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_thres
         experiment["urn"],
         data_files / "scores.csv",
     )
+
+    # Mapped on the allele substrate (so annotatable); the null comes from the absent calibration/ranges.
+    seed_annotation_substrate(session, score_set)
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-statement")
     response_data = parse_ndjson_response(response)
@@ -4342,21 +4396,20 @@ def test_get_annotated_functional_impact_statement_for_score_set_when_some_varia
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
+    first_var_urn = seed_annotation_substrate(session, score_set, skip_first=True)[0].urn
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/functional-statement")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
-    assert len(response_data) == score_set["numVariants"]
+    # The first variant is unmapped on the allele substrate, so it is not annotatable and is omitted from
+    # the stream entirely (rather than emitted with a null annotation).
+    assert len(response_data) == score_set["numVariants"] - 1
+    assert first_var_urn not in {annotation_response.get("variant_urn") for annotation_response in response_data}
 
     for annotation_response in response_data:
-        variant_urn = annotation_response.get("variant_urn")
         annotated_variant = annotation_response.get("annotation")
-        if variant_urn == first_var.urn:
-            assert annotated_variant is None
-        else:
-            assert annotated_variant.get("type") == "Statement"
+        assert annotated_variant.get("type") == "Statement"
 
 
 @pytest.mark.parametrize(
@@ -4375,6 +4428,7 @@ def test_get_annotated_functional_study_result_for_score_set(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    seed_annotation_substrate(session, score_set)
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
     response_data = parse_ndjson_response(response)
@@ -4407,6 +4461,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
             "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
+    seed_annotation_substrate(session, score_set)
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
     response_data = parse_ndjson_response(response)
@@ -4439,6 +4494,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_ranges_not_
             "scoreRanges": camelize([TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, TEST_PATHOGENICITY_SCORE_CALIBRATION]),
         },
     )
+    seed_annotation_substrate(session, score_set)
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
     response_data = parse_ndjson_response(response)
@@ -4462,6 +4518,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
         experiment["urn"],
         data_files / "scores.csv",
     )
+    seed_annotation_substrate(session, score_set)
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
     response_data = parse_ndjson_response(response)
@@ -4495,21 +4552,20 @@ def test_annotated_functional_study_result_exists_for_score_set_when_some_varian
         },
     )
 
-    first_var = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
+    first_var_urn = seed_annotation_substrate(session, score_set, skip_first=True)[0].urn
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
     response_data = parse_ndjson_response(response)
 
     assert response.status_code == 200
-    assert len(response_data) == score_set["numVariants"]
+    # The first variant is unmapped on the allele substrate, so it is not annotatable and is omitted from
+    # the stream entirely (rather than emitted with a null annotation).
+    assert len(response_data) == score_set["numVariants"] - 1
+    assert first_var_urn not in {annotation_response.get("variant_urn") for annotation_response in response_data}
 
     for annotation_response in response_data:
-        variant_urn = annotation_response.get("variant_urn")
         annotated_variant = annotation_response.get("annotation")
-        if variant_urn == first_var.urn:
-            assert annotated_variant is None
-        else:
-            assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
+        assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
 
 
 ########################################################################################################################

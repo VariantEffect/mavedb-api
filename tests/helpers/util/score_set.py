@@ -205,6 +205,40 @@ def create_acc_score_set_with_variants(
     return score_set
 
 
+def seed_annotation_substrate(db, score_set, *, skip_first=False):
+    """Give a score set's variants a live ``MappingRecord`` with one authoritative allele.
+
+    The VA endpoints build a ``VariantAnnotationContext`` from the ``MappingRecord`` / ``Allele``
+    substrate (not the legacy ``MappedVariant``), so a variant needs a live record with an
+    authoritative ``post_mapped`` allele before a study result / statement can be constructed. This
+    mirrors what the mapping pipeline writes. (Global seeding from ``mock_worker_vrs_mapping`` is
+    deferred to Slice 5.2/5.3, where it can be reconciled with the clinical-controls seeding.)
+
+    With ``skip_first=True`` the first variant is left un-mapped on the new substrate (for the
+    "some variants were not mapped" cases). Returns the score set's variants in id order.
+    """
+    variants = db.scalars(
+        select(VariantDbModel)
+        .join(ScoreSetDbModel)
+        .where(ScoreSetDbModel.urn == score_set["urn"])
+        .order_by(VariantDbModel.id)
+    ).all()
+    for variant in variants[1:] if skip_first else variants:
+        seed_mapping_record(
+            db,
+            variant,
+            alleles=[
+                AlleleSpec(
+                    digest=f"va-allele-{variant.id}",
+                    is_authoritative=True,
+                    clingen_allele_id=f"CA{variant.id}",
+                    post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
+                )
+            ],
+        )
+    return variants
+
+
 def link_clinical_controls_to_alleles(db, score_set):
     """Seed the new-model annotation graph for a score set's first two variants and link the two
     seeded ClinVar controls to their alleles via ``ClinvarAlleleLink``.

@@ -27,12 +27,14 @@ from mavedb.lib.annotation.annotate import (
     variant_pathogenicity_statement,
     variant_study_result,
 )
+from mavedb.lib.annotation.context import variant_annotation_context
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.authorization import (
     get_current_user,
     require_current_user,
     require_current_user_with_email,
 )
+from mavedb.lib.clinical_controls import get_clinical_control_options, get_clinical_controls_with_variant_urns
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
@@ -47,7 +49,6 @@ from mavedb.lib.logging.context import (
     logging_context,
     save_to_logging_context,
 )
-from mavedb.lib.clinical_controls import get_clinical_control_options, get_clinical_controls_with_variant_urns
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_calibrations import create_score_calibration
 from mavedb.lib.score_set_variants import get_lean_score_set_variants
@@ -56,7 +57,7 @@ from mavedb.lib.score_sets import (
     csv_data_to_df,
     fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
-    get_current_mapped_variants_for_annotation,
+    get_annotatable_variants,
     get_score_set_variants_as_csv,
     is_replaces_id_unique_violation,
     refresh_variant_urns,
@@ -1185,9 +1186,12 @@ def get_score_set_mapped_variants(
     return mapped_variants
 
 
-def _stream_generated_annotations(mapped_variants, annotation_function):
+def _stream_generated_annotations(db, variants, annotation_function, as_of=None):
     """
     Generator function to stream annotations as pure NDJSON data.
+
+    Builds each variant's :class:`VariantAnnotationContext` from the mapping-record substrate and passes it
+    to ``annotation_function``; variants with no live mapping data yield a null annotation.
 
     Metadata should be provided via HTTP headers:
     - X-Total-Count: Total number of variants
@@ -1198,20 +1202,21 @@ def _stream_generated_annotations(mapped_variants, annotation_function):
     consumed via Server-Sent Events if needed.
     """
     start_time = time.time()
-    total_variants = len(mapped_variants)
+    total_variants = len(variants)
     processed_count = 0
-    logger.info(f"Starting streaming processing of {total_variants} mapped variants")
+    logger.info(f"Starting streaming processing of {total_variants} variants")
 
-    for i, mv in enumerate(mapped_variants):
+    for i, variant in enumerate(variants):
         try:
-            annotation = annotation_function(mv)
+            context = variant_annotation_context(db, variant, as_of=as_of)
+            annotation = annotation_function(context) if context is not None else None
         except MappingDataDoesntExistException:
-            logger.debug(f"Mapping data does not exist for variant {mv.variant.urn}.")
+            logger.debug(f"Mapping data does not exist for variant {variant.urn}.")
             annotation = None
 
         # Send pure result data (no wrapper)
         result = {
-            "variant_urn": mv.variant.urn,
+            "variant_urn": variant.urn,
             "annotation": annotation.model_dump(exclude_none=True) if annotation else None,
         }
         yield json.dumps(result, default=str) + "\n"
@@ -1258,11 +1263,11 @@ def _stream_generated_annotations(mapped_variants, annotation_function):
     status_code=200,
     response_model=dict[str, Optional[VariantPathogenicityStatement]],
     response_model_exclude_none=True,
-    summary="Get pathogenicity statement annotations for mapped variants within a score set",
+    summary="Get pathogenicity statement annotations for variants within a score set",
     responses={
         200: {
             "content": {"application/x-ndjson": {}},
-            "description": "Stream pathogenicity statement annotations for mapped variants.",
+            "description": "Stream pathogenicity statement annotations for variants.",
         },
         **ACCESS_CONTROL_ERROR_RESPONSES,
     },
@@ -1270,22 +1275,31 @@ def _stream_generated_annotations(mapped_variants, annotation_function):
 def get_score_set_annotated_variants(
     *,
     urn: str,
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the molecular layer (Cat-VRS membership, VEP/gnomAD/ClinVar annotations) as it "
+            "stood at this instant, over the variant's fixed score. ISO 8601, ideally timezone-aware. "
+            "Content valid-time only — it never re-selects a score-set version, and scores/classifications "
+            "are as-of-invariant. Defaults to current."
+        ),
+    ),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
     """
     Retrieve annotated variants with pathogenicity statements for a given score set.
 
-    This endpoint streams pathogenicity evidence lines for all current mapped variants
+    This endpoint streams pathogenicity evidence lines for all current annotated variants
     associated with a specific score set. The response is returned as newline-delimited
     JSON (NDJSON) format for efficient processing of large datasets.
 
     NDJSON Response Format:
-        Each line in the response corresponds to a mapped variant and contains a JSON
+        Each line in the response corresponds to an annotated variant and contains a JSON
         object with the following structure:
         ```
         {
-            "variant_urn": "<URN of the mapped variant>",
+            "variant_urn": "<URN of the annotated variant>",
             "annotation": {
                 ... // Pathogenicity evidence line details
             }
@@ -1301,23 +1315,27 @@ def get_score_set_annotated_variants(
 
     Returns:
         Any: StreamingResponse containing newline-delimited JSON with pathogenicity
-            evidence lines for each mapped variant. Response includes headers with
+            evidence lines for each annotated variant. Response includes headers with
             total count, processing start time, and stream type information.
+
+    A score set that exists but has no annotatable variants (never mapped, or none live at ``as_of``)
+    streams an empty body with ``X-Total-Count: 0`` — an empty collection, not a 404.
 
     Raises:
         HTTPException: 404 error if the score set with the given URN is not found.
-        HTTPException: 404 error if no mapped variants are associated with the score set.
         HTTPException: 403 error if the user lacks READ permissions for the score set.
 
     Note:
         This function logs the request context and validates user permissions before
-        processing. Only current (non-historical) mapped variants are included in
-        the response.
+        processing. Use the `as_of` parameter to reconstruct the molecular layer as it stood at a specific
+        instant, over the variant's fixed score. The response is streamed to allow for efficient handling
+        of large datasets, and progress updates are logged for monitoring purposes.
     """
     save_to_logging_context(
         {
             "requested_resource": urn,
             "resource_property": "annotated-variants/pathogenicity-statement",
+            "as_of": as_of,
         }
     )
 
@@ -1331,20 +1349,17 @@ def get_score_set_annotated_variants(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    mapped_variants = get_current_mapped_variants_for_annotation(db, score_set)
+    variants = get_annotatable_variants(db, score_set, as_of=as_of)
 
-    if not mapped_variants:
-        logger.info(msg="No mapped variants are associated with the requested score set.", extra=logging_context())
-        raise HTTPException(
-            status_code=404,
-            detail=f"No mapped variants associated with score set URN {urn} were found. Could not construct evidence lines.",
-        )
-
+    # An existing score set with no annotatable variants (never mapped, or none live at as_of) streams an
+    # empty NDJSON body with X-Total-Count: 0 — an empty collection, not a 404. 404 is reserved for an
+    # unresolvable URN or a permission failure, never for a filter (as_of) matching nothing.
     return StreamingResponse(
-        _stream_generated_annotations(mapped_variants, variant_pathogenicity_statement),
+        _stream_generated_annotations(db, variants, variant_pathogenicity_statement, as_of=as_of),
         media_type="application/x-ndjson",
         headers={
-            "X-Total-Count": str(len(mapped_variants)),
+            "X-As-Of": as_of.isoformat() if as_of is not None else "current",
+            "X-Total-Count": str(len(variants)),
             "X-Processing-Started": datetime.now().isoformat(),
             "X-Stream-Type": "pathogenicity-evidence-line",
             "Access-Control-Expose-Headers": "X-Total-Count, X-Processing-Started, X-Stream-Type",
@@ -1357,11 +1372,11 @@ def get_score_set_annotated_variants(
     status_code=200,
     response_model=dict[str, Optional[Statement]],
     response_model_exclude_none=True,
-    summary="Get functional impact statement annotations for mapped variants within a score set",
+    summary="Get functional impact statement annotations for annotated variants within a score set",
     responses={
         200: {
             "content": {"application/x-ndjson": {}},
-            "description": "Stream functional impact statement annotations for mapped variants.",
+            "description": "Stream functional impact statement annotations for annotated variants.",
         },
         **ACCESS_CONTROL_ERROR_RESPONSES,
     },
@@ -1369,22 +1384,31 @@ def get_score_set_annotated_variants(
 def get_score_set_annotated_variants_functional_statement(
     *,
     urn: str,
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the molecular layer (Cat-VRS membership, VEP/gnomAD/ClinVar annotations) as it "
+            "stood at this instant, over the variant's fixed score. ISO 8601, ideally timezone-aware. "
+            "Content valid-time only — it never re-selects a score-set version, and scores/classifications "
+            "are as-of-invariant. Defaults to current."
+        ),
+    ),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ):
     """
     Retrieve functional impact statements for annotated variants in a score set.
 
-    This endpoint streams functional impact statements for all current mapped variants
+    This endpoint streams functional impact statements for all current annotated variants
     associated with a specific score set. The response is delivered as newline-delimited
     JSON (NDJSON) format.
 
     NDJSON Response Format:
-        Each line in the response corresponds to a mapped variant and contains a JSON
+        Each line in the response corresponds to an annotated variant and contains a JSON
         object with the following structure:
         ```
         {
-            "variant_urn": "<URN of the mapped variant>",
+            "variant_urn": "<URN of the annotated variant>",
             "annotation": {
                 ... // Functional impact statement details
             }
@@ -1398,20 +1422,28 @@ def get_score_set_annotated_variants_functional_statement(
 
     Returns:
         StreamingResponse: NDJSON stream containing functional impact statements for each
-            mapped variant. Response includes headers with total count, processing start time,
+            annotated variant. Response includes headers with total count, processing start time,
             and stream type information.
 
     Raises:
         HTTPException:
             - 404 if the score set with the given URN is not found
-            - 404 if no mapped variants are associated with the score set
+            - 404 if no annotated variants are associated with the score set
             - 403 if the user lacks READ permission for the score set
 
     Note:
-        Only current (non-historical) mapped variants are included in the response.
-        The function requires appropriate read permissions on the score set.
+        The function requires appropriate read permissions on the score set. Use the `as_of`
+        parameter to reconstruct the molecular layer as it stood at a specific instant, over
+        the variant's fixed score. The response is streamed to allow for efficient handling of
+        large datasets, and progress updates are logged for monitoring purposes.
     """
-    save_to_logging_context({"requested_resource": urn, "resource_property": "annotated-variants/functional-statement"})
+    save_to_logging_context(
+        {
+            "requested_resource": urn,
+            "resource_property": "annotated-variants/functional-statement",
+            "as_of": as_of,
+        }
+    )
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -1423,20 +1455,17 @@ def get_score_set_annotated_variants_functional_statement(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    mapped_variants = get_current_mapped_variants_for_annotation(db, score_set)
+    variants = get_annotatable_variants(db, score_set, as_of=as_of)
 
-    if not mapped_variants:
-        logger.info(msg="No mapped variants are associated with the requested score set.", extra=logging_context())
-        raise HTTPException(
-            status_code=404,
-            detail=f"No mapped variants associated with score set URN {urn} were found. Could not construct functional impact statements.",
-        )
-
+    # An existing score set with no annotatable variants (never mapped, or none live at as_of) streams an
+    # empty NDJSON body with X-Total-Count: 0 — an empty collection, not a 404. 404 is reserved for an
+    # unresolvable URN or a permission failure, never for a filter (as_of) matching nothing.
     return StreamingResponse(
-        _stream_generated_annotations(mapped_variants, variant_functional_impact_statement),
+        _stream_generated_annotations(db, variants, variant_functional_impact_statement, as_of=as_of),
         media_type="application/x-ndjson",
         headers={
-            "X-Total-Count": str(len(mapped_variants)),
+            "X-As-Of": as_of.isoformat() if as_of is not None else "current",
+            "X-Total-Count": str(len(variants)),
             "X-Processing-Started": datetime.now().isoformat(),
             "X-Stream-Type": "functional-impact-statement",
             "Access-Control-Expose-Headers": "X-Total-Count, X-Processing-Started, X-Stream-Type",
@@ -1449,11 +1478,11 @@ def get_score_set_annotated_variants_functional_statement(
     status_code=200,
     response_model=dict[str, Optional[ExperimentalVariantFunctionalImpactStudyResult]],
     response_model_exclude_none=True,
-    summary="Get functional study result annotations for mapped variants within a score set",
+    summary="Get functional study result annotations for annotated variants within a score set",
     responses={
         200: {
             "content": {"application/x-ndjson": {}},
-            "description": "Stream functional study result annotations for mapped variants.",
+            "description": "Stream functional study result annotations for annotated variants.",
         },
         **ACCESS_CONTROL_ERROR_RESPONSES,
     },
@@ -1461,22 +1490,31 @@ def get_score_set_annotated_variants_functional_statement(
 def get_score_set_annotated_variants_functional_study_result(
     *,
     urn: str,
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the molecular layer (Cat-VRS membership, VEP/gnomAD/ClinVar annotations) as it "
+            "stood at this instant, over the variant's fixed score. ISO 8601, ideally timezone-aware. "
+            "Content valid-time only — it never re-selects a score-set version, and scores/classifications "
+            "are as-of-invariant. Defaults to current."
+        ),
+    ),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ):
     """
     Retrieve functional study results for annotated variants in a score set.
 
-    This endpoint streams functional study result annotations for all current mapped variants
+    This endpoint streams functional study result annotations for all current annotated variants
     associated with a specific score set. The results are returned as newline-delimited JSON
     (NDJSON) format for efficient streaming of large datasets.
 
     NDJSON Response Format:
-        Each line in the response corresponds to a mapped variant and contains a JSON
+        Each line in the response corresponds to a annotated variant and contains a JSON
         object with the following structure:
         ```
         {
-            "variant_urn": "<URN of the mapped variant>",
+            "variant_urn": "<URN of the annotated variant>",
             "annotation": {
                 ... // Functional study result details
             }
@@ -1491,7 +1529,7 @@ def get_score_set_annotated_variants_functional_study_result(
     Returns:
         StreamingResponse: A streaming response containing functional study results in NDJSON format.
             Headers include:
-            - X-Total-Count: Total number of mapped variants being streamed
+            - X-Total-Count: Total number of annotated variants being streamed
             - X-Processing-Started: ISO timestamp when processing began
             - X-Stream-Type: Set to "functional-study-result"
             - Access-Control-Expose-Headers: Exposed headers for CORS
@@ -1499,15 +1537,22 @@ def get_score_set_annotated_variants_functional_study_result(
     Raises:
         HTTPException:
             - 404 if the score set with the given URN is not found
-            - 404 if no mapped variants are associated with the score set
+            - 404 if no annotated variants are associated with the score set
             - 403 if the user lacks READ permission for the score set
 
     Notes:
-        - Only returns current mapped variants (MappedVariant.current == True)
-        - Eagerly loads related ScoreSet data including publications, users, license, and experiment
-        - Logs requests and errors for monitoring and debugging purposes
+        - The `as_of` parameter allows reconstruction of the molecular layer as it stood at a specific
+          instant, over the variant's fixed score. It is ISO 8601 formatted and ideally timezone-aware.
+        - The response is streamed to allow for efficient handling of large datasets, and progress updates
+          are logged for monitoring purposes.
     """
-    save_to_logging_context({"requested_resource": urn, "resource_property": "annotated-variants/study-result"})
+    save_to_logging_context(
+        {
+            "requested_resource": urn,
+            "resource_property": "annotated-variants/study-result",
+            "as_of": as_of,
+        }
+    )
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -1519,20 +1564,17 @@ def get_score_set_annotated_variants_functional_study_result(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    mapped_variants = get_current_mapped_variants_for_annotation(db, score_set)
+    variants = get_annotatable_variants(db, score_set, as_of=as_of)
 
-    if not mapped_variants:
-        logger.info(msg="No mapped variants are associated with the requested score set.", extra=logging_context())
-        raise HTTPException(
-            status_code=404,
-            detail=f"No mapped variants associated with score set URN {urn} were found. Could not construct study results.",
-        )
-
+    # An existing score set with no annotatable variants (never mapped, or none live at as_of) streams an
+    # empty NDJSON body with X-Total-Count: 0 — an empty collection, not a 404. 404 is reserved for an
+    # unresolvable URN or a permission failure, never for a filter (as_of) matching nothing.
     return StreamingResponse(
-        _stream_generated_annotations(mapped_variants, variant_study_result),
+        _stream_generated_annotations(db, variants, variant_study_result, as_of=as_of),
         media_type="application/x-ndjson",
         headers={
-            "X-Total-Count": str(len(mapped_variants)),
+            "X-As-Of": as_of.isoformat() if as_of is not None else "current",
+            "X-Total-Count": str(len(variants)),
             "X-Processing-Started": datetime.now().isoformat(),
             "X-Stream-Type": "functional-study-result",
             "Access-Control-Expose-Headers": "X-Total-Count, X-Processing-Started, X-Stream-Type",

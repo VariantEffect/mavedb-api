@@ -9,8 +9,8 @@ from mavedb.lib.annotation.agent import (
     mavedb_user_agent,
     mavedb_vrs_agent,
 )
+from mavedb.lib.annotation.context import VariantAnnotationContext
 from mavedb.lib.types.annotation import ResourceWithCreationModificationDates
-from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.user import User
 
@@ -31,17 +31,17 @@ def mavedb_api_contribution() -> Contribution:
     )
 
 
-def mavedb_vrs_contribution(mapped_variant: MappedVariant) -> Contribution:
+def mavedb_vrs_contribution(context: VariantAnnotationContext) -> Contribution:
     """
     Create a [VA Contribution](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/activities/contribution.html#contribution)
-    object from the provided mapped variant.
+    object from the variant's live mapping record (the VRS mapper's provenance).
     """
     return Contribution(
         name="MaveDB VRS Mapper",
         description="Contribution from the MaveDB VRS mapping software",
-        # Guaranteed to be a str via DB constraints.
-        contributor=mavedb_vrs_agent(mapped_variant.mapping_api_version),  # type: ignore
-        date=mapped_variant.mapped_date,  # type: ignore
+        # Both guaranteed non-null via DB constraints on MappingRecord.
+        contributor=mavedb_vrs_agent(context.record.mapping_api_version),  # type: ignore
+        date=context.record.mapped_date,  # type: ignore
         activityType="human genome sequence mapping process",
     )
 
