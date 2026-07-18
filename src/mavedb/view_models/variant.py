@@ -9,6 +9,20 @@ from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.mapped_variant import SavedMappedVariant
 
 
+class VariantVrsMatch(BaseModel):
+    """One variant whose mapping links an allele bearing the queried VRS identifier.
+
+    The ``GET /variants/vrs/{identifier}`` lookup result. The ClinGen id + level ride from the matched
+    (deduplicated) allele; the URN from the variant it is linked to. Replaces the legacy MappedVariant VRS
+    lookup on the new Allele substrate (#743, item 3.5).
+    """
+
+    variant_urn: str
+    clingen_allele_id: Optional[str] = None
+    vrs_id: Optional[str] = None
+    level: Optional[str] = None
+
+
 class VariantEffectMeasurementBase(BaseModel):
     """Properties shared by most variant effect measurement view models"""
 

@@ -54,7 +54,8 @@ def _post_mapped() -> dict:
 def _seed_mapping(session, variant_urn):
     """Give a variant a live coding-measured mapping record whose authoritative allele carries a
     digest + ClinGen id + a live VEP consequence, its genomic projection sibling (shared
-    projection_group), and a protein apex — enough to build Cat-VRS and exercise the projection axes."""
+    projection_group), a protein apex, and a synonymous cousin (a nt encoder of the same consequence in
+    a different projection group) — enough to build Cat-VRS and exercise the projection + convergent axes."""
     variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == variant_urn))
     record = MappingRecord(
         variant_id=variant.id,
@@ -78,13 +79,16 @@ def _seed_mapping(session, variant_urn):
     protein = Allele(
         vrs_digest="prot-digest", level="protein", post_mapped=_post_mapped(), hgvs_p="NP_000537.3:p.Ala406Thr"
     )
-    session.add_all([measured, genomic, protein])
+    cousin = Allele(
+        vrs_digest="cousin-digest", level="cdna", post_mapped=_post_mapped(), hgvs_c="NM_000546.6:c.1218C>T"
+    )
+    session.add_all([measured, genomic, protein, cousin])
     session.commit()
 
     session.add_all(
         [
             # The measured cdna link and its genomic projection share a projection_group; the protein
-            # apex is in no pair (group None).
+            # apex is in no pair (group None); the cousin sits in its own projection group.
             MappingRecordAllele(
                 mapping_record_id=record.id, allele_id=measured.id, is_authoritative=True, projection_group=0
             ),
@@ -92,6 +96,9 @@ def _seed_mapping(session, variant_urn):
                 mapping_record_id=record.id, allele_id=genomic.id, is_authoritative=False, projection_group=0
             ),
             MappingRecordAllele(mapping_record_id=record.id, allele_id=protein.id, is_authoritative=False),
+            MappingRecordAllele(
+                mapping_record_id=record.id, allele_id=cousin.id, is_authoritative=False, projection_group=1
+            ),
             VepAlleleConsequence(
                 allele_id=measured.id,
                 functional_consequence="missense_variant",
@@ -125,6 +132,9 @@ def test_get_variant_detail_envelope(client, session, data_provider, data_files,
     assert body["mode"] == "projection"
     # Spec-pure Cat-VRS carries its own field names (no camelization of the nested GA4GH object).
     assert body["molecularRepresentation"]["type"] == "CategoricalVariant"
+    # State A: the full-closure Cat-VRS member set agrees with the sidecar (every linked allele is a
+    # member, the cousin included), so the envelope is internally consistent.
+    assert len(body["molecularRepresentation"]["members"]) == len(body["alleles"])
     # The alleles identity sidecar serializes camelCase, keyed by digest; the protein member is a
     # translation of the defining coding allele (which itself has no relation to itself).
     assert body["alleles"]["cdna-digest"]["level"] == "cdna"
@@ -142,6 +152,10 @@ def test_get_variant_detail_envelope(client, session, data_provider, data_files,
     # The apex is a deterministic projection here but pairs with nothing (projectionOf dropped as null).
     assert body["alleles"]["prot-digest"]["derivation"] == "projection"
     assert "projectionOf" not in body["alleles"]["prot-digest"]
+    # The synonymous cousin (different projection group) surfaces as a member wearing co_encodes and is
+    # labelled `convergent` (a distinct change sharing the consequence, not an ambiguous candidate).
+    assert body["alleles"]["cousin-digest"]["relation"] == "co_encodes"
+    assert body["alleles"]["cousin-digest"]["derivation"] == "convergent"
     assert body["annotations"]["cdna-digest"]["vep"]["consequence"] == "missense_variant"
     assert body["isCurrent"] is True
     assert "supersededByScoreSet" not in body  # dropped by exclude_none when current
