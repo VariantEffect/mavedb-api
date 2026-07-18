@@ -185,10 +185,13 @@ def test_full_envelope_for_a_coding_assay(session, setup_lib_db_with_score_set):
     assert measured_identity.hgvs == "NM_000546.6:c.1216G>A"  # coalesced from hgvs_c
     assert measured_identity.clingen_allele_id == "CA123"
     assert measured_identity.relation is None  # the defining allele has no relation to itself
-    # The measured allele is authoritative and pairs with its genomic projection sibling.
-    assert measured_identity.derivation == "authoritative"
+    # The measured allele is the focus; derivation describes the *other* members relative to it, so the
+    # focus carries none. It pairs with its genomic projection sibling.
+    assert measured_identity.is_focus is True
+    assert measured_identity.derivation is None
     assert measured_identity.projection_of == "gen-digest"
     genomic_identity = detail.alleles["gen-digest"]
+    assert genomic_identity.is_focus is False
     # Nucleotide assay: the genomic sibling is a precise projection, paired back to the measured cdna.
     assert genomic_identity.level == "genomic"
     assert genomic_identity.derivation == "projection"
@@ -245,11 +248,12 @@ def test_protein_assay_targets_the_protein_frame(session, setup_lib_db_with_scor
     assert detail.reference_hgvs == "NP_000537.3:p.Ala406Thr"
     assert detail.assay_level_digest == "prot-digest"
     assert detail.mode == "reverse_translation"
-    # Defining protein allele has no relation to itself, is authoritative, and is in no c/g pair.
+    # Defining protein allele is the focus (no relation/derivation to itself), and is in no c/g pair.
     prot = detail.alleles["prot-digest"]
     assert prot.level == "protein"
     assert prot.relation is None
-    assert prot.derivation == "authoritative"
+    assert prot.is_focus is True
+    assert prot.derivation is None
     assert prot.projection_of is None
     # The coding member `encodes` the protein (structural relation) but is an ambiguous `candidate`
     # (provenance) — the two axes disagree by design — and pairs to its genomic projection.
@@ -265,9 +269,9 @@ def test_protein_assay_targets_the_protein_frame(session, setup_lib_db_with_scor
 
 @pytest.mark.integration
 def test_pre_reverse_translation_data_degrades_projection_of_to_null(session, setup_lib_db_with_score_set):
-    """Links written before reverse translation ran carry a NULL projection_group: derivation is still
-    computed (authoritative / projection from is_authoritative + assay level), but projection_of degrades
-    to null — nothing pairs until the data is re-processed."""
+    """Links written before reverse translation ran carry a NULL projection_group: focus/derivation are
+    still computed (is_focus from is_authoritative; projection from the assay level), but projection_of
+    degrades to null — nothing pairs until the data is re-processed."""
     score_set = setup_lib_db_with_score_set
     variant = _variant(session, score_set, 1, hgvs_nt="c.1216G>A")
     record = _record(session, variant, assay_level="cdna", hgvs_assay_level="NM_000546.6:c.1216G>A")
@@ -278,7 +282,8 @@ def test_pre_reverse_translation_data_degrades_projection_of_to_null(session, se
 
     detail = get_variant_detail(session, variant)
 
-    assert detail.alleles["cdna-digest"].derivation == "authoritative"
+    assert detail.alleles["cdna-digest"].is_focus is True
+    assert detail.alleles["cdna-digest"].derivation is None
     assert detail.alleles["cdna-digest"].projection_of is None  # no group -> no sibling
     assert detail.alleles["prot-digest"].derivation == "projection"
     assert detail.alleles["prot-digest"].projection_of is None

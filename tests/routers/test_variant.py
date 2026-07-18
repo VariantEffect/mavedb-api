@@ -141,9 +141,13 @@ def test_get_variant_detail_envelope(client, session, data_provider, data_files,
     assert body["alleles"]["cdna-digest"]["hgvs"] == "NM_000546.6:c.1216G>A"
     assert body["alleles"]["cdna-digest"]["clingenAlleleId"] == "CA123"
     assert "relation" not in body["alleles"]["cdna-digest"]  # null relation dropped by exclude_none
-    # Provenance axis (derivation) + the projection pairing (projectionOf), camelCased.
-    assert body["alleles"]["cdna-digest"]["derivation"] == "authoritative"
+    # The measured allele is the focus (isFocus); it carries no derivation (that axis describes the
+    # *other* members relative to it), and pairs with its genomic projection sibling (projectionOf).
+    assert body["alleles"]["cdna-digest"]["isFocus"] is True
+    assert "derivation" not in body["alleles"]["cdna-digest"]  # null derivation dropped by exclude_none
     assert body["alleles"]["cdna-digest"]["projectionOf"] == "gen-digest"
+    assert body["alleles"]["gen-digest"]["isFocus"] is False
+    assert body["alleles"]["gen-digest"]["relation"] == "coordinate_representation_of"
     assert body["alleles"]["gen-digest"]["derivation"] == "projection"
     assert body["alleles"]["gen-digest"]["projectionOf"] == "cdna-digest"
     assert body["alleles"]["prot-digest"]["level"] == "protein"

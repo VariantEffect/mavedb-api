@@ -25,6 +25,16 @@ class SequenceLevel(str, Enum):
         except KeyError as exc:
             raise ValueError(f"Unknown sequence level wire code: {code!r}") from exc
 
+    @classmethod
+    def nucleotide_levels(cls) -> set["SequenceLevel"]:
+        """Return the subset of levels that are nucleotide (genomic or coding)."""
+        return {cls.genomic, cls.cdna}
+
+    @classmethod
+    def protein_levels(cls) -> set["SequenceLevel"]:
+        """Return the subset of levels that are protein (protein only)."""
+        return {cls.protein}
+
 
 # Module-level so it doesn't get mistaken for an enum member.
 _WIRE_TO_LEVEL: dict[str, SequenceLevel] = {
@@ -32,3 +42,7 @@ _WIRE_TO_LEVEL: dict[str, SequenceLevel] = {
     "c": SequenceLevel.cdna,
     "g": SequenceLevel.genomic,
 }
+
+
+NUCLEOTIDE_LEVELS = {level.value for level in SequenceLevel.nucleotide_levels()}
+PROTEIN_LEVELS = {level.value for level in SequenceLevel.protein_levels()}

@@ -18,13 +18,13 @@ the currently-live rows.
 
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
 from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.allele_annotations import AlleleAnnotations, get_allele_annotations
+from mavedb.lib.allele_identity import AlleleDerivation, AlleleIdentity
 from mavedb.lib.alleles import get_live_record_allele_links
 from mavedb.lib.cat_vrs import categorical_variant_for_variant, is_convergent_cousin
 from mavedb.lib.score_calibrations import calibration_preference_key
@@ -52,63 +52,6 @@ class VariantClassificationRecord:
     calibration_id: int
     primary: bool
     classification: ScoreCalibrationFunctionalClassification
-
-
-class AlleleDerivation(str, Enum):
-    """How an allele's representation was arrived at — its confidence/provenance axis.
-
-    Distinct from (orthogonal to) the Cat-VRS ``relation`` axis: ``relation`` is *structural* (which
-    level relates to which, member→defining), whereas ``derivation`` is *epistemic* (how much to trust
-    the representation). See the design's "Semantics note — two axes, keep them separate". Derived at
-    serialization time from ``is_authoritative`` + the assay level — no stored column.
-    """
-
-    # The assay's actual measurement (the authoritative link). Precise by definition.
-    AUTHORITATIVE = "authoritative"
-    # Deterministic and precise. Derived from the measured change itself: nucleotide↔nucleotide (its
-    # coordinate partner) and nucleotide→protein (its consequence) are both deterministic given
-    # (assembly, transcript).
-    PROJECTION = "projection"
-    # Reverse-translation output of a *protein* measurement — genuinely ambiguous (many synonymous
-    # codons). One member of the fanned-out equivalence class, not a precise coordinate.
-    CANDIDATE = "candidate"
-    # A distinct, precisely-known nucleotide change that *converges* on the measured protein consequence
-    # from a different codon (a synonymous cousin under a nucleotide assay). Not ambiguous like a
-    # candidate, and not a projection *of* the measured change — a separate, unmeasured variant that
-    # merely shares the consequence. Pairs with the ``co_encodes`` Cat-VRS relation.
-    CONVERGENT = "convergent"
-
-
-@dataclass(frozen=True)
-class AlleleIdentity:
-    """The MaveDB molecular-identity facts for one of the variant's linked alleles.
-
-    Rides alongside the spec-pure Cat-VRS keyed by VRS digest (the ``alleles`` map). ``level`` and
-    ``hgvs`` (the reference-frame HGVS, exactly one of the allele's genomic/coding/protein columns) are
-    what the UI labels the per-level annotation panel by — *never* the digest.
-
-    Three axes ride here, deliberately independent:
-
-    - ``relation`` (Cat-VRS, structural): this allele's member→defining relation
-      (``is_protein_of`` / ``coordinate_representation_of`` / …). ``None`` when it *is* the measured
-      allele, or when the allele is not a Cat-VRS member. Sourced from
-      ``cat_vrs.CategoricalVariantTransit.member_relations``.
-    - ``derivation`` (provenance): :class:`AlleleDerivation` — authoritative / projection / candidate /
-      convergent. Orthogonal to ``relation``; never conflate the two (a protein member of a nucleotide
-      assay has ``relation=translation_of`` but ``derivation=projection``; a synonymous cousin has
-      ``relation=co_encodes`` and ``derivation=convergent``; the nucleotide fan-out of a protein assay is
-      ``derivation=candidate``).
-    - ``projection_of`` (provenance): the VRS digest of this allele's projection sibling — the ≤1 *other*
-      member of its ``projection_group`` (a c↔g pair). ``None`` for the protein apex (group ``NULL``),
-      for pre-reverse-translation data, and where a level's projection failed.
-    """
-
-    level: Optional[str]
-    hgvs: Optional[str]
-    clingen_allele_id: Optional[str]
-    relation: Optional[str]
-    derivation: Optional[str]
-    projection_of: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -177,13 +120,11 @@ def _classifications_for_variant(
     ]
 
 
-def _derivation_for(
-    *, is_authoritative: bool, assay_level: Optional[SequenceLevel], is_cousin: bool
-) -> AlleleDerivation:
-    """The provenance of a linked allele's representation, from ``is_authoritative`` + the assay level.
+def _derivation_for(*, assay_level: Optional[SequenceLevel], is_cousin: bool) -> AlleleDerivation:
+    """The provenance of a *non-focus* linked allele's representation, from the assay level.
 
-    The measured allele is ``authoritative``. Every *other* allele's provenance turns on the protein →
-    codon boundary, which surfaces three ways:
+    The measured allele is the focus (``is_focus=True``, no derivation). Every *other* allele's
+    provenance turns on the protein → codon boundary, which surfaces three ways:
 
     - **protein assay** (``assay_level`` protein) → ``candidate`` for the whole derived (nucleotide)
       fan-out: reverse translation is genuinely ambiguous (which codon was measured is unknown).
@@ -199,8 +140,6 @@ def _derivation_for(
     ``coordinate_representation_of`` / ``translation_of`` ↔ ``projection``, protein-assay ``encodes`` ↔
     ``candidate``.
     """
-    if is_authoritative:
-        return AlleleDerivation.AUTHORITATIVE
     if assay_level == SequenceLevel.protein.value:
         return AlleleDerivation.CANDIDATE
     if is_cousin:
@@ -301,10 +240,11 @@ def get_variant_detail(
             level=allele.level,
             hgvs=allele.hgvs_g or allele.hgvs_c or allele.hgvs_p,
             clingen_allele_id=allele.clingen_allele_id,
+            is_focus=link.is_authoritative,
             relation=relation.value if relation is not None else None,
-            derivation=_derivation_for(
-                is_authoritative=link.is_authoritative, assay_level=assay_level, is_cousin=is_cousin
-            ).value,
+            derivation=(
+                None if link.is_authoritative else _derivation_for(assay_level=assay_level, is_cousin=is_cousin).value
+            ),
             projection_of=projection_of,
         )
 

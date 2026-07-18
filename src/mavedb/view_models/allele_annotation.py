@@ -2,9 +2,9 @@
 
 The pydantic serialization boundary over the ``lib.allele_annotations`` transit dataclasses
 (``from_attributes`` coerces them directly). These are the sparse, digest-keyed annotation blocks
-that ride *alongside* the spec-pure Cat-VRS on ``GET /variants/{urn}`` and are the allele's own block
-on ``GET /alleles/{digest}`` — so they live here, shared by both serving views rather than in either
-one's file.
+that ride *alongside* the spec-pure Cat-VRS on ``GET /variants/{urn}`` and alongside the cross-layer
+equivalence class on ``GET /alleles/{digest}`` — so they live here, shared by both serving views rather
+than in either one's file.
 """
 
 from typing import Optional

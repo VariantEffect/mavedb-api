@@ -31,7 +31,7 @@ from mavedb.lib.alleles import get_live_record_allele_links
 from mavedb.lib.logging.context import logging_context
 from mavedb.lib.vrs import vrs_object_from_mapped_variant
 from mavedb.models.allele import Allele
-from mavedb.models.enums.sequence_level import SequenceLevel
+from mavedb.models.enums.sequence_level import NUCLEOTIDE_LEVELS, SequenceLevel
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 
 logger = logging.getLogger(__name__)
@@ -63,9 +63,6 @@ class CatVrsMode(str, Enum):
     REVERSE_TRANSLATION = "reverse_translation"  # Mode 2 — protein measured; score is implied.
 
 
-_NUCLEOTIDE_LEVELS = {SequenceLevel.genomic.value, SequenceLevel.cdna.value}
-
-
 @dataclass
 class CategoricalVariantTransit:
     """The spec-pure Cat-VRS object plus the MaveDB layer that rides beside it."""
@@ -87,7 +84,7 @@ def is_convergent_cousin(
     - The member is in a different projection group than the defining (measured) allele.
     """
     return (
-        member_level in _NUCLEOTIDE_LEVELS
+        member_level in NUCLEOTIDE_LEVELS
         and member_group is not None
         and defining_group is not None
         and member_group != defining_group
@@ -109,12 +106,12 @@ def _relation_for(
     """
     # Protein measured. Every nt member encodes it, the protein member is the defining. Grouping is irrelevant.
     if defining_level == SequenceLevel.protein.value:
-        return CatVrsRelation.ENCODES if member_level in _NUCLEOTIDE_LEVELS else None
+        return CatVrsRelation.ENCODES if member_level in NUCLEOTIDE_LEVELS else None
 
     # Nt measured (genomic or cdna).
     if member_level == SequenceLevel.protein.value:
         return CatVrsRelation.TRANSLATION_OF
-    if member_level in _NUCLEOTIDE_LEVELS:
+    if member_level in NUCLEOTIDE_LEVELS:
         if is_convergent_cousin(member_level, member_group, defining_group=defining_group):
             return CatVrsRelation.CO_ENCODES
         return CatVrsRelation.COORDINATE_REPRESENTATION_OF

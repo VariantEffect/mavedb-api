@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.view_models.allele_annotation import AlleleAnnotations
+from mavedb.view_models.allele_identity import AlleleIdentity
 from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.score_calibration import SavedFunctionalClassification
 
@@ -25,34 +26,6 @@ class VariantClassification(BaseModel):
     calibration_id: int
     primary: bool
     classification: SavedFunctionalClassification
-
-    class Config:
-        from_attributes = True
-
-
-class AlleleIdentity(BaseModel):
-    """The MaveDB molecular-identity facts for one of the variant's linked alleles.
-
-    An entry of the ``alleles`` sidecar, keyed by VRS digest. ``level`` + ``hgvs`` (the reference-frame
-    HGVS) are what the UI labels the per-level annotation panel by — never the digest.
-
-    Three independent axes:
-    - ``relation`` (Cat-VRS, structural): member→defining relation; ``null`` when it *is* the measured
-      allele, or when the allele is not a Cat-VRS member.
-    - ``derivation`` (provenance): ``authoritative`` (measured) / ``projection`` (deterministic,
-      precise, derived from the measured change) / ``candidate`` (protein-assay reverse-translation,
-      ambiguous) / ``convergent`` (a distinct, precise nucleotide change that converges on the measured
-      protein consequence). Orthogonal to ``relation``. Do not conflate them.
-    - ``projectionOf`` (provenance): the VRS digest of this allele's projection sibling (the paired c↔g member of
-      its projection pair group); ``null`` for the protein apex and pre-reverse-translation data.
-    """
-
-    level: Optional[str] = None
-    hgvs: Optional[str] = None
-    clingen_allele_id: Optional[str] = None
-    relation: Optional[str] = None
-    derivation: Optional[str] = None
-    projection_of: Optional[str] = None
 
     class Config:
         from_attributes = True
