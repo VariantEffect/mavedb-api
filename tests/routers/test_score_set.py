@@ -19,12 +19,12 @@ fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
+from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
-from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.lean_variant import LeanVariant
@@ -64,6 +64,7 @@ from tests.helpers.constants import (
     VALID_CLINGEN_CA_ID,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
+from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
 from tests.helpers.util.common import (
     deepcamelize,
     parse_ndjson_response,
@@ -76,7 +77,6 @@ from tests.helpers.util.score_calibration import (
     create_publish_and_promote_score_calibration,
     create_test_score_calibration_in_score_set_via_client,
 )
-from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
 from tests.helpers.util.score_set import (
     create_seq_score_set,
     create_seq_score_set_with_mapped_variants,
@@ -1537,7 +1537,7 @@ def test_upload_score_set_variant_data_deletes_s3_files_when_pipeline_creation_f
 
     with (
         open(scores_csv_path, "rb") as scores_file,
-        patch("mavedb.routers.score_sets.PipelineFactory.create_pipeline", side_effect=Exception("pipeline failure")),
+        patch("mavedb.lib.workflow.kickoff.PipelineFactory.create_pipeline", side_effect=Exception("pipeline failure")),
         patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
         response = client.post(
@@ -2004,7 +2004,10 @@ def test_multiple_score_set_meta_analysis_single_experiment(
 
     published_score_set_1_refresh = (client.get(f"/api/v1/score-sets/{published_score_set_1['urn']}")).json()
     assert meta_score_set["metaAnalyzesScoreSetUrns"] == sorted(
-        [published_score_set_1["urn"], published_score_set_2["urn"]]
+        [
+            published_score_set_1["urn"],
+            published_score_set_2["urn"],
+        ]
     )
     assert published_score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
 
@@ -2044,7 +2047,10 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets(
     )
     published_score_set_1_refresh = (client.get(f"/api/v1/score-sets/{published_score_set_1['urn']}")).json()
     assert meta_score_set["metaAnalyzesScoreSetUrns"] == sorted(
-        [published_score_set_1["urn"], published_score_set_2["urn"]]
+        [
+            published_score_set_1["urn"],
+            published_score_set_2["urn"],
+        ]
     )
     assert published_score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
 
@@ -2086,7 +2092,10 @@ def test_multiple_score_set_meta_analysis_multiple_experiments(
     )
     published_score_set_1_refresh = (client.get(f"/api/v1/score-sets/{published_score_set_1['urn']}")).json()
     assert meta_score_set["metaAnalyzesScoreSetUrns"] == sorted(
-        [published_score_set_1["urn"], published_score_set_2["urn"]]
+        [
+            published_score_set_1["urn"],
+            published_score_set_2["urn"],
+        ]
     )
     assert published_score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
 
@@ -2142,7 +2151,10 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_different_sco
 
     published_score_set_1_1_refresh = (client.get(f"/api/v1/score-sets/{published_score_set_1_1['urn']}")).json()
     assert meta_score_set_1["metaAnalyzesScoreSetUrns"] == sorted(
-        [published_score_set_1_1["urn"], published_score_set_1_2["urn"]]
+        [
+            published_score_set_1_1["urn"],
+            published_score_set_1_2["urn"],
+        ]
     )
     assert published_score_set_1_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set_1["urn"]]
 
@@ -2159,7 +2171,10 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_different_sco
     )
     published_score_set_2_1_refresh = (client.get(f"/api/v1/score-sets/{published_score_set_2_1['urn']}")).json()
     assert meta_score_set_2["metaAnalyzesScoreSetUrns"] == sorted(
-        [published_score_set_2_1["urn"], published_score_set_2_2["urn"]]
+        [
+            published_score_set_2_1["urn"],
+            published_score_set_2_2["urn"],
+        ]
     )
     assert published_score_set_2_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set_2["urn"]]
 
@@ -2281,7 +2296,10 @@ def test_multiple_score_set_meta_analysis_single_experiment_with_different_creat
 
     published_score_set_1_refresh = (client.get(f"/api/v1/score-sets/{published_score_set_1['urn']}")).json()
     assert meta_score_set["metaAnalyzesScoreSetUrns"] == sorted(
-        [published_score_set_1["urn"], published_score_set_2["urn"]]
+        [
+            published_score_set_1["urn"],
+            published_score_set_2["urn"],
+        ]
     )
     assert published_score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
 
@@ -2323,7 +2341,10 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_with_differen
 
     published_score_set_1_refresh = (client.get(f"/api/v1/score-sets/{published_score_set_1['urn']}")).json()
     assert meta_score_set["metaAnalyzesScoreSetUrns"] == sorted(
-        [published_score_set_1["urn"], published_score_set_2["urn"]]
+        [
+            published_score_set_1["urn"],
+            published_score_set_2["urn"],
+        ]
     )
     assert published_score_set_1_refresh["metaAnalyzedByScoreSetUrns"] == [meta_score_set["urn"]]
 
@@ -3532,7 +3553,16 @@ def test_download_scores_and_counts_file(session, data_provider, client, setup_r
     download_scores_and_counts_csv = download_scores_and_counts_csv_response.text
     reader = csv.DictReader(StringIO(download_scores_and_counts_csv))
     assert sorted(reader.fieldnames) == sorted(
-        ["accession", "hgvs_nt", "hgvs_pro", "scores.score", "scores.s_0", "scores.s_1", "counts.c_0", "counts.c_1"]
+        [
+            "accession",
+            "hgvs_nt",
+            "hgvs_pro",
+            "scores.score",
+            "scores.s_0",
+            "scores.s_1",
+            "counts.c_0",
+            "counts.c_1",
+        ]
     )
 
 

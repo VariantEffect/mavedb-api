@@ -44,11 +44,7 @@ from mavedb.lib.identifiers import (
     find_or_create_publication_identifier,
 )
 from mavedb.lib.logging import LoggedRoute
-from mavedb.lib.logging.context import (
-    correlation_id_for_context,
-    logging_context,
-    save_to_logging_context,
-)
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_calibrations import create_score_calibration
 from mavedb.lib.score_set_variants import get_lean_score_set_variants
@@ -75,14 +71,13 @@ from mavedb.lib.urns import (
     generate_experiment_urn,
     generate_score_set_urn,
 )
-from mavedb.lib.workflow.pipeline_factory import PipelineFactory
+from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
-from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
@@ -105,44 +100,12 @@ from mavedb.view_models.publication_identifier import PublicationIdentifierCreat
 from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 from mavedb.view_models.search import ScoreSetsSearch, ScoreSetsSearchFilterOptionsResponse, ScoreSetsSearchResponse
 from mavedb.view_models.target_gene import TargetGeneCreate
-from mavedb.worker.lib.managers.utils import arq_job_id
 
 TAG_NAME = "Score Sets"
 logger = logging.getLogger(__name__)
 
 SCORE_SET_SEARCH_MAX_LIMIT = 100
 SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS = 40
-
-
-async def enqueue_pipeline_entrypoint(
-    *,
-    db: Session,
-    worker: ArqRedis,
-    pipeline_name: str,
-    creating_user: Any,
-    pipeline_params: dict[str, Any],
-) -> None:
-    pipeline_factory = PipelineFactory(session=db)
-    pipeline: Optional[Pipeline] = None
-
-    try:
-        pipeline, pipeline_entrypoint = pipeline_factory.create_pipeline(
-            pipeline_name=pipeline_name,
-            creating_user=creating_user,
-            pipeline_params=pipeline_params,
-        )
-        job = await worker.enqueue_job(
-            pipeline_entrypoint.job_function, pipeline_entrypoint.id, _job_id=arq_job_id(pipeline_entrypoint)
-        )
-    except Exception:
-        pipeline_factory.discard_pipeline(pipeline)
-        raise
-
-    if job is None:
-        logger.info(msg=f"Pipeline entrypoint for {pipeline_name} has already been enqueued.", extra=logging_context())
-    else:
-        save_to_logging_context({"worker_job_id": job.job_id})
-        logger.info(msg=f"Enqueued pipeline entrypoint for {pipeline_name}.", extra=logging_context())
 
 
 async def enqueue_variant_creation(
@@ -212,15 +175,13 @@ async def enqueue_variant_creation(
             )
 
     try:
-        await enqueue_pipeline_entrypoint(
+        await enqueue_pipeline_for_score_set(
             db=db,
-            worker=worker,
+            redis=worker,
             pipeline_name="validate_map_annotate_score_set",
-            creating_user=user_data.user,
-            pipeline_params={
-                "correlation_id": correlation_id_for_context(),
-                "score_set_id": item.id,
-                "updater_id": user_data.user.id,
+            score_set=item,
+            user=user_data.user,
+            extra_params={
                 "scores_file_key": scores_file_key,
                 "counts_file_key": counts_file_key,
                 "score_columns_metadata": item.dataset_columns.get("score_columns_metadata")
@@ -2461,12 +2422,12 @@ async def publish_score_set(
     db.refresh(item)
 
     try:
-        await enqueue_pipeline_entrypoint(
+        await enqueue_pipeline_for_score_set(
             db=db,
-            worker=worker,
+            redis=worker,
             pipeline_name="publish_score_set",
-            creating_user=user_data.user,
-            pipeline_params={"correlation_id": correlation_id_for_context(), "score_set_id": item.id},
+            score_set=item,
+            user=user_data.user,
         )
     except Exception as exc:
         logger.warning(
