@@ -1,4 +1,4 @@
-"""The allele-detail view backing ``GET /alleles/{digest:CAID}``.
+"""The allele-detail view backing ``GET /alleles/{digest|CAID}``.
 
 The allele-grain sibling of :mod:`lib.variant_detail`. Where the variant view anchors on a
 *measurement*, this anchors on an *allele* (a VRS digest, or a CAID naming the nt-canonical change)
