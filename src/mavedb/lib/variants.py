@@ -77,7 +77,7 @@ def get_hgvs_from_post_mapped(post_mapped_vrs: Optional[Any], *, combine_cis: bo
 
     if post_mapped_vrs["type"] in ("Haplotype", "CisPhasedBlock"):  # type: ignore
         members = post_mapped_vrs["members"]
-    elif post_mapped_vrs["type"] == "Allele":  # type: ignore
+    elif post_mapped_vrs["type"] in ("Allele", "VariationDescriptor"):  # type: ignore
         members = [post_mapped_vrs]
     else:
         return None
