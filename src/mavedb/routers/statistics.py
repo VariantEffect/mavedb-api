@@ -345,7 +345,7 @@ def record_mapped_variant_counts(db: Session = Depends(get_db)) -> dict[str, int
     within a given record.
     """
     variants = db.execute(
-        select(PublishedVariantsMV.score_set_urn, func.count(PublishedVariantsMV.mapped_variant_id))
+        select(PublishedVariantsMV.score_set_urn, func.count(PublishedVariantsMV.mapping_record_id))
         .group_by(PublishedVariantsMV.score_set_urn)
         .order_by(PublishedVariantsMV.score_set_urn)
     ).all()
@@ -650,10 +650,10 @@ def mapped_variant_counts(
     """
     # Fast path: total distinct mapped variants (optionally only current) without per-date aggregation.
     if group is None:
-        total_stmt = select(func.count(func.distinct(PublishedVariantsMV.mapped_variant_id)))
+        total_stmt = select(func.count(func.distinct(PublishedVariantsMV.mapping_record_id)))
 
         if onlyCurrent:
-            total_stmt = total_stmt.where(PublishedVariantsMV.current_mapped_variant.is_(True))
+            total_stmt = total_stmt.where(PublishedVariantsMV.current_mapping_record.is_(True))
 
         total = db.execute(total_stmt).scalar_one()  # type: ignore
         return OrderedDict([("count", total)])
@@ -661,11 +661,11 @@ def mapped_variant_counts(
     # Grouped path: materialize distinct counts per published_date, then roll up.
     per_date_stmt = select(
         PublishedVariantsMV.published_date,
-        func.count(func.distinct(PublishedVariantsMV.mapped_variant_id)),
+        func.count(func.distinct(PublishedVariantsMV.mapping_record_id)),
     )
 
     if onlyCurrent:
-        per_date_stmt = per_date_stmt.where(PublishedVariantsMV.current_mapped_variant.is_(True))
+        per_date_stmt = per_date_stmt.where(PublishedVariantsMV.current_mapping_record.is_(True))
 
     per_date = db.execute(
         per_date_stmt.group_by(PublishedVariantsMV.published_date).order_by(PublishedVariantsMV.published_date)
