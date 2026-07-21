@@ -10,7 +10,16 @@ class EventReason(str, Enum):
     contributes its own pre-existing domain enum instead of duplicating here: ``mapping`` uses
     ``MappingOutcome`` (mapped / intronic / no_protein_consequence / failed), which mirrors the
     external dcd-mapping vocabulary. The full ``reason`` vocabulary is this enum plus that one.
+
+    ``MIGRATED`` is the one exception to "reason means what happened": it deliberately does not
+    distinguish created/preexisting/reconfirmed etc., because a one-off data migration reconstructing
+    state from a legacy source cannot know which of those actually happened historically — only
+    ``disposition`` (present/absent/failed) is knowable there. Using it elsewhere would misrepresent a
+    live job's real observation as a backfill guess.
     """
+
+    # spans present / absent / failed — a reconstructed observation, not a live run
+    MIGRATED = "migrated"  # state reconstructed from a world lacking now required context; no per-run history
 
     # present — we hold the result / the step succeeded
     CREATED = "created"  # linked/registered this run (gnomAD, ClinVar, CAR)
