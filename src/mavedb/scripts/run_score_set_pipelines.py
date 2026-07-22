@@ -9,8 +9,10 @@ Two selection modes:
   ones, whose records carry the old ``mapped_date`` and so need a real re-map under the upgraded
   pipeline.
 * ``--select unenriched`` → runs ``annotate_score_set`` over mapped score sets that have not yet had
-  the reverse-translation fan-out (no derived, non-authoritative live allele link). This is the
-  post-backfill enrichment half.
+  the reverse-translation fan-out (no derived, non-authoritative live allele link) **and** have a
+  transcript reverse translation can use. The transcript gate excludes score sets whose every
+  variant would skip as ``transcript_unresolved``, which would otherwise be re-selected forever and
+  waste worker cycles. This is the post-backfill enrichment half.
 
 **Throughput — gene-grouped ordering.** Score sets whose variants resolve to the same CAIDs/PAIDs
 cache the expensive ClinGen CAR resolution (24h TTL) and reuse already-deduplicated alleles. So by
@@ -41,16 +43,18 @@ from typing import Optional
 
 import asyncclick as click
 from arq import create_pool
-from sqlalchemy import and_, not_, select
+from sqlalchemy import and_, func, not_, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from mavedb.db.session import SessionLocal
 from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set
 from mavedb.models.enums.processing_state import ProcessingState
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
+from mavedb.models.target_gene_mapping import TargetGeneMapping
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.worker.settings import RedisWorkerSettings
@@ -104,7 +108,7 @@ def _needs_mapping(remap_before: datetime.date):
     return variant_needing_mapping.exists()
 
 
-def _needs_enrichment():
+def _mapped_without_enrichment():
     """Predicate: the score set is mapped (a live MappingRecord) but has no reverse-translation-derived
     (non-authoritative) live allele link yet."""
     has_live_record = (
@@ -124,6 +128,63 @@ def _needs_enrichment():
         )
     )
     return and_(has_live_record.exists(), not_(has_derived_link.exists()))
+
+
+def _has_usable_transcript():
+    """Predicate: the score set has a transcript that reverse translation can use.
+
+    Mirrors the two transcript sources in
+    ``worker/jobs/variant_processing/reverse_translation.py``: a cdna ``TargetGeneMapping``'s
+    ``reference_accession`` (the mapper-supplied coding transcript), and a RefSeq protein
+    (``NP_``/``XP_``) ``hgvs_assay_level`` on a live ``MappingRecord`` (resolved ``NP_``→``NM_`` via
+    UTA). A score set with neither would have every variant skip as ``transcript_unresolved``, so
+    the unenriched selection excludes it rather than re-queue it forever."""
+    has_cdna_transcript = (
+        select(TargetGeneMapping.id)
+        .join(TargetGene, TargetGene.id == TargetGeneMapping.target_gene_id)
+        .where(
+            TargetGene.score_set_id == ScoreSet.id,
+            TargetGeneMapping.alignment_level == SequenceLevel.cdna,
+            TargetGeneMapping.reference_accession.isnot(None),
+        )
+    )
+    # `_` is a LIKE wildcard, so escape it to match the literal underscore in the RefSeq prefix.
+    has_refseq_protein_record = (
+        select(MappingRecord.id)
+        .join(Variant, Variant.id == MappingRecord.variant_id)
+        .where(
+            Variant.score_set_id == ScoreSet.id,
+            MappingRecord.valid_to.is_(None),
+            or_(
+                MappingRecord.hgvs_assay_level.like(r"NP\_%", escape="\\"),
+                MappingRecord.hgvs_assay_level.like(r"XP\_%", escape="\\"),
+            ),
+        )
+    )
+    return or_(has_cdna_transcript.exists(), has_refseq_protein_record.exists())
+
+
+def _needs_enrichment():
+    """Predicate: the score set is mapped-but-not-enriched AND has a usable transcript, so
+    ``annotate_score_set``'s reverse-translation step has something to translate against."""
+    return and_(_mapped_without_enrichment(), _has_usable_transcript())
+
+
+def count_unenrichable_without_transcript(db: Session, *, only_published: bool = True) -> int:
+    """Count mapped-but-not-enriched score sets that ``--select unenriched`` skips for lack of a
+    usable transcript, so the operator sees they were intentionally dropped (not lost)."""
+    query = (
+        select(func.count())
+        .select_from(ScoreSet)
+        .where(
+            ScoreSet.processing_state == ProcessingState.success,
+            _mapped_without_enrichment(),
+            not_(_has_usable_transcript()),
+        )
+    )
+    if only_published:
+        query = query.where(ScoreSet.private.is_(False), ScoreSet.published_date.isnot(None))
+    return db.scalar(query) or 0
 
 
 def select_score_sets(
@@ -226,6 +287,11 @@ async def main(
             limit=limit,
         )
         click.echo(f"{len(score_sets)} score set(s) selected ({phase}) for pipeline '{pipeline}'.")
+
+        if phase == "unenriched" and not force:
+            skipped = count_unenrichable_without_transcript(db, only_published=not include_unpublished)
+            if skipped:
+                click.echo(f"  ({skipped} mapped score set(s) skipped: no usable transcript for reverse translation.)")
 
         if dry_run:
             for score_set in score_sets:
