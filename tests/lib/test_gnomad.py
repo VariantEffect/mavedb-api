@@ -1,6 +1,6 @@
 # ruff: noqa: E402
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from sqlalchemy import select
@@ -22,6 +22,7 @@ from mavedb.models.gnomad_variant import GnomADVariant
 from tests.helpers.constants import (
     TEST_GNOMAD_DATA_VERSION,
     TEST_GNOMAD_VARIANT,
+    TEST_MAVEDB_ATHENA_ROW,
 )
 
 ### Tests for gnomad_identifier function ###
@@ -146,6 +147,18 @@ def _make_allele(session, caid, *, vrs_digest, level="genomic"):
     session.commit()
     session.refresh(allele)
     return allele
+
+
+def _make_gnomad_row(**overrides):
+    """Build an Athena-style gnomAD row Mock from the canonical test row, applying overrides.
+
+    Mirrors the ``mocked_gnomad_variant_row`` fixture but takes overrides so a test can construct a
+    batch of distinct rows (different CAIDs, loci) in one call.
+    """
+    row = Mock()
+    for key, value in {**TEST_MAVEDB_ATHENA_ROW, **overrides}.items():
+        setattr(row, key, value)
+    return row
 
 
 def _live_links_for(session, allele_id):
@@ -322,6 +335,44 @@ def test_links_allele_when_dump_strips_leading_zero_from_caid(session, mocked_gn
         session.commit()
 
     assert len(_live_links_for(session, allele.id)) == 1
+
+
+def test_links_a_batch_of_rows_in_one_pass(session):
+    """Multiple rows in one call are resolved by a single batched allele lookup, then grouped by
+    normalized CAID. Exercises everything the batching must preserve at once: distinct CAIDs each
+    reach their own allele, a zero-padded stored CAID still matches a dump-stripped row (#722), and a
+    CAID shared across alleles fans its variant out to each — all without a per-row query."""
+    # Row A: allele stored zero-padded, dump delivers the stripped form.
+    allele_a = _make_allele(session, "CA025094", vrs_digest="vrs-a")
+    row_a = _make_gnomad_row(caid="CA25094")
+    row_a.__setattr__("locus.position", "87961093")  # identifier 10-87961093-A-G
+
+    # Row B: a different CAID at a different locus, shared by two alleles (cross-score-set dedup).
+    allele_b1 = _make_allele(session, "CA341478553", vrs_digest="vrs-b1")
+    allele_b2 = _make_allele(session, "CA341478553", vrs_digest="vrs-b2", level="cdna")
+    row_b = _make_gnomad_row(caid="CA341478553")
+    row_b.__setattr__("locus.position", "87961094")  # identifier 10-87961094-A-G
+
+    with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
+        result = link_gnomad_variants_to_alleles(session, [row_a, row_b])
+        assert result == {
+            allele_a.id: GnomadLinkVerdict.CREATED,
+            allele_b1.id: GnomadLinkVerdict.CREATED,
+            allele_b2.id: GnomadLinkVerdict.CREATED,
+        }
+        session.commit()
+
+    # Each allele ends with exactly one live link.
+    for allele in (allele_a, allele_b1, allele_b2):
+        assert len(_live_links_for(session, allele.id)) == 1
+
+    # Two distinct gnomAD variants (one per row's identifier); B's two alleles share row B's variant.
+    assert len(session.scalars(select(GnomADVariant)).all()) == 2
+    b1_variant = _live_links_for(session, allele_b1.id)[0].gnomad_variant_id
+    b2_variant = _live_links_for(session, allele_b2.id)[0].gnomad_variant_id
+    a_variant = _live_links_for(session, allele_a.id)[0].gnomad_variant_id
+    assert b1_variant == b2_variant
+    assert a_variant != b1_variant
 
 
 def test_returns_empty_map_when_no_alleles_match(session, mocked_gnomad_variant_row):

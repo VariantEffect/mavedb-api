@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+from collections import defaultdict
 from enum import Enum
 from typing import Any, Sequence, Union
 
@@ -188,20 +189,26 @@ def link_gnomad_variants_to_alleles(
     save_to_logging_context({"num_gnomad_variant_rows": len(gnomad_variant_data)})
     logger.debug(msg="Linking gnomAD variants to alleles", extra=logging_context())
 
+    # Resolve all rows' alleles in one query, then group in Python. The regexp_replace predicate
+    # (normalizing the zero-padded stored CAID to the dump's stripped form, #722) is non-sargable, so
+    # a per-row query would seq-scan `alleles` once per variant; one IN scan replaces those N scans.
+    target_caids = {normalize_caid(row.caid) for row in gnomad_variant_data}
+    alleles_by_caid: dict[str, list[Allele]] = defaultdict(list)
+    if target_caids:
+        for allele in db.scalars(
+            select(Allele).where(
+                func.regexp_replace(Allele.clingen_allele_id, _CAID_LEADING_ZERO_RE, r"\1\2").in_(target_caids)
+            )
+        ).all():
+            alleles_by_caid[normalize_caid(allele.clingen_allele_id)].append(allele)
+
     verdicts: dict[int, GnomadLinkVerdict] = {}
     for index, row in enumerate(gnomad_variant_data, start=1):
         logger.info(
             msg=f"Processing gnomAD variant row {index}/{len(gnomad_variant_data)}: {row.caid}", extra=logging_context()
         )
 
-        # Match on the unpadded CAID: the dump's caid is already stripped, while the stored CAID may
-        # be zero-padded, so normalize both sides (issue #722). regexp_replace mirrors normalize_caid.
-        alleles_with_caid = db.scalars(
-            select(Allele).where(
-                func.regexp_replace(Allele.clingen_allele_id, _CAID_LEADING_ZERO_RE, r"\1\2")
-                == normalize_caid(row.caid)
-            )
-        ).all()
+        alleles_with_caid = alleles_by_caid.get(normalize_caid(row.caid), [])
         if not alleles_with_caid:
             continue
 
