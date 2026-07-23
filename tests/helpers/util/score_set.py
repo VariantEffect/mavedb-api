@@ -8,8 +8,6 @@ import jsonschema
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from mavedb.models.clinical_control import ClinvarControl as ClinicalControlDbModel
-from mavedb.models.gnomad_variant import GnomADVariant as GnomADVariantDbModel
 from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
@@ -205,7 +203,7 @@ def create_acc_score_set_with_variants(
     return score_set
 
 
-def seed_annotation_substrate(db, score_set, *, skip_first=False):
+def seed_annotation_substrate(db, score_set, *, skip_first=False, pre_mapped=None):
     """Give a score set's variants a live ``MappingRecord`` with one authoritative allele.
 
     The VA endpoints build a ``VariantAnnotationContext`` from the ``MappingRecord`` / ``Allele``
@@ -214,7 +212,8 @@ def seed_annotation_substrate(db, score_set, *, skip_first=False):
     mirrors what the mapping pipeline writes. (Global seeding from ``mock_worker_vrs_mapping`` is
     deferred to Slice 5.2/5.3, where it can be reconciled with the clinical-controls seeding.)
 
-    With ``skip_first=True`` the first variant is left un-mapped on the new substrate (for the
+    ``pre_mapped`` sets the assayed-level VRS on each record (the flat ``preMapped`` on the variant
+    detail). With ``skip_first=True`` the first variant is left un-mapped on the new substrate (for the
     "some variants were not mapped" cases). Returns the score set's variants in id order.
     """
     variants = db.scalars(
@@ -227,6 +226,7 @@ def seed_annotation_substrate(db, score_set, *, skip_first=False):
         seed_mapping_record(
             db,
             variant,
+            pre_mapped=pre_mapped,
             alleles=[
                 AlleleSpec(
                     digest=f"va-allele-{variant.id}",
@@ -236,6 +236,82 @@ def seed_annotation_substrate(db, score_set, *, skip_first=False):
                 )
             ],
         )
+    return variants
+
+
+def seed_csv_substrate(
+    db,
+    score_set,
+    *,
+    assay_level="genomic",
+    hgvs_g=None,
+    hgvs_c=None,
+    hgvs_p=None,
+    vep_consequence=None,
+    clingen_allele_id=None,
+    gnomad_variant_ids=(),
+    clinvar_control_ids=(),
+    annotate="all",
+    valid_from=None,
+):
+    """Seed every variant of a score set with a live mapping record on the allele substrate, shaped for the
+    CSV export reader (``get_score_set_variants_as_csv``).
+
+    The authoritative allele sits at ``assay_level`` and carries the annotations the ``vep``/``clingen``/
+    ``gnomad``/``clinvar`` namespaces read (VEP consequence, ClinGen id, gnomAD/ClinVar links). For a
+    nucleotide assay, a projection-group sibling at the other nucleotide level and a protein apex allele are
+    added so the ``post_mapped_hgvs_{g,c,p}`` triple reconstructs the same way the lean view does. ``hgvs_g``/
+    ``hgvs_c``/``hgvs_p`` supply the canonical string at each level (the one at ``assay_level`` is also the
+    record's ``hgvs_assay_level``). ``annotate`` controls which variants get the authoritative-allele
+    annotations: ``"all"`` (every variant) or ``"first"`` (only the first, for "one linked control" cases).
+    """
+    variants = db.scalars(
+        select(VariantDbModel)
+        .join(ScoreSetDbModel)
+        .where(ScoreSetDbModel.urn == score_set["urn"])
+        .order_by(VariantDbModel.id)
+    ).all()
+    level_hgvs = {"genomic": hgvs_g, "cdna": hgvs_c, "protein": hgvs_p}
+    assay_hgvs = level_hgvs[assay_level]
+
+    for index, variant in enumerate(variants):
+        annotated = annotate == "all" or index == 0
+        specs = [
+            AlleleSpec(
+                digest=f"csv-auth-{variant.id}",
+                level=assay_level,
+                is_authoritative=True,
+                projection_group=0,
+                hgvs_g=hgvs_g if assay_level == "genomic" else None,
+                hgvs_c=hgvs_c if assay_level == "cdna" else None,
+                hgvs_p=hgvs_p if assay_level == "protein" else None,
+                vep_consequence=vep_consequence if annotated else None,
+                clingen_allele_id=clingen_allele_id if annotated else None,
+                gnomad_variant_ids=tuple(gnomad_variant_ids) if annotated else (),
+                clinvar_control_ids=tuple(clinvar_control_ids) if annotated else (),
+            )
+        ]
+        # Nucleotide assay: add the other-nucleotide projection sibling and the protein apex so the
+        # g/c/p triple reconstructs. A protein assay populates only the protein slot (no c/g fan-out).
+        if assay_level in ("genomic", "cdna"):
+            other_level = "cdna" if assay_level == "genomic" else "genomic"
+            if level_hgvs[other_level] is not None:
+                specs.append(
+                    AlleleSpec(
+                        digest=f"csv-sib-{variant.id}",
+                        level=other_level,
+                        projection_group=0,
+                        hgvs_g=hgvs_g if other_level == "genomic" else None,
+                        hgvs_c=hgvs_c if other_level == "cdna" else None,
+                    )
+                )
+            if hgvs_p is not None:
+                specs.append(AlleleSpec(digest=f"csv-prot-{variant.id}", level="protein", hgvs_p=hgvs_p))
+
+        seed_mapping_record(
+            db, variant, assay_level=assay_level, hgvs_assay_level=assay_hgvs, alleles=specs, valid_from=valid_from
+        )
+
     return variants
 
 
@@ -263,41 +339,6 @@ def link_clinical_controls_to_alleles(db, score_set):
         variants[1],
         alleles=[AlleleSpec(digest="clinical-control-allele-1", is_authoritative=True, clinvar_control_ids=[2])],
     )
-
-
-def link_clinvar_control_to_mapped_variant(db, score_set):
-    """Link the seeded ClinVar clinical control (id=1) to the first mapped variant of a score set."""
-    mapped_variants = db.scalars(
-        select(MappedVariantDbModel)
-        .join(VariantDbModel)
-        .join(ScoreSetDbModel)
-        .where(ScoreSetDbModel.urn == score_set["urn"])
-    ).all()
-
-    mapped_variants[0].clinical_controls.append(
-        db.scalar(select(ClinicalControlDbModel).where(ClinicalControlDbModel.id == 1))
-    )
-
-    db.add(mapped_variants[0])
-    db.commit()
-
-
-def link_gnomad_variants_to_mapped_variants(db, score_set):
-    mapped_variants = db.scalars(
-        select(MappedVariantDbModel)
-        .join(VariantDbModel)
-        .join(ScoreSetDbModel)
-        .where(ScoreSetDbModel.urn == score_set["urn"])
-    ).all()
-
-    # The first mapped variant gets the gnomAD variant.
-    mapped_variants[0].gnomad_variants.append(
-        db.scalar(select(GnomADVariantDbModel).where(GnomADVariantDbModel.id == 1))
-    )
-
-    db.add(mapped_variants[0])
-    db.add(mapped_variants[1])
-    db.commit()
 
 
 def mock_worker_vrs_mapping(client, db, score_set, alleles=True):
