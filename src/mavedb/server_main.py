@@ -52,6 +52,7 @@ from mavedb.routers import (
     hgvs,
     job_runs,
     licenses,
+    mapped_variant,
     orcid,
     permissions,
     pipelines,
@@ -106,6 +107,7 @@ app.include_router(hgvs.router)
 app.include_router(job_runs.router)
 app.include_router(licenses.router)
 # app.include_router(log.router)
+app.include_router(mapped_variant.router)
 app.include_router(orcid.router)
 app.include_router(permissions.router)
 app.include_router(pipelines.router)

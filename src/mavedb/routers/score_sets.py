@@ -88,6 +88,7 @@ from mavedb.routers.shared import (
     ACCESS_CONTROL_ERROR_RESPONSES,
     BASE_400_RESPONSE,
     BASE_409_RESPONSE,
+    BASE_RESPONSES,
     GATEWAY_ERROR_RESPONSES,
     PUBLIC_ERROR_RESPONSES,
     ROUTER_BASE_PREFIX,
@@ -969,6 +970,30 @@ async def get_score_set_variant_details(
             "X-Stream-Type": "variant-detail",
             "Access-Control-Expose-Headers": "X-As-Of, X-Total-Count, X-Processing-Started, X-Stream-Type",
         },
+    )
+
+
+@router.get(
+    "/score-sets/{urn}/mapped-variants",
+    status_code=410,
+    deprecated=True,
+    responses={410: BASE_RESPONSES[410]},
+    summary="Removed; see GET /score-sets/{urn}/variant-details",
+)
+def get_score_set_mapped_variants_removed(*, urn: str) -> Any:
+    """This endpoint has been permanently removed.
+
+    Its JSON-array response has been replaced by a streaming NDJSON payload with a different
+    field shape (flat ``preMapped``/``postMapped`` VRS pair rather than a ``MappedVariant``-keyed
+    record), so the two are not wire-compatible and this route does not redirect. Use
+    ``GET /score-sets/{urn}/variant-details`` instead.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            f"GET /score-sets/{urn}/mapped-variants has been removed. "
+            f"Use GET /score-sets/{urn}/variant-details instead."
+        ),
     )
 
 

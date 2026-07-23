@@ -4265,6 +4265,19 @@ def test_cannot_get_variant_details_for_nonexistent_score_set(client, setup_rout
     assert response.status_code == 404
 
 
+def test_score_set_mapped_variants_is_permanently_removed(client):
+    """The old JSON-array ``mapped-variants`` route is gone in favor of the streaming NDJSON
+    ``variant-details`` route; it returns 410 rather than redirecting since the two are not
+    wire-compatible."""
+    urn = "urn:mavedb:00000001-a-1"
+    response = client.get(f"/api/v1/score-sets/{urn}/mapped-variants")
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == (
+        f"GET /score-sets/{urn}/mapped-variants has been removed. Use GET /score-sets/{urn}/variant-details instead."
+    )
+
+
 def test_get_score_set_variant_details_honors_as_of(client, session, data_provider, data_files, setup_router_db):
     """``as_of`` time-travels the molecular layer: a far-future instant sees the freshly-seeded substrate
     as live (the full set), a far-past instant sees no live mapping (an empty stream). Either way 200 —
