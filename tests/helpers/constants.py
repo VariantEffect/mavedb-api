@@ -2147,7 +2147,7 @@ TEST_SAVED_GNOMAD_VARIANT = {
     "faf95MaxAncestry": TEST_GNOMAD_FAF95_MAX_ANCESTRY,
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
-    "recordType": "GnomADVariantWithMappedVariants",
+    "recordType": "GnomADVariantWithVariantLinks",
     "id": 1,  # Presuming this is the only gnomAD variant in the database
 }
 

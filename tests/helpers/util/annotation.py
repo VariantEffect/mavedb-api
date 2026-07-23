@@ -60,11 +60,13 @@ def seed_mapping_record(
     assay_level: str = "cdna",
     hgvs_assay_level: Optional[str] = None,
     mapping_api_version: str = "test.0.0",
+    pre_mapped: Optional[dict] = None,
     valid_from: Optional[datetime] = None,
 ) -> MappingRecord:
     """Give ``variant`` a live mapping record carrying ``alleles`` and their annotations.
 
-    ``variant`` may be a ``Variant`` instance or its URN. When ``valid_from`` is set it stamps the
+    ``variant`` may be a ``Variant`` instance or its URN. ``pre_mapped`` sets the record's assayed-level
+    VRS (the flat ``preMapped`` field on the variant detail). When ``valid_from`` is set it stamps the
     record, its allele links, and every annotation link, so ``as_of`` reconstruction tests can place
     the whole graph at a chosen instant (absent it, ``valid_from`` defaults to ``now()`` and the row
     is live). Returns the created ``MappingRecord``.
@@ -79,6 +81,7 @@ def seed_mapping_record(
         assay_level=assay_level,
         hgvs_assay_level=hgvs_assay_level,
         mapping_api_version=mapping_api_version,
+        pre_mapped=pre_mapped,
     )
     if valid_from is not None:
         record.valid_from = valid_from

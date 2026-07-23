@@ -140,11 +140,13 @@ def test_get_variant_detail_envelope(client, session, data_provider, data_files,
     assert body["alleles"]["cdna-digest"]["level"] == "cdna"
     assert body["alleles"]["cdna-digest"]["hgvs"] == "NM_000546.6:c.1216G>A"
     assert body["alleles"]["cdna-digest"]["clingenAlleleId"] == "CA123"
-    assert "relation" not in body["alleles"]["cdna-digest"]  # null relation dropped by exclude_none
+    assert (
+        body["alleles"]["cdna-digest"]["relation"] is None
+    )  # measured allele: no relation to itself (null, not dropped)
     # The measured allele is the focus (isFocus); it carries no derivation (that axis describes the
     # *other* members relative to it), and pairs with its genomic projection sibling (projectionOf).
     assert body["alleles"]["cdna-digest"]["isFocus"] is True
-    assert "derivation" not in body["alleles"]["cdna-digest"]  # null derivation dropped by exclude_none
+    assert body["alleles"]["cdna-digest"]["derivation"] is None  # null, not dropped (exclude_none=False)
     assert body["alleles"]["cdna-digest"]["projectionOf"] == "gen-digest"
     assert body["alleles"]["gen-digest"]["isFocus"] is False
     assert body["alleles"]["gen-digest"]["relation"] == "coordinate_representation_of"
@@ -153,16 +155,16 @@ def test_get_variant_detail_envelope(client, session, data_provider, data_files,
     assert body["alleles"]["prot-digest"]["level"] == "protein"
     assert body["alleles"]["prot-digest"]["hgvs"] == "NP_000537.3:p.Ala406Thr"
     assert body["alleles"]["prot-digest"]["relation"] == "translation_of"
-    # The apex is a deterministic projection here but pairs with nothing (projectionOf dropped as null).
+    # The apex is a deterministic projection here but pairs with nothing (projectionOf is null).
     assert body["alleles"]["prot-digest"]["derivation"] == "projection"
-    assert "projectionOf" not in body["alleles"]["prot-digest"]
+    assert body["alleles"]["prot-digest"]["projectionOf"] is None
     # The synonymous cousin (different projection group) surfaces as a member wearing co_encodes and is
     # labelled `convergent` (a distinct change sharing the consequence, not an ambiguous candidate).
     assert body["alleles"]["cousin-digest"]["relation"] == "co_encodes"
     assert body["alleles"]["cousin-digest"]["derivation"] == "convergent"
     assert body["annotations"]["cdna-digest"]["vep"]["consequence"] == "missense_variant"
     assert body["isCurrent"] is True
-    assert "supersededByScoreSet" not in body  # dropped by exclude_none when current
+    assert body["supersededByScoreSet"] is None  # null when current (stable envelope, not dropped)
     assert response.headers["X-As-Of"] == "current"
 
 
@@ -182,8 +184,8 @@ def test_get_variant_detail_echoes_as_of_header(client, session, data_provider, 
 
     assert historical.status_code == 200
     assert historical.headers["X-As-Of"] == "2020-01-01T00:00:00+00:00"
-    # Before any mapping existed, the molecular layer is empty.
-    assert "molecularRepresentation" not in historical.json()
+    # Before any mapping existed, the molecular layer is empty — the stable envelope carries it as null.
+    assert historical.json()["molecularRepresentation"] is None
 
 
 def test_superseded_variant_self_describes(client, session, data_provider, data_files, setup_router_db):

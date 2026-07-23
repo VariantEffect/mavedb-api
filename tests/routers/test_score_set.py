@@ -25,6 +25,7 @@ from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
+from mavedb.models.gnomad_variant import GnomADVariant as GnomADVariantDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.lean_variant import LeanVariant
@@ -61,6 +62,8 @@ from tests.helpers.constants import (
     TEST_SAVED_GNOMAD_VARIANT,
     TEST_SAVED_TAXONOMY,
     TEST_USER,
+    TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
+    TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
     VALID_CLINGEN_CA_ID,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
@@ -82,14 +85,12 @@ from tests.helpers.util.score_set import (
     create_seq_score_set_with_mapped_variants,
     create_seq_score_set_with_variants,
     link_clinical_controls_to_alleles,
-    link_clinvar_control_to_mapped_variant,
-    link_gnomad_variants_to_mapped_variants,
     publish_score_set,
     seed_annotation_substrate,
+    seed_csv_substrate,
 )
 from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import (
-    create_mapped_variants_for_score_set,
     mock_worker_variant_insertion,
 )
 
@@ -3399,7 +3400,17 @@ def test_download_variants_data_file(
     score_set = create_seq_score_set(client, experiment["urn"])
     score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
     if mapped_variant is not None:
-        create_mapped_variants_for_score_set(session, score_set["urn"], mapped_variant)
+        if has_hgvs_g:
+            seed_csv_substrate(
+                session,
+                score_set,
+                assay_level="genomic",
+                hgvs_g=mapped_variant["hgvs_g"],
+                hgvs_c=mapped_variant["hgvs_c"],
+                hgvs_p=mapped_variant["hgvs_p"],
+            )
+        elif has_hgvs_p:
+            seed_csv_substrate(session, score_set, assay_level="protein", hgvs_p=mapped_variant["hgvs_p"])
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         published_score_set = publish_score_set(client, score_set["urn"])
@@ -3584,7 +3595,17 @@ def test_download_scores_counts_and_post_mapped_variants_file(
         client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
     )
     if mapped_variant is not None:
-        create_mapped_variants_for_score_set(session, score_set["urn"], mapped_variant)
+        if has_hgvs_g:
+            seed_csv_substrate(
+                session,
+                score_set,
+                assay_level="genomic",
+                hgvs_g=mapped_variant["hgvs_g"],
+                hgvs_c=mapped_variant["hgvs_c"],
+                hgvs_p=mapped_variant["hgvs_p"],
+            )
+        elif has_hgvs_p:
+            seed_csv_substrate(session, score_set, assay_level="protein", hgvs_p=mapped_variant["hgvs_p"])
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         published_score_set = publish_score_set(client, score_set["urn"])
@@ -3622,8 +3643,14 @@ def test_download_vep_file_in_variant_data_path(session, data_provider, client, 
     score_set = mock_worker_variant_insertion(
         client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
     )
-    # Create mapped variants with VEP consequence populated
-    create_mapped_variants_for_score_set(session, score_set["urn"], TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION)
+    # Seed mapped alleles with a VEP consequence on the authoritative allele.
+    seed_csv_substrate(
+        session,
+        score_set,
+        assay_level="genomic",
+        hgvs_g=TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION["hgvs_g"],
+        vep_consequence="missense_variant",
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         published_score_set = publish_score_set(client, score_set["urn"])
@@ -3646,13 +3673,15 @@ def test_download_clingen_file_in_variant_data_path(session, data_provider, clie
     score_set = mock_worker_variant_insertion(
         client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
     )
-    # Create mapped variants then set ClinGen allele id for first mapped variant
-    create_mapped_variants_for_score_set(session, score_set["urn"], TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION)
-    db_score_set = session.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set["urn"]).one()
-    first_mapped_variant = db_score_set.variants[0].mapped_variants[0]
-    first_mapped_variant.clingen_allele_id = VALID_CLINGEN_CA_ID
-    session.add(first_mapped_variant)
-    session.commit()
+    # Seed mapped alleles, with a ClinGen id on only the first variant's authoritative allele.
+    seed_csv_substrate(
+        session,
+        score_set,
+        assay_level="genomic",
+        hgvs_g=TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION["hgvs_g"],
+        clingen_allele_id=VALID_CLINGEN_CA_ID,
+        annotate="first",
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         published_score_set = publish_score_set(client, score_set["urn"])
@@ -3670,11 +3699,31 @@ def test_download_clingen_file_in_variant_data_path(session, data_provider, clie
 
 def test_download_gnomad_file_in_variant_data_path(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
-    # Link a gnomAD variant to the first mapped variant (version may not match export filter)
-    score_set = create_seq_score_set_with_mapped_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    # The CSV gnomAD column reflects the served release (v4.1); seed one and link it to the first variant's
+    # authoritative allele.
+    gnomad_variant = GnomADVariantDbModel(
+        db_name="gnomAD",
+        db_identifier="10-1-A-G",
+        db_version="v4.1",
+        allele_count=3,
+        allele_number=1613510,
+        allele_frequency=3 / 1613510,
+        faf95_max=6.8e-07,
+        faf95_max_ancestry="nfe",
     )
-    link_gnomad_variants_to_mapped_variants(session, score_set)
+    session.add(gnomad_variant)
+    session.commit()
+    seed_csv_substrate(
+        session,
+        score_set,
+        assay_level="genomic",
+        hgvs_g=TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION["hgvs_g"],
+        gnomad_variant_ids=[gnomad_variant.id],
+        annotate="first",
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         published_score_set = publish_score_set(client, score_set["urn"])
@@ -3686,6 +3735,9 @@ def test_download_gnomad_file_in_variant_data_path(session, data_provider, clien
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
     assert "gnomad.gnomad_af" in reader.fieldnames
+    rows = list(reader)
+    assert rows[0]["gnomad.gnomad_af"] == str(3 / 1613510)
+    assert all(row["gnomad.gnomad_af"] == "NA" for row in rows[1:])
 
 
 def test_download_clingen_and_vep_file_in_variant_data_path(
@@ -3696,13 +3748,16 @@ def test_download_clingen_and_vep_file_in_variant_data_path(
     score_set = mock_worker_variant_insertion(
         client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
     )
-    # Create mapped variants with VEP consequence populated
-    create_mapped_variants_for_score_set(session, score_set["urn"], TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION)
-    db_score_set = session.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set["urn"]).one()
-    first_mapped_variant = db_score_set.variants[0].mapped_variants[0]
-    first_mapped_variant.clingen_allele_id = VALID_CLINGEN_CA_ID
-    session.add(first_mapped_variant)
-    session.commit()
+    # Seed mapped alleles with a VEP consequence (all variants) and a ClinGen id (first variant only).
+    seed_csv_substrate(
+        session,
+        score_set,
+        assay_level="genomic",
+        hgvs_g=TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION["hgvs_g"],
+        vep_consequence="missense_variant",
+        clingen_allele_id=VALID_CLINGEN_CA_ID,
+        annotate="first",
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         published_score_set = publish_score_set(client, score_set["urn"])
@@ -3728,13 +3783,15 @@ def test_download_clingen_and_scores_file_in_variant_data_path(
     score_set = mock_worker_variant_insertion(
         client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
     )
-    # Create mapped variants with VEP consequence populated
-    create_mapped_variants_for_score_set(session, score_set["urn"], TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION)
-    db_score_set = session.query(ScoreSetDbModel).filter(ScoreSetDbModel.urn == score_set["urn"]).one()
-    first_mapped_variant = db_score_set.variants[0].mapped_variants[0]
-    first_mapped_variant.clingen_allele_id = VALID_CLINGEN_CA_ID
-    session.add(first_mapped_variant)
-    session.commit()
+    # Seed mapped alleles with a ClinGen id on only the first variant's authoritative allele.
+    seed_csv_substrate(
+        session,
+        score_set,
+        assay_level="genomic",
+        hgvs_g=TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION["hgvs_g"],
+        clingen_allele_id=VALID_CLINGEN_CA_ID,
+        annotate="first",
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         published_score_set = publish_score_set(client, score_set["urn"])
@@ -3766,10 +3823,18 @@ def test_download_clinvar_namespace_in_variant_data_path(session, data_provider,
     # The ClinVar control seeded in setup_router_db has db_version="11_2024", mapping to namespace clinvar.2024_11.
     clinvar_namespace = "clinvar.2024_11"
     experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_mapped_variants(
+    score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    link_clinvar_control_to_mapped_variant(session, score_set)
+    # ClinVar control id=1 (db_version 11_2024) links to only the first variant's authoritative allele.
+    seed_csv_substrate(
+        session,
+        score_set,
+        assay_level="genomic",
+        hgvs_g="NC_000018.10:g.1A>G",
+        clinvar_control_ids=[1],
+        annotate="first",
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         published_score_set = publish_score_set(client, score_set["urn"])
@@ -3800,10 +3865,17 @@ def test_download_clinvar_namespace_with_no_matching_version(
     # clinvar.2023_01 does not match the seeded control (11_2024), so all rows should be NA.
     clinvar_namespace = "clinvar.2023_01"
     experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_mapped_variants(
+    score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    link_clinvar_control_to_mapped_variant(session, score_set)
+    seed_csv_substrate(
+        session,
+        score_set,
+        assay_level="genomic",
+        hgvs_g="NC_000018.10:g.1A>G",
+        clinvar_control_ids=[1],
+        annotate="first",
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         published_score_set = publish_score_set(client, score_set["urn"])
@@ -3830,10 +3902,17 @@ def test_download_multiple_clinvar_namespaces_in_variant_data_path(
     matching_ns = "clinvar.2024_11"  # matches db_version="11_2024" seeded in setup_router_db
     non_matching_ns = "clinvar.2023_01"  # no controls with this version
     experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_mapped_variants(
+    score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    link_clinvar_control_to_mapped_variant(session, score_set)
+    seed_csv_substrate(
+        session,
+        score_set,
+        assay_level="genomic",
+        hgvs_g="NC_000018.10:g.1A>G",
+        clinvar_control_ids=[1],
+        annotate="first",
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         published_score_set = publish_score_set(client, score_set["urn"])
@@ -3859,6 +3938,49 @@ def test_download_multiple_clinvar_namespaces_in_variant_data_path(
     # Non-matching version: all rows are NA.
     assert all(row[f"{non_matching_ns}.clinical_significance"] == "NA" for row in rows)
     assert all(row[f"{non_matching_ns}.clinical_review_status"] == "NA" for row in rows)
+
+
+def test_download_variant_data_as_of_reconstructs_annotation_layer(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """`as_of` time-travels the CSV annotation layer: an instant before the annotation was live yields NA,
+    while the current view yields the value. The resolved instant is echoed in X-As-Of."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    # Seed the whole substrate live as of 2020 — live "now" but not at an as_of in 2000.
+    seeded_at = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    seed_csv_substrate(
+        session,
+        score_set,
+        assay_level="genomic",
+        hgvs_g=TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION["hgvs_g"],
+        vep_consequence="missense_variant",
+        valid_from=seeded_at,
+    )
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    base_url = f"/api/v1/score-sets/{published_score_set['urn']}/variants/data"
+
+    # Current: the annotation is live, and X-As-Of echoes "current".
+    current = client.get(base_url, params={"namespaces": "vep", "drop_na_columns": "false"})
+    assert current.status_code == 200
+    assert current.headers["X-As-Of"] == "current"
+    current_rows = list(csv.DictReader(StringIO(current.text)))
+    assert any(row["vep.vep_functional_consequence"] == "missense_variant" for row in current_rows)
+
+    # An instant before the annotation existed: nothing live -> every VEP value is NA, and X-As-Of echoes it.
+    past = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    before = client.get(base_url, params={"namespaces": "vep", "drop_na_columns": "false", "as_of": past.isoformat()})
+    assert before.status_code == 200
+    assert datetime.fromisoformat(before.headers["X-As-Of"]) == past
+    before_rows = list(csv.DictReader(StringIO(before.text)))
+    assert before_rows  # variants (and their immutable scores) are still present
+    assert all(row["vep.vep_functional_consequence"] == "NA" for row in before_rows)
 
 
 def test_invalid_clinvar_namespace_returns_422(client, setup_router_db, data_files):
@@ -4065,6 +4187,106 @@ def test_clinical_control_options_exclude_non_current(client, setup_router_db, s
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
     assert response.status_code == 404
+
+
+########################################################################################################################
+# Downloading a score set's variant details (VRS + Cat-VRS + annotations)
+########################################################################################################################
+
+
+def test_get_score_set_variant_details_returns_ndjson(client, session, data_provider, data_files, setup_router_db):
+    """The whole-set variant-detail export streams NDJSON — one VariantDetail per mapped variant, each
+    carrying the flat preMapped/postMapped VRS pair and the spec-pure Cat-VRS."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    variant_urns = {
+        variant.urn
+        for variant in seed_annotation_substrate(session, score_set, pre_mapped=TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X)
+    }
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variant-details")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+    assert response.headers["X-As-Of"] == "current"
+    assert response.headers["X-Total-Count"] == str(len(variant_urns))
+    assert response.headers["X-Stream-Type"] == "variant-detail"
+
+    records = parse_ndjson_response(response)
+    assert len(records) == len(variant_urns)
+    assert {record["urn"] for record in records} == variant_urns
+    for record in records:
+        # The flat VRS pair for VRS consumers, and the spec-pure Cat-VRS for the full picture.
+        assert record["preMapped"] == TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X
+        assert record["postMapped"] == TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X
+        assert record.get("molecularRepresentation") is not None
+
+
+def test_get_score_set_variant_details_omits_unmapped_variants(
+    client, session, data_provider, data_files, setup_router_db
+):
+    """Only mapped variants carry VRS/detail, so an un-mapped variant is omitted — the record count is
+    the mapped subset, not the whole score set."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    variants = seed_annotation_substrate(session, score_set, skip_first=True)
+    unmapped_urn = variants[0].urn  # read before the request expires the instances
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variant-details")
+    assert response.status_code == 200
+
+    records = parse_ndjson_response(response)
+    assert len(records) == score_set["numVariants"] - 1
+    assert unmapped_urn not in {record["urn"] for record in records}
+
+
+def test_get_score_set_variant_details_for_unmapped_returns_empty(
+    client, session, data_provider, data_files, setup_router_db
+):
+    """A score set with no live mapping records has no annotatable variants — an empty NDJSON stream with
+    X-Total-Count 0, not a 404."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    # No new-substrate mapping records → no annotatable variants.
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variant-details")
+    assert response.status_code == 200
+    assert response.headers["X-Total-Count"] == "0"
+    assert parse_ndjson_response(response) == []
+
+
+def test_cannot_get_variant_details_for_nonexistent_score_set(client, setup_router_db):
+    response = client.get("/api/v1/score-sets/urn:mavedb:00000000-a-1/variant-details")
+    assert response.status_code == 404
+
+
+def test_get_score_set_variant_details_honors_as_of(client, session, data_provider, data_files, setup_router_db):
+    """``as_of`` time-travels the molecular layer: a far-future instant sees the freshly-seeded substrate
+    as live (the full set), a far-past instant sees no live mapping (an empty stream). Either way 200 —
+    ``as_of`` is a filter, so an empty match is an empty collection, never a 404."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    seed_annotation_substrate(session, score_set)
+    url = f"/api/v1/score-sets/{score_set['urn']}/variant-details"
+
+    future = datetime(2999, 1, 1, tzinfo=timezone.utc)
+    future_response = client.get(url, params={"as_of": future.isoformat()})
+    assert future_response.status_code == 200
+    assert datetime.fromisoformat(future_response.headers["X-As-Of"]) == future
+    assert len(parse_ndjson_response(future_response)) == score_set["numVariants"]
+
+    past = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    past_response = client.get(url, params={"as_of": past.isoformat()})
+    assert past_response.status_code == 200
+    assert past_response.headers["X-Total-Count"] == "0"
+    assert parse_ndjson_response(past_response) == []
 
 
 ########################################################################################################################
@@ -4605,19 +4827,32 @@ def test_annotated_functional_study_result_exists_for_score_set_when_some_varian
 
 def test_can_fetch_current_gnomad_variants_for_score_set(client, setup_router_db, session, data_provider, data_files):
     experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_mapped_variants(
+    score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    link_gnomad_variants_to_mapped_variants(session, score_set)
+    # gnomAD variant id=1 (seeded by setup_router_db) links to the first variant's authoritative allele.
+    variants = seed_csv_substrate(
+        session,
+        score_set,
+        assay_level="genomic",
+        hgvs_g="NC_000018.10:g.1A>G",
+        gnomad_variant_ids=[1],
+        annotate="first",
+    )
+    expected_urn = variants[0].urn
+    expected_digest = f"csv-auth-{variants[0].id}"
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/gnomad-variants")
     assert response.status_code == 200
+    assert response.headers["x-as-of"] == "current"
 
     response_data = response.json()
     assert len(response_data) == 1
     for gnomad_variant in response_data:
-        mapped_variants = gnomad_variant.pop("mappedVariants")
-        assert len(mapped_variants) == 1
+        variant_links = gnomad_variant.pop("variantLinks")
+        assert len(variant_links) == 1
+        assert variant_links[0]["variantUrn"] == expected_urn
+        assert variant_links[0]["alleleDigest"] == expected_digest
         gnomad_variant_items = sorted(gnomad_variant.items())
         assert gnomad_variant_items == sorted(TEST_SAVED_GNOMAD_VARIANT.items())
 
@@ -4626,10 +4861,17 @@ def test_can_fetch_current_gnomad_variants_for_score_set_with_version(
     client, setup_router_db, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_mapped_variants(
+    score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    link_gnomad_variants_to_mapped_variants(session, score_set)
+    seed_csv_substrate(
+        session,
+        score_set,
+        assay_level="genomic",
+        hgvs_g="NC_000018.10:g.1A>G",
+        gnomad_variant_ids=[1],
+        annotate="first",
+    )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/gnomad-variants?version={TEST_GNOMAD_DATA_VERSION}")
     assert response.status_code == 200
@@ -4637,8 +4879,8 @@ def test_can_fetch_current_gnomad_variants_for_score_set_with_version(
     response_data = response.json()
     assert len(response_data) == 1
     for gnomad_variant in response_data:
-        mapped_variants = gnomad_variant.pop("mappedVariants")
-        assert len(mapped_variants) == 1
+        variant_links = gnomad_variant.pop("variantLinks")
+        assert len(variant_links) == 1
         gnomad_variant_items = sorted(gnomad_variant.items())
         assert gnomad_variant_items == sorted(TEST_SAVED_GNOMAD_VARIANT.items())
 
@@ -4647,10 +4889,17 @@ def test_cannot_fetch_current_gnomad_variants_for_score_set_with_nonexistent_ver
     client, setup_router_db, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_mapped_variants(
+    score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    link_gnomad_variants_to_mapped_variants(session, score_set)
+    seed_csv_substrate(
+        session,
+        score_set,
+        assay_level="genomic",
+        hgvs_g="NC_000018.10:g.1A>G",
+        gnomad_variant_ids=[1],
+        annotate="first",
+    )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/gnomad-variants?version=nonexistent_version")
     assert response.status_code == 404
@@ -4667,10 +4916,17 @@ def test_cannot_fetch_gnomad_variants_for_nonexistent_score_set(
     client, setup_router_db, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_mapped_variants(
+    score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    link_gnomad_variants_to_mapped_variants(session, score_set)
+    seed_csv_substrate(
+        session,
+        score_set,
+        assay_level="genomic",
+        hgvs_g="NC_000018.10:g.1A>G",
+        gnomad_variant_ids=[1],
+        annotate="first",
+    )
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn'] + 'xxx'}/gnomad-variants")
 
@@ -4683,7 +4939,7 @@ def test_cannot_fetch_gnomad_variants_for_score_set_when_none_exist(
     client, setup_router_db, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
-    score_set = create_seq_score_set_with_mapped_variants(
+    score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
 

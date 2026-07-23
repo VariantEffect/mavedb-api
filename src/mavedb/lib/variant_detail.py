@@ -70,6 +70,11 @@ class VariantDetail:
     assay_level_digest: Optional[str]
     clingen_allele_id: Optional[str]
 
+    # The raw GA4GH VRS pair, surfaced flat so a bulk/VRS consumer reads them directly rather than
+    # digging the measured allele out of the Cat-VRS below.
+    pre_mapped: Optional[dict[str, Any]]
+    post_mapped: Optional[dict[str, Any]]
+
     # Spec-pure GA4GH Cat-VRS (no MaveDB fields inside), plus the MaveDB layer riding alongside: the
     # per-allele identity sidecar, keyed by VRS digest — one entry per linked allele (the record-scoped,
     # all-levels set, sharing keys with `annotations`), carrying level + HGVS + ClinGen id + relation.
@@ -258,6 +263,8 @@ def get_variant_detail(
         reference_hgvs=reference_hgvs,
         assay_level_digest=assay_level_digest,
         clingen_allele_id=clingen_allele_id,
+        pre_mapped=record.pre_mapped if record is not None else None,
+        post_mapped=authoritative.allele.post_mapped if authoritative is not None else None,
         molecular_representation=molecular_representation,
         mode=mode,
         alleles=alleles,

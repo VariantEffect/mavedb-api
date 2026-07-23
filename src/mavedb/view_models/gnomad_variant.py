@@ -8,7 +8,7 @@ from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 
 if TYPE_CHECKING:
-    from mavedb.view_models.mapped_variant import MappedVariant, MappedVariantCreate, SavedMappedVariant
+    from mavedb.view_models.mapped_variant import MappedVariantCreate
 
 
 class GnomADVariantBase(BaseModel):
@@ -54,10 +54,21 @@ class SavedGnomADVariant(GnomADVariantBase):
         from_attributes = True
 
 
-class SavedGnomADVariantWithMappedVariants(SavedGnomADVariant):
-    """Saved GnomAD variant records with mapped variants."""
+class GnomadVariantLink(BaseModel):
+    """One score-set variant a gnomAD frequency record reaches, tagged with the annotated allele's digest.
 
-    mapped_variants: Sequence["SavedMappedVariant"]
+    Mirrors :class:`clinical_control.ClinvarVariantLink`: a gnomAD variant fans out to every allele that
+    resolved to it, and each allele belongs to a score-set variant.
+    """
+
+    variant_urn: str
+    allele_digest: Optional[str] = None
+
+
+class SavedGnomADVariantWithVariantLinks(SavedGnomADVariant):
+    """Saved gnomAD variant paired with the score-set variants (and annotated allele digests) it links to."""
+
+    variant_links: Sequence[GnomadVariantLink]
 
 
 class GnomADVariant(SavedGnomADVariant):
@@ -66,7 +77,7 @@ class GnomADVariant(SavedGnomADVariant):
     pass
 
 
-class GnomADVariantWithMappedVariants(SavedGnomADVariantWithMappedVariants):
-    """GnomAD variant view model with mapped variants for non-admin clients."""
+class GnomADVariantWithVariantLinks(SavedGnomADVariantWithVariantLinks):
+    """GnomAD variant + its score-set variant links, for non-admin clients."""
 
-    mapped_variants: Sequence["MappedVariant"]
+    pass

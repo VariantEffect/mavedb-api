@@ -118,6 +118,39 @@ def _hgvs_field_for_str(hgvs: Optional[str]) -> Optional[HgvsField]:
     return HgvsField(hgvs=hgvs, position=block.position, ref=block.ref, alt=block.alt)
 
 
+def mapped_hgvs_by_level(
+    *,
+    assay_level: Optional[SequenceLevel],
+    assay_level_hgvs: Optional[str],
+    sibling_level: Optional[str],
+    sibling_hgvs: Optional[str],
+    protein_hgvs: Optional[str],
+) -> dict[str, Optional[str]]:
+    """The canonical mapped HGVS **string** at each populated level slot, keyed by ``SequenceLevel`` value.
+
+    The canonical projection of a measured allele onto various levels relative to its reference frame:
+    - Measured slot (``[assay_level]``) ← ``assay_level_hgvs`` (the record's mapped assay HGVS).
+    - Other nucleotide slot ← the authoritative link's ``projection_group`` sibling (``sibling_level`` /
+      ``sibling_hgvs``), populated only on a nucleotide assay and only where the pairing is recorded.
+    - ``protein`` slot ← the separate protein-apex subquery.
+
+    A **protein** assay fills only ``protein`` (the measured slot is protein itself); its nucleotide
+    fan-out is ambiguous, so ``cdna``/``genomic`` are deliberately absent. An unmapped variant
+    (``assay_level is None``) yields an empty mapping.
+    """
+    slots: dict[str, Optional[str]] = {}
+    if assay_level == SequenceLevel.protein:
+        slots[SequenceLevel.protein.value] = assay_level_hgvs
+    elif assay_level in (SequenceLevel.cdna, SequenceLevel.genomic):
+        slots[assay_level.value] = assay_level_hgvs
+        slots[SequenceLevel.protein.value] = protein_hgvs
+        # The other nucleotide level, from the projection_group sibling (null where unpopulated).
+        if sibling_level is not None:
+            slots[sibling_level] = sibling_hgvs
+
+    return slots
+
+
 def _mapped_triple(
     *,
     assay_level: Optional[SequenceLevel],
@@ -126,33 +159,61 @@ def _mapped_triple(
     sibling_hgvs: Optional[str],
     protein_hgvs: Optional[str],
 ) -> MappedTriple:
-    """Assemble the canonical :class:`MappedTriple` for one variant from its per-row query fields.
-
-    - Measured slot (``mapped[assay_level]``) ← ``assay_level_hgvs`` (the record's mapped assay HGVS).
-    - Other nucleotide slot ← the authoritative link's ``projection_group`` sibling (``sibling_level`` /
-      ``sibling_hgvs``), populated only on a nucleotide assay and only where the pairing is recorded.
-    - ``protein`` slot ← the separate protein-apex subquery.
-
-    A **protein** assay fills only ``protein`` (the measured slot is protein itself); its nucleotide
-    fan-out is ambiguous, so ``cdna``/``genomic`` are deliberately left ``None``. An unmapped variant
-    (``assay_level is None``) yields an empty triple.
-    """
-    slots: dict[str, Optional[HgvsField]] = {}
-    # Protein assay: the measured slot *is* protein. No canonical c/g — do not fabricate one.
-    if assay_level == SequenceLevel.protein:
-        slots[SequenceLevel.protein.value] = _hgvs_field_for_str(assay_level_hgvs)
-    elif assay_level in (SequenceLevel.cdna, SequenceLevel.genomic):
-        slots[assay_level.value] = _hgvs_field_for_str(assay_level_hgvs)
-        # The other nucleotide level, from the projection_group sibling (null where unpopulated).
-        if sibling_level is not None:
-            slots[sibling_level] = _hgvs_field_for_str(sibling_hgvs)
-        slots[SequenceLevel.protein.value] = _hgvs_field_for_str(protein_hgvs)
-
-    return MappedTriple(
-        genomic=slots.get(SequenceLevel.genomic.value),
-        cdna=slots.get(SequenceLevel.cdna.value),
-        protein=slots.get(SequenceLevel.protein.value),
+    """Assemble the canonical :class:`MappedTriple` for one variant, wrapping each slot from
+    :func:`mapped_hgvs_by_level` as an :class:`HgvsField`."""
+    slots = mapped_hgvs_by_level(
+        assay_level=assay_level,
+        assay_level_hgvs=assay_level_hgvs,
+        sibling_level=sibling_level,
+        sibling_hgvs=sibling_hgvs,
+        protein_hgvs=protein_hgvs,
     )
+    return MappedTriple(
+        genomic=_hgvs_field_for_str(slots.get(SequenceLevel.genomic.value)),
+        cdna=_hgvs_field_for_str(slots.get(SequenceLevel.cdna.value)),
+        protein=_hgvs_field_for_str(slots.get(SequenceLevel.protein.value)),
+    )
+
+
+def get_protein_hgvs_by_record(db: Session, score_set_id: int, *, as_of: Optional[datetime] = None) -> dict[int, str]:
+    """The canonical protein-level mapped HGVS for each of a score set's live mapping records, keyed by
+    ``mapping_record.id``. Records with no protein projection (UTR/intronic) are simply absent from the
+    map. Shared by the lean whole-set view and the CSV export so both resolve the protein slot the same way.
+
+    This runs as its **own** query, never a join into a per-variant projection. Joined in, it forces an
+    O(N^2) plan: the ``DISTINCT ON`` cardinality is opaque to the planner, so it lands on the inner side
+    of a nested loop and is rescanned in full once per variant — historically ~97% of the lean endpoint's
+    total time. Pulling it out and stitching by ``mapping_record_id`` in Python keeps both queries O(N).
+    """
+    prot_link = aliased(MappingRecordAllele)
+    prot_allele = aliased(Allele)
+    prot_record = aliased(MappingRecord)
+    prot_variant = aliased(Variant)
+    protein_statement = (
+        select(
+            prot_link.mapping_record_id.label("mapping_record_id"),
+            prot_allele.hgvs_p.label("protein_hgvs"),
+        )
+        # DISTINCT ON -> at most one protein level row per record.
+        .distinct(prot_link.mapping_record_id)
+        # link -> allele: level and hgvs_p live on the *allele*.
+        .join(prot_allele, prot_allele.id == prot_link.allele_id)
+        # link -> record -> variant: the bridge to scoreset_id, to scope the query.
+        .join(prot_record, prot_record.id == prot_link.mapping_record_id)
+        .join(prot_variant, prot_variant.id == prot_record.variant_id)
+        # Scope to this score set so the cost scales with the response.
+        .where(prot_variant.score_set_id == score_set_id)
+        # Live links only. A live link implies a live parent record (ValidTime invariant), so this also
+        # covers record-liveness — no prot_record.live_at needed; the MR join is just the scoping bridge.
+        .where(prot_link.live_at(as_of))
+        # Only the protein-level allele.
+        .where(prot_allele.level == SequenceLevel.protein.value)
+        # DISTINCT ON requires ORDER BY to lead with its column; allele.id then picks which row survives
+        # per record — inert today (only one protein allele exists).
+        .order_by(prot_link.mapping_record_id, prot_allele.id)
+    )
+    # Keyed by record id (a globally-unique PK -> the right protein row, no cross-set risk).
+    return {row.mapping_record_id: row.protein_hgvs for row in db.execute(protein_statement)}
 
 
 def get_lean_score_set_variants(
@@ -236,44 +297,9 @@ def get_lean_score_set_variants(
         .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer), Variant.id)
     )
 
-    # The protein projection runs as its own query, NOT a join into the base statement. Joined in, it forces
-    # an O(N^2) plan: the DISTINCT ON cardinality is opaque to the planner (est. ~18 vs ~11.5k actual), so it
-    # buried the projection on the inner side of a nested loop and rescanned it in full once per variant —
-    # ~97% of the endpoint's total time. MATERIALIZED in the query above fixes the *construction* but not the
-    # per-variant *rescan*. Pulling out and stitching these queries by mapping_record_id in Python enables both
-    # queries to run in O(N) time, making this function (and the endpoint it serves) considerably faster.
-    prot_link = aliased(MappingRecordAllele)
-    prot_allele = aliased(Allele)
-    prot_record = aliased(MappingRecord)
-    prot_variant = aliased(Variant)
-    protein_statement = (
-        select(
-            prot_link.mapping_record_id.label("mapping_record_id"),
-            prot_allele.hgvs_p.label("protein_hgvs"),
-        )
-        # DISTINCT ON -> at most one protein level row per record.
-        .distinct(prot_link.mapping_record_id)
-        # link -> allele: level and hgvs_p live on the *allele*.
-        .join(prot_allele, prot_allele.id == prot_link.allele_id)
-        # link -> record -> variant: the bridge to scoreset_id, to scope the query.
-        .join(prot_record, prot_record.id == prot_link.mapping_record_id)
-        .join(prot_variant, prot_variant.id == prot_record.variant_id)
-        # Scope to this score set so the cost scales with the response.
-        .where(prot_variant.score_set_id == score_set.id)
-        # Live links only. A live link implies a live parent record (ValidTime invariant), so this also
-        # covers record-liveness — no prot_record.live_at needed; the MR join is just the scoping bridge.
-        .where(prot_link.live_at(as_of))
-        # Only the protein-level allele.
-        .where(prot_allele.level == SequenceLevel.protein.value)
-        # DISTINCT ON requires ORDER BY to lead with its column; allele.id then picks which row survives
-        # per record — inert today (only one protein allele exists).
-        .order_by(prot_link.mapping_record_id, prot_allele.id)
-    )
-    # Keyed by record id (a globally-unique PK -> the right protein row, no cross-set risk). Some records
-    # have no protein projection (UTR/intronic) -> absent from the map -> null protein field below.
-    protein_hgvs_by_record: dict[int, str] = {
-        row.mapping_record_id: row.protein_hgvs for row in db.execute(protein_statement)
-    }
+    # The protein projection runs as its own query, NOT a join into the base statement (see
+    # get_protein_hgvs_by_record for why), stitched back by mapping_record_id below.
+    protein_hgvs_by_record = get_protein_hgvs_by_record(db, score_set.id, as_of=as_of)
 
     return [
         LeanVariantRecord(

@@ -35,15 +35,22 @@ class VariantDetail(BaseModel):
     """The assayed variant-detail envelope (``GET /variants/{urn}``).
 
     Two tiers: flat, UI-ergonomic assay fields (the ``targetHgvs``/``referenceHgvs`` coordinate pair
-    is a client-side toggle, no refetch) plus the spec-pure GA4GH ``molecularRepresentation``
-    (``CategoricalVariant``, no MaveDB fields inside). The MaveDB layer rides alongside, keyed by VRS
-    digest: the ``alleles`` identity sidecar (per-allele ``level`` / ``hgvs`` / ``clingenAlleleId`` /
-    ``relation`` — one entry per linked allele, sharing keys with ``annotations``) and the
-    ``annotations`` map. ``isCurrent``/``supersededByScoreSet`` let a superseded variant self-describe:
-    ``supersededByScoreSet`` is the superseding *score set*'s URN, not a variant URN. Supersession is
-    versioned at the score-set level, and a newer version may add, drop, or renumber variants — so there
-    is no stable superseding-*variant* pointer to hand back; a consumer resolves the current measurement
-    by looking this variant up within that score set. Absent fields are omitted.
+    is a client-side toggle, no refetch; the ``preMapped``/``postMapped`` raw VRS pair lets a
+    VRS/bulk consumer read the assayed-level and measured VRS directly) plus the spec-pure GA4GH
+    ``molecularRepresentation`` (``CategoricalVariant``, no MaveDB fields inside). The MaveDB layer
+    rides alongside, keyed by VRS digest: the ``alleles`` identity sidecar (per-allele ``level`` /
+    ``hgvs`` / ``clingenAlleleId`` / ``relation`` — one entry per linked allele, sharing keys with
+    ``annotations``) and the ``annotations`` map. ``isCurrent``/``supersededByScoreSet`` let a
+    superseded variant self-describe: ``supersededByScoreSet`` is the superseding *score set*'s URN,
+    not a variant URN. Supersession is versioned at the score-set level, and a newer version may add,
+    drop, or renumber variants — so there is no stable superseding-*variant* pointer to hand back; a
+    consumer resolves the current measurement by looking this variant up within that score set.
+
+    Unlike most MaveDB response models, this one serializes with ``exclude_none=False`` on both routes
+    that emit it (``GET /variants/{urn}`` and the bulk ``GET /score-sets/{urn}/variant-details`` NDJSON
+    stream): the shape is a stable, self-describing envelope, so every record carries the same key set
+    and an unmapped variant reads ``preMapped``/``postMapped``/``molecularRepresentation`` as ``null``
+    rather than dropping them. The two routes are kept in lockstep — the same object, one shape.
     """
 
     urn: str
@@ -56,6 +63,9 @@ class VariantDetail(BaseModel):
     reference_hgvs: Optional[str] = None
     assay_level_digest: Optional[str] = None
     clingen_allele_id: Optional[str] = None
+
+    pre_mapped: Optional[dict[str, Any]] = None
+    post_mapped: Optional[dict[str, Any]] = None
 
     molecular_representation: Optional[dict[str, Any]] = None
     mode: Optional[str] = None

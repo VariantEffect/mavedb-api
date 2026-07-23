@@ -136,7 +136,10 @@ def lookup_variants_by_vrs_identifier(
     status_code=200,
     response_model=VariantDetail,
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
-    response_model_exclude_none=True,
+    # Emit nulls rather than omitting absent fields: this shape is a stable, self-describing envelope
+    # (its bulk pair, GET /score-sets/{urn}/variant-details, streams the same object one-per-line for
+    # dataframe/columnar consumption), so every response carries the same key set.
+    response_model_exclude_none=False,
     summary="Fetch assayed variant detail by URN",
 )
 def get_variant(

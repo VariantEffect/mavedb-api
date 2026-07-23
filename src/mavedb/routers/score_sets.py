@@ -38,6 +38,7 @@ from mavedb.lib.clinical_controls import get_clinical_control_options, get_clini
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
+from mavedb.lib.gnomad import get_gnomad_variants_with_variant_urns
 from mavedb.lib.identifiers import (
     create_external_gene_identifier_offset,
     find_or_create_doi_identifier,
@@ -71,13 +72,12 @@ from mavedb.lib.urns import (
     generate_experiment_urn,
     generate_score_set_urn,
 )
+from mavedb.lib.variant_detail import get_variant_detail
 from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
-from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.license import License
-from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
@@ -92,7 +92,7 @@ from mavedb.routers.shared import (
     PUBLIC_ERROR_RESPONSES,
     ROUTER_BASE_PREFIX,
 )
-from mavedb.view_models import clinical_control, gnomad_variant, mapped_variant, score_set
+from mavedb.view_models import clinical_control, gnomad_variant, score_set
 from mavedb.view_models.contributor import ContributorCreate
 from mavedb.view_models.doi_identifier import DoiIdentifierCreate
 from mavedb.view_models.lean_variant import LeanVariant
@@ -100,6 +100,7 @@ from mavedb.view_models.publication_identifier import PublicationIdentifierCreat
 from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
 from mavedb.view_models.search import ScoreSetsSearch, ScoreSetsSearchFilterOptionsResponse, ScoreSetsSearchResponse
 from mavedb.view_models.target_gene import TargetGeneCreate
+from mavedb.view_models.variant_detail import VariantDetail
 
 TAG_NAME = "Score Sets"
 logger = logging.getLogger(__name__)
@@ -869,6 +870,108 @@ async def get_score_set_lean_variants(
     return get_lean_score_set_variants(db, score_set, as_of=as_of)
 
 
+def _stream_score_set_variant_details(
+    db: Session,
+    variants: Sequence[Variant],
+    superseding_score_set: Optional[ScoreSet],
+    visible_calibration_ids: set[int],
+    *,
+    as_of: Optional[datetime] = None,
+):
+    """Serialize the whole-set variant-detail export as NDJSON — one :class:`VariantDetail` per line.
+
+    Assembles each variant's detail envelope (the flat assay fields + ``preMapped``/``postMapped`` VRS
+    pair + the spec-pure GA4GH CategoricalVariant + the digest-keyed VEP/gnomAD/ClinVar annotation map)
+    one at a time, so a large score set streams rather than building every envelope up front.
+    ``superseding_score_set`` / ``visible_calibration_ids`` are resolved once for the whole set and
+    threaded into every per-variant build.
+    """
+    for variant in variants:
+        detail = get_variant_detail(
+            db,
+            variant,
+            superseding_score_set=superseding_score_set,
+            visible_calibration_ids=visible_calibration_ids,
+            as_of=as_of,
+        )
+        # get_variant_detail returns the lib transit dataclass; coerce it through the view model.
+        # exclude_none=False keeps a stable key set per line for programmatic consumers.
+        yield VariantDetail.model_validate(detail).model_dump_json(by_alias=True, exclude_none=False) + "\n"
+
+
+@router.get(
+    "/score-sets/{urn}/variant-details",
+    status_code=200,
+    responses={
+        200: {
+            "content": {"application/x-ndjson": {}},
+            "description": (
+                "Newline-delimited JSON: one VariantDetail per mapped variant — the same envelope the "
+                "single-variant GET /variants/{urn} route serves, carrying the flat preMapped/postMapped "
+                "VRS pair, the spec-pure GA4GH CategoricalVariant, and the digest-keyed VEP/gnomAD/ClinVar "
+                "annotation map."
+            ),
+        },
+        **ACCESS_CONTROL_ERROR_RESPONSES,
+    },
+    summary="Download a score set's variant details (VRS + Cat-VRS + annotations)",
+)
+async def get_score_set_variant_details(
+    *,
+    urn: str,
+    response: Response,
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the molecular layer (VRS, Cat-VRS membership + VEP/gnomAD/ClinVar annotations) "
+            "as it stood at this instant, over the score set's fixed scores. ISO 8601, ideally "
+            "timezone-aware. Content valid-time only — it never re-selects a score-set version. Defaults "
+            "to current."
+        ),
+    ),
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+) -> Any:
+    """Download the score set's variant details — the whole-set streaming pair of the single-variant
+    ``GET /variants/{urn}`` detail endpoint, and the substrate-faithful replacement for the retired
+    ``/mapped-variants`` export.
+
+    One record per *mapped* variant (unmapped variants carry no VRS and are omitted): the same
+    VariantDetail envelope the single-variant route serves — the flat ``preMapped``/``postMapped`` VRS
+    pair for VRS consumers, plus the spec-pure GA4GH CategoricalVariant and the digest-keyed
+    VEP/gnomAD/ClinVar annotation map for the full molecular picture.
+
+    Streamed as NDJSON (like the annotated-variant exports) so a large score set downloads without
+    materializing every envelope server-side and a client can process it line by line. ``as_of``
+    time-travels the molecular layer only (scores/classifications are immutable); the resolved value is
+    echoed in ``X-As-Of`` and the variant count in ``X-Total-Count``.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "variant-details", "as_of": as_of})
+
+    score_set = await fetch_score_set_by_urn(db, urn, user_data, None, False)
+    # fetch_score_set_by_urn already blanks a non-readable superseding version and filters
+    # score_calibrations to the readable ones, so both are visibility-resolved here.
+    visible_calibration_ids = {sc.id for sc in score_set.score_calibrations if sc.id is not None}
+    variants = get_annotatable_variants(db, score_set, as_of=as_of)
+    return StreamingResponse(
+        _stream_score_set_variant_details(
+            db,
+            variants,
+            score_set.superseding_score_set,
+            visible_calibration_ids,
+            as_of=as_of,
+        ),
+        media_type="application/x-ndjson",
+        headers={
+            "X-As-Of": as_of.isoformat() if as_of is not None else "current",
+            "X-Total-Count": str(len(variants)),
+            "X-Processing-Started": datetime.now().isoformat(),
+            "X-Stream-Type": "variant-detail",
+            "Access-Control-Expose-Headers": "X-As-Of, X-Total-Count, X-Processing-Started, X-Stream-Type",
+        },
+    )
+
+
 @router.get(
     "/score-sets/{urn}/variants/data",
     status_code=200,
@@ -899,6 +1002,14 @@ def get_score_set_variants_csv(
     drop_na_columns: Optional[bool] = None,
     include_custom_columns: Optional[bool] = None,
     include_post_mapped_hgvs: Optional[bool] = None,
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the annotation layer (post-mapped HGVS, VEP, gnomAD, ClinVar) as it stood at this "
+            "instant, over the variant's immutable submitted HGVS/scores/counts. ISO 8601, ideally "
+            "timezone-aware. No effect on the scores/counts namespaces. Defaults to current."
+        ),
+    ),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
@@ -940,6 +1051,7 @@ def get_score_set_variants_csv(
             "start": start,
             "limit": limit,
             "drop_na_columns": drop_na_columns,
+            "as_of": as_of,
         }
     )
 
@@ -982,8 +1094,13 @@ def get_score_set_variants_csv(
         drop_na_columns,
         include_custom_columns,
         include_post_mapped_hgvs,
+        as_of,
     )
-    return StreamingResponse(iter([csv_str]), media_type="text/csv")
+    return StreamingResponse(
+        iter([csv_str]),
+        media_type="text/csv",
+        headers={"X-As-Of": as_of.isoformat() if as_of is not None else "current"},
+    )
 
 
 @router.get(
@@ -1100,51 +1217,6 @@ async def get_score_set_counts_csv(
 
     csv_str = get_score_set_variants_as_csv(db, score_set, ["counts"], False, start, limit, drop_na_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv")
-
-
-@router.get(
-    "/score-sets/{urn}/mapped-variants",
-    status_code=200,
-    response_model=list[mapped_variant.MappedVariant],
-    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
-    summary="Get mapped variants from score set by URN",
-)
-def get_score_set_mapped_variants(
-    *,
-    urn: str,
-    db: Session = Depends(deps.get_db),
-    user_data: Optional[UserData] = Depends(get_current_user),
-) -> list[MappedVariant]:
-    """
-    Return mapped variants from a score set, identified by URN.
-    """
-    save_to_logging_context({"requested_resource": urn, "resource_property": "mapped-variants"})
-
-    score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
-    if not score_set:
-        logger.info(
-            msg="Could not fetch the requested mapped variants; No such score set exist.", extra=logging_context()
-        )
-        raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
-
-    assert_permission(user_data, score_set, Action.READ)
-
-    mapped_variants = (
-        db.query(MappedVariant)
-        .filter(ScoreSet.urn == urn)
-        .filter(ScoreSet.id == Variant.score_set_id)
-        .filter(Variant.id == MappedVariant.variant_id)
-        .all()
-    )
-
-    if not mapped_variants:
-        logger.info(msg="No mapped variants are associated with the requested score set.", extra=logging_context())
-        raise HTTPException(
-            status_code=404,
-            detail=f"No mapped variant associated with score set URN {urn} was found",
-        )
-
-    return mapped_variants
 
 
 def _stream_generated_annotations(db, variants, annotation_function, as_of=None):
@@ -2587,7 +2659,7 @@ async def get_clinical_controls_options_for_score_set(
 @router.get(
     "/score-sets/{urn}/gnomad-variants",
     status_code=200,
-    response_model=list[gnomad_variant.GnomADVariantWithMappedVariants],
+    response_model=list[gnomad_variant.GnomADVariantWithVariantLinks],
     response_model_exclude_none=True,
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Get gnomad variants for a score set",
@@ -2595,16 +2667,26 @@ async def get_clinical_controls_options_for_score_set(
 async def get_gnomad_variants_for_score_set(
     *,
     urn: str,
+    response: Response,
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the allele → gnomAD link state as it stood at this instant. "
+            "ISO 8601, ideally timezone-aware. Defaults to current."
+        ),
+    ),
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(get_current_user),
     version: Optional[str] = None,
-) -> Sequence[GnomADVariant]:
+) -> list[gnomad_variant.GnomADVariantWithVariantLinks]:
     """
-    Fetch relevant gnomad variants for a given score set.
+    Fetch relevant gnomad variants for a given score set, each paired with the score-set variants (and
+    annotated allele digests) it links to over the allele substrate.
     """
-    save_to_logging_context({"requested_resource": urn, "resource_property": "gnomad_variants"})
+    save_to_logging_context({"requested_resource": urn, "resource_property": "gnomad_variants", "as_of": as_of})
+    response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
 
-    # Rename user facing kwargs for consistency with code base naming conventions. My-py doesn't care for us redefining db.
+    # Rename user facing kwargs for consistency with code base naming conventions.
     db_version = version
 
     item: Optional[ScoreSet] = db.scalars(select(ScoreSet).where(ScoreSet.urn == urn)).one_or_none()
@@ -2617,28 +2699,12 @@ async def get_gnomad_variants_for_score_set(
 
     assert_permission(user_data, item, Action.READ)
 
-    gnomad_variants_query = (
-        select(GnomADVariant)
-        .join(MappedVariant, GnomADVariant.mapped_variants)
-        .join(Variant)
-        .where(Variant.score_set_id == item.id)
-    )
-
     if db_version is not None:
         save_to_logging_context({"db_version": db_version})
-        gnomad_variants_query = gnomad_variants_query.where(GnomADVariant.db_version == db_version)
 
-    gnomad_variants_for_item: Sequence[GnomADVariant] = db.scalars(gnomad_variants_query).all()
-    gnomad_variants_with_mapped_variant = []
-    for gnomad_variant_in_item in gnomad_variants_for_item:
-        gnomad_variant_in_item.mapped_variants = [
-            mv for mv in gnomad_variant_in_item.mapped_variants if mv.current and mv.variant.score_set_id == item.id
-        ]
+    gnomad_variants = get_gnomad_variants_with_variant_urns(db, item.id, as_of=as_of, db_version=db_version)
 
-        if gnomad_variant_in_item.mapped_variants:
-            gnomad_variants_with_mapped_variant.append(gnomad_variant_in_item)
-
-    if not gnomad_variants_with_mapped_variant:
+    if not gnomad_variants:
         logger.info(
             msg="No gnomad variants matching the provided filters are associated with the requested score set.",
             extra=logging_context(),
@@ -2648,6 +2714,26 @@ async def get_gnomad_variants_for_score_set(
             detail=f"No gnomad variants matching the provided filters associated with score set URN {urn} were found",
         )
 
-    save_to_logging_context({"resource_count": len(gnomad_variants_for_item)})
+    save_to_logging_context({"resource_count": len(gnomad_variants)})
 
-    return gnomad_variants_for_item
+    return [
+        gnomad_variant.GnomADVariantWithVariantLinks.model_validate(
+            {
+                "id": gv.id,
+                "db_name": gv.db_name,
+                "db_identifier": gv.db_identifier,
+                "db_version": gv.db_version,
+                "allele_count": gv.allele_count,
+                "allele_number": gv.allele_number,
+                "allele_frequency": gv.allele_frequency,
+                "faf95_max": gv.faf95_max,
+                "faf95_max_ancestry": gv.faf95_max_ancestry,
+                "creation_date": gv.creation_date,
+                "modification_date": gv.modification_date,
+                "variant_links": [
+                    {"variant_urn": link.variant_urn, "allele_digest": link.allele_digest} for link in links
+                ],
+            }
+        )
+        for gv, links in gnomad_variants
+    ]

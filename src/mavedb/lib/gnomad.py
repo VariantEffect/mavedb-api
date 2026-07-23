@@ -2,8 +2,10 @@ import logging
 import os
 import re
 from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
-from typing import Any, Sequence, Union
+from typing import Any, Optional, Sequence, Union
 
 from sqlalchemy import Connection, Row, func, select, text
 from sqlalchemy.orm import Session
@@ -13,6 +15,9 @@ from mavedb.lib.utils import batched
 from mavedb.models.allele import Allele
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
+from mavedb.models.mapping_record import MappingRecord
+from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.variant import Variant
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +42,72 @@ class GnomadLinkVerdict(str, Enum):
 
     CREATED = "created"  # link created or superseded this run (a new/changed live link)
     UNCHANGED = "unchanged"  # a live link already pointed at the resolved variant; left untouched
+
+
+@dataclass(frozen=True)
+class GnomadVariantLink:
+    """One (score-set variant, annotated allele) pair a gnomAD frequency record reaches.
+
+    Mirrors :class:`mavedb.lib.clinical_controls.ControlVariantLink`. ``allele_digest`` is the VRS digest
+    of the allele gnomAD's frequency was linked to.
+    """
+
+    variant_urn: str
+    allele_digest: str
+
+
+def get_gnomad_variants_with_variant_urns(
+    db: Session,
+    score_set_id: int,
+    *,
+    as_of: Optional[datetime] = None,
+    db_version: Optional[str] = None,
+) -> list[tuple[GnomADVariant, list[GnomadVariantLink]]]:
+    """The live gnomAD frequency records for a score set, each paired with the score-set variants that link
+    to it.
+
+    Walks ``GnomadAlleleLink → Allele → MappingRecordAllele → MappingRecord → Variant`` with every
+    ``ValidTime`` hop constrained to the same instant (``as_of``, defaulting to currently-live). Optionally
+    narrowed to one gnomAD release (``db_version``). Records come back in first-seen order; each
+    record's links preserve query order.
+    """
+    stmt = (
+        select(
+            GnomADVariant,
+            Variant.urn.label("variant_urn"),
+            Allele.vrs_digest.label("allele_digest"),
+        )
+        .join(GnomadAlleleLink, GnomadAlleleLink.gnomad_variant_id == GnomADVariant.id)
+        .join(Allele, Allele.id == GnomadAlleleLink.allele_id)
+        .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
+        .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
+        .join(Variant, Variant.id == MappingRecord.variant_id)
+        .where(GnomadAlleleLink.live_at(as_of))
+        .where(MappingRecordAllele.live_at(as_of))
+        .where(MappingRecord.live_at(as_of))
+        .where(Variant.score_set_id == score_set_id)
+        .distinct()
+    )
+    if db_version is not None:
+        stmt = stmt.where(GnomADVariant.db_version == db_version)
+
+    variants: dict[int, GnomADVariant] = {}
+    links_by_variant: dict[int, list[GnomadVariantLink]] = {}
+
+    for gnomad_variant, variant_urn, allele_digest in db.execute(stmt).tuples():
+        # TODO#372: nullable URN
+        if variant_urn is None:
+            continue
+
+        if gnomad_variant.id not in variants:
+            variants[gnomad_variant.id] = gnomad_variant
+            links_by_variant[gnomad_variant.id] = []
+
+        links_by_variant[gnomad_variant.id].append(
+            GnomadVariantLink(variant_urn=variant_urn, allele_digest=allele_digest)
+        )
+
+    return [(gnomad_variant, links_by_variant[gnomad_variant.id]) for gnomad_variant in variants.values()]
 
 
 def gnomad_identifier(contig: str, position: Union[str, int], alleles: list[str]) -> str:
