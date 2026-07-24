@@ -1,15 +1,17 @@
 # ruff: noqa: E402
 """Integration tests for the ClinGen-allele measurements list (``lib/allele_measurements.py``).
 
-These pin the model that the first pass got wrong: measurements aggregate the **cross-layer equivalence
-class** (co-membership in the mapping/RT link graph), not one exact allele, and *which* allele anchors it
-determines the direct/related split (a CA anchors on the nt alleles → nt measurements are direct, the
-protein consequence is related; a PA anchors on the protein → protein measurements are direct, the nt
-encodings related). Also: the narrowness (a sibling nt change is not pulled onto a CA page), the two
-authorization gates (score-set READ hides the measurement; calibration READ withholds only the inline
-classification) exercised through the real ``has_permission``, superseded opt-in, and the default ordering
-(direct-first, strongest evidence, pathogenic-biased).
+These pin the model: measurements aggregate the **cross-layer equivalence class** (co-membership in the
+mapping/RT link graph), not one exact allele, and *which* allele anchors it determines the direct/related
+split (a CA anchors on the nt alleles → nt measurements are direct, the protein consequence and the sibling
+nt encodings are related; a PA anchors on the protein → protein measurements are direct, the nt encodings
+related). Also: the protein apex reaches a consequence whose assay isn't reverse-translated (with its
+cardinality/provenance instrumentation), the two authorization gates (score-set READ hides the measurement;
+calibration READ withholds only the inline classification) exercised through the real ``has_permission``,
+superseded opt-in, and the default ordering (direct-first, strongest evidence, pathogenic-biased).
 """
+
+import logging
 
 import pytest
 
@@ -17,10 +19,13 @@ pytest.importorskip("psycopg2")
 
 from datetime import date
 
+from starlette_context import context, request_cycle_context
+
 from mavedb.lib.allele_measurements import (
     AlleleMeasurement,
     MeasurementRelationship,
     _ordering_key,
+    _resolve_protein_apex,
     get_allele_measurements,
 )
 from mavedb.lib.types.authentication import UserData
@@ -204,26 +209,33 @@ def test_pa_entry_swaps_direct_and_related(session, setup_lib_db_with_score_set)
 
 
 @pytest.mark.integration
-def test_sibling_nt_not_pulled_onto_ca_page(session, setup_lib_db_with_score_set):
-    """A sibling nt change that encodes the *same* protein is not pulled onto a CA page (its record links
-    the protein but not this nt allele) — but both nt changes show on the protein's PA page as encodings."""
+def test_sibling_nt_shown_on_ca_page(session, setup_lib_db_with_score_set):
+    """Reverse translation links every record to its full synonymous nt set, so a sibling nt change's record
+    links the anchor allele directly and the sibling shows on the CA page as ``nucleotide_encoding`` (after
+    the direct measurement). Both nt changes also show on the shared protein's PA page as encodings."""
     score_set = setup_lib_db_with_score_set
     nt1 = _allele(session, "nt-1", level="cdna", clingen_allele_id="CA111")
     nt2 = _allele(session, "nt-2", level="cdna", clingen_allele_id="CA222")
     prot = _allele(session, "prot-P", level="protein", clingen_allele_id="PA9")
 
+    # Real RT linking: each record links its authoritative nt allele, the sibling nt allele (an RT
+    # candidate), and the shared protein consequence.
     a = _variant(session, score_set, 1, data={"score_data": {"score": 1.0}})
     ra = _record(session, a, assay_level="cdna")
     _link(session, ra, nt1, is_authoritative=True)
+    _link(session, ra, nt2)
     _link(session, ra, prot)
 
     c = _variant(session, score_set, 2, data={"score_data": {"score": 1.0}})
     rc = _record(session, c, assay_level="cdna")
     _link(session, rc, nt2, is_authoritative=True)
+    _link(session, rc, nt1)
     _link(session, rc, prot)
 
     ca_page = get_allele_measurements(session, "CA111", user_data=_user_data(session))
-    assert {m.variant_urn for m in ca_page} == {a.urn}
+    assert {m.variant_urn: m.relationship for m in ca_page} == {a.urn: "direct", c.urn: "nucleotide_encoding"}
+    # Direct precedes the sibling encoding.
+    assert [m.variant_urn for m in ca_page] == [a.urn, c.urn]
 
     pa_page = get_allele_measurements(session, "PA9", user_data=_user_data(session))
     assert {m.variant_urn for m in pa_page} == {a.urn, c.urn}
@@ -231,36 +243,132 @@ def test_sibling_nt_not_pulled_onto_ca_page(session, setup_lib_db_with_score_set
 
 
 @pytest.mark.integration
-def test_sibling_nt_pulled_onto_ca_page_with_flag(session, setup_lib_db_with_score_set):
-    """``include_nucleotide_siblings`` widens a CA page through the protein consequence: the sibling nt
-    change encoding the same protein is pulled in as a ``nucleotide_encoding`` while the direct measurement
-    is unchanged. A no-op for a PA query, which already returns every encoding."""
+def test_resolve_protein_apex_single(session, setup_lib_db_with_score_set):
+    """The resolver returns the one protein consequence co-membered with the anchor nt allele, its PAID,
+    and no unregistered rows."""
     score_set = setup_lib_db_with_score_set
-    nt1 = _allele(session, "nt-1", level="cdna", clingen_allele_id="CA111")
-    nt2 = _allele(session, "nt-2", level="cdna", clingen_allele_id="CA222")
+    nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
+    prot = _allele(session, "prot-P", level="protein", clingen_allele_id="PA9")
+    v = _variant(session, score_set, 1, data={"score_data": {"score": 1.0}})
+    r = _record(session, v, assay_level="cdna")
+    _link(session, r, nt, is_authoritative=True)
+    _link(session, r, prot)
+
+    apex = _resolve_protein_apex(session, [nt.id], as_of=None)
+    assert apex.allele_ids == [prot.id]
+    assert apex.caids == ["PA9"]
+    assert apex.unregistered == 0
+
+
+@pytest.mark.integration
+def test_resolve_protein_apex_unregistered(session, setup_lib_db_with_score_set):
+    """An apex protein allele with no CAID yet counts toward ``unregistered`` and contributes no PAID."""
+    score_set = setup_lib_db_with_score_set
+    nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
+    prot = _allele(session, "prot-P", level="protein", clingen_allele_id=None)
+    v = _variant(session, score_set, 1, data={"score_data": {"score": 1.0}})
+    r = _record(session, v, assay_level="cdna")
+    _link(session, r, nt, is_authoritative=True)
+    _link(session, r, prot)
+
+    apex = _resolve_protein_apex(session, [nt.id], as_of=None)
+    assert apex.allele_ids == [prot.id]
+    assert apex.caids == []
+    assert apex.unregistered == 1
+
+
+@pytest.mark.integration
+def test_widening_ambiguous_apex_is_loud(session, setup_lib_db_with_score_set, caplog):
+    """An anchor whose nt change is co-membered with two *different* protein apexes (a divergent walk) is
+    surfaced loudly: a warning naming the conflicting PAIDs, and ``apex_paid_count == 2`` in the request
+    log."""
+    score_set = setup_lib_db_with_score_set
+    nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
+    prot1 = _allele(session, "prot-1", level="protein", clingen_allele_id="PA1")
+    prot2 = _allele(session, "prot-2", level="protein", clingen_allele_id="PA2")
+
+    # nt is the measured allele of r1 (→ PA1) and a derived member of r2 (→ PA2): the same nt change
+    # resolving to two protein consequences.
+    v1 = _variant(session, score_set, 1, data={"score_data": {"score": 1.0}})
+    r1 = _record(session, v1, assay_level="cdna")
+    _link(session, r1, nt, is_authoritative=True)
+    _link(session, r1, prot1)
+
+    v2 = _variant(session, score_set, 2, data={"score_data": {"score": 1.0}}, hgvs_pro="p.Met1Leu")
+    r2 = _record(session, v2, assay_level="protein")
+    _link(session, r2, prot2, is_authoritative=True)
+    _link(session, r2, nt)
+
+    with request_cycle_context({}):
+        with caplog.at_level(logging.WARNING, logger="mavedb.lib.allele_measurements"):
+            get_allele_measurements(session, "CA123", user_data=_user_data(session))
+        assert context["apex_paid_count"] == 2
+
+    assert any("PA1" in rec.message and "PA2" in rec.message for rec in caplog.records)
+
+
+@pytest.mark.integration
+def test_widening_provenance_apex_only_unresolved(session, setup_lib_db_with_score_set):
+    """A protein measurement reached only through the apex, whose own record carries no derived link, is
+    counted apex-only-unresolved; giving that record a derived link of its own drops the count."""
+    score_set = setup_lib_db_with_score_set
+    nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
     prot = _allele(session, "prot-P", level="protein", clingen_allele_id="PA9")
 
-    a = _variant(session, score_set, 1, data={"score_data": {"score": 1.0}})
-    ra = _record(session, a, assay_level="cdna")
-    _link(session, ra, nt1, is_authoritative=True)
-    _link(session, ra, prot)
+    # nt measurement: RT ran — its record links nt (authoritative) and the protein consequence.
+    nt_measured = _variant(session, score_set, 1, data={"score_data": {"score": 1.0}}, hgvs_nt="c.1A>T")
+    nt_record = _record(session, nt_measured, assay_level="cdna")
+    _link(session, nt_record, nt, is_authoritative=True)
+    _link(session, nt_record, prot)
 
-    c = _variant(session, score_set, 2, data={"score_data": {"score": 1.0}})
-    rc = _record(session, c, assay_level="cdna")
-    _link(session, rc, nt2, is_authoritative=True)
-    _link(session, rc, prot)
+    # protein measurement: RT has NOT run — its record links only its authoritative protein allele.
+    protein_measured = _variant(session, score_set, 2, data={"score_data": {"score": 1.0}}, hgvs_pro="p.Met1Leu")
+    protein_record = _record(session, protein_measured, assay_level="protein")
+    _link(session, protein_record, prot, is_authoritative=True)
 
-    result = get_allele_measurements(session, "CA111", user_data=_user_data(session), include_nucleotide_siblings=True)
-    by_urn = {m.variant_urn: m for m in result}
-    assert set(by_urn) == {a.urn, c.urn}
-    assert by_urn[a.urn].relationship == "direct"
-    assert by_urn[c.urn].relationship == "nucleotide_encoding"
-    # Display order: the directly-measured change precedes its sibling nucleotide encoding.
-    assert [m.variant_urn for m in result] == [a.urn, c.urn]
+    with request_cycle_context({}):
+        result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
+        # Both surface via the apex; the protein measurement is the apex-only-unresolved one.
+        assert {m.variant_urn for m in result} == {nt_measured.urn, protein_measured.urn}
+        assert context["measurements_protein_consequence"] == 1
+        assert context["measurements_apex_only_unresolved"] == 1
 
-    # No-op for a protein anchor — it already returns every nt encoding.
-    pa = get_allele_measurements(session, "PA9", user_data=_user_data(session), include_nucleotide_siblings=True)
-    assert {m.variant_urn for m in pa} == {a.urn, c.urn}
+    # Once the protein record gains a derived (non-authoritative) link of its own, it is resolved.
+    _link(session, protein_record, nt)
+    with request_cycle_context({}):
+        get_allele_measurements(session, "CA123", user_data=_user_data(session))
+        assert context["measurements_apex_only_unresolved"] == 0
+
+
+@pytest.mark.integration
+def test_ca_page_reaches_apex_only_protein_consequence(session, setup_lib_db_with_score_set):
+    """The variant page (no siblings) reaches a protein measurement of the anchor's consequence even when
+    that measurement's record has no nt link of its own (RT never ran on its score set) — through the
+    shared apex — and publishes the apex provenance to the request log."""
+    score_set = setup_lib_db_with_score_set
+    nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
+    prot = _allele(session, "prot-P", level="protein", clingen_allele_id="PA9")
+
+    # nt measurement: RT ran — its record links nt (authoritative) and the protein consequence.
+    nt_measured = _variant(session, score_set, 1, data={"score_data": {"score": -2.0}}, hgvs_nt="c.1A>T")
+    nt_record = _record(session, nt_measured, assay_level="cdna")
+    _link(session, nt_record, nt, is_authoritative=True)
+    _link(session, nt_record, prot)
+
+    # protein measurement: RT has NOT run — its record links only its authoritative protein allele.
+    protein_measured = _variant(session, score_set, 2, data={"score_data": {"score": 1.0}}, hgvs_pro="p.Met1Leu")
+    protein_record = _record(session, protein_measured, assay_level="protein")
+    _link(session, protein_record, prot, is_authoritative=True)
+
+    with request_cycle_context({}):
+        result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
+        by_urn = {m.variant_urn: m for m in result}
+        # Reached through the apex despite no nt link on the protein measurement's record.
+        assert set(by_urn) == {nt_measured.urn, protein_measured.urn}
+        assert by_urn[protein_measured.urn].relationship == "protein_consequence"
+        # The page path now widens, so it emits the apex instrumentation.
+        assert context["apex_paid_count"] == 1
+        assert context["measurements_apex_only_unresolved"] == 1
 
 
 @pytest.mark.integration

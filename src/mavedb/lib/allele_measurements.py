@@ -1,29 +1,36 @@
-"""The ClinGen-allele-centric variant page's measurements list — ``GET /clingen-alleles/{caid}/measurements``.
+"""The variant page's measurements list — ``GET /clingen-alleles/{caid}/measurements``.
 
-Given a ClinGen allele id (a nucleotide ``CA`` or a protein ``PA``), list every measurement whose
-**cross-layer equivalence class** touches that allele — not just the exact allele. The equivalence
-relation is co-membership in a ``MappingRecord``'s allele set (the mapping + reverse-translation graph,
-:mod:`lib.alleles`): a ``CA`` anchors on its nucleotide alleles (genomic + coding share the CA), so the
-list gathers the nt measurements of that change (**direct**) *and* the protein measurements of its
-consequence (**related**); a ``PA`` anchors on the protein allele, gathering the protein measurements of
-that change (**direct**) *and* every nt measurement that encodes it (**related**). The asymmetry falls
-out of *which* allele anchors the co-membership — a sibling nt change that also encodes the same protein
-is not pulled onto a CA page, because its record links the protein but not the anchor nt allele.
-``include_nucleotide_siblings`` opts out of that asymmetry for discovery surfaces — see
-:func:`get_allele_measurements`.
+Given a ClinGen allele id — a nucleotide ``CA`` or a protein ``PA`` — return every measurement related to
+it across sequence levels. Two measurements are related when their mapping records share an allele (in the
+mapping + reverse-translation graph). A ``CA`` anchors on its nt alleles; a ``PA`` on the protein allele.
+Each measurement is labelled by its own measured level relative to the query: ``direct`` (measured at the
+query), ``protein_consequence``, or ``nucleotide_encoding``.
 
-Distinct from :func:`lib.variant_detail.get_variant_detail`, which is the *record-scoped*, all-levels
-detail of one *selected* measurement. This list is the *cross-record* union — who else measured
-something in the equivalence class.
+Example. Reference codon ``TTT`` (Phe200): both ``c.598T>C`` and the sibling ``c.600T>A`` encode
+``p.Phe200Leu``. Call them ``CA1``, ``CA2``, ``PA1`` — X assays ``c.598T>C`` (nt), Y assays
+``p.Phe200Leu`` (protein), Z assays ``c.600T>A`` (nt):
 
-Authorization uses ``has_permission`` directly (matching ``lib/score_sets.py``): ``user_data`` is checked
-per entity — score-set READ gates whether a measurement appears at all (a private score set's measurement
-never leaks), and calibration READ gates the inline classification (withheld while the measurement still
-shows). The two-gate split is deliberate: a readable measurement can carry an unreadable classification.
-``as_of`` reconstructs the molecular layer (which records/links are live) at a past instant; scores are
-immutable and calibrations carry no valid-time, so both are as-of-invariant.
+    query CA1  → X direct, Y protein_consequence, Z nucleotide_encoding
+    query PA1  → Y direct, X and Z nucleotide_encoding
+
+A CA query reaches its protein consequence (Y) through the shared protein node ``PA1``. This is what makes
+Y reachable when a protein assay has not been reverse-translated: its record then links only the protein
+node, with no nt allele for the CA anchor to match, so the apex is the only path to it. The sibling Z is
+reached without the apex — reverse translation links every record to its full synonymous nt set, so Z's
+record already links ``CA1`` directly. There is no page/search distinction: every surface runs one query.
+
+The protein-consequence step is resolved once, in :func:`_resolve_protein_apex`, which also measures it:
+a consequence resolving to more than one protein id (a data-integrity signal) is logged, and the number of
+consequences reached with no reverse-translation data of their own is written to the request log.
+
+Authorization (``has_permission``, per ``lib/score_sets.py``): score-set READ gates whether a measurement
+appears; calibration READ gates only its inline classification. ``as_of`` reconstructs which records and
+links were live at a past instant; scores and calibrations are as-of-invariant.
+
+Distinct from :func:`lib.variant_detail.get_variant_detail` — the record-scoped detail of one measurement.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import Enum
@@ -32,6 +39,7 @@ from typing import Optional
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, aliased, joinedload
 
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.score_calibrations import calibration_preference_key, classification_evidence_strength
 from mavedb.lib.types.authentication import UserData
@@ -47,31 +55,25 @@ from mavedb.models.score_calibration_functional_classification_variant_associati
 )
 from mavedb.models.variant import Variant
 
+logger = logging.getLogger(__name__)
+
 
 class MeasurementRelationship(str, Enum):
-    """The relationship of a measurement to the queried ClinGen allele. ``direct`` = the measurement was
-    assayed *at* this allele; the other two are the RT-related measurements, named for how they relate
-    to the query.
-    """
+    """How a measurement relates to the queried ClinGen id, by the measurement's *measured* level."""
 
-    # the measurement was assayed *at* this allele
-    direct = "direct"
-    # CA query, protein measurement of consequence(N)
-    protein_consequence = "protein_consequence"
-    # A nt measurement encoding the queried change's protein consequence: a PA query's encodings of P, or —
-    # only under ``include_nucleotide_siblings`` — a CA query's sibling nt changes that share consequence(N).
+    direct = "direct"  # assayed at the queried allele
+    protein_consequence = "protein_consequence"  # protein measurement of a CA's consequence
+    # an nt measurement of a PA's encoding, or a CA's sibling nt change (encodes the same protein)
     nucleotide_encoding = "nucleotide_encoding"
 
 
 @dataclass(frozen=True)
 class AlleleMeasurement:
-    """One measurement in the queried allele's equivalence class (transit; serialized by
-    ``view_models.allele_measurement``).
+    """One measurement in the query's equivalence class (transit; serialized by ``view_models``).
 
-    ``assay_level`` is the level at which *this* measurement was assayed (protein/cdna/genomic) — the
-    clinically load-bearing fact, always shown. ``relationship`` says how it relates to the queried
-    ClinGen id. ``preferred_classification`` is the readable functional classification the UI defaults to
-    (primary-first cascade, RUO excluded; ``None`` when none applies or the calibration is unreadable).
+    ``assay_level`` is where this measurement was assayed (always shown, the clinically load-bearing
+    fact). ``preferred_classification`` is the readable classification the UI defaults to (primary-first
+    cascade, RUO excluded; ``None`` when none applies or the calibration is unreadable).
     """
 
     variant_urn: str
@@ -87,22 +89,27 @@ class AlleleMeasurement:
     superseded_by_score_set: Optional[str]
 
 
+@dataclass(frozen=True)
+class _ProteinApex:
+    """Protein consequence(s) co-membered with a CA anchor's nt alleles — the shared node a CA query
+    reaches protein measurements through. One PAID is well-formed; ``len(caids) > 1`` is a data-quality
+    signal (a duplicate or divergent consequence). ``unregistered`` counts apex rows without a PAID yet.
+    """
+
+    allele_ids: list[int]
+    caids: list[str]
+    unregistered: int
+
+
 def _preferred_classification(
     db: Session, variant: Variant, *, user_data: Optional[UserData]
 ) -> Optional[ScoreCalibrationFunctionalClassification]:
     """The variant's preferred *readable* functional classification, or ``None``.
 
-    A variant falls into one classification per calibration (non-overlapping ranges); we surface the one
-    the UI would default to, mirroring its calibration preference cascade: ``primary`` first, then
-    ``investigator_provided``. Within a tier we take the strongest evidence (the VA-Spec posture — the
-    strongest calibration is the evidence calibration), then ``id`` only for determinism.
-
-    This is a clinical surface, so research-use-only calibrations are excluded outright (not merely deprioritized
-    as in the shared cascade) — a RUO call is never the classification shown here.
-
-    Only calibrations the caller can read (calibration READ) are considered, so a private calibration is
-    skipped rather than blanking a readable call. Kept in sync with the UI's `activeCalibrationOptions`
-    default selection.
+    Mirrors the UI's calibration cascade — ``primary`` then ``investigator_provided``, strongest evidence
+    within a tier, then ``id`` for determinism. RUO calibrations are excluded outright (never shown here),
+    and calibrations the caller can't read are skipped rather than blanking a readable call. Kept in sync
+    with the UI's ``activeCalibrationOptions`` default.
     """
     candidates = [
         (classification, calibration)
@@ -134,13 +141,8 @@ def _preferred_classification(
 
 
 def _ordering_key(measurement: AlleleMeasurement, published_date: Optional[date]) -> tuple:
-    """Sort order:
-    1. Current measurements first, then superseded (the latter only if ``include_superseded``)
-    2. Direct measurements first, then related (protein_consequence / nucleotide_encoding)
-    3. Within each, the strongest evidence first (pathogenic wins ties)
-    4. Within each, the newest-published first
-    5. Within each, the URN for a stable tiebreak
-    """
+    """Sort: current before superseded; direct before related; strongest evidence (pathogenic wins ties)
+    first; newest-published first; then URN for a stable tiebreak."""
     magnitude, direction = classification_evidence_strength(measurement.preferred_classification)
     return (
         0 if measurement.is_current else 1,
@@ -153,22 +155,45 @@ def _ordering_key(measurement: AlleleMeasurement, published_date: Optional[date]
     )
 
 
+def _resolve_protein_apex(db: Session, anchor_ids: list[int], *, as_of: Optional[datetime]) -> _ProteinApex:
+    """The protein consequence(s) co-membered with the nt ``anchor_ids`` via a shared live record.
+
+    The single site the apex is resolved, so its cardinality (see :class:`_ProteinApex`) is measured
+    rather than being a silent side effect of the union. Reads ``clingen_allele_id`` to count PAIDs.
+    """
+    anchor_link = aliased(MappingRecordAllele)
+    rows = db.execute(
+        select(Allele.id, Allele.clingen_allele_id)
+        .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
+        .join(anchor_link, anchor_link.mapping_record_id == MappingRecordAllele.mapping_record_id)
+        .where(anchor_link.allele_id.in_(anchor_ids))
+        .where(anchor_link.live_at(as_of))
+        .where(MappingRecordAllele.live_at(as_of))
+        .where(Allele.level == SequenceLevel.protein.value)
+        .distinct()
+    ).all()
+
+    return _ProteinApex(
+        allele_ids=[row.id for row in rows],
+        caids=sorted({row.clingen_allele_id for row in rows if row.clingen_allele_id is not None}),
+        unregistered=sum(1 for row in rows if row.clingen_allele_id is None),
+    )
+
+
 def get_allele_measurements(
     db: Session,
     clingen_allele_id: str,
     *,
     user_data: Optional[UserData],
     include_superseded: bool = False,
-    include_nucleotide_siblings: bool = False,
     as_of: Optional[datetime] = None,
 ) -> list[AlleleMeasurement]:
-    """List the measurements in ``clingen_allele_id``'s cross-layer equivalence class. Returns
-    ``[]`` when the id resolves to no allele or no live record.
+    """The measurements in ``clingen_allele_id``'s equivalence class, or ``[]`` if it resolves to no live
+    record.
 
-    ``include_nucleotide_siblings`` (a ``CA`` entry only; a no-op for ``PA``) widens the class through the
-    queried change's protein consequence to also surface the *sibling* nt changes — other nucleotide
-    variants that encode the same amino-acid change and were themselves assayed at the nucleotide level
-    (``relationship=nucleotide_encoding``).
+    A CA query returns ``direct`` measurements, its ``protein_consequence`` (reached through the protein
+    apex, see the module docstring), and the ``nucleotide_encoding`` siblings. A PA query returns its
+    ``direct`` protein measurements and their ``nucleotide_encoding`` encodings.
     """
     anchor = db.execute(select(Allele.id, Allele.level).where(Allele.clingen_allele_id == clingen_allele_id)).all()
     if not anchor:
@@ -177,22 +202,22 @@ def get_allele_measurements(
     anchor_ids = [row.id for row in anchor]
     entry_is_protein = any(row.level == SequenceLevel.protein.value for row in anchor)
 
-    # Sibling nucleotide changes (search discovery, CA only): fold the queried change's protein consequence
-    # — the protein alleles co-membered with the anchor nt alleles — into the anchor, so the single record
-    # union below also reaches every record encoding that consequence. a PA query already anchors on the protein, so
-    # this is exactly what makes a CA+siblings query behave like one. (This query would be redundant for a PA entry).
-    if include_nucleotide_siblings and not entry_is_protein:
-        anchor_link = aliased(MappingRecordAllele)
-        anchor_ids += db.scalars(
-            select(MappingRecordAllele.allele_id)
-            .join(anchor_link, anchor_link.mapping_record_id == MappingRecordAllele.mapping_record_id)
-            .join(Allele, Allele.id == MappingRecordAllele.allele_id)
-            .where(anchor_link.allele_id.in_(anchor_ids))
-            .where(anchor_link.live_at(as_of))
-            .where(MappingRecordAllele.live_at(as_of))
-            .where(Allele.level == SequenceLevel.protein.value)
-            .distinct()
-        ).all()
+    # A CA query always includes its protein consequence, reached through the shared protein node, so it is
+    # reachable even when a protein assay isn't reverse-translated yet (its record then links only the
+    # protein node). Transitive, so it's measured: cardinality >1 logged, provenance tallied below. No-op
+    # for a PA (already anchored on the protein).
+    apex: Optional[_ProteinApex] = None
+    if not entry_is_protein:
+        apex = _resolve_protein_apex(db, anchor_ids, as_of=as_of)
+        anchor_ids += apex.allele_ids
+        if len(apex.caids) > 1:
+            logger.warning(
+                msg=(
+                    f"ClinGen allele {clingen_allele_id} resolved to {len(apex.caids)} distinct protein "
+                    f"apexes ({', '.join(apex.caids)}); measurements may conflate consequences."
+                ),
+                extra=logging_context(),
+            )
 
     record_ids = db.scalars(
         select(MappingRecordAllele.mapping_record_id)
@@ -202,6 +227,22 @@ def get_allele_measurements(
     ).all()
     if not record_ids:
         return []
+
+    # Records that carry a derived (RT) link of their own. A protein consequence whose record has none was
+    # reached only through the apex of an already resolved protein consequence.
+    records_with_derived_links: set[int] = (
+        set(
+            db.scalars(
+                select(MappingRecordAllele.mapping_record_id)
+                .where(MappingRecordAllele.mapping_record_id.in_(record_ids))
+                .where(MappingRecordAllele.is_authoritative.is_(False))
+                .where(MappingRecordAllele.live_at(as_of))
+                .distinct()
+            ).all()
+        )
+        if apex is not None
+        else set()
+    )
 
     # Each record's authoritative (measured) allele fixes the assayed level and the direct/related call.
     authoritative = aliased(MappingRecordAllele)
@@ -227,12 +268,14 @@ def get_allele_measurements(
     )
 
     measurements: list[tuple[AlleleMeasurement, Optional[date]]] = []
+    protein_consequence_count = 0
+    apex_only_unresolved_count = 0
     for record, variant, measured_allele in rows:
         score_set = variant.score_set
         if not has_permission(user_data, score_set, Action.READ).permitted:
             continue
 
-        # Don't leak unpermitted resources.
+        # Don't leak an unreadable superseding score set.
         superseding = score_set.superseding_score_set
         if superseding is not None and not has_permission(user_data, superseding, Action.READ).permitted:
             superseding = None
@@ -241,15 +284,20 @@ def get_allele_measurements(
         if not is_current and not include_superseded:
             continue
 
-        # Label by the measured level, not the entry level: direct when the measured allele *is* the query,
-        # else protein→protein_consequence / nucleotide→nucleotide_encoding. Without siblings the sibling-nt
-        # branch is unreachable (a record links the anchor only via itself or its protein consequence).
+        # Label by the measured (authoritative) allele's level relative to the query.
         if measured_allele.clingen_allele_id == clingen_allele_id:
             relationship = MeasurementRelationship.direct
         elif measured_allele.level == SequenceLevel.protein.value:
             relationship = MeasurementRelationship.protein_consequence
         else:
             relationship = MeasurementRelationship.nucleotide_encoding
+
+        # Apex-only provenance: a protein consequence whose record has no derived link was reached purely
+        # through the apex.
+        if apex is not None and relationship == MeasurementRelationship.protein_consequence:
+            protein_consequence_count += 1
+            if record.id not in records_with_derived_links:
+                apex_only_unresolved_count += 1
 
         assay_level = SequenceLevel(record.assay_level) if record.assay_level else None
         measurement = AlleleMeasurement(
@@ -266,6 +314,17 @@ def get_allele_measurements(
             superseded_by_score_set=superseding.urn if superseding is not None else None,
         )
         measurements.append((measurement, score_set.published_date))
+
+    # Publish the apex provenance to the request log so the ambiguous-apex and apex-only-unresolved rates are observable.
+    if apex is not None:
+        save_to_logging_context(
+            {
+                "apex_paid_count": len(apex.caids),
+                "apex_unregistered_count": apex.unregistered,
+                "measurements_protein_consequence": protein_consequence_count,
+                "measurements_apex_only_unresolved": apex_only_unresolved_count,
+            }
+        )
 
     measurements.sort(key=lambda pair: _ordering_key(pair[0], pair[1]))
     return [measurement for measurement, _ in measurements]

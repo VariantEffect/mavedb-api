@@ -108,10 +108,9 @@ def test_superseded_measurement_is_opt_in(client, session, data_provider, data_f
     assert body[0]["supersededByScoreSet"] == newer["urn"]
 
 
-def test_nucleotide_siblings_are_opt_in(client, session, data_provider, data_files, setup_router_db):
-    """The sibling nt bucket is a discovery opt-in: a different DNA variant encoding the same protein
-    consequence is absent by default and pulled in as a ``nucleotide_encoding`` under
-    ``include_nucleotide_siblings``."""
+def test_nucleotide_siblings_shown(client, session, data_provider, data_files, setup_router_db):
+    """A different DNA variant encoding the same protein consequence surfaces on a CA page as a
+    ``nucleotide_encoding``, reached through the shared protein consequence."""
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -133,20 +132,17 @@ def test_nucleotide_siblings_are_opt_in(client, session, data_provider, data_fil
         session.add(MappingRecordAllele(mapping_record_id=record.id, allele_id=prot.id))
         session.commit()
 
-    default = client.get("/api/v1/clingen-alleles/CA111/measurements")
-    assert {m["variantUrn"] for m in default.json()} == {f"{score_set['urn']}#1"}
-
-    widened = client.get("/api/v1/clingen-alleles/CA111/measurements", params={"include_nucleotide_siblings": True})
-    assert widened.status_code == 200
-    by_urn = {m["variantUrn"]: m for m in widened.json()}
+    response = client.get("/api/v1/clingen-alleles/CA111/measurements")
+    assert response.status_code == 200
+    by_urn = {m["variantUrn"]: m for m in response.json()}
     assert set(by_urn) == {f"{score_set['urn']}#1", f"{score_set['urn']}#2"}
     assert by_urn[f"{score_set['urn']}#1"]["relationship"] == "direct"
     assert by_urn[f"{score_set['urn']}#2"]["relationship"] == "nucleotide_encoding"
 
 
 def test_direct_measurements_sort_before_related(client, session, data_provider, data_files, setup_router_db):
-    """The list is ordered, and direct measurements precede related ones in the body: a CA+siblings query
-    returns the directly-assayed change first, then the sibling nucleotide encoding."""
+    """The list is ordered, and direct measurements precede related ones in the body: a CA query returns
+    the directly-assayed change first, then the sibling nucleotide encoding."""
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -167,7 +163,7 @@ def test_direct_measurements_sort_before_related(client, session, data_provider,
         session.add(MappingRecordAllele(mapping_record_id=record.id, allele_id=prot.id))
         session.commit()
 
-    response = client.get("/api/v1/clingen-alleles/CA111/measurements", params={"include_nucleotide_siblings": True})
+    response = client.get("/api/v1/clingen-alleles/CA111/measurements")
 
     assert response.status_code == 200
     body = response.json()
