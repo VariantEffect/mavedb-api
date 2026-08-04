@@ -28,7 +28,8 @@ from sqlalchemy.orm import Session, joinedload, lazyload
 from mavedb.lib.annotation.annotate import variant_highest_level_annotation
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
-from mavedb.lib.score_sets import get_current_mapped_variants_for_annotation, get_score_set_variants_as_csv
+from mavedb.lib.score_set_csv import get_score_set_variants_as_csv
+from mavedb.lib.score_sets import get_current_mapped_variants_for_annotation
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.license import License

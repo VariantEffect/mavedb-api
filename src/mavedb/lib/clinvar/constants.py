@@ -1,7 +1,13 @@
 import os
+import re
 from pathlib import Path
 
 from urllib3.util.retry import Retry
+
+CLINVAR_NS_PATTERN = re.compile(r"^clinvar\.(\d+)_(0[1-9]|1[0-2])$")
+"""Pattern for ClinVar-versioned namespaces of the form "clinvar.YEAR_MONTH",
+e.g. "clinvar.2024_01" for January 2024.
+"""
 
 TSV_VARIANT_ARCHIVE_BASE_URL = "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/archive"
 

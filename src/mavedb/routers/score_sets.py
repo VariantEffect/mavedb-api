@@ -53,16 +53,15 @@ from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.score_calibrations import create_score_calibration
+from mavedb.lib.clinvar.constants import CLINVAR_NS_PATTERN
+from mavedb.lib.score_set_csv import get_score_set_variants_as_csv, variants_to_csv_rows
 from mavedb.lib.score_sets import (
-    CLINVAR_NS_PATTERN,
     csv_data_to_df,
     fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
     get_current_mapped_variants_for_annotation,
-    get_score_set_variants_as_csv,
     is_replaces_id_unique_violation,
     refresh_variant_urns,
-    variants_to_csv_rows,
 )
 from mavedb.lib.score_sets import (
     search_score_sets as _search_score_sets,
