@@ -31,3 +31,12 @@ def is_csv_null(value):
     if value == 0:
         return value
     return not value or NULL_VALUES_RE.fullmatch(str(value).strip().lower())
+
+
+_CSV_OUTPUT_NULL_RE = re.compile(r"\s+|none|nan|na|undefined|n/a|null|nil", flags=re.IGNORECASE)
+
+
+def is_csv_output_null(value):
+    """Return True if a value should be replaced with the NA sentinel in CSV output."""
+    value = str(value).strip().lower()
+    return _CSV_OUTPUT_NULL_RE.fullmatch(value) or not value
