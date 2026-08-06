@@ -3428,7 +3428,7 @@ def test_download_variants_data_file(
         worker_queue.assert_called_once()
 
     download_scores_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?drop_na_columns=true&include_post_mapped_hgvs=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?drop_unused_hgvs_columns=true&namespaces=scores&namespaces=mavedb"
     )
     assert download_scores_csv_response.status_code == 200
     download_scores_csv = download_scores_csv_response.text
@@ -3477,7 +3477,7 @@ def test_download_scores_file(session, data_provider, client, setup_router_db, d
         worker_queue.assert_called_once()
 
     download_scores_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/scores?drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/scores?drop_unused_hgvs_columns=true"
     )
     assert download_scores_csv_response.status_code == 200
     download_scores_csv = download_scores_csv_response.text
@@ -3499,7 +3499,7 @@ def test_download_counts_file(session, data_provider, client, setup_router_db, d
         worker_queue.assert_called_once()
 
     download_counts_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/counts?drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/counts?drop_unused_hgvs_columns=true"
     )
     assert download_counts_csv_response.status_code == 200
     download_counts_csv = download_counts_csv_response.text
@@ -3508,6 +3508,144 @@ def test_download_counts_file(session, data_provider, client, setup_router_db, d
     assert "hgvs_nt" in columns
     assert "hgvs_pro" in columns
     assert "hgvs_splice" not in columns
+
+
+# Deprecated query-parameter aliases. Galaxy and other external tooling call these endpoints, so the old
+# names keep working for a release rather than being silently ignored.
+def test_deprecated_drop_na_columns_still_drops_unused_hgvs_columns(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    for path in ("variants/data?namespaces=scores&", "scores?", "counts?"):
+        response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}/{path}drop_na_columns=true")
+
+        assert response.status_code == 200, path
+        columns = response.text.split("\n")[0].split(",")
+        assert "hgvs_splice" not in columns, path
+
+
+def test_deprecated_include_post_mapped_hgvs_adds_the_mavedb_namespace(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    create_mapped_variants_for_score_set(session, score_set["urn"], TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION)
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&include_post_mapped_hgvs=true"
+    )
+
+    assert response.status_code == 200
+    columns = response.text.split("\n")[0].split(",")
+    # Additive, as the flag always was: the requested namespace survives alongside it.
+    assert "scores.score" in columns
+    assert "mavedb.post_mapped_hgvs_g" in columns
+
+
+def test_deprecated_include_custom_columns_adds_the_scores_custom_namespace(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """The flag now appends a namespace, and its columns keep the `scores.` prefix they always had."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    with_flag = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&include_custom_columns=true"
+    )
+    with_namespace = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&namespaces=scores_custom"
+    )
+
+    assert with_flag.status_code == 200
+    assert with_namespace.status_code == 200
+    assert with_flag.text.split("\n")[0] == with_namespace.text.split("\n")[0]
+    assert with_flag.headers["Deprecation"] == "true"
+    assert "include_custom_columns is deprecated" in with_flag.headers["Warning"]
+    # No column is emitted under a `scores_custom.` prefix; the namespace is a request token only.
+    assert "scores_custom." not in with_flag.text
+
+
+def test_current_parameter_name_wins_over_its_deprecated_spelling(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/scores?drop_unused_hgvs_columns=false&drop_na_columns=true"
+    )
+
+    assert response.status_code == 200
+    assert "hgvs_splice" in response.text.split("\n")[0].split(",")
+
+
+def test_deprecated_request_answers_with_deprecation_headers(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """The consumers here are scripts, not people reading our logs, so the response has to say so."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data"
+        "?namespaces=scores&drop_na_columns=true&include_post_mapped_hgvs=true"
+    )
+
+    assert response.status_code == 200
+    assert response.headers["deprecation"] == "true"
+    warning = response.headers["warning"]
+    assert "drop_na_columns is deprecated, use drop_unused_hgvs_columns" in warning
+    assert "include_post_mapped_hgvs is deprecated, use namespaces=mavedb" in warning
+
+
+def test_current_request_carries_no_deprecation_headers(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&drop_unused_hgvs_columns=true"
+    )
+
+    assert response.status_code == 200
+    assert "deprecation" not in response.headers
+    assert "warning" not in response.headers
+
+
+def test_deprecated_parameters_are_marked_deprecated_in_the_openapi_schema(client):
+    """Anyone reading the docs or generating a client should see the deprecation without sending a request."""
+    schema = client.app.openapi()
+
+    def parameter(path: str, name: str):
+        return next(p for p in schema["paths"][path]["get"]["parameters"] if p["name"] == name)
+
+    for path, name in (
+        ("/api/v1/score-sets/{urn}/variants/data", "drop_na_columns"),
+        ("/api/v1/score-sets/{urn}/variants/data", "include_post_mapped_hgvs"),
+        ("/api/v1/score-sets/{urn}/scores", "drop_na_columns"),
+        ("/api/v1/score-sets/{urn}/counts", "drop_na_columns"),
+    ):
+        assert parameter(path, name)["deprecated"] is True, f"{name} on {path}"
+        assert "deprecated" in parameter(path, name)["description"].lower(), f"{name} on {path}"
 
 
 # Namespace variant CSV export tests.
@@ -3522,7 +3660,7 @@ def test_download_scores_file_in_variant_data_path(session, data_provider, clien
         worker_queue.assert_called_once()
 
     download_scores_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&drop_unused_hgvs_columns=true"
     )
     assert download_scores_csv_response.status_code == 200
     download_scores_csv = download_scores_csv_response.text
@@ -3545,7 +3683,7 @@ def test_download_counts_file_in_variant_data_path(session, data_provider, clien
         worker_queue.assert_called_once()
 
     download_counts_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=counts&include_custom_columns=true&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=counts&include_custom_columns=true&drop_unused_hgvs_columns=true"
     )
     assert download_counts_csv_response.status_code == 200
     download_counts_csv = download_counts_csv_response.text
@@ -3569,7 +3707,7 @@ def test_download_scores_and_counts_file(session, data_provider, client, setup_r
         worker_queue.assert_called_once()
 
     download_scores_and_counts_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=counts&namespaces=scores&include_custom_columns=true&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=counts&namespaces=scores&include_custom_columns=true&drop_unused_hgvs_columns=true"
     )
     assert download_scores_and_counts_csv_response.status_code == 200
     download_scores_and_counts_csv = download_scores_and_counts_csv_response.text
@@ -3604,7 +3742,7 @@ def test_download_scores_counts_and_post_mapped_variants_file(
         worker_queue.assert_called_once()
 
     download_multiple_data_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&namespaces=counts&include_custom_columns=true&include_post_mapped_hgvs=true&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&namespaces=counts&namespaces=mavedb&include_custom_columns=true&drop_unused_hgvs_columns=true"
     )
     assert download_multiple_data_csv_response.status_code == 200
     download_multiple_data_csv = download_multiple_data_csv_response.text
@@ -3643,7 +3781,7 @@ def test_download_vep_file_in_variant_data_path(session, data_provider, client, 
         worker_queue.assert_called_once()
 
     response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=vep&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=vep&drop_unused_hgvs_columns=true"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -3672,7 +3810,7 @@ def test_download_clingen_file_in_variant_data_path(session, data_provider, clie
         worker_queue.assert_called_once()
 
     response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=clingen&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=clingen&drop_unused_hgvs_columns=true"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -3694,11 +3832,37 @@ def test_download_gnomad_file_in_variant_data_path(session, data_provider, clien
         worker_queue.assert_called_once()
 
     response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=gnomad&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=gnomad&drop_unused_hgvs_columns=true"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
     assert "gnomad.gnomad_af" in reader.fieldnames
+
+
+def test_download_gnomad_file_keeps_variants_linked_to_other_gnomad_versions(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """A variant linked only to a gnomAD record of another version must still appear, with an NA frequency.
+
+    The version filter belongs in the join's ON clause; in a WHERE it silently drops the variant row.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    # The seeded gnomAD variant's version deliberately differs from the configured export version.
+    link_gnomad_variants_to_mapped_variants(session, score_set)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=gnomad")
+    assert response.status_code == 200
+
+    rows = list(csv.DictReader(StringIO(response.text)))
+    assert len(rows) == 3, "every variant must be present regardless of linked gnomAD versions"
+    assert all(row["gnomad.gnomad_af"] == "NA" for row in rows)
 
 
 def test_download_clingen_and_vep_file_in_variant_data_path(
@@ -3722,7 +3886,7 @@ def test_download_clingen_and_vep_file_in_variant_data_path(
         worker_queue.assert_called_once()
 
     response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=clingen&namespaces=vep&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=clingen&namespaces=vep&drop_unused_hgvs_columns=true"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -3754,7 +3918,7 @@ def test_download_clingen_and_scores_file_in_variant_data_path(
         worker_queue.assert_called_once()
 
     response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&namespaces=clingen&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&namespaces=clingen&drop_unused_hgvs_columns=true"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -3790,7 +3954,7 @@ def test_download_clinvar_namespace_in_variant_data_path(session, data_provider,
 
     response = client.get(
         f"/api/v1/score-sets/{published_score_set['urn']}/variants/data"
-        f"?namespaces={clinvar_namespace}&drop_na_columns=false"
+        f"?namespaces={clinvar_namespace}&drop_unused_hgvs_columns=false"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -3824,7 +3988,7 @@ def test_download_clinvar_namespace_with_no_matching_version(
 
     response = client.get(
         f"/api/v1/score-sets/{published_score_set['urn']}/variants/data"
-        f"?namespaces={clinvar_namespace}&drop_na_columns=false"
+        f"?namespaces={clinvar_namespace}&drop_unused_hgvs_columns=false"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -3854,7 +4018,7 @@ def test_download_multiple_clinvar_namespaces_in_variant_data_path(
 
     response = client.get(
         f"/api/v1/score-sets/{published_score_set['urn']}/variants/data"
-        f"?namespaces={matching_ns}&namespaces={non_matching_ns}&drop_na_columns=false"
+        f"?namespaces={matching_ns}&namespaces={non_matching_ns}&drop_unused_hgvs_columns=false"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -4066,7 +4230,7 @@ def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
     publish_score_set = publish_score_set_response.json()
 
     download_scores_csv_response = client.get(
-        f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_na_columns=true"
+        f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_unused_hgvs_columns=true"
     )
     assert download_scores_csv_response.status_code == 200
     download_scores_csv = download_scores_csv_response.text

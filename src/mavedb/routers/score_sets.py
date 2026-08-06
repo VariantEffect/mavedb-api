@@ -53,8 +53,16 @@ from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.score_calibrations import create_score_calibration
-from mavedb.lib.clinvar.constants import CLINVAR_NS_PATTERN
-from mavedb.lib.score_set_csv import get_score_set_variants_as_csv, variants_to_csv_rows
+from mavedb.lib.csv.deprecated_params import (
+    DROP_NA_COLUMNS_DESCRIPTION,
+    INCLUDE_CUSTOM_COLUMNS_DESCRIPTION,
+    INCLUDE_POST_MAPPED_HGVS_DESCRIPTION,
+    resolve_deprecated_csv_params,
+)
+from mavedb.lib.csv.namespaces import CSV_NAMESPACES_PARAM_DESCRIPTION, CsvNamespaceStr
+from mavedb.view_models.csv_namespace import AvailableCsvNamespace
+from mavedb.lib.csv.columns import variants_to_csv_rows
+from mavedb.lib.csv.score_set import available_score_set_csv_namespaces, get_score_set_variants_as_csv
 from mavedb.lib.score_sets import (
     csv_data_to_df,
     fetch_score_set_search_filter_options,
@@ -909,6 +917,57 @@ async def show_score_set(
 
 
 @router.get(
+    "/score-sets/{urn}/csv-namespaces",
+    status_code=200,
+    response_model=list[AvailableCsvNamespace],
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="List the CSV column namespaces this score set has data for",
+)
+def get_score_set_csv_namespaces(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+) -> Any:
+    """
+    List the CSV column namespaces this score set has data for, labeled and grouped for a picker.
+
+    Each entry's `namespace` is a value accepted by the `namespaces` parameter of the CSV endpoints.
+    Deliberately a separate request rather than a field on the score set: it costs several queries and is
+    only needed when a user opens a download dialog, so it should not sit on the score-set page's
+    critical path.
+
+    Parameters
+    __________
+    urn : str
+        The URN of the score set to inspect.
+    db : Session
+        The database session to use.
+    user_data : Optional[UserData]
+        The user data of the current user. If None, no user-specific permissions are checked.
+
+    Returns
+    _______
+    list[AvailableCsvNamespace]
+        The namespaces with data, each with a human-readable label and group.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "csv-namespaces"})
+
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
+    if not score_set:
+        logger.info(msg="Could not fetch CSV namespaces; No such score set exists.", extra=logging_context())
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
+    assert_permission(user_data, score_set, Action.READ)
+
+    return available_score_set_csv_namespaces(
+        db,
+        score_set,
+        may_read_calibration=lambda calibration: has_permission(user_data, calibration, Action.READ).permitted,
+    )
+
+
+@router.get(
     "/score-sets/{urn}/variants/data",
     status_code=200,
     responses={
@@ -927,17 +986,18 @@ def get_score_set_variants_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Maximum number of variants to return"),
-    namespaces: List[str] = Query(
+    namespaces: List[CsvNamespaceStr] = Query(
         default=["scores"],
-        description=(
-            'One or more data types to include: "scores", "counts", "vep", "gnomad", "clingen", '
-            'and/or ClinVar-versioned namespaces of the form "clinvar.YEAR_MONTH" '
-            '(e.g. "clinvar.2024_01" for January 2024).'
-        ),
+        description=CSV_NAMESPACES_PARAM_DESCRIPTION,
     ),
-    drop_na_columns: Optional[bool] = None,
-    include_custom_columns: Optional[bool] = None,
-    include_post_mapped_hgvs: Optional[bool] = None,
+    drop_unused_hgvs_columns: Optional[bool] = None,
+    drop_na_columns: Optional[bool] = Query(default=None, deprecated=True, description=DROP_NA_COLUMNS_DESCRIPTION),
+    include_post_mapped_hgvs: Optional[bool] = Query(
+        default=None, deprecated=True, description=INCLUDE_POST_MAPPED_HGVS_DESCRIPTION
+    ),
+    include_custom_columns: Optional[bool] = Query(
+        default=None, deprecated=True, description=INCLUDE_CUSTOM_COLUMNS_DESCRIPTION
+    ),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
@@ -957,11 +1017,19 @@ def get_score_set_variants_csv(
         The maximum number of variants to return. If None, returns all variants.
     namespaces: List[str]
         The namespaces of all columns except for accession, hgvs_nt, hgvs_pro, and hgvs_splice.
-        Supported values: "scores", "counts", "vep", "gnomad", "clingen", and ClinVar-versioned
-        namespaces of the form "clinvar.YEAR_MONTH" (e.g. "clinvar.2024_01" for January 2024).
-        Multiple ClinVar namespaces with different YEAR_MONTH values may be requested simultaneously.
+        Supported values: "scores" (the required score column), "scores_custom" (the investigator's
+        remaining score columns, emitted under the "scores" prefix), "counts", "mavedb", "vep", "gnomad",
+        "clingen", "score_set", and ClinVar- and calibration-parameterized namespaces. Multiple ClinVar
+        and calibration namespaces may be requested simultaneously.
+    drop_unused_hgvs_columns : bool, optional
+        Whether to omit the HGVS coordinate columns this score set does not use, e.g. hgvs_nt for a
+        protein-only score set. Defaults to False.
     drop_na_columns : bool, optional
-        Whether to drop columns that contain only NA values. Defaults to False.
+        Deprecated spelling of drop_unused_hgvs_columns, accepted for one release.
+    include_post_mapped_hgvs : bool, optional
+        Deprecated: equivalent to requesting the "mavedb" namespace. Accepted for one release.
+    include_custom_columns : bool, optional
+        Deprecated: equivalent to requesting the "scores_custom" namespace. Accepted for one release.
     db : Session
         The database session to use.
     user_data : Optional[UserData]
@@ -972,13 +1040,23 @@ def get_score_set_variants_csv(
     str
         The CSV string containing the variant data.
     """
+    deprecated = resolve_deprecated_csv_params(
+        namespaces=namespaces,
+        drop_unused_hgvs_columns=drop_unused_hgvs_columns,
+        drop_na_columns=drop_na_columns,
+        include_post_mapped_hgvs=include_post_mapped_hgvs,
+        include_custom_columns=include_custom_columns,
+    )
+    namespaces = deprecated.namespaces
+    drop_unused_hgvs_columns = deprecated.drop_unused_hgvs_columns
+
     save_to_logging_context(
         {
             "requested_resource": urn,
             "resource_property": "scores",
             "start": start,
             "limit": limit,
-            "drop_na_columns": drop_na_columns,
+            "drop_unused_hgvs_columns": drop_unused_hgvs_columns,
         }
     )
 
@@ -988,21 +1066,6 @@ def get_score_set_variants_csv(
     if limit is not None and limit <= 0:
         logger.info(msg="Could not fetch scores with non-positive limit.", extra=logging_context())
         raise HTTPException(status_code=422, detail="Limit must be positive")
-
-    _VALID_STATIC_NAMESPACES = {"scores", "counts", "vep", "gnomad", "clingen"}
-    invalid_namespaces = [
-        ns for ns in namespaces if ns not in _VALID_STATIC_NAMESPACES and not CLINVAR_NS_PATTERN.match(ns)
-    ]
-    if invalid_namespaces:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Invalid namespace(s): {invalid_namespaces}. "
-                'Each namespace must be one of "scores", "counts", "vep", "gnomad", "clingen", '
-                'or a ClinVar-versioned namespace of the form "clinvar.YEAR_MM" '
-                '(e.g. "clinvar.2024_01" for January 2024).'
-            ),
-        )
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -1018,11 +1081,12 @@ def get_score_set_variants_csv(
         True,
         start,
         limit,
-        drop_na_columns,
-        include_custom_columns,
-        include_post_mapped_hgvs,
+        drop_unused_hgvs_columns,
+        # Asked separately from the score set: a private calibration is readable only by its owner,
+        # investigator contributors, or an admin, whoever can read the score set.
+        may_read_calibration=lambda calibration: has_permission(user_data, calibration, Action.READ).permitted,
     )
-    return StreamingResponse(iter([csv_str]), media_type="text/csv")
+    return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
 
 
 @router.get(
@@ -1044,7 +1108,8 @@ def get_score_set_scores_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Number of variants to return"),
-    drop_na_columns: Optional[bool] = None,
+    drop_unused_hgvs_columns: Optional[bool] = None,
+    drop_na_columns: Optional[bool] = Query(default=None, deprecated=True, description=DROP_NA_COLUMNS_DESCRIPTION),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
@@ -1056,6 +1121,11 @@ def get_score_set_scores_csv(
     /score-sets/{urn}/scores?start=0&limit=100
     /score-sets/{urn}/scores?start=100
     """
+    deprecated = resolve_deprecated_csv_params(
+        drop_unused_hgvs_columns=drop_unused_hgvs_columns, drop_na_columns=drop_na_columns
+    )
+    drop_unused_hgvs_columns = deprecated.drop_unused_hgvs_columns
+
     save_to_logging_context(
         {
             "requested_resource": urn,
@@ -1079,8 +1149,12 @@ def get_score_set_scores_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_variants_as_csv(db, score_set, ["scores"], False, start, limit, drop_na_columns)
-    return StreamingResponse(iter([csv_str]), media_type="text/csv")
+    # Both score namespaces: this endpoint has always returned every score column the investigator
+    # uploaded, and `scores` alone is now just the required one.
+    csv_str = get_score_set_variants_as_csv(
+        db, score_set, ["scores", "scores_custom"], False, start, limit, drop_unused_hgvs_columns
+    )
+    return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
 
 
 @router.get(
@@ -1102,7 +1176,8 @@ async def get_score_set_counts_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Number of variants to return"),
-    drop_na_columns: Optional[bool] = None,
+    drop_unused_hgvs_columns: Optional[bool] = None,
+    drop_na_columns: Optional[bool] = Query(default=None, deprecated=True, description=DROP_NA_COLUMNS_DESCRIPTION),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
@@ -1114,6 +1189,11 @@ async def get_score_set_counts_csv(
     /score-sets/{urn}/counts?start=0&limit=100
     /score-sets/{urn}/counts?start=100
     """
+    deprecated = resolve_deprecated_csv_params(
+        drop_unused_hgvs_columns=drop_unused_hgvs_columns, drop_na_columns=drop_na_columns
+    )
+    drop_unused_hgvs_columns = deprecated.drop_unused_hgvs_columns
+
     save_to_logging_context(
         {
             "requested_resource": urn,
@@ -1137,8 +1217,8 @@ async def get_score_set_counts_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_variants_as_csv(db, score_set, ["counts"], False, start, limit, drop_na_columns)
-    return StreamingResponse(iter([csv_str]), media_type="text/csv")
+    csv_str = get_score_set_variants_as_csv(db, score_set, ["counts"], False, start, limit, drop_unused_hgvs_columns)
+    return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
 
 
 @router.get(
@@ -1208,6 +1288,15 @@ def _stream_generated_annotations(mapped_variants, annotation_function):
             annotation = annotation_function(mv)
         except MappingDataDoesntExistException:
             logger.debug(f"Mapping data does not exist for variant {mv.variant.urn}.")
+            annotation = None
+        except Exception:
+            # Raising here would end the body mid-stream. The 200 and its headers went out with the first
+            # chunk, so the client has no way to be told and simply receives a short file. Report the
+            # variant as unannotated and keep going, so one bad variant cannot truncate a whole download.
+            logger.exception(
+                f"Failed to annotate variant {mv.variant.urn}; streaming it as unannotated.",
+                extra=logging_context(),
+            )
             annotation = None
 
         # Send pure result data (no wrapper)
