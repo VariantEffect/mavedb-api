@@ -8,7 +8,7 @@ import pickle
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 import requests
 from filelock import FileLock
@@ -17,7 +17,6 @@ from requests.adapters import HTTPAdapter
 from mavedb.lib.clinvar.constants import (
     CLINVAR_CACHE_DIR,
     CLINVAR_FIELDS_TO_KEEP,
-    CLINVAR_NS_PATTERN,
     NCBI_REQUEST_HEADERS,
     NCBI_RETRY_STRATEGY,
     TSV_VARIANT_ARCHIVE_BASE_URL,
@@ -27,22 +26,6 @@ _FIELDS_HASH = hashlib.sha256("|".join(CLINVAR_FIELDS_TO_KEEP).encode()).hexdige
 """Short hash of the kept fields, embedded in the cache filename so that adding/removing fields automatically invalidates stale caches. This ensures that if we change which fields we keep from the ClinVar TSV, we won't accidentally use old cached data that doesn't have the new fields."""
 
 logger = logging.getLogger(__name__)
-
-
-def parse_clinvar_namespace(ns: str) -> Optional[str]:
-    """Parse a ClinVar-versioned namespace into its db_version string.
-
-    Namespaces are of the form ``"clinvar.YEAR_MONTH"`` (e.g. ``"clinvar.2024_01"``
-    for January 2024). The corresponding ``db_version`` stored in
-    ``clinical_controls`` is ``"MONTH_YEAR"`` (e.g. ``"01_2024"``).
-
-    Returns ``None`` if *ns* does not match the expected pattern.
-    """
-    m = CLINVAR_NS_PATTERN.match(ns)
-    if not m:
-        return None
-    year, month = m.group(1), m.group(2)
-    return f"{month}_{year}"
 
 
 def _ncbi_session() -> requests.Session:

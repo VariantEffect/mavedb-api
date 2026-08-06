@@ -9,7 +9,6 @@ import requests
 from mavedb.lib.clinvar.constants import CLINVAR_FIELDS_TO_KEEP
 from mavedb.lib.clinvar.utils import (
     fetch_clinvar_variant_data,
-    parse_clinvar_namespace,
     validate_clinvar_variant_summary_date,
 )
 
@@ -44,25 +43,6 @@ MOCK_TSV_CONTENT = _make_gzipped_tsv(
     "123\tBRCA1\tPathogenic\treviewed by expert panel\n"
     "456\tTP53\tBenign\tcriteria provided, single submitter\n"
 )
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "ns, expected",
-    [
-        ("clinvar.2024_01", "01_2024"),
-        ("clinvar.2015_12", "12_2015"),
-        ("clinvar.2026_06", "06_2026"),
-        ("clinvar.2024_00", None),
-        ("clinvar.2024_13", None),
-        ("scores", None),
-        ("clinvar", None),
-        ("clinvar.2024_01.extra", None),
-        ("", None),
-    ],
-)
-def test_parse_clinvar_namespace(ns, expected):
-    assert parse_clinvar_namespace(ns) == expected
 
 
 @pytest.mark.unit
