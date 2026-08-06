@@ -19,6 +19,19 @@ from mavedb.lib.annotation.annotate import (
     variant_pathogenicity_statement,
     variant_study_result,
 )
+from mavedb.lib.annotation.util import CALIBRATION_SCOPE_EXTENSION_NAME
+from tests.lib.annotation.conftest import admin_principal, make_private, owner_principal
+
+
+def scope_of(annotation) -> str:
+    """The disclosed principal of an annotation, which every emitted object must carry."""
+    scopes = [
+        extension.value
+        for extension in (annotation.extensions or [])
+        if extension.name == CALIBRATION_SCOPE_EXTENSION_NAME
+    ]
+    assert len(scopes) == 1, f"expected exactly one calibration scope extension, found {scopes}"
+    return scopes[0]
 
 
 @pytest.mark.unit
@@ -31,6 +44,11 @@ class TestVariantStudyResult:
 
         assert result is not None
         assert result.type == "ExperimentalVariantFunctionalImpactStudyResult"
+
+    def test_a_study_result_discloses_a_calibration_scope(self, mock_mapped_variant):
+        # Emitted unconditionally so that a record with no scope is never ambiguous between "public" and
+        # "produced before disclosure existed".
+        assert scope_of(variant_study_result(mock_mapped_variant)) == "public"
 
 
 @pytest.mark.unit
@@ -114,6 +132,39 @@ class TestVariantFunctionalImpactStatement:
             assert result.type == "Statement"
             # Classification should be INDETERMINATE
             assert result.classification.primaryCoding.code.root == "indeterminate"
+
+    def test_no_statement_is_built_from_a_private_calibration(
+        self, mock_mapped_variant_with_functional_calibration_score_set
+    ):
+        """A private calibration's thresholds and baseline scores must not reach an anonymous caller."""
+        mapped_variant = make_private(mock_mapped_variant_with_functional_calibration_score_set)
+
+        assert variant_functional_impact_statement(mapped_variant) is None
+
+    def test_an_entitled_caller_receives_a_statement_from_a_private_calibration(
+        self, mock_mapped_variant_with_functional_calibration_score_set
+    ):
+        """Viewer-scoped emission: an export shows each principal what that principal may see."""
+        mapped_variant = make_private(mock_mapped_variant_with_functional_calibration_score_set)
+
+        assert variant_functional_impact_statement(mapped_variant, principal=admin_principal()) is not None
+
+    def test_a_public_statement_discloses_a_public_calibration_scope(
+        self, mock_mapped_variant_with_functional_calibration_score_set
+    ):
+        # VA-Spec statements carry no stable id, so a viewer-scoped statement must say that it is one.
+        statement = variant_functional_impact_statement(mock_mapped_variant_with_functional_calibration_score_set)
+
+        assert scope_of(statement) == "public"
+
+    def test_a_statement_widened_by_entitlement_discloses_a_restricted_scope(
+        self, mock_mapped_variant_with_functional_calibration_score_set
+    ):
+        mapped_variant = make_private(mock_mapped_variant_with_functional_calibration_score_set)
+
+        statement = variant_functional_impact_statement(mapped_variant, principal=admin_principal())
+
+        assert scope_of(statement) == "restricted"
 
 
 @pytest.mark.unit
@@ -296,6 +347,30 @@ class TestVariantPathogenicityStatement:
                 ), "hasEvidenceItems contained a raw dict instead of a model instance"
                 assert evidence_item.type == "Statement"
 
+    def test_no_statement_is_built_from_a_private_calibration(
+        self, mock_mapped_variant_with_pathogenicity_calibration_score_set
+    ):
+        """A private calibration's ACMG criteria must not reach an anonymous caller."""
+        mapped_variant = make_private(mock_mapped_variant_with_pathogenicity_calibration_score_set)
+
+        assert variant_pathogenicity_statement(mapped_variant) is None
+
+    def test_the_owner_receives_a_statement_from_their_private_calibration(
+        self, mock_mapped_variant_with_pathogenicity_calibration_score_set
+    ):
+        mapped_variant = make_private(mock_mapped_variant_with_pathogenicity_calibration_score_set)
+
+        assert variant_pathogenicity_statement(mapped_variant, principal=owner_principal()) is not None
+
+    def test_a_statement_widened_by_entitlement_discloses_a_restricted_scope(
+        self, mock_mapped_variant_with_pathogenicity_calibration_score_set
+    ):
+        mapped_variant = make_private(mock_mapped_variant_with_pathogenicity_calibration_score_set)
+
+        statement = variant_pathogenicity_statement(mapped_variant, principal=admin_principal())
+
+        assert scope_of(statement) == "restricted"
+
 
 @pytest.mark.unit
 class TestVariantHighestLevelAnnotation:
@@ -330,3 +405,25 @@ class TestVariantHighestLevelAnnotation:
 
         result = variant_highest_level_annotation(mock_mapped_variant)
         assert result is None
+
+    def test_degrades_to_a_study_result_when_the_calibration_is_private(
+        self, mock_mapped_variant_with_pathogenicity_calibration_score_set
+    ):
+        # A study result reports the measured score, which publishing the score set did make public. The
+        # variant is still described; only the calibration-derived interpretation is withheld.
+        mapped_variant = make_private(mock_mapped_variant_with_pathogenicity_calibration_score_set)
+
+        result = variant_highest_level_annotation(mapped_variant)
+
+        assert result is not None
+        assert result.type == "ExperimentalVariantFunctionalImpactStudyResult"
+
+    def test_reaches_the_statement_layer_for_an_entitled_caller(
+        self, mock_mapped_variant_with_pathogenicity_calibration_score_set
+    ):
+        mapped_variant = make_private(mock_mapped_variant_with_pathogenicity_calibration_score_set)
+
+        result = variant_highest_level_annotation(mapped_variant, principal=admin_principal())
+
+        assert result is not None
+        assert result.type != "ExperimentalVariantFunctionalImpactStudyResult"

@@ -11,6 +11,7 @@ from unittest import mock
 
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.score_calibration import (
+    ScoreCalibrationViewer,
     _handle_change_rank_action,
     _handle_delete_action,
     _handle_publish_action,
@@ -96,6 +97,33 @@ class TestScoreCalibrationHasPermission:
             has_permission(admin_user, score_calibration, Action.READ)
 
         assert "private" in str(exc_info.value)
+
+
+class TestScoreCalibrationViewer:
+    """Test that the viewer wires ScoreCalibration's rules into the generic Viewer.
+
+    The rules themselves are covered by the action-handler suites below; the caching and fail-closed
+    behaviour the viewer inherits is covered by test_viewer.py.
+    """
+
+    def test_read_is_delegated_to_score_calibration_permissions(self, entity_helper: EntityTestHelper) -> None:
+        score_calibration = entity_helper.create_score_calibration("private")
+
+        with mock.patch(
+            "mavedb.lib.permissions.score_calibration.has_permission", wraps=has_permission
+        ) as mock_has_permission:
+            ScoreCalibrationViewer().may_read(score_calibration)
+
+        mock_has_permission.assert_called_once_with(None, score_calibration, Action.READ)
+
+    def test_a_viewer_with_no_caller_withholds_a_private_calibration(self, entity_helper: EntityTestHelper) -> None:
+        # Export paths construct viewers with no arguments, so that default must mean "the public".
+        assert ScoreCalibrationViewer().may_read(entity_helper.create_score_calibration("private")) is False
+
+    def test_a_viewer_with_no_caller_still_receives_a_published_calibration(
+        self, entity_helper: EntityTestHelper
+    ) -> None:
+        assert ScoreCalibrationViewer().may_read(entity_helper.create_score_calibration("published")) is True
 
 
 class TestScoreCalibrationReadActionHandler:

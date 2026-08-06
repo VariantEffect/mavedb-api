@@ -1786,6 +1786,50 @@ def test_recently_published_returns_published_score_sets(session, data_provider,
     assert published_2["urn"] in returned_urns
 
 
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_recently_published_withholds_private_calibrations_from_anonymous_users(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides, mock_publication_fetch
+):
+    """A published score set can carry an unpublished calibration.
+
+    This endpoint checks READ on the score set and on its superseding score set, but a calibration's READ
+    rule is stricter than its score set's, so it needs its own filter. Without it the listing served every
+    private calibration's thresholds to anyone.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    # The owner sees their own private calibration.
+    owner_response = client.get("/api/v1/score-sets/recently-published")
+    assert owner_response.status_code == 200
+    owner_entry = next(ss for ss in owner_response.json() if ss["urn"] == published["urn"])
+    assert len(owner_entry.get("scoreCalibrations") or []) == 1
+
+    with DependencyOverrider(anonymous_app_overrides):
+        anonymous_response = client.get("/api/v1/score-sets/recently-published")
+
+    assert anonymous_response.status_code == 200
+    anonymous_entry = next(ss for ss in anonymous_response.json() if ss["urn"] == published["urn"])
+    assert (anonymous_entry.get("scoreCalibrations") or []) == []
+
+
 def test_recently_published_does_not_return_unpublished_score_sets(client, setup_router_db):
     experiment = create_experiment(client)
     create_seq_score_set(client, experiment["urn"])
@@ -2890,9 +2934,7 @@ def test_search_score_sets_not_affected_by_experiment_metadata(
     assert response.json()["numScoreSets"] == num_score_sets
 
 
-def test_cannot_create_multiple_superseding_versions(
-        session, data_provider, client, setup_router_db, data_files
-):
+def test_cannot_create_multiple_superseding_versions(session, data_provider, client, setup_router_db, data_files):
     """Attempting to create multiple superseding versions should fail."""
     experiment = create_experiment(client, {"title": "Original Experiment"})
     score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Original Score Set"})
@@ -2918,7 +2960,9 @@ def test_cannot_create_multiple_superseding_versions(
 
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     assert response.status_code == 409
-    assert (f"This score set has been superseded by score set: {first_superseding['urn']}.") in response.json()["detail"]
+    assert (f"This score set has been superseded by score set: {first_superseding['urn']}.") in response.json()[
+        "detail"
+    ]
 
 
 def test_search_score_sets_not_affected_by_an_unpublishing_superseding_versions(

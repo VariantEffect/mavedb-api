@@ -26,6 +26,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, lazyload
 
 from mavedb.lib.annotation.annotate import variant_highest_level_annotation
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
+from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.score_sets import get_current_mapped_variants_for_annotation, get_score_set_variants_as_csv
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
@@ -103,6 +105,22 @@ def export_public_data(db: Session):
     # sets.
     experiment_sets = list(filter_experiment_sets(experiment_sets_query.all()))
     logger.info(f"Found {len(experiment_sets)} published experiment sets with CC0-licensed score sets.")
+
+    # The dump is built for an anonymous principal. Publishing a score set does not publish its calibrations:
+    # a calibration keeps its own `private` flag and a stricter READ rule, so every artifact below is scoped
+    # to what this viewer may read. Applied to the loaded ORM objects, because ExperimentSetPublicDump
+    # validates the score set wholesale and would otherwise carry every calibration definition into
+    # main.json. Must stay ahead of the ExperimentSetPublicDump validation below: the annotation queries
+    # later in this script eager-load score calibrations again and will repopulate these collections.
+    public_principal = Principal()
+    public_viewer = public_principal.viewer_for(ScoreCalibrationViewer)
+    num_withheld = 0
+    for score_set_orm in flatmap(lambda es: flatmap(lambda e: e.score_sets, es.experiments), experiment_sets):
+        visible = public_viewer.visible(score_set_orm.score_calibrations)
+        num_withheld += len(score_set_orm.score_calibrations or []) - len(visible)
+        score_set_orm.score_calibrations = visible
+    if num_withheld:
+        logger.info(f"Withheld {num_withheld} non-public score calibration(s) from the dump.")
 
     # TODO To support very large data sets, we may want to use custom code for JSON-encoding an iterator.
     # Issue: https://github.com/VariantEffect/mavedb-api/issues/192
@@ -211,7 +229,7 @@ def export_public_data(db: Session):
                     va_lines = []
                     num_annotations = 0
                     for mv in annotated_variants:
-                        annotation = variant_highest_level_annotation(mv)
+                        annotation = variant_highest_level_annotation(mv, principal=public_principal)
                         if annotation is not None:
                             num_annotations += 1
                         record = {

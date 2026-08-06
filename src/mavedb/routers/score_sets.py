@@ -3,6 +3,7 @@ import json
 import logging
 import time
 from datetime import date, datetime
+from functools import partial
 from typing import Any, List, Optional, Sequence, TypedDict, Union
 
 import numpy as np
@@ -17,7 +18,7 @@ from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from pydantic import ValidationError
 from sqlalchemy import or_, select
-from sqlalchemy.exc import MultipleResultsFound, IntegrityError
+from sqlalchemy.exc import IntegrityError, MultipleResultsFound
 from sqlalchemy.orm import Session, contains_eager
 
 from mavedb import deps
@@ -30,6 +31,7 @@ from mavedb.lib.annotation.annotate import (
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.authorization import (
     get_current_user,
+    get_principal,
     require_current_user,
     require_current_user_with_email,
 )
@@ -48,6 +50,8 @@ from mavedb.lib.logging.context import (
     save_to_logging_context,
 )
 from mavedb.lib.permissions import Action, assert_permission, has_permission
+from mavedb.lib.permissions.principal import Principal
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.score_calibrations import create_score_calibration
 from mavedb.lib.score_sets import (
     CLINVAR_NS_PATTERN,
@@ -781,6 +785,7 @@ def list_recently_published_score_sets(
     ),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Return the most recently published score sets, ordered by publication date descending.
@@ -795,6 +800,8 @@ def list_recently_published_score_sets(
         .all()
     )
 
+    viewer = principal.viewer_for(ScoreCalibrationViewer)
+
     result = []
     for item in items:
         if not has_permission(user_data, item, Action.READ).permitted:
@@ -804,6 +811,10 @@ def list_recently_published_score_sets(
             and not has_permission(user_data, item.superseding_score_set, Action.READ).permitted
         ):
             item.superseding_score_set = None
+
+        # A calibration's READ rule is stricter than its score set's, so a published score set can carry
+        # calibrations this caller may not see. Same filter as fetch_score_set_by_urn.
+        item.score_calibrations = viewer.visible(item.score_calibrations)
         enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
         result.append(score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment}))
 
@@ -1230,6 +1241,7 @@ def get_score_set_annotated_variants(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Retrieve annotated variants with pathogenicity statements for a given score set.
@@ -1299,7 +1311,7 @@ def get_score_set_annotated_variants(
         )
 
     return StreamingResponse(
-        _stream_generated_annotations(mapped_variants, variant_pathogenicity_statement),
+        _stream_generated_annotations(mapped_variants, partial(variant_pathogenicity_statement, principal=principal)),
         media_type="application/x-ndjson",
         headers={
             "X-Total-Count": str(len(mapped_variants)),
@@ -1329,6 +1341,7 @@ def get_score_set_annotated_variants_functional_statement(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ):
     """
     Retrieve functional impact statements for annotated variants in a score set.
@@ -1391,7 +1404,9 @@ def get_score_set_annotated_variants_functional_statement(
         )
 
     return StreamingResponse(
-        _stream_generated_annotations(mapped_variants, variant_functional_impact_statement),
+        _stream_generated_annotations(
+            mapped_variants, partial(variant_functional_impact_statement, principal=principal)
+        ),
         media_type="application/x-ndjson",
         headers={
             "X-Total-Count": str(len(mapped_variants)),

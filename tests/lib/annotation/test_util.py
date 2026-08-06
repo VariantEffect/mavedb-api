@@ -19,7 +19,7 @@ pytest.importorskip("psycopg2")
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.annotation.util import (
     _can_annotate_variant_base_assumptions,
-    _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation,
+    calibrations_available_for_annotation,
     can_annotate_variant_for_functional_statement,
     can_annotate_variant_for_pathogenicity_evidence,
     score_calibration_may_be_used_for_annotation,
@@ -29,12 +29,23 @@ from mavedb.lib.annotation.util import (
     variation_from_mapped_variant,
     vrs_object_from_mapped_variant,
 )
+from mavedb.lib.permissions.principal import Principal
 from tests.helpers.constants import (
     TEST_SEQUENCE_LOCATION_ACCESSION,
     TEST_VALID_POST_MAPPED_VRS_ALLELE,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_LENGTH_EXPRESSION,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_RLE,
 )
+from tests.lib.annotation.conftest import admin_principal, make_private
+
+
+def _has_calibrations_for_annotation(*args, **kwargs) -> bool:
+    """Whether any calibration survived both the eligibility and visibility checks.
+
+    ``calibrations_available_for_annotation`` returns the surviving calibrations; the cases below predate
+    that and assert only on whether the list was empty.
+    """
+    return bool(calibrations_available_for_annotation(*args, **kwargs))
 
 
 @pytest.mark.unit
@@ -192,25 +203,19 @@ class TestScoreCalibrationMayBeUsedForAnnotation:
 @pytest.mark.unit
 class TestVariantScoreCalibrationsHaveRequiredCalibrationsAndRangesForAnnotation:
     """
-    Unit tests for the _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation function.
+    Unit tests for calibration availability, via the _has_calibrations_for_annotation adapter below.
     This function is used by both functional and pathogenicity annotation checks, so we test it separately here to avoid duplication in the tests for those checks.
     """
 
     @pytest.mark.parametrize("kind", ["functional", "pathogenicity"], ids=["functional", "pathogenicity"])
     def test_score_range_check_returns_false_when_calibrations_are_none(self, mock_mapped_variant, kind):
         mock_mapped_variant.variant.score_set.score_calibrations = None
-        assert (
-            _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(mock_mapped_variant, kind)
-            is False
-        )
+        assert _has_calibrations_for_annotation(mock_mapped_variant, kind) is False
 
     @pytest.mark.parametrize("kind", ["functional", "pathogenicity"], ids=["functional", "pathogenicity"])
     def test_score_range_check_returns_false_when_no_calibrations_present(self, mock_mapped_variant, kind):
         mock_mapped_variant.variant.score_set.score_calibrations = []
-        assert (
-            _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(mock_mapped_variant, kind)
-            is False
-        )
+        assert _has_calibrations_for_annotation(mock_mapped_variant, kind) is False
 
     @pytest.mark.parametrize("annotation_type", ["functional", "pathogenicity"], ids=["functional", "pathogenicity"])
     def test_score_range_check_returns_false_when_all_calibrations_are_research_use_only_and_not_allowed(
@@ -224,9 +229,7 @@ class TestVariantScoreCalibrationsHaveRequiredCalibrationsAndRangesForAnnotation
             calibration.research_use_only = True
 
         assert (
-            _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
-                mock_mapped_variant_with_functional_calibration_score_set, annotation_type
-            )
+            _has_calibrations_for_annotation(mock_mapped_variant_with_functional_calibration_score_set, annotation_type)
             is False
         )
 
@@ -249,9 +252,7 @@ class TestVariantScoreCalibrationsHaveRequiredCalibrationsAndRangesForAnnotation
             calibration.research_use_only = True
 
         assert (
-            _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
-                mock_mapped_variant, kind, allow_research_use_only_calibrations=True
-            )
+            _has_calibrations_for_annotation(mock_mapped_variant, kind, allow_research_use_only_calibrations=True)
             is True
         )
 
@@ -271,10 +272,7 @@ class TestVariantScoreCalibrationsHaveRequiredCalibrationsAndRangesForAnnotation
         for calibration in mock_mapped_variant.variant.score_set.score_calibrations:
             calibration.functional_classifications = None
 
-        assert (
-            _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(mock_mapped_variant, kind)
-            is False
-        )
+        assert _has_calibrations_for_annotation(mock_mapped_variant, kind) is False
 
     def test_pathogenicity_range_check_returns_false_when_no_acmg_calibration(
         self,
@@ -290,7 +288,7 @@ class TestVariantScoreCalibrationsHaveRequiredCalibrationsAndRangesForAnnotation
             calibration.functional_classifications = acmg_classification_removed
 
         assert (
-            _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
+            _has_calibrations_for_annotation(
                 mock_mapped_variant_with_pathogenicity_calibration_score_set, "pathogenicity"
             )
             is False
@@ -309,7 +307,7 @@ class TestVariantScoreCalibrationsHaveRequiredCalibrationsAndRangesForAnnotation
             calibration.functional_classifications = acmg_classification_removed
 
         assert (
-            _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
+            _has_calibrations_for_annotation(
                 mock_mapped_variant_with_pathogenicity_calibration_score_set, "pathogenicity"
             )
             is True
@@ -328,10 +326,7 @@ class TestVariantScoreCalibrationsHaveRequiredCalibrationsAndRangesForAnnotation
     ):
         mock_mapped_variant = request.getfixturevalue(variant_fixture)
 
-        assert (
-            _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(mock_mapped_variant, kind)
-            is True
-        )
+        assert _has_calibrations_for_annotation(mock_mapped_variant, kind) is True
 
     def test_score_range_check_returns_true_when_mixed_research_use_calibrations_exist_functional(
         self, mock_mapped_variant_with_functional_calibration_score_set
@@ -351,9 +346,7 @@ class TestVariantScoreCalibrationsHaveRequiredCalibrationsAndRangesForAnnotation
 
         # Should return True because at least one non-research-only calibration has valid classifications
         assert (
-            _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
-                mock_mapped_variant_with_functional_calibration_score_set, "functional"
-            )
+            _has_calibrations_for_annotation(mock_mapped_variant_with_functional_calibration_score_set, "functional")
             is True
         )
 
@@ -375,7 +368,7 @@ class TestVariantScoreCalibrationsHaveRequiredCalibrationsAndRangesForAnnotation
 
         # Should return True because at least one non-research-only calibration has valid classifications
         assert (
-            _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
+            _has_calibrations_for_annotation(
                 mock_mapped_variant_with_pathogenicity_calibration_score_set, "pathogenicity"
             )
             is True
@@ -399,9 +392,7 @@ class TestVariantScoreCalibrationsHaveRequiredCalibrationsAndRangesForAnnotation
 
         # Should return True because at least one calibration has valid functional classifications
         assert (
-            _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
-                mock_mapped_variant_with_functional_calibration_score_set, "functional"
-            )
+            _has_calibrations_for_annotation(mock_mapped_variant_with_functional_calibration_score_set, "functional")
             is True
         )
 
@@ -423,9 +414,7 @@ class TestVariantScoreCalibrationsHaveRequiredCalibrationsAndRangesForAnnotation
 
         # Should return False because no ACMG classifications exist
         assert (
-            _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
-                mock_mapped_variant_with_functional_calibration_score_set, "pathogenicity"
-            )
+            _has_calibrations_for_annotation(mock_mapped_variant_with_functional_calibration_score_set, "pathogenicity")
             is False
         )
 
@@ -441,10 +430,52 @@ class TestVariantScoreCalibrationsHaveRequiredCalibrationsAndRangesForAnnotation
             calibration.functional_classifications = []
 
         assert (
-            _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
+            _has_calibrations_for_annotation(mock_mapped_variant_with_functional_calibration_score_set, "functional")
+            is False
+        )
+
+
+@pytest.mark.unit
+class TestCalibrationAvailabilityIsScopedToTheCaller:
+    """A calibration's READ rule is stricter than its score set's, so publishing a score set does not
+    publish its calibrations. These cases exist because this function once read
+    ``score_set.score_calibrations`` directly and handed private calibrations to anyone.
+    """
+
+    def test_a_private_calibration_is_not_available_for_annotation(
+        self, mock_mapped_variant_with_functional_calibration_score_set
+    ):
+        mapped_variant = make_private(mock_mapped_variant_with_functional_calibration_score_set)
+
+        assert calibrations_available_for_annotation(mapped_variant, "functional") == []
+
+    def test_omitting_the_principal_withholds_rather_than_widens(
+        self, mock_mapped_variant_with_functional_calibration_score_set
+    ):
+        # The whole design rests on an omitted principal meaning "the public". Passing an explicitly
+        # anonymous principal and passing none at all must agree.
+        mapped_variant = make_private(mock_mapped_variant_with_functional_calibration_score_set)
+
+        assert calibrations_available_for_annotation(
+            mapped_variant, "functional"
+        ) == calibrations_available_for_annotation(mapped_variant, "functional", principal=Principal())
+
+    def test_an_entitled_caller_still_receives_a_private_calibration(
+        self, mock_mapped_variant_with_functional_calibration_score_set
+    ):
+        mapped_variant = make_private(mock_mapped_variant_with_functional_calibration_score_set)
+
+        assert calibrations_available_for_annotation(mapped_variant, "functional", principal=admin_principal()) != []
+
+    def test_a_public_calibration_is_still_available_to_anyone(
+        self, mock_mapped_variant_with_functional_calibration_score_set
+    ):
+        # The counterweight: withholding private calibrations must not withhold what publishing released.
+        assert (
+            calibrations_available_for_annotation(
                 mock_mapped_variant_with_functional_calibration_score_set, "functional"
             )
-            is False
+            != []
         )
 
 
@@ -458,8 +489,8 @@ class TestPathogenicityAnnotationEligibilityUnit:
 
     def test_pathogenicity_range_check_returns_false_when_pathogenicity_ranges_check_fails(self, mock_mapped_variant):
         with patch(
-            "mavedb.lib.annotation.util._variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation",
-            return_value=False,
+            "mavedb.lib.annotation.util.calibrations_available_for_annotation",
+            return_value=[],
         ):
             result = can_annotate_variant_for_pathogenicity_evidence(mock_mapped_variant)
 
@@ -492,8 +523,8 @@ class TestFunctionalAnnotationEligibilityUnit:
         self, mock_mapped_variant
     ):
         with patch(
-            "mavedb.lib.annotation.util._variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation",
-            return_value=False,
+            "mavedb.lib.annotation.util.calibrations_available_for_annotation",
+            return_value=[],
         ):
             result = can_annotate_variant_for_functional_statement(mock_mapped_variant)
 
