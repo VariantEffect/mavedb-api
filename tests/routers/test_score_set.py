@@ -24,6 +24,7 @@ from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
+from mavedb.models.score_calibration import ScoreCalibration as ScoreCalibrationDbModel
 from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
@@ -4603,3 +4604,67 @@ def test_cannot_fetch_gnomad_variants_for_score_set_when_none_exist(
         f"No gnomad variants matching the provided filters associated with score set URN {score_set['urn']} were found"
         in response_data["detail"]
     )
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_publish_withholds_a_community_private_calibration_from_the_score_set_owner(
+    session, data_provider, client, setup_router_db, data_files, mock_publication_fetch
+):
+    """Owning a score set does not entitle its owner to every calibration attached to it.
+
+    A community calibration -- one contributed by someone who is not a contributor to the score set -- is
+    readable only by its own creator while private. The owner-facing mutation endpoints returned the score
+    set wholesale, so publishing handed the owner a calibration they cannot fetch directly.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    calibration_item = session.query(ScoreCalibrationDbModel).filter_by(urn=calibration["urn"]).one()
+    calibration_item.investigator_provided = False
+    session.commit()
+    change_ownership(session, calibration["urn"], ScoreCalibrationDbModel)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    assert (published.get("scoreCalibrations") or []) == []
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_publish_returns_the_owners_own_private_calibration(
+    session, data_provider, client, setup_router_db, data_files, mock_publication_fetch
+):
+    """The filter withholds only what a calibration's own READ rule withholds."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    assert [c["urn"] for c in (published.get("scoreCalibrations") or [])] == [calibration["urn"]]

@@ -583,7 +583,7 @@ async def fetch_score_set_by_urn(
     try:
         query = db.query(ScoreSet).filter(ScoreSet.urn == urn)
         if owner_or_contributor is not None:
-            query.filter(
+            query = query.filter(
                 or_(
                     ScoreSet.private.is_(False),
                     ScoreSet.created_by_id == owner_or_contributor.user.id,
@@ -591,7 +591,7 @@ async def fetch_score_set_by_urn(
                 )
             )
         if only_published:
-            query.filter(ScoreSet.private.is_(False))
+            query = query.filter(ScoreSet.private.is_(False))
         item = query.one_or_none()
     except MultipleResultsFound:
         logger.info(
@@ -605,12 +605,62 @@ async def fetch_score_set_by_urn(
 
     assert_permission(user, item, Action.READ)
 
-    if item.superseding_score_set and not has_permission(user, item.superseding_score_set, Action.READ).permitted:
-        item.superseding_score_set = None
-
-    item.score_calibrations = [sc for sc in item.score_calibrations if has_permission(user, sc, Action.READ).permitted]
-
+    # Narrowing what the score set carries belongs to _score_set_response, so that this function's other
+    # callers -- supersession lookup, publication -- receive the score set as it actually is.
     return item
+
+
+def _score_set_response(item: ScoreSet, principal: Principal) -> score_set.ScoreSet:
+    """
+    Serialize a score set for a response, withholding the sub-resources this caller may not read.
+
+    Every route in this module that returns a ``ScoreSet`` view model builds it here. The two sub-resources
+    a score set carries have READ rules stricter than its own, and each was leaked from a different route
+    before this was centralized:
+
+      - Calibrations. Publishing a score set does not publish its calibrations, and owning a score set does
+        not entitle its owner to a community calibration someone else attached to it.
+      - The superseding score set, which is usually still private while the score set it replaces is public.
+
+    The search routes are the deliberate exception: they answer with ``ShortScoreSet``, which carries neither
+    sub-resource, so there is nothing for this function to narrow. Any route that widens its response model
+    to ``ScoreSet`` must come through here.
+
+    Local to this module by design. A shared response constructor was considered and deferred: the same ORM
+    graph is also serialized as CSV, VA-Spec NDJSON and ScoreSetPublicDump, none of which such a constructor
+    would cover, so the durable guarantee belongs at the session rather than the response layer.
+
+    Narrowing is applied to the validated view. ``ScoreSet.score_calibrations`` is mapped with
+    ``cascade="all, delete-orphan"``, and assigning ``superseding_score_set = None`` nulls the other score
+    set's ``replaces_id``; narrowing the ORM objects instead stages both as writes.
+
+    Args:
+        item (ScoreSet): The score set to serialize. Asserting READ on the score set itself belongs to the
+            caller.
+        principal (Principal): The caller being served.
+
+    Returns:
+        score_set.ScoreSet: The score set view model, carrying only what this caller may read.
+    """
+    visible_calibration_ids = {
+        calibration.id for calibration in principal.viewer_for(ScoreCalibrationViewer).visible(item.score_calibrations)
+    }
+    superseding_is_visible = item.superseding_score_set is not None and (
+        has_permission(principal.user_data, item.superseding_score_set, Action.READ).permitted
+    )
+
+    validated_item = score_set.ScoreSet.model_validate(item)
+    return validated_item.model_copy(
+        update={
+            "experiment": enrich_experiment_with_num_score_sets(item.experiment, principal.user_data),
+            "score_calibrations": [
+                calibration
+                for calibration in (validated_item.score_calibrations or [])
+                if calibration.id in visible_calibration_ids
+            ],
+            "superseding_score_set": validated_item.superseding_score_set if superseding_is_visible else None,
+        }
+    )
 
 
 router = APIRouter(
@@ -800,25 +850,9 @@ def list_recently_published_score_sets(
         .all()
     )
 
-    viewer = principal.viewer_for(ScoreCalibrationViewer)
-
-    result = []
-    for item in items:
-        if not has_permission(user_data, item, Action.READ).permitted:
-            continue
-        if (
-            item.superseding_score_set
-            and not has_permission(user_data, item.superseding_score_set, Action.READ).permitted
-        ):
-            item.superseding_score_set = None
-
-        # A calibration's READ rule is stricter than its score set's, so a published score set can carry
-        # calibrations this caller may not see. Same filter as fetch_score_set_by_urn.
-        item.score_calibrations = viewer.visible(item.score_calibrations)
-        enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-        result.append(score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment}))
-
-    return result
+    return [
+        _score_set_response(item, principal) for item in items if has_permission(user_data, item, Action.READ).permitted
+    ]
 
 
 @router.get(
@@ -834,6 +868,7 @@ async def show_score_sets(
     urns: str = Query(..., description="Comma-separated list of score set URNs"),
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Fetch score sets identified by a list of URNs.
@@ -846,9 +881,7 @@ async def show_score_sets(
     response_items: list[score_set.ScoreSet] = []
     for urn in urn_list:
         item = await fetch_score_set_by_urn(db, urn, user_data, None, False)
-        enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-        response_item = score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
-        response_items.append(response_item)
+        response_items.append(_score_set_response(item, principal))
 
     return response_items
 
@@ -866,14 +899,14 @@ async def show_score_set(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Fetch a single score set by URN.
     """
     save_to_logging_context({"requested_resource": urn})
     item = await fetch_score_set_by_urn(db, urn, user_data, None, False)
-    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
+    return _score_set_response(item, principal)
 
 
 @router.get(
@@ -1525,6 +1558,7 @@ async def create_score_set(
     item_create: score_set.ScoreSetCreate,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Create a score set.
@@ -1858,8 +1892,7 @@ async def create_score_set(
 
     save_to_logging_context({"created_resource": item.urn})
 
-    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
+    return _score_set_response(item, principal)
 
 
 @router.post(
@@ -1915,6 +1948,7 @@ async def upload_score_set_variant_data(
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
     worker: ArqRedis = Depends(deps.get_worker),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Upload scores and variant count files for a score set, and initiate processing these files to
@@ -1991,8 +2025,7 @@ async def upload_score_set_variant_data(
     db.commit()
     db.refresh(item)
 
-    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
+    return _score_set_response(item, principal)
 
 
 @router.patch(
@@ -2047,6 +2080,7 @@ async def update_score_set_with_variants(
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
     worker: ArqRedis = Depends(deps.get_worker),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Update a score set and variants.
@@ -2183,8 +2217,7 @@ async def update_score_set_with_variants(
     db.commit()
     db.refresh(updatedItem)
 
-    enriched_experiment = enrich_experiment_with_num_score_sets(updatedItem.experiment, user_data)
-    return score_set.ScoreSet.model_validate(updatedItem).copy(update={"experiment": enriched_experiment})
+    return _score_set_response(updatedItem, principal)
 
 
 @router.put(
@@ -2201,6 +2234,7 @@ async def update_score_set(
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
     worker: ArqRedis = Depends(deps.get_worker),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Update a score set.
@@ -2260,8 +2294,7 @@ async def update_score_set(
         db.commit()
         db.refresh(updatedItem)
 
-    enriched_experiment = enrich_experiment_with_num_score_sets(updatedItem.experiment, user_data)
-    return score_set.ScoreSet.model_validate(updatedItem).copy(update={"experiment": enriched_experiment})
+    return _score_set_response(updatedItem, principal)
 
 
 @router.delete(
@@ -2315,6 +2348,7 @@ async def publish_score_set(
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
     worker: ArqRedis = Depends(deps.get_worker),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Publish a score set.
@@ -2406,8 +2440,7 @@ async def publish_score_set(
         )
         send_slack_error(err=exc)
 
-    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
+    return _score_set_response(item, principal)
 
 
 @router.get(
