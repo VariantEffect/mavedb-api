@@ -3,7 +3,7 @@
 import csv
 import io
 from datetime import date
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -18,9 +18,12 @@ from mavedb.lib.csv.variant import (
     available_variant_csv_namespaces,
     get_variant_csv,
 )
+from mavedb.lib.permissions.principal import Principal
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.models.acmg_classification import ACMGClassification
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.enums.acmg_criterion import ACMGCriterion
+from mavedb.models.enums.user_role import UserRole
 from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassificationOptions
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
@@ -1082,15 +1085,20 @@ class TestPrivateCalibrationsAreNotDisclosed:
         assert all(row[f"{CALIBRATION_NS_1}.title"] == "NA" for row in rows)
 
     def test_a_permitted_caller_still_receives_it(self, session, setup_lib_db_with_mapped_variant, private_calibration):
-        """The predicate widens access; it must not be a blanket ban on private calibrations."""
+        """Viewer-scoped emission: the viewer widens access, it is not a blanket ban on private calibrations.
+
+        Uses a real entitled viewer rather than an always-true stand-in, so this exercises the same
+        ``ScoreCalibrationViewer`` rule the routers use.
+        """
         variant = setup_lib_db_with_mapped_variant.variant
+        admin = Principal(Mock(user=Mock(id=1, username="admin"), active_roles=[UserRole.admin]))
 
         rows = _parse_csv(
             get_variant_csv(
                 session,
                 variant.urn,
                 ["scores", CALIBRATION_NS_1],
-                may_read_calibration=lambda calibration: True,
+                viewer=admin.viewer_for(ScoreCalibrationViewer),
             )
         )
 

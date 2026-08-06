@@ -928,6 +928,7 @@ def get_score_set_csv_namespaces(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     List the CSV column namespaces this score set has data for, labeled and grouped for a picker.
@@ -963,7 +964,7 @@ def get_score_set_csv_namespaces(
     return available_score_set_csv_namespaces(
         db,
         score_set,
-        may_read_calibration=lambda calibration: has_permission(user_data, calibration, Action.READ).permitted,
+        viewer=principal.viewer_for(ScoreCalibrationViewer),
     )
 
 
@@ -1000,6 +1001,7 @@ def get_score_set_variants_csv(
     ),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Return tabular variant data from a score set, identified by URN, in CSV format.
@@ -1084,7 +1086,7 @@ def get_score_set_variants_csv(
         drop_unused_hgvs_columns,
         # Asked separately from the score set: a private calibration is readable only by its owner,
         # investigator contributors, or an admin, whoever can read the score set.
-        may_read_calibration=lambda calibration: has_permission(user_data, calibration, Action.READ).permitted,
+        viewer=principal.viewer_for(ScoreCalibrationViewer),
     )
     return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
 

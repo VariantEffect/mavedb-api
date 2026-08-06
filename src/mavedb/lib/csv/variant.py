@@ -29,7 +29,7 @@ from mavedb.lib.csv.entries import (
     clinvar_release_namespaces,
     score_sets_have_current_mappings,
     static_namespace_entry,
-    visible_calibrations,
+    calibration_viewer,
 )
 from mavedb.lib.csv.fetch import fetch_variant_csv_data
 from mavedb.lib.csv.namespaces import (
@@ -39,6 +39,7 @@ from mavedb.lib.csv.namespaces import (
 )
 from mavedb.lib.mave.utils import NA_VALUE
 from mavedb.lib.urns import score_set_urn_sort_key, variant_urn_sort_key
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
@@ -192,7 +193,7 @@ def _latest_clinvar_namespace(db: Session, score_set_ids: list[int]) -> Optional
 def _annotatable_calibration_namespaces(
     db: Session,
     score_set_ids: list[int],
-    may_read_calibration: Optional[Callable[[ScoreCalibration], bool]] = None,
+    viewer: Optional[ScoreCalibrationViewer] = None,
 ) -> dict[str, ScoreCalibration]:
     """Map calibration namespace to calibration, for every calibration eligible to annotate these variants.
 
@@ -216,7 +217,7 @@ def _annotatable_calibration_namespaces(
     ).all()
 
     namespaces: dict[str, ScoreCalibration] = {}
-    for calibration in visible_calibrations(calibrations, may_read_calibration):
+    for calibration in calibration_viewer(viewer).visible(calibrations):
         if not calibration.urn:
             continue
 
@@ -234,7 +235,7 @@ def available_variant_csv_namespaces(
     db: Session,
     variant_urn: str,
     may_read_score_set: Optional[Callable[[ScoreSet], bool]] = None,
-    may_read_calibration: Optional[Callable[[ScoreCalibration], bool]] = None,
+    viewer: Optional[ScoreCalibrationViewer] = None,
 ) -> list[AvailableCsvNamespaceEntry]:
     """Every namespace the variant CSV can serve data for, labeled and grouped for a picker.
 
@@ -262,9 +263,7 @@ def available_variant_csv_namespaces(
 
     return (
         base_entries
-        + calibration_namespace_entries(
-            _annotatable_calibration_namespaces(db, score_set_ids, may_read_calibration).values()
-        )
+        + calibration_namespace_entries(_annotatable_calibration_namespaces(db, score_set_ids, viewer).values())
         + clinvar_namespace_entries(clinvar_release_namespaces(db, score_set_ids))
     )
 
@@ -274,7 +273,7 @@ def get_variant_csv(
     variant_urn: str,
     namespaces: Optional[list[str]] = None,
     may_read_score_set: Optional[Callable[[ScoreSet], bool]] = None,
-    may_read_calibration: Optional[Callable[[ScoreCalibration], bool]] = None,
+    viewer: Optional[ScoreCalibrationViewer] = None,
     na_rep: str = NA_VALUE,
 ) -> str:
     """Build the clinical CSV for a variant and its equivalent measurements.
@@ -299,7 +298,7 @@ def get_variant_csv(
     mapped_variant_ids = [mapped_variant_id for _, mapped_variant_id, _ in measurements]
     score_set_ids = list({score_set_id for _, _, score_set_id in measurements})
 
-    calibrations_by_ns = _annotatable_calibration_namespaces(db, score_set_ids, may_read_calibration)
+    calibrations_by_ns = _annotatable_calibration_namespaces(db, score_set_ids, viewer)
 
     if namespaces is None:
         clinvar_namespace = _latest_clinvar_namespace(db, score_set_ids)
@@ -333,9 +332,7 @@ def get_variant_csv(
         mappings=fetched.mappings,
         gnomad_data=fetched.gnomad_data,
         clinvar_data_by_ns=fetched.clinvar_per_variant,
-        annotations_by_ns=annotations_for_rows(
-            db, fetched.variants, mappings, plan.calibration_namespaces, may_read_calibration
-        ),
+        annotations_by_ns=annotations_for_rows(db, fetched.variants, mappings, plan.calibration_namespaces, viewer),
         match_types=[EXACT_MATCH_TYPE] * len(fetched.variants),
         na_rep=na_rep,
         namespaced=True,

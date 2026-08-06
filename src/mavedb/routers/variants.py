@@ -13,9 +13,12 @@ from sqlalchemy.sql import or_
 
 from mavedb import deps
 from mavedb.lib.authentication import get_current_user
+from mavedb.lib.authorization import get_principal
 from mavedb.lib.csv.namespaces import CSV_NAMESPACES_PARAM_DESCRIPTION, CsvNamespaceStr
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.permissions.principal import Principal
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.csv.variant import available_variant_csv_namespaces, get_variant_csv
@@ -479,6 +482,7 @@ def get_variant_csv_namespaces(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     List the CSV column namespaces this variant has data for, labeled and grouped for a picker.
@@ -513,7 +517,7 @@ def get_variant_csv_namespaces(
         db,
         urn,
         may_read_score_set=lambda score_set: has_permission(user_data, score_set, Action.READ).permitted,
-        may_read_calibration=lambda calibration: has_permission(user_data, calibration, Action.READ).permitted,
+        viewer=principal.viewer_for(ScoreCalibrationViewer),
     )
 
 
@@ -540,6 +544,7 @@ def get_variant_csv_data(
     namespaces: Optional[List[CsvNamespaceStr]] = Query(default=None, description=CSV_NAMESPACES_PARAM_DESCRIPTION),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Return tabular data for a single variant, identified by URN, in CSV format.
@@ -592,7 +597,7 @@ def get_variant_csv_data(
         urn,
         namespaces=namespaces,
         may_read_score_set=lambda score_set: has_permission(user_data, score_set, Action.READ).permitted,
-        may_read_calibration=lambda calibration: has_permission(user_data, calibration, Action.READ).permitted,
+        viewer=principal.viewer_for(ScoreCalibrationViewer),
     )
     return StreamingResponse(
         iter([csv_str]),

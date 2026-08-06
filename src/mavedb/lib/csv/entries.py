@@ -6,7 +6,7 @@ asks about one score set, the variant CSV widens across every score set measurin
 """
 
 from dataclasses import dataclass
-from typing import Callable, Iterable, Optional, Sequence
+from typing import Iterable, Optional, Sequence
 
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
@@ -21,6 +21,7 @@ from mavedb.lib.csv.namespaces import (
     clinvar_namespace_label,
     clinvar_namespace_sort_key,
 )
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_calibration import ScoreCalibration
@@ -82,22 +83,19 @@ def clinvar_namespace_entries(namespaces: Iterable[str]) -> list[AvailableCsvNam
     return entries
 
 
-def visible_calibrations(
-    calibrations: Iterable[ScoreCalibration],
-    may_read_calibration: Optional[Callable[[ScoreCalibration], bool]] = None,
-) -> list[ScoreCalibration]:
-    """Drop calibrations the caller may not read.
+def calibration_viewer(viewer: Optional[ScoreCalibrationViewer]) -> ScoreCalibrationViewer:
+    """Resolve an omitted viewer to the anonymous one.
 
     A calibration carries its own ``private`` flag, and its READ permission is stricter than its score
     set's: a private one is readable only by its owner, by contributors when it is investigator-provided,
-    or by an admin. Reading the score set is not enough, so every path that names a calibration has to ask
-    separately.
+    or by an admin. Reading the score set is not enough, so every CSV path that names a calibration has to
+    ask separately.
 
-    Defaults to public-only, and treats an unset ``private`` as private. A caller that forgets to pass a
-    predicate therefore gets the subset anyone could see rather than everything.
+    This is the single place the CSV package decides what an absent viewer means, and it means the public
+    subset: a call site that forgets to thread one serves what anyone could already see rather than
+    everything. The rule itself lives in ``ScoreCalibrationViewer``, so it is never restated here.
     """
-    permitted = may_read_calibration or (lambda calibration: calibration.private is False)
-    return [calibration for calibration in calibrations if permitted(calibration)]
+    return viewer if viewer is not None else ScoreCalibrationViewer()
 
 
 def calibration_can_annotate(calibration: ScoreCalibration) -> bool:
@@ -105,7 +103,7 @@ def calibration_can_annotate(calibration: ScoreCalibration) -> bool:
 
     False for a calibration with no score ranges, whose every cell would be NA. Research-use-only standing
     is excluded from this question — it asks what a calibration *could* say, while who may see it is
-    ``visible_calibrations``' job.
+    ``ScoreCalibrationViewer``'s job.
     """
     return any(
         score_calibration_may_be_used_for_annotation(

@@ -1,6 +1,6 @@
 """The score-set CSV export: every variant in one score set, and the columns it can offer."""
 
-from typing import Callable, List, Optional
+from typing import List, Optional
 
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, selectinload
@@ -16,7 +16,7 @@ from mavedb.lib.csv.columns import (
 from mavedb.lib.csv.entries import (
     AvailableCsvNamespaceEntry,
     calibration_namespace_entries,
-    visible_calibrations,
+    calibration_viewer,
     clinvar_namespace_entries,
     clinvar_release_namespaces,
     score_sets_have_current_mappings,
@@ -25,6 +25,7 @@ from mavedb.lib.csv.entries import (
 from mavedb.lib.csv.fetch import fetch_variant_csv_data
 from mavedb.lib.csv.namespaces import CsvNamespace
 from mavedb.lib.mave.constants import REQUIRED_SCORE_COLUMN
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 
@@ -37,7 +38,7 @@ def get_score_set_variants_as_csv(
     start: Optional[int] = None,
     limit: Optional[int] = None,
     drop_unused_hgvs_columns_flag: Optional[bool] = None,
-    may_read_calibration: Optional[Callable[[ScoreCalibration], bool]] = None,
+    viewer: Optional[ScoreCalibrationViewer] = None,
 ) -> str:
     """Get the variant data from a score set as a CSV string."""
     assert type(score_set.dataset_columns) is dict
@@ -61,9 +62,7 @@ def get_score_set_variants_as_csv(
         mappings=fetched.mappings,
         gnomad_data=fetched.gnomad_data,
         clinvar_data_by_ns=fetched.clinvar_per_variant,
-        annotations_by_ns=annotations_for_rows(
-            db, fetched.variants, mappings, plan.calibration_namespaces, may_read_calibration
-        ),
+        annotations_by_ns=annotations_for_rows(db, fetched.variants, mappings, plan.calibration_namespaces, viewer),
     )
 
     rows_columns = assemble_csv_headers(plan.namespaced_columns, namespaced=namespaced)
@@ -77,7 +76,7 @@ def get_score_set_variants_as_csv(
 def available_score_set_csv_namespaces(
     db: Session,
     score_set: ScoreSet,
-    may_read_calibration: Optional[Callable[[ScoreCalibration], bool]] = None,
+    viewer: Optional[ScoreCalibrationViewer] = None,
 ) -> list[AvailableCsvNamespaceEntry]:
     """Every namespace the score-set CSV can serve data for, labeled and grouped for a picker.
 
@@ -117,7 +116,7 @@ def available_score_set_csv_namespaces(
         )
         .where(and_(ScoreCalibration.score_set_id == score_set.id, ScoreCalibration.urn.is_not(None)))
     ).all()
-    entries.extend(calibration_namespace_entries(visible_calibrations(calibrations, may_read_calibration)))
+    entries.extend(calibration_namespace_entries(calibration_viewer(viewer).visible(calibrations)))
 
     # `relationship` is absent by design: match_type describes a row's relation to a requested record,
     # which only the variant CSV has.

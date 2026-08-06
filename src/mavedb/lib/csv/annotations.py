@@ -3,13 +3,14 @@
 Shared by both exports, and kept out of ``columns`` because filling these cells needs the database.
 """
 
-from typing import Callable, Optional, Sequence
+from typing import Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from mavedb.lib.annotation.flatten import FlatAnnotation, flatten_annotation
-from mavedb.lib.csv.entries import visible_calibrations
+from mavedb.lib.csv.entries import calibration_viewer
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
@@ -22,13 +23,13 @@ from mavedb.models.variant import Variant
 def calibrations_for_namespaces(
     db: Session,
     calibration_namespaces: dict[str, str],
-    may_read_calibration: Optional[Callable[[ScoreCalibration], bool]] = None,
+    viewer: Optional[ScoreCalibrationViewer] = None,
 ) -> dict[str, ScoreCalibration]:
     """Load the calibrations named by the requested namespaces, keyed by namespace.
 
     Looked up by the URN the caller named, not by what a score set offers: the namespace *is* the request.
     Which means this, not discovery, is the gate — naming a private calibration's URN directly must not
-    serve its interpretation, so *may_read_calibration* is applied here too.
+    serve its interpretation, so the viewer is applied here too.
     """
     if not calibration_namespaces:
         return {}
@@ -43,9 +44,7 @@ def calibrations_for_namespaces(
         )
     ).all()
 
-    by_urn = {
-        str(calibration.urn): calibration for calibration in visible_calibrations(calibrations, may_read_calibration)
-    }
+    by_urn = {str(calibration.urn): calibration for calibration in calibration_viewer(viewer).visible(calibrations)}
     return {namespace: by_urn[urn] for namespace, urn in calibration_namespaces.items() if urn in by_urn}
 
 
@@ -77,7 +76,7 @@ def annotations_for_rows(
     variants: Sequence[Variant],
     mappings: Sequence[Optional[MappedVariant]],
     calibration_namespaces: dict[str, str],
-    may_read_calibration: Optional[Callable[[ScoreCalibration], bool]] = None,
+    viewer: Optional[ScoreCalibrationViewer] = None,
 ) -> Optional[list[dict[str, Optional[FlatAnnotation]]]]:
     """Flatten every row's interpretation under each requested calibration namespace.
 
@@ -90,7 +89,7 @@ def annotations_for_rows(
     if not calibration_namespaces:
         return None
 
-    calibrations_by_ns = calibrations_for_namespaces(db, calibration_namespaces, may_read_calibration)
+    calibrations_by_ns = calibrations_for_namespaces(db, calibration_namespaces, viewer)
     # TODO(#372): non-null id fields
     membership = containing_classification_ids(db, [variant.id for variant in variants])  # type: ignore
 
