@@ -26,8 +26,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, lazyload
 
 from mavedb.lib.annotation.annotate import variant_highest_level_annotation
-from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.permissions.principal import Principal
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.score_sets import get_current_mapped_variants_for_annotation, get_score_set_variants_as_csv
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
@@ -127,7 +127,9 @@ def export_public_data(db: Session):
         for score_set_orm in flatmap(lambda es: flatmap(lambda e: e.score_sets, es.experiments), experiment_sets)
         for calibration in (score_set_orm.score_calibrations or [])
     ]
-    visible_calibration_ids = {calibration.id for calibration in public_viewer.visible(all_calibrations)}
+
+    # TODO(#372): Nullable ids.
+    visible_calibration_ids: set[int] = {calibration.id for calibration in public_viewer.visible(all_calibrations)}  # type: ignore
     if len(all_calibrations) > len(visible_calibration_ids):
         logger.info(
             f"Withholding {len(all_calibrations) - len(visible_calibration_ids)} non-public score "
@@ -148,15 +150,16 @@ def export_public_data(db: Session):
     ]
     logger.info(f"Found {len(experiment_set_views)} published experiment sets with CC0-licensed score sets.")
 
-    # Taken from the narrowed views, so the per-score-set files below cover exactly what main.json describes.
-    score_set_ids = list(
-        flatmap(lambda es: flatmap(lambda e: map(lambda ss: ss.id, e.score_sets), es.experiments), experiment_set_views)
+    score_set_urns = list(
+        flatmap(
+            lambda es: flatmap(lambda e: map(lambda ss: ss.urn, e.score_sets), es.experiments), experiment_set_views
+        )
     )
 
     timestamp_format = "%Y%m%d%H%M%S"
     zip_file_name = f"mavedb-dump.{datetime.now().strftime(timestamp_format)}.zip"
 
-    logger.info(f"Writing {zip_file_name} with {len(score_set_ids)} score sets.")
+    logger.info(f"Writing {zip_file_name} with {len(score_set_urns)} score sets.")
     json_data = {
         "title": "MaveDB public data",
         "asOf": datetime.now(timezone.utc).isoformat(),
@@ -173,12 +176,12 @@ def export_public_data(db: Session):
         zipfile.write(os.path.join(resources_dir, "README.md"), "README.md")
 
         # Write score and count files for each score set.
-        num_score_sets = len(score_set_ids)
-        for i, score_set_id in enumerate(score_set_ids):
-            score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one_or_none()
-            if score_set is not None and score_set.urn is not None:
-                logger.info(f"[{i + 1}/{num_score_sets}] Exporting score set {score_set.urn}")
-                csv_filename_base = score_set.urn.replace(":", "-")
+        num_score_sets = len(score_set_urns)
+        for i, score_set_urn in enumerate(score_set_urns):
+            score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one_or_none()
+            if score_set is not None:
+                logger.info(f"[{i + 1}/{num_score_sets}] Exporting score set {score_set_urn}")
+                csv_filename_base = score_set_urn.replace(":", "-")
 
                 csv_str = get_score_set_variants_as_csv(db, score_set, ["scores"], namespaced=True)
                 zipfile.writestr(f"csv/{csv_filename_base}.scores.csv", csv_str)
@@ -189,7 +192,7 @@ def export_public_data(db: Session):
                 has_annotations = (
                     db.scalars(
                         select(ScoreSet)
-                        .where(ScoreSet.id == score_set_id)
+                        .where(ScoreSet.id == score_set.id)
                         .join(Variant)
                         .join(MappedVariant)
                         .where(MappedVariant.current.is_(True))
@@ -228,7 +231,7 @@ def export_public_data(db: Session):
                         select(MappedVariant)
                         .join(Variant, Variant.id == MappedVariant.variant_id)
                         .options(joinedload(MappedVariant.variant))
-                        .where(Variant.score_set_id == score_set_id)
+                        .where(Variant.score_set_id == score_set.id)
                         .where(MappedVariant.current.is_(True))
                     ).all()
                     mapped_variant_views = [
