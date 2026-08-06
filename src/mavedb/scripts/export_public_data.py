@@ -18,7 +18,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from itertools import chain
-from typing import Callable, Iterable, TypeVar
+from typing import Callable, Iterable, Optional, TypeVar
 from zipfile import ZipFile
 
 from fastapi.encoders import jsonable_encoder
@@ -45,41 +45,55 @@ S = TypeVar("S")
 T = TypeVar("T")
 
 
-def filter_experiment_sets(experiment_sets: Iterable[ExperimentSet]) -> Iterable[ExperimentSet]:
-    """
-    Filter a list of experiment sets. Exclude any experiments with no score sets, then exclude experiment sets with no
-    experiments.
-
-    Filtering is done on the basis of the current contents of Experiment.score_set, which will have been loaded using a
-    query that excludes unpublished score sets and those licensed other than under CC0.
-    """
-    return filter(filter_experiment_set, experiment_sets)
-
-
-def filter_experiment_set(experiment_set: ExperimentSet):
-    """
-    Filter an experiment set. Exclude any experiments it contains that do not contain score sets, and return a value
-    indicating whether any experiments remain.
-
-    Filtering is done on the basis of the current contents of Experiment.score_set, which will have been loaded using a
-    query that excludes unpublished score sets and those licensed other than under CC0.
-    """
-    experiment_set.experiments = list(filter_experiments(experiment_set.experiments))
-    return len(experiment_set.experiments) > 0
-
-
-def filter_experiments(experiments: Iterable[Experiment]) -> Iterable[Experiment]:
-    """
-    Filter a list of experiments, excluding any whose score_sets collection is empty.
-
-    Filtering is done on the basis of the current contents of score_sets, which will have been loaded using a query that
-    excludes unpublished score sets and those licensed other than under CC0.
-    """
-    return filter(lambda e: len(e.score_sets) > 0, experiments)
-
-
 def flatmap(f: Callable[[S], Iterable[T]], items: Iterable[S]) -> Iterable[T]:
     return chain.from_iterable(map(f, items))
+
+
+def public_experiment_set(
+    experiment_set_view: ExperimentSetPublicDump, visible_calibration_ids: set[int]
+) -> Optional[ExperimentSetPublicDump]:
+    """
+    Narrow a validated experiment set to what belongs in the public dump.
+
+    Drops calibrations an anonymous caller may not read, then experiments left with no score sets, and
+    returns None for an experiment set left with no experiments. The score sets themselves need no filter:
+    the loading query already restricts them to published, CC0-licensed ones.
+
+    Narrowing the validated view rather than the ORM graph is deliberate. ``ExperimentSet.experiments`` and
+    ``ScoreSet.score_calibrations`` are both mapped with ``cascade="all, delete-orphan"``, so removing a
+    member from either ORM collection marks the removed row as an orphan and the next flush deletes it.
+    This script can flush: ``with_database_session`` commits when invoked with ``--commit``.
+
+    Args:
+        experiment_set_view (ExperimentSetPublicDump): The validated experiment set to narrow.
+        visible_calibration_ids (set[int]): Ids of the calibrations an anonymous caller may read.
+
+    Returns:
+        Optional[ExperimentSetPublicDump]: The narrowed experiment set, or None if nothing public remains.
+    """
+    experiments = []
+    for experiment_view in experiment_set_view.experiments:
+        if not experiment_view.score_sets:
+            continue
+
+        score_sets = [
+            score_set_view.model_copy(
+                update={
+                    "score_calibrations": [
+                        calibration
+                        for calibration in (score_set_view.score_calibrations or [])
+                        if calibration.id in visible_calibration_ids
+                    ]
+                }
+            )
+            for score_set_view in experiment_view.score_sets
+        ]
+        experiments.append(experiment_view.model_copy(update={"score_sets": score_sets}))
+
+    if not experiments:
+        return None
+
+    return experiment_set_view.model_copy(update={"experiments": experiments})
 
 
 @script_environment.command()
@@ -101,36 +115,42 @@ def export_public_data(db: Session):
         .order_by(ExperimentSet.urn)
     )
 
-    # Filter the stream of experiment sets to exclude experiments and experiment sets with no public, CC0-licensed score
-    # sets.
-    experiment_sets = list(filter_experiment_sets(experiment_sets_query.all()))
-    logger.info(f"Found {len(experiment_sets)} published experiment sets with CC0-licensed score sets.")
+    experiment_sets = experiment_sets_query.all()
 
-    # The dump is built for an anonymous principal. Publishing a score set does not publish its calibrations:
-    # a calibration keeps its own `private` flag and a stricter READ rule, so every artifact below is scoped
-    # to what this viewer may read. Applied to the loaded ORM objects, because ExperimentSetPublicDump
-    # validates the score set wholesale and would otherwise carry every calibration definition into
-    # main.json. Must stay ahead of the ExperimentSetPublicDump validation below: the annotation queries
-    # later in this script eager-load score calibrations again and will repopulate these collections.
+    # The dump is built for an anonymous principal. Publishing a score set does not publish its
+    # calibrations: a calibration keeps its own `private` flag and a stricter READ rule, so every artifact
+    # below is scoped to what this viewer may read.
     public_principal = Principal()
     public_viewer = public_principal.viewer_for(ScoreCalibrationViewer)
-    num_withheld = 0
-    for score_set_orm in flatmap(lambda es: flatmap(lambda e: e.score_sets, es.experiments), experiment_sets):
-        visible = public_viewer.visible(score_set_orm.score_calibrations)
-        num_withheld += len(score_set_orm.score_calibrations or []) - len(visible)
-        score_set_orm.score_calibrations = visible
-    if num_withheld:
-        logger.info(f"Withheld {num_withheld} non-public score calibration(s) from the dump.")
+    all_calibrations = [
+        calibration
+        for score_set_orm in flatmap(lambda es: flatmap(lambda e: e.score_sets, es.experiments), experiment_sets)
+        for calibration in (score_set_orm.score_calibrations or [])
+    ]
+    visible_calibration_ids = {calibration.id for calibration in public_viewer.visible(all_calibrations)}
+    if len(all_calibrations) > len(visible_calibration_ids):
+        logger.info(
+            f"Withholding {len(all_calibrations) - len(visible_calibration_ids)} non-public score "
+            "calibration(s) from the dump."
+        )
 
     # TODO To support very large data sets, we may want to use custom code for JSON-encoding an iterator.
     # Issue: https://github.com/VariantEffect/mavedb-api/issues/192
     # See, for instance, https://stackoverflow.com/questions/12670395/json-encoding-very-long-iterators.
 
-    experiment_set_views = list(map(lambda es: ExperimentSetPublicDump.model_validate(es), experiment_sets))
+    experiment_set_views = [
+        narrowed
+        for narrowed in (
+            public_experiment_set(ExperimentSetPublicDump.model_validate(es), visible_calibration_ids)
+            for es in experiment_sets
+        )
+        if narrowed is not None
+    ]
+    logger.info(f"Found {len(experiment_set_views)} published experiment sets with CC0-licensed score sets.")
 
-    # Get a list of IDS of all the score sets included.
+    # Taken from the narrowed views, so the per-score-set files below cover exactly what main.json describes.
     score_set_ids = list(
-        flatmap(lambda es: flatmap(lambda e: map(lambda ss: ss.id, e.score_sets), es.experiments), experiment_sets)
+        flatmap(lambda es: flatmap(lambda e: map(lambda ss: ss.id, e.score_sets), es.experiments), experiment_set_views)
     )
 
     timestamp_format = "%Y%m%d%H%M%S"
