@@ -35,7 +35,7 @@ mavedb-dump.YYYYMMDDHHMMSS.zip
 ├── csv/
 │   ├── {urn}.scores.csv                       # Variant effect scores (all score sets)
 │   ├── {urn}.counts.csv                       # Variant counts (score sets with count data only)
-│   └── {urn}.annotations.csv                  # Variant annotations from VEP, gnomAD, and ClinGen
+│   └── {urn}.annotations.csv                  # Variant annotations from VEP, gnomAD, ClinGen and ClinVar, plus score calibration interpretations
 │                                              #   (score sets that have completed mapping only)
 ├── mapped/
 │   └── {urn}.mapped-variants.json             # Mapped variant data including VRS alleles and HGVS
@@ -114,7 +114,9 @@ present for score sets that have count data. The count column names are listed i
 
 Variant annotation data from external databases, joined with post-mapped HGVS and VRS identifiers
 produced by the MaveDB variant mapping pipeline. **Only present for score sets that have completed
-the MaveDB mapping pipeline.** Exact columns:
+the MaveDB mapping pipeline.**
+
+Columns are grouped by a namespace prefix. The groups below always appear:
 
 | Column | Description |
 |--------|-------------|
@@ -130,6 +132,39 @@ the MaveDB mapping pipeline.** Exact columns:
 | `vep.vep_functional_consequence` | VEP functional consequence term (e.g. `missense_variant`) |
 | `gnomad.gnomad_af` | gnomAD v4.1 allele frequency |
 | `clingen.clingen_allele_id` | ClinGen Allele Registry CA identifier (e.g. `CA12345`) |
+
+Two further groups vary by score set, because they exist only where MaveDB holds the underlying data.
+Read the header rather than assuming a fixed column set.
+
+**ClinVar** — one pair of columns per ingested release, prefixed `clinvar.YEAR_MONTH`. A score set with
+records from the January 2024 release carries `clinvar.2024_01.clinical_significance` and
+`clinvar.2024_01.clinical_review_status`.
+
+This file carries **every** release MaveDB holds for the score set, not just the most recent one, so a
+change in ClinVar's assessment over time can be read off a single file.
+
+**Score calibrations** — one group per calibration, prefixed `calibration.<calibration urn>`, giving
+that calibration's interpretation of each variant:
+
+| Column suffix | Description |
+|---------------|-------------|
+| `title` | Human-readable name of the calibration |
+| `research_use_only` | Always `False` here; research-use-only calibrations are excluded from this dump |
+| `functional_classification` | `normal`, `abnormal`, or `indeterminate` |
+| `acmg_criterion` | ACMG 2015 criterion evaluated, e.g. `PS3` or `BS3` |
+| `acmg_evidence_strength` | Strength the criterion was met at, e.g. `MODERATE`. `NA` when not met |
+| `acmg_evidence_outcome_code` | ACMG evidence outcome code, e.g. `PS3_moderate`, `PS3` (strong), `BS3_not_met` |
+| `pathogenicity_classification` | `PATHOGENIC`, `BENIGN`, or `UNCERTAIN_SIGNIFICANCE` |
+
+Every calibration MaveDB holds for the score set gets a group, including one that defines no score
+ranges. Such a group carries `title` and
+`research_use_only` with `NA` in every interpretation column: the calibration exists and was consulted,
+and it has no classification to give. That is different from a calibration whose ranges simply do not
+contain a particular variant, which reports `UNCERTAIN_SIGNIFICANCE` and `PS3_not_met`.
+
+`acmg_evidence_strength` uses MaveDB's own scale, which includes `MODERATE_PLUS` — an intermediate
+strength that the GA4GH VA-Spec has no equivalent for. The same variant's record in `va/{urn}.va.ndjson`
+therefore reports `moderate` where this file reports `MODERATE_PLUS`.
 
 Variants that could not be mapped, or for which a specific annotation is unavailable, will have
 `NA` in the corresponding column. For multi-allelic variants (haplotypes), `mavedb.*` HGVS columns

@@ -26,9 +26,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, lazyload
 
 from mavedb.lib.annotation.annotate import variant_highest_level_annotation
+from mavedb.lib.csv.namespaces import CsvNamespace
+from mavedb.lib.csv.score_set import (
+    available_score_set_csv_namespaces,
+    get_score_set_variants_as_csv,
+)
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
-from mavedb.lib.score_set_csv import get_score_set_variants_as_csv
 from mavedb.lib.score_sets import get_current_mapped_variants_for_annotation
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
@@ -44,6 +48,39 @@ logger = logging.getLogger(__name__)
 
 S = TypeVar("S")
 T = TypeVar("T")
+
+
+def annotation_export_namespaces(db: Session, score_set: ScoreSet) -> list[str]:
+    """The namespaces the public annotations CSV should carry for this score set.
+
+    Asks discovery what the score set actually has rather than naming groups by hand. The previous
+    hand-maintained list enumerated ClinVar releases one by one, so it emitted all-NA columns for releases
+    never ingested, needed a code change for every new release, and was fragile to schema changes.
+
+    The archive carries everything MaveDB holds about the score set, so this takes what discovery found
+    and subtracts from it rather than opting groups in.
+
+    In particular it does not filter on `selected_by_default`. That flag answers "what should a download
+    dialog open on", which is a question about attention rather than about what exists, and the reasons a
+    group opens unchecked are not interchangeable. An archive is about completeness, not about what a user
+    should be nudged to look at first.
+
+    Subtractions:
+
+    - Every score and count group, and the score set's own identity: scores and counts get their own
+      files, and the URN is in the filename, so repeating either would be noise.
+    """
+    excluded = {
+        CsvNamespace.SCORES,
+        CsvNamespace.SCORES_CUSTOM,
+        CsvNamespace.COUNTS,
+        CsvNamespace.SCORE_SET,
+    }
+    return [
+        entry.namespace
+        for entry in available_score_set_csv_namespaces(db, score_set)
+        if entry.namespace not in excluded
+    ]
 
 
 def flatmap(f: Callable[[S], Iterable[T]], items: Iterable[S]) -> Iterable[T]:
@@ -205,24 +242,7 @@ def export_public_data(db: Session):
                     csv_str = get_score_set_variants_as_csv(
                         db,
                         score_set,
-                        [
-                            "vep",
-                            "gnomad",
-                            "clingen",
-                            "clinvar.2015_02",
-                            "clinvar.2016_01",
-                            "clinvar.2017_01",
-                            "clinvar.2018_01",
-                            "clinvar.2019_01",
-                            "clinvar.2020_01",
-                            "clinvar.2021_01",
-                            "clinvar.2022_01",
-                            "clinvar.2023_01",
-                            "clinvar.2024_01",
-                            "clinvar.2025_01",
-                            "clinvar.2026_01",
-                        ],
-                        include_post_mapped_hgvs=True,
+                        annotation_export_namespaces(db, score_set),
                         namespaced=True,
                     )
                     zipfile.writestr(f"csv/{csv_filename_base}.annotations.csv", csv_str)
