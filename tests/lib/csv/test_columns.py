@@ -33,143 +33,66 @@ class MockVariant:
 
 
 class TestVariantToCsvRowNullHandling:
-    """Tests that variant_to_csv_row represents missing data as na_rep, not 'None'."""
+    """How a row reports absent data.
 
-    def test_score_data_with_none_value_uses_na_rep(self):
+    The value -> NA rule itself is specified by ``test_is_output_null``; every namespace reaches it through
+    the single ``_value_or_na`` call in ``variant_to_csv_row``, so it is not re-asserted per namespace here.
+    What these cover is the layer above it: building the per-row source a resolver is handed, which is
+    where "no data" has several distinct shapes.
+    """
+
+    # The score and count namespaces are one mechanism selected by RowSource, so they are covered together.
+    DATA_NAMESPACES = [("scores", "score_data", "score"), ("counts", "count_data", "count1")]
+
+    @pytest.mark.parametrize("namespace, data_key, column", DATA_NAMESPACES)
+    @pytest.mark.parametrize(
+        "build_data",
+        [lambda data_key: None, lambda data_key: {}, lambda data_key: {data_key: {}}],
+        ids=["no_data_at_all", "no_entry_for_this_namespace", "entry_present_but_column_missing"],
+    )
+    def test_dynamic_columns_survive_every_shape_of_absent_data(self, namespace, data_key, column, build_data):
+        """``variant.data`` may be missing, lack this namespace's entry, or lack the column within it."""
+        variant = MockVariant(data=build_data(data_key))
+
+        row = variant_to_csv_row(variant, {namespace: [column]})
+
+        assert row[column] == "NA"
+
+    @pytest.mark.parametrize("namespace, data_key, column", DATA_NAMESPACES)
+    def test_a_present_value_is_stringified(self, namespace, data_key, column):
+        """The non-null half of ``_value_or_na``, which nothing else asserts directly."""
+        variant = MockVariant(data={data_key: {column: 1.5}})
+
+        row = variant_to_csv_row(variant, {namespace: [column]})
+
+        assert row[column] == "1.5"
+
+    def test_na_rep_is_configurable(self):
         variant = MockVariant(data={"score_data": {"score": None}})
-        columns = {"scores": ["score"]}
 
-        row = variant_to_csv_row(variant, columns)
-
-        assert row["score"] == "NA"
-
-    def test_score_data_with_missing_key_uses_na_rep(self):
-        variant = MockVariant(data={"score_data": {}})
-        columns = {"scores": ["score"]}
-
-        row = variant_to_csv_row(variant, columns)
-
-        assert row["score"] == "NA"
-
-    def test_score_data_with_no_score_data_key_uses_na_rep(self):
-        variant = MockVariant(data={})
-        columns = {"scores": ["score"]}
-
-        row = variant_to_csv_row(variant, columns)
-
-        assert row["score"] == "NA"
-
-    def test_score_data_with_no_data_uses_na_rep(self):
-        variant = MockVariant(data=None)
-        columns = {"scores": ["score"]}
-
-        row = variant_to_csv_row(variant, columns)
-
-        assert row["score"] == "NA"
-
-    def test_count_data_with_none_value_uses_na_rep(self):
-        variant = MockVariant(data={"count_data": {"count1": None}})
-        columns = {"counts": ["count1"]}
-
-        row = variant_to_csv_row(variant, columns)
-
-        assert row["count1"] == "NA"
-
-    def test_count_data_with_missing_key_uses_na_rep(self):
-        variant = MockVariant(data={"count_data": {}})
-        columns = {"counts": ["count1"]}
-
-        row = variant_to_csv_row(variant, columns)
-
-        assert row["count1"] == "NA"
-
-    def test_count_data_with_no_count_data_key_uses_na_rep(self):
-        variant = MockVariant(data={})
-        columns = {"counts": ["count1"]}
-
-        row = variant_to_csv_row(variant, columns)
-
-        assert row["count1"] == "NA"
-
-    def test_count_data_with_no_data_uses_na_rep(self):
-        variant = MockVariant(data=None)
-        columns = {"counts": ["count1"]}
-
-        row = variant_to_csv_row(variant, columns)
-
-        assert row["count1"] == "NA"
-
-    def test_score_data_with_valid_value_preserved(self):
-        variant = MockVariant(data={"score_data": {"score": 1.5}})
-        columns = {"scores": ["score"]}
-
-        row = variant_to_csv_row(variant, columns)
-
-        assert row["score"] == "1.5"
-
-    def test_count_data_with_valid_value_preserved(self):
-        variant = MockVariant(data={"count_data": {"count1": 42}})
-        columns = {"counts": ["count1"]}
-
-        row = variant_to_csv_row(variant, columns)
-
-        assert row["count1"] == "42"
-
-    def test_score_data_with_custom_na_rep(self):
-        variant = MockVariant(data={"score_data": {"score": None}})
-        columns = {"scores": ["score"]}
-
-        row = variant_to_csv_row(variant, columns, na_rep="N/A")
+        row = variant_to_csv_row(variant, {"scores": ["score"]}, na_rep="N/A")
 
         assert row["score"] == "N/A"
 
-    def test_namespaced_score_data_with_none_value_uses_na_rep(self):
-        variant = MockVariant(data={"score_data": {"score": None}})
-        columns = {"scores": ["score"]}
-
-        row = variant_to_csv_row(variant, columns, namespaced=True)
-
-        assert row["scores.score"] == "NA"
-
-    def test_namespaced_count_data_with_none_value_uses_na_rep(self):
-        variant = MockVariant(data={"count_data": {"count1": None}})
-        columns = {"counts": ["count1"]}
-
-        row = variant_to_csv_row(variant, columns, namespaced=True)
-
-        assert row["counts.count1"] == "NA"
-
-    def test_core_columns_with_none_hgvs_uses_na_rep(self):
-        variant = MockVariant(hgvs_nt=None, hgvs_pro=None, hgvs_splice=None, urn="urn:mavedb:00000001-a-1#1")
-        columns = {"core": ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"]}
-
-        row = variant_to_csv_row(variant, columns)
-
-        assert row["hgvs_nt"] == "NA"
-        assert row["hgvs_pro"] == "NA"
-        assert row["hgvs_splice"] == "NA"
-        assert row["accession"] == "urn:mavedb:00000001-a-1#1"
-
-    def test_mixed_columns_with_missing_data(self):
+    def test_an_absent_column_does_not_disturb_its_neighbours(self):
+        """One missing datum must not drop a key or corrupt another column in the same row."""
         variant = MockVariant(
             hgvs_nt="g.1A>G",
-            hgvs_pro="p.Met1Val",
+            hgvs_pro=None,
             data={"score_data": {"score": None, "se": 0.1}, "count_data": {"count1": None, "count2": 5}},
         )
-        columns = {
-            "core": ["hgvs_nt", "hgvs_pro"],
-            "scores": ["score", "se"],
-            "counts": ["count1", "count2"],
-        }
+        columns = {"core": ["hgvs_nt", "hgvs_pro"], "scores": ["score", "se"], "counts": ["count1", "count2"]}
 
         row = variant_to_csv_row(variant, columns)
 
-        assert row["hgvs_nt"] == "g.1A>G"
-        assert row["hgvs_pro"] == "p.Met1Val"
-        assert row["score"] == "NA"
-        assert row["se"] == "0.1"
-        assert row["count1"] == "NA"
-        assert row["count2"] == "5"
+        assert row == {
+            "hgvs_nt": "g.1A>G",
+            "hgvs_pro": "NA",
+            "score": "NA",
+            "se": "0.1",
+            "count1": "NA",
+            "count2": "5",
+        }
 
 
 # ---------------------------------------------------------------------------
