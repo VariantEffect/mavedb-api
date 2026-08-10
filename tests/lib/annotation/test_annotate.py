@@ -12,6 +12,7 @@ from copy import deepcopy
 import pytest
 
 pytest.importorskip("psycopg2")
+pytest.importorskip("fastapi")
 
 from mavedb.lib.annotation.annotate import (
     variant_functional_impact_statement,

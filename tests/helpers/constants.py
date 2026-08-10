@@ -55,6 +55,8 @@ VALID_CLINGEN_LDH_ID = "2786738861"
 VALID_MD5_DIGEST = "01234abcde%"
 VALID_VMC_DIGEST = "GS_ASNKvN4=%"
 
+PRIVATE_CALIBRATION_OWNER_ID = 42
+
 TEST_SEQREPO_INITIAL_STATE = [
     {f"refseq:{VALID_ACCESSION}": {"seq_id": "seq1", "seq": "AAAA", "namespace": "refseq", "alias": VALID_ACCESSION}},
     {f"MD5:{VALID_MD5_DIGEST}": {"seq_id": "seq2", "seq": "CCCC", "namespace": "MD5", "alias": VALID_MD5_DIGEST}},

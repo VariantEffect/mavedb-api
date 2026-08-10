@@ -15,6 +15,7 @@ from unittest.mock import patch
 import pytest
 
 pytest.importorskip("psycopg2")
+pytest.importorskip("fastapi")
 
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.annotation.util import (

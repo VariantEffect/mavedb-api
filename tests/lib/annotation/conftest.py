@@ -9,15 +9,18 @@ from unittest.mock import Mock
 
 import pytest
 
-from mavedb.lib.permissions.principal import Principal
-from mavedb.models.enums.user_role import UserRole
+from tests.helpers.constants import PRIVATE_CALIBRATION_OWNER_ID
 from tests.helpers.mocks.factories import (
     create_mock_mapped_variant,
     create_mock_mapped_variant_with_functional_calibration_score_set,
     create_mock_mapped_variant_with_pathogenicity_calibration_score_set,
 )
 
-PRIVATE_CALIBRATION_OWNER_ID = 42
+# Permission related helpers coupled to logging context.
+try:
+    from .conftest_optional import *  # noqa: F403
+except ImportError:
+    pass
 
 
 def make_private(mapped_variant, *, owner_id: int = PRIVATE_CALIBRATION_OWNER_ID):
@@ -31,14 +34,6 @@ def make_private(mapped_variant, *, owner_id: int = PRIVATE_CALIBRATION_OWNER_ID
         calibration.created_by_id = owner_id
         calibration.score_set = Mock(contributors=[], created_by_id=owner_id, modified_by_id=owner_id)
     return mapped_variant
-
-
-def admin_principal() -> Principal:
-    return Principal(Mock(user=Mock(id=1, username="admin"), active_roles=[UserRole.admin]))
-
-
-def owner_principal(owner_id: int = PRIVATE_CALIBRATION_OWNER_ID) -> Principal:
-    return Principal(Mock(user=Mock(id=owner_id, username="owner"), active_roles=[]))
 
 
 @pytest.fixture
