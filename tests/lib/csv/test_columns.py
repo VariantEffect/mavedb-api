@@ -322,7 +322,22 @@ SAMPLE_DATASET_COLUMNS = {
             {},
         ),
         (["vep"], {"core", "vep"}, {"vep": ["vep_functional_consequence"]}, {}),
-        (["gnomad"], {"core", "gnomad"}, {"gnomad": ["gnomad_af"]}, {}),
+        (
+            ["gnomad"],
+            {"core", "gnomad"},
+            {
+                "gnomad": [
+                    "gnomad_af",
+                    "gnomad_ac",
+                    "gnomad_an",
+                    "gnomad_faf95_max",
+                    "gnomad_faf95_max_ancestry",
+                    "gnomad_id",
+                    "gnomad_version",
+                ]
+            },
+            {},
+        ),
         (["clingen"], {"core", "clingen"}, {"clingen": ["clingen_allele_id"]}, {}),
         (["scores", "mavedb"], {"core", "scores", "mavedb"}, {"scores": ["score"]}, {}),
         (["clinvar.2024_01"], {"core", "clinvar.2024_01"}, {}, {"clinvar.2024_01": "01_2024"}),

@@ -64,7 +64,7 @@ STATIC_CSV_NAMESPACE_LABELS: dict[str, tuple[str, CsvNamespaceGroup]] = {
     CsvNamespace.CLINGEN: ("ClinGen allele ID", CsvNamespaceGroup.ANNOTATION),
     CsvNamespace.REFERENCE_HGVS: ("Reference-frame HGVS", CsvNamespaceGroup.ANNOTATION),
     CsvNamespace.VEP: ("VEP consequence", CsvNamespaceGroup.ANNOTATION),
-    CsvNamespace.GNOMAD: ("gnomAD allele frequency", CsvNamespaceGroup.ANNOTATION),
+    CsvNamespace.GNOMAD: ("gnomAD population frequency", CsvNamespaceGroup.ANNOTATION),
     CsvNamespace.SCORE_SET: ("Score set and target gene", CsvNamespaceGroup.PROVENANCE),
     CsvNamespace.RELATIONSHIP: ("Relationship to the requested variant", CsvNamespaceGroup.PROVENANCE),
 }

@@ -240,7 +240,7 @@ class TestCsvNamespaceDiscovery:
         by_namespace = {entry["namespace"]: entry for entry in entries}
         assert {"scores", "score_set", "vep", "gnomad", "clingen"} <= set(by_namespace)
         assert "relationship" not in by_namespace
-        assert by_namespace["gnomad"]["label"] == "gnomAD allele frequency"
+        assert by_namespace["gnomad"]["label"] == "gnomAD population frequency"
         assert by_namespace["gnomad"]["group"] == "annotation"
         # Every entry is renderable without the client inventing labels.
         assert all(entry["label"] and entry["group"] for entry in entries)

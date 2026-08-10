@@ -490,6 +490,45 @@ class TestGetVariantCsv:
 
         assert rows[0]["mavedb.post_mapped_vrs_id"] == "NA"
 
+    def test_gnomad_namespace_reports_the_whole_frequency_record(self, session, setup_lib_db_with_mapped_variant):
+        """AF alone cannot be linked out from or judged for sampling depth; the namespace carries the record."""
+        mapped_variant = setup_lib_db_with_mapped_variant
+        mapped_variant.gnomad_variants.append(GnomADVariant(**TEST_GNOMAD_VARIANT))
+        session.add(mapped_variant)
+        session.commit()
+
+        with patch("mavedb.lib.csv.fetch.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
+            csv_text = get_variant_csv(session, mapped_variant.variant.urn)
+        rows = _parse_csv(csv_text)
+
+        assert [column for column in rows[0].keys() if column.startswith("gnomad.")] == [
+            "gnomad.gnomad_af",
+            "gnomad.gnomad_ac",
+            "gnomad.gnomad_an",
+            "gnomad.gnomad_faf95_max",
+            "gnomad.gnomad_faf95_max_ancestry",
+            "gnomad.gnomad_id",
+            "gnomad.gnomad_version",
+        ]
+        assert rows[0]["gnomad.gnomad_af"] == str(TEST_GNOMAD_VARIANT["allele_frequency"])
+        assert rows[0]["gnomad.gnomad_ac"] == str(TEST_GNOMAD_VARIANT["allele_count"])
+        assert rows[0]["gnomad.gnomad_an"] == str(TEST_GNOMAD_VARIANT["allele_number"])
+        assert rows[0]["gnomad.gnomad_faf95_max"] == str(TEST_GNOMAD_VARIANT["faf95_max"])
+        assert rows[0]["gnomad.gnomad_faf95_max_ancestry"] == str(TEST_GNOMAD_VARIANT["faf95_max_ancestry"])
+        assert rows[0]["gnomad.gnomad_id"] == str(TEST_GNOMAD_VARIANT["db_identifier"])
+        assert rows[0]["gnomad.gnomad_version"] == TEST_GNOMAD_DATA_VERSION
+
+    def test_gnomad_record_absent_leaves_every_column_na(self, session, setup_lib_db_with_mapped_variant):
+        """A variant with no gnomAD record reports NA across the namespace, never a zero frequency."""
+        mapped_variant = setup_lib_db_with_mapped_variant
+
+        with patch("mavedb.lib.csv.fetch.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
+            rows = _parse_csv(get_variant_csv(session, mapped_variant.variant.urn))
+
+        gnomad_values = {key: value for key, value in rows[0].items() if key.startswith("gnomad.")}
+        assert len(gnomad_values) == 7
+        assert set(gnomad_values.values()) == {"NA"}
+
     def test_gnomad_variant_from_another_version_is_not_reported(self, session, setup_lib_db_with_mapped_variant):
         mapped_variant = setup_lib_db_with_mapped_variant
         mapped_variant.gnomad_variants.append(GnomADVariant(**TEST_GNOMAD_VARIANT))
@@ -673,9 +712,9 @@ class TestGetVariantCsv:
             for statement in statements
             if "score_calibrations" in statement and " variants" in statement.replace("\n", " ")
         ]
-        assert (
-            calibration_scans == []
-        ), "calibration discovery joined the variants table; it should filter on score_set_id"
+        assert calibration_scans == [], (
+            "calibration discovery joined the variants table; it should filter on score_set_id"
+        )
 
     def test_base_namespaces_are_all_present_by_default(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
@@ -877,7 +916,7 @@ class TestComputeAvailableCsvNamespaces:
         # A ClinVar release is named by its date.
         assert by_namespace["clinvar.2024_11"].label == "ClinVar significance (November 2024)"
         assert by_namespace["clinvar.2024_11"].group == "annotation"
-        assert by_namespace["gnomad"].label == "gnomAD allele frequency"
+        assert by_namespace["gnomad"].label == "gnomAD population frequency"
         assert by_namespace["score_set"].group == "provenance"
 
 

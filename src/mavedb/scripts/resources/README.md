@@ -130,7 +130,13 @@ Columns are grouped by a namespace prefix. The groups below always appear:
 | `mavedb.post_mapped_hgvs_at_assay_level` | Post-mapped HGVS at the assay reference level (transcript or protein) |
 | `mavedb.post_mapped_vrs_id` | GA4GH VRS identifier for the post-mapped allele (e.g. `ga4gh:VA.n9ax-9x6gOC0OEt73VMYqCBfqfxG1XUH`) |
 | `vep.vep_functional_consequence` | VEP functional consequence term (e.g. `missense_variant`) |
-| `gnomad.gnomad_af` | gnomAD v4.1 allele frequency |
+| `gnomad.gnomad_af` | gnomAD allele frequency (allele count ÷ allele number) |
+| `gnomad.gnomad_ac` | gnomAD allele count — chromosomes observed carrying the allele |
+| `gnomad.gnomad_an` | gnomAD allele number — total chromosomes sampled |
+| `gnomad.gnomad_faf95_max` | Maximum filtering allele frequency at 95% confidence across genetic ancestry groups |
+| `gnomad.gnomad_faf95_max_ancestry` | Genetic ancestry group attaining `gnomad_faf95_max` |
+| `gnomad.gnomad_id` | gnomAD variant identifier (`chrom-pos-ref-alt`), e.g. `17-43092919-G-A` |
+| `gnomad.gnomad_version` | gnomAD release the frequencies were drawn from (e.g. `v4.1`) |
 | `clingen.clingen_allele_id` | ClinGen Allele Registry CA identifier (e.g. `CA12345`) |
 
 Two further groups vary by score set, because they exist only where MaveDB holds the underlying data.

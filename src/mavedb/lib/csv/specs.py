@@ -194,7 +194,15 @@ _NAMESPACE_SPECS: dict[str, CsvNamespaceSpec] = {
     ),
     CsvNamespace.GNOMAD: CsvNamespaceSpec(
         source=RowSource.GNOMAD,
-        resolvers={"gnomad_af": _optional(lambda gnomad: gnomad.allele_frequency)},
+        resolvers={
+            "gnomad_af": _optional(attrgetter("allele_frequency")),
+            "gnomad_ac": _optional(attrgetter("allele_count")),
+            "gnomad_an": _optional(attrgetter("allele_number")),
+            "gnomad_faf95_max": _optional(attrgetter("faf95_max")),
+            "gnomad_faf95_max_ancestry": _optional(attrgetter("faf95_max_ancestry")),
+            "gnomad_id": _optional(attrgetter("db_identifier")),
+            "gnomad_version": _optional(attrgetter("db_version")),
+        },
         needs_mappings=True,
         needs_gnomad=True,
     ),
