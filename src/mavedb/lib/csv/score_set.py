@@ -41,9 +41,10 @@ def get_score_set_variants_as_csv(
     viewer: Optional[ScoreCalibrationViewer] = None,
 ) -> str:
     """Get the variant data from a score set as a CSV string."""
-    assert type(score_set.dataset_columns) is dict
-
-    plan = plan_csv_columns(score_set.dataset_columns, namespaces)
+    # `dataset_columns` is NOT NULL with a `{}` default, so only a transient score set reaches this unset.
+    # Treating it as empty if it is unset yields the core columns alone rather than failing  deeper in
+    # column planning.
+    plan = plan_csv_columns(score_set.dataset_columns or {}, namespaces)
 
     fetched = fetch_variant_csv_data(
         db,
