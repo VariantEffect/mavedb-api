@@ -20,19 +20,7 @@ from mavedb.lib.annotation.annotate import (
     variant_pathogenicity_statement,
     variant_study_result,
 )
-from mavedb.lib.annotation.util import CALIBRATION_SCOPE_EXTENSION_NAME
-from tests.lib.annotation.conftest import admin_principal, make_private, owner_principal
-
-
-def scope_of(annotation) -> str:
-    """The disclosed principal of an annotation, which every emitted object must carry."""
-    scopes = [
-        extension.value
-        for extension in (annotation.extensions or [])
-        if extension.name == CALIBRATION_SCOPE_EXTENSION_NAME
-    ]
-    assert len(scopes) == 1, f"expected exactly one calibration scope extension, found {scopes}"
-    return scopes[0]
+from tests.lib.annotation.conftest import admin_principal, make_private, owner_principal, scope_of
 
 
 @pytest.mark.unit

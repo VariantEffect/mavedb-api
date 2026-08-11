@@ -21,6 +21,9 @@ from tests.helpers.mocks.mock_utilities import (
     create_sealed_mock,
 )
 
+# Sentinel for optional overrides whose meaningful values include None.
+_UNSET = object()
+
 # ---------------------------------------------------------------------------
 # License and Legal Helpers
 # ---------------------------------------------------------------------------
@@ -290,11 +293,15 @@ def create_mock_score_calibration_with_ranges(score_set=None, user=None):
 # ---------------------------------------------------------------------------
 
 
-def create_mock_variant(urn="test:variant", score=0.5, score_set=None):
-    """Create a mock Variant with specified properties."""
+def create_mock_variant(urn="test:variant", score=0.5, score_set=None, data=_UNSET):
+    """Create a mock Variant with specified properties.
+
+    ``data`` defaults to a well-formed ``score_data`` built from ``score``. Pass it explicitly to model a
+    variant whose score data is absent or malformed, which ``score`` cannot express.
+    """
     return create_sealed_mock(
         urn=urn,
-        data={"score_data": {"score": score}},
+        data={"score_data": {"score": score}} if data is _UNSET else data,
         score_set=score_set or create_mock_score_set(),
         id=1,
         score=score,
@@ -315,17 +322,26 @@ def create_mock_mapped_variant(
     mapped_date=None,
     clingen_allele_id=None,
     score_set=None,
+    pre_mapped=None,
+    post_mapped=None,
+    variant_data=_UNSET,
 ):
-    """Create a mock MappedVariant with specified properties."""
-    mock_variant = create_mock_variant(urn=urn, score=score, score_set=score_set)
+    """Create a mock MappedVariant with specified properties.
+
+    ``pre_mapped`` and ``post_mapped`` default to the VRS 2.x constants; pass a payload to build a
+    variant of a different shape. ``variant_data`` overrides the variant's ``data`` wholesale, which is
+    how a variant with an absent or non-numeric score is expressed — ``score`` alone can only produce a
+    well-formed ``score_data``.
+    """
+    mock_variant = create_mock_variant(urn=urn, score=score, score_set=score_set, data=variant_data)
 
     return create_sealed_mock(
         variant=mock_variant,
         mapping_api_version=mapping_api_version,
         mapped_date=mapped_date or datetime(2024, 1, 15, 10, 30, 0),
         clingen_allele_id=clingen_allele_id,
-        pre_mapped=TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
-        post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
+        pre_mapped=TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X if pre_mapped is None else pre_mapped,
+        post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X if post_mapped is None else post_mapped,
     )
 
 

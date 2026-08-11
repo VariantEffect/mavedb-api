@@ -9,6 +9,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from mavedb.lib.annotation.util import CALIBRATION_SCOPE_EXTENSION_NAME
 from tests.helpers.constants import PRIVATE_CALIBRATION_OWNER_ID
 from tests.helpers.mocks.factories import (
     create_mock_mapped_variant,
@@ -21,6 +22,17 @@ try:
     from .conftest_optional import *  # noqa: F403
 except ImportError:
     pass
+
+
+def scope_of(annotation) -> str:
+    """The disclosed principal of an annotation, which every emitted object must carry."""
+    scopes = [
+        extension.value
+        for extension in (annotation.extensions or [])
+        if extension.name == CALIBRATION_SCOPE_EXTENSION_NAME
+    ]
+    assert len(scopes) == 1, f"expected exactly one calibration scope extension, found {scopes}"
+    return scopes[0]
 
 
 def make_private(mapped_variant, *, owner_id: int = PRIVATE_CALIBRATION_OWNER_ID):
