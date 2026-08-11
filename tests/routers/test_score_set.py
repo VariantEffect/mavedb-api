@@ -17,6 +17,8 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
+from mavedb.lib.annotation.annotate import variant_study_result
+from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
@@ -28,6 +30,7 @@ from mavedb.models.score_calibration import ScoreCalibration as ScoreCalibration
 from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
+from mavedb.routers.score_sets import _annotation_stream_record
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
@@ -64,7 +67,9 @@ from tests.helpers.constants import (
     VALID_CLINGEN_CA_ID,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
+from tests.helpers.mocks.factories import create_mock_mapped_variant
 from tests.helpers.util.common import (
+    create_failing_side_effect,
     deepcamelize,
     parse_ndjson_response,
     update_expected_response_for_created_resources,
@@ -4669,6 +4674,164 @@ def test_annotated_functional_study_result_exists_for_score_set_when_some_varian
             assert annotated_variant is None
         else:
             assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
+
+
+def test_annotation_stream_reports_a_failing_variant_instead_of_truncating(
+    client, session, data_provider, data_files, setup_router_db
+):
+    """One variant that cannot be annotated must not cost the consumer the rest of the download."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    failing_annotation = create_failing_side_effect(
+        # Representative of lib/annotation/util.py, which raises this on an unrecognized VRS Allele state.
+        ValueError("Unsupported VRS state type"),
+        variant_study_result,
+        fail_on_call=2,
+    )
+
+    with patch("mavedb.routers.score_sets.variant_study_result", failing_annotation):
+        response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
+
+    assert response.status_code == 200
+
+    response_data = parse_ndjson_response(response)
+    assert len(response_data) == score_set["numVariants"]
+
+    errored = [record for record in response_data if "error" in record]
+    assert len(errored) == 1
+    assert errored[0]["annotation"] is None
+    assert errored[0]["error"] == {"type": "ValueError", "detail": "Unsupported VRS state type"}
+
+    for record in response_data:
+        if "error" not in record:
+            assert record["annotation"].get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
+
+
+def test_annotation_stream_emits_one_record_per_variant_despite_a_failure(
+    client, session, data_provider, data_files, setup_router_db
+):
+    """Every line is a variant record, so a body shorter than X-Total-Count is a truncated one."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    unmapped_variant = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
+    assert unmapped_variant is not None
+
+    failing_annotation = create_failing_side_effect(
+        ValueError("Unsupported VRS state type"), variant_study_result, fail_on_call=2
+    )
+
+    with patch("mavedb.routers.score_sets.variant_study_result", failing_annotation):
+        response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
+
+    total_count = int(response.headers["X-Total-Count"])
+    assert total_count == score_set["numVariants"]
+
+    response_data = parse_ndjson_response(response)
+    assert len(response_data) == total_count
+    assert all("variant_urn" in record for record in response_data)
+
+    # A variant with no mapping data is an expected absence, distinguishable from the failure.
+    errored = [record for record in response_data if "error" in record]
+    unannotated = [record for record in response_data if record["annotation"] is None and "error" not in record]
+    assert len(errored) == 1
+    assert len(unannotated) == 1
+    assert unannotated[0]["variant_urn"] == unmapped_variant.urn
+
+
+########################################################################################################################
+# Building individual annotation stream records
+#
+# Driven directly rather than over HTTP: these branches are about how a failure is classified, and
+# reaching any one of them through the endpoint costs the whole app and a database.
+########################################################################################################################
+
+
+class _StubAnnotation:
+    def model_dump(self, **kwargs):
+        return {"type": "Stub"}
+
+
+class _UndumpableAnnotation:
+    def model_dump(self, **kwargs):
+        raise ValueError("Extension.value is required")
+
+
+def _annotation_raising(exception):
+    """An annotation function that fails."""
+
+    def annotate(_mapped_variant):
+        raise exception
+
+    return annotate
+
+
+@pytest.fixture
+def mock_mapped_variant_for_stream():
+    return create_mock_mapped_variant(clingen_allele_id="CA123456")
+
+
+def test_annotation_stream_record_serializes_a_successful_annotation(mock_mapped_variant_for_stream):
+    record, outcome = _annotation_stream_record(mock_mapped_variant_for_stream, lambda mv: _StubAnnotation())
+
+    assert outcome == "annotated"
+    assert record == {"variant_urn": mock_mapped_variant_for_stream.variant.urn, "annotation": {"type": "Stub"}}
+
+
+def test_annotation_stream_record_treats_a_null_annotation_as_unannotated(mock_mapped_variant_for_stream):
+    """A variant the annotation layer declines to annotate is an expected outcome, not a failure."""
+    record, outcome = _annotation_stream_record(mock_mapped_variant_for_stream, lambda mv: None)
+
+    assert outcome == "unannotated"
+    assert record == {"variant_urn": mock_mapped_variant_for_stream.variant.urn, "annotation": None}
+
+
+def test_annotation_stream_record_treats_missing_mapping_data_as_unannotated(mock_mapped_variant_for_stream):
+    # Preserved deliberately: a missing mapping is an expected absence, and reporting it as an error would
+    # tell consumers a variant failed when nothing went wrong.
+    record, outcome = _annotation_stream_record(
+        mock_mapped_variant_for_stream, _annotation_raising(MappingDataDoesntExistException("no post-mapped allele"))
+    )
+
+    assert outcome == "unannotated"
+    assert "error" not in record
+    assert record["annotation"] is None
+
+
+@pytest.mark.parametrize(
+    "exception",
+    [
+        # lib/annotation/study_result.py, on absent or malformed score data.
+        KeyError("score"),
+        TypeError("'NoneType' object is not subscriptable"),
+        # lib/annotation/util.py, on an unrecognized VRS Allele state type.
+        ValueError("Unsupported VRS state type"),
+        IndexError("list index out of range"),
+    ],
+)
+def test_annotation_stream_record_reports_any_other_failure_as_an_error(mock_mapped_variant_for_stream, exception):
+    record, outcome = _annotation_stream_record(mock_mapped_variant_for_stream, _annotation_raising(exception))
+
+    assert outcome == "errored"
+    assert record["variant_urn"] == mock_mapped_variant_for_stream.variant.urn
+    assert record["annotation"] is None
+    assert record["error"] == {"type": type(exception).__name__, "detail": str(exception)}
+
+
+def test_annotation_stream_record_reports_a_serialization_failure_as_an_error(mock_mapped_variant_for_stream):
+    """An emitted object that no longer dumps is the shape-dependent failure this stream must survive.
+
+    Commit 5c155f4d fixed exactly this: a required field combined with `exclude_none` produced an object
+    that built successfully and then failed on the way out.
+    """
+    record, outcome = _annotation_stream_record(mock_mapped_variant_for_stream, lambda mv: _UndumpableAnnotation())
+
+    assert outcome == "errored"
+    assert record["error"] == {"type": "ValueError", "detail": "Extension.value is required"}
 
 
 ########################################################################################################################

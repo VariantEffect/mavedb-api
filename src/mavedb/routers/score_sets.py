@@ -4,7 +4,7 @@ import logging
 import time
 from datetime import date, datetime
 from functools import partial
-from typing import Any, List, Optional, Sequence, TypedDict, Union
+from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
 
 import numpy as np
 import pandas as pd
@@ -36,6 +36,15 @@ from mavedb.lib.authorization import (
     require_current_user_with_email,
 )
 from mavedb.lib.contributors import find_or_create_contributor
+from mavedb.lib.csv.columns import variants_to_csv_rows
+from mavedb.lib.csv.deprecated_params import (
+    DROP_NA_COLUMNS_DESCRIPTION,
+    INCLUDE_CUSTOM_COLUMNS_DESCRIPTION,
+    INCLUDE_POST_MAPPED_HGVS_DESCRIPTION,
+    resolve_deprecated_csv_params,
+)
+from mavedb.lib.csv.namespaces import CSV_NAMESPACES_PARAM_DESCRIPTION, CsvNamespaceStr
+from mavedb.lib.csv.score_set import available_score_set_csv_namespaces, get_score_set_variants_as_csv
 from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.identifiers import (
@@ -53,16 +62,6 @@ from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.score_calibrations import create_score_calibration
-from mavedb.lib.csv.deprecated_params import (
-    DROP_NA_COLUMNS_DESCRIPTION,
-    INCLUDE_CUSTOM_COLUMNS_DESCRIPTION,
-    INCLUDE_POST_MAPPED_HGVS_DESCRIPTION,
-    resolve_deprecated_csv_params,
-)
-from mavedb.lib.csv.namespaces import CSV_NAMESPACES_PARAM_DESCRIPTION, CsvNamespaceStr
-from mavedb.view_models.csv_namespace import AvailableCsvNamespace
-from mavedb.lib.csv.columns import variants_to_csv_rows
-from mavedb.lib.csv.score_set import available_score_set_csv_namespaces, get_score_set_variants_as_csv
 from mavedb.lib.score_sets import (
     csv_data_to_df,
     fetch_score_set_search_filter_options,
@@ -108,6 +107,7 @@ from mavedb.routers.shared import (
 )
 from mavedb.view_models import clinical_control, gnomad_variant, mapped_variant, score_set
 from mavedb.view_models.contributor import ContributorCreate
+from mavedb.view_models.csv_namespace import AvailableCsvNamespace
 from mavedb.view_models.doi_identifier import DoiIdentifierCreate
 from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
 from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
@@ -1268,6 +1268,46 @@ def get_score_set_mapped_variants(
     return mapped_variants
 
 
+def _annotation_stream_record(
+    mapped_variant, annotation_function
+) -> tuple[dict, Literal["annotated", "unannotated", "errored"]]:
+    """
+    Build the NDJSON record for one mapped variant, and classify its outcome.
+
+    Returns the record together with one of ``annotated``, ``unannotated``, or ``errored``. Nothing raises:
+    a failure past the first record would end the body mid-stream, and since the 200 and its headers went
+    out with the first chunk the consumer has no way to be told and simply receives a short file. A failed
+    variant is reported in-band instead, as a record carrying an ``error`` object. This includes variants
+    failing serialization.
+
+    A variant with no mapping data is *not* an error. It is an expected absence, reported as a null
+    annotation.
+    """
+    variant_urn = mapped_variant.variant.urn
+
+    try:
+        annotation = annotation_function(mapped_variant)
+        annotation_data = annotation.model_dump(exclude_none=True) if annotation else None
+    except MappingDataDoesntExistException:
+        logger.debug(f"Mapping data does not exist for variant {variant_urn}.")
+        return {"variant_urn": variant_urn, "annotation": None}, "unannotated"
+    except Exception as err:
+        logger.exception(
+            f"Failed to annotate variant {variant_urn}; streaming it as an error record.",
+            extra=logging_context(),
+        )
+        return {
+            "variant_urn": variant_urn,
+            "annotation": None,
+            "error": {"type": type(err).__name__, "detail": str(err)},
+        }, "errored"
+
+    if annotation_data is None:
+        return {"variant_urn": variant_urn, "annotation": None}, "unannotated"
+
+    return {"variant_urn": variant_urn, "annotation": annotation_data}, "annotated"
+
+
 def _stream_generated_annotations(mapped_variants, annotation_function):
     """
     Generator function to stream annotations as pure NDJSON data.
@@ -1277,35 +1317,23 @@ def _stream_generated_annotations(mapped_variants, annotation_function):
     - X-Processing-Started: ISO timestamp when processing began
     - X-Stream-Type: Type of annotation being streamed
 
+    Emits exactly one record per mapped variant, so a body holding fewer lines than ``X-Total-Count`` is
+    a truncated one. Outcome counts are logged rather than appended to the body, which keeps every line a
+    variant record and keeps this format identical to the public dump's ``va/{urn}.va.ndjson``.
+
     Progress updates are sent as structured log events that can be
     consumed via Server-Sent Events if needed.
     """
     start_time = time.time()
     total_variants = len(mapped_variants)
     processed_count = 0
+    outcome_counts = {"annotated": 0, "unannotated": 0, "errored": 0}
     logger.info(f"Starting streaming processing of {total_variants} mapped variants")
 
-    for i, mv in enumerate(mapped_variants):
-        try:
-            annotation = annotation_function(mv)
-        except MappingDataDoesntExistException:
-            logger.debug(f"Mapping data does not exist for variant {mv.variant.urn}.")
-            annotation = None
-        except Exception:
-            # Raising here would end the body mid-stream. The 200 and its headers went out with the first
-            # chunk, so the client has no way to be told and simply receives a short file. Report the
-            # variant as unannotated and keep going, so one bad variant cannot truncate a whole download.
-            logger.exception(
-                f"Failed to annotate variant {mv.variant.urn}; streaming it as unannotated.",
-                extra=logging_context(),
-            )
-            annotation = None
+    for mv in mapped_variants:
+        result, outcome = _annotation_stream_record(mv, annotation_function)
+        outcome_counts[outcome] += 1
 
-        # Send pure result data (no wrapper)
-        result = {
-            "variant_urn": mv.variant.urn,
-            "annotation": annotation.model_dump(exclude_none=True) if annotation else None,
-        }
         yield json.dumps(result, default=str) + "\n"
 
         # Log server-side progress
@@ -1332,6 +1360,7 @@ def _stream_generated_annotations(mapped_variants, annotation_function):
         {
             "stream_completion": {
                 "total_processed": processed_count,
+                **outcome_counts,
                 "total_time": round(total_time, 2),
                 "average_time_per_variant": average_time_per_variant,
                 "final_rate": final_rate,
@@ -1340,7 +1369,8 @@ def _stream_generated_annotations(mapped_variants, annotation_function):
         }
     )
     logger.info(
-        f"Completed streaming {processed_count} variants in {total_time:.2f} seconds (avg: {average_time_per_variant:.4f}s/variant)",
+        f"Completed streaming {processed_count} variants in {total_time:.2f} seconds "
+        f"({outcome_counts['errored']} errored, avg: {average_time_per_variant:.4f}s/variant)",
         extra=logging_context(),
     )
 
@@ -1374,8 +1404,8 @@ def get_score_set_annotated_variants(
     JSON (NDJSON) format for efficient processing of large datasets.
 
     NDJSON Response Format:
-        Each line in the response corresponds to a mapped variant and contains a JSON
-        object with the following structure:
+        Each line corresponds to a mapped variant and contains a JSON object with the following
+        structure:
         ```
         {
             "variant_urn": "<URN of the mapped variant>",
@@ -1384,6 +1414,20 @@ def get_score_set_annotated_variants(
             }
         }
         ```
+
+        `annotation` is null where the variant has no mapping data to annotate, or no pathogenicity statements apply
+        to it. A variant whose annotation could not be built is reported in-band rather than by
+        truncating the stream, and carries an additional `error` object:
+        ```
+        {
+            "variant_urn": "<URN of the mapped variant>",
+            "annotation": null,
+            "error": {"type": "<exception class>", "detail": "<exception message>"}
+        }
+        ```
+
+        Every line is a variant record: a response holds exactly `X-Total-Count` lines, so a shorter
+        body is a truncated one.
 
     Args:
         urn (str): The Uniform Resource Name (URN) of the score set to retrieve
@@ -1474,8 +1518,8 @@ def get_score_set_annotated_variants_functional_statement(
     JSON (NDJSON) format.
 
     NDJSON Response Format:
-        Each line in the response corresponds to a mapped variant and contains a JSON
-        object with the following structure:
+        Each line corresponds to a mapped variant and contains a JSON object with the following
+        structure:
         ```
         {
             "variant_urn": "<URN of the mapped variant>",
@@ -1484,6 +1528,20 @@ def get_score_set_annotated_variants_functional_statement(
             }
         }
         ```
+
+        `annotation` is null where the variant has no mapping data to annotate, or no functional impact statements apply
+        to it. A variant whose annotation could not be built is reported in-band rather than by
+        truncating the stream, and carries an additional `error` object:
+        ```
+        {
+            "variant_urn": "<URN of the mapped variant>",
+            "annotation": null,
+            "error": {"type": "<exception class>", "detail": "<exception message>"}
+        }
+        ```
+
+        Every line is a variant record: a response holds exactly `X-Total-Count` lines, so a shorter
+        body is a truncated one.
 
     Args:
         urn (str): The unique resource name (URN) identifying the score set.
@@ -1568,8 +1626,8 @@ def get_score_set_annotated_variants_functional_study_result(
     (NDJSON) format for efficient streaming of large datasets.
 
     NDJSON Response Format:
-        Each line in the response corresponds to a mapped variant and contains a JSON
-        object with the following structure:
+        Each line corresponds to a mapped variant and contains a JSON object with the following
+        structure:
         ```
         {
             "variant_urn": "<URN of the mapped variant>",
@@ -1578,6 +1636,20 @@ def get_score_set_annotated_variants_functional_study_result(
             }
         }
         ```
+
+        `annotation` is null where the variant has no mapping data to annotate, or no study results apply
+        to it. A variant whose annotation could not be built is reported in-band rather than by
+        truncating the stream, and carries an additional `error` object:
+        ```
+        {
+            "variant_urn": "<URN of the mapped variant>",
+            "annotation": null,
+            "error": {"type": "<exception class>", "detail": "<exception message>"}
+        }
+        ```
+
+        Every line is a variant record: a response holds exactly `X-Total-Count` lines, so a shorter
+        body is a truncated one.
 
     Args:
         urn (str): The URN (Uniform Resource Name) of the score set to retrieve variants for.
