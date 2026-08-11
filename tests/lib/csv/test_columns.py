@@ -1,3 +1,6 @@
+import csv
+from io import StringIO
+
 import pytest
 
 from mavedb.lib.annotation.flatten import FlatAnnotation
@@ -9,7 +12,10 @@ from mavedb.lib.csv.columns import (
     rows_to_csv,
     variant_to_csv_row,
 )
+from mavedb.lib.csv.namespaces import CsvNamespace
 from tests.helpers.constants import VALID_CALIBRATION_URN
+from tests.helpers.mocks.factories import create_mock_mapped_variant
+from tests.helpers.variant_shapes import VARIANT_SHAPES, shape_ids
 
 # ---------------------------------------------------------------------------
 # MockVariant
@@ -558,3 +564,88 @@ class TestAssembleCsvHeadersRejectsCollisions:
     def test_a_namespace_sharing_a_prefix_still_collides_on_a_repeated_column(self):
         with pytest.raises(ValueError, match="duplicate columns"):
             assemble_csv_headers({"scores": ["score"], "scores_custom": ["score"]}, namespaced=True)
+
+
+# ---------------------------------------------------------------------------
+# TestCsvRowAcrossVariantShapes
+# ---------------------------------------------------------------------------
+
+
+class TestCsvRowAcrossVariantShapes:
+    """Compose a row for every mapped-variant shape the export surfaces have to survive.
+
+    The tests above specify the row machinery against purpose-built inputs. These run the same composer
+    over the shared shape list, which is where payload-dependent breakage lives: the ``mavedb`` namespace
+    resolves ``post_mapped_hgvs_g``, ``post_mapped_hgvs_p``, and ``post_mapped_vrs_digest`` by walking the
+    stored VRS object, and that object takes every form in the list — VRS 1.x nesting, a cis-phased block,
+    the three state types, and an allele carrying no expressions at all.
+
+    The contract is deliberately narrow, matching the annotation conformance suite: composing a row never
+    raises, and the row carries exactly the planned columns. What each value should *be* is specified per
+    namespace above, not re-asserted per shape.
+    """
+
+    # Every namespace whose resolvers read the variant or its mapping. gnomAD and ClinVar are excluded:
+    # they are separate per-row arguments rather than properties of a shape, so they vary independently.
+    SHAPE_SENSITIVE_NAMESPACES = [
+        CsvNamespace.REFERENCE_HGVS,
+        CsvNamespace.SCORES,
+        CsvNamespace.VEP,
+        CsvNamespace.CLINGEN,
+    ]
+
+    DATASET_COLUMNS = {"score_columns": ["score"], "count_columns": []}
+
+    def _plan(self):
+        return plan_csv_columns(self.DATASET_COLUMNS, [str(ns) for ns in self.SHAPE_SENSITIVE_NAMESPACES])
+
+    @pytest.mark.parametrize("shape", VARIANT_SHAPES, ids=shape_ids())
+    def test_a_row_composes_and_carries_every_planned_column(self, shape):
+        mapped_variant = shape.build(create_mock_mapped_variant)
+        plan = self._plan()
+
+        row = variant_to_csv_row(mapped_variant.variant, plan.namespaced_columns, mapping=mapped_variant)
+
+        assert set(row) == set(assemble_csv_headers(plan.namespaced_columns))
+
+    @pytest.mark.parametrize("shape", VARIANT_SHAPES, ids=shape_ids())
+    def test_no_cell_leaks_a_mock(self, shape):
+        """Guards the fixtures rather than the code, and is here because it caught a real mistake.
+
+        ``_value_or_na`` stringifies whatever it is handed, so a resolver reading a MappedVariant field
+        the factory never set gets a truthy MagicMock and writes its repr into the CSV as a perfectly
+        well-formed string. Asserting cells are strings does not catch that; asserting they are not mocks
+        does. Every shape here would have passed a type check while carrying ``<MagicMock ...>`` in three
+        columns.
+        """
+        mapped_variant = shape.build(create_mock_mapped_variant)
+        plan = self._plan()
+
+        row = variant_to_csv_row(mapped_variant.variant, plan.namespaced_columns, mapping=mapped_variant)
+
+        leaked = {column: value for column, value in row.items() if "Mock" in str(value)}
+        assert not leaked, f"{shape.name} leaked mock reprs into the row: {leaked}"
+
+    def test_a_mapping_without_hgvs_columns_renders_them_na(self):
+        """The CSV-only axis: fields absent on the mapping must render NA, not a stand-in."""
+        shape = next(s for s in VARIANT_SHAPES if s.name == "unmapped_hgvs_columns")
+        mapped_variant = shape.build(create_mock_mapped_variant)
+        plan = self._plan()
+
+        row = variant_to_csv_row(mapped_variant.variant, plan.namespaced_columns, mapping=mapped_variant)
+
+        assert row["post_mapped_hgvs_c"] == "NA"
+        assert row["post_mapped_hgvs_at_assay_level"] == "NA"
+        assert row["vep_functional_consequence"] == "NA"
+
+    @pytest.mark.parametrize("shape", VARIANT_SHAPES, ids=shape_ids())
+    def test_the_row_serializes_to_csv(self, shape):
+        """The row is only useful if it survives the writer; a stray newline would split the record."""
+        mapped_variant = shape.build(create_mock_mapped_variant)
+        plan = self._plan()
+        columns = assemble_csv_headers(plan.namespaced_columns)
+
+        row = variant_to_csv_row(mapped_variant.variant, plan.namespaced_columns, mapping=mapped_variant)
+        rendered = rows_to_csv([row], columns)
+
+        assert len(list(csv.reader(StringIO(rendered)))) == 2

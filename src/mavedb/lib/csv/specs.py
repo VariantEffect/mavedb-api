@@ -109,13 +109,31 @@ class CsvNamespaceSpec:
         return _optional(lambda data: data.get(column_key))
 
 
+def _safe_hgvs_from_post_mapped(mapping: MappedVariant) -> Optional[str]:
+    """``get_hgvs_from_post_mapped`` with its raises absorbed, since a cell cannot afford to raise.
+
+    ``hgvs_from_vrs_allele`` raises on two payload shapes: a VRS 1.x object, which it refuses
+    deliberately, and an allele with no ``expressions`` key. Raised from inside a cell resolver, either
+    would abort the export of every other row in the file. Returning None keeps the refusal — no HGVS is
+    emitted for those payloads — without letting one variant's shape cost the caller the whole download.
+
+    Intentionally scoped to the CSV export layer, where a single problematic variant should not abort the entire export.
+    """
+    if not mapping.post_mapped:
+        return None
+    try:
+        return get_hgvs_from_post_mapped(mapping.post_mapped)
+    except (KeyError, ValueError):
+        return None
+
+
 def _post_mapped_hgvs_g(mapping: Optional[MappedVariant]) -> Optional[str]:
     """The genomic HGVS expression, falling back to one parsed out of the post-mapped VRS object."""
     if mapping is None:
         return None
     if mapping.hgvs_g:
         return str(mapping.hgvs_g)
-    fallback = get_hgvs_from_post_mapped(mapping.post_mapped) if mapping.post_mapped else None
+    fallback = _safe_hgvs_from_post_mapped(mapping)
     return fallback if fallback is not None and is_hgvs_g(fallback) else None
 
 
@@ -125,7 +143,7 @@ def _post_mapped_hgvs_p(mapping: Optional[MappedVariant]) -> Optional[str]:
         return None
     if mapping.hgvs_p:
         return str(mapping.hgvs_p)
-    fallback = get_hgvs_from_post_mapped(mapping.post_mapped) if mapping.post_mapped else None
+    fallback = _safe_hgvs_from_post_mapped(mapping)
     return fallback if fallback is not None and is_hgvs_p(fallback) else None
 
 

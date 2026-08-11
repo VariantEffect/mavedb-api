@@ -1,14 +1,26 @@
-"""The mapped-variant shapes every annotation surface has to survive.
+"""The mapped-variant shapes every export surface has to survive.
 
-Annotation tests otherwise all run against one variant, so a defect that only appears for a particular
-stored payload passes the whole suite. Both production failures this list exists to catch were of that
-kind: a reference-identical variant whose VRS state is a ``ReferenceLengthExpression`` (84125081) and a
-null baseline score stripped on the way out (5c155f4d).
+Tests otherwise all run against one variant, so a defect that only appears for a particular stored
+payload passes the whole suite. Both production failures this list exists to catch were of that kind: a
+reference-identical variant whose VRS state is a ``ReferenceLengthExpression`` (84125081) and a null
+baseline score stripped on the way out (5c155f4d).
 
-Lives here rather than under ``tests/lib/annotation`` because the CSV surfaces will consume the same
-list, and a shape list inside the annotation package would have to move when they do.
+Consumed by both the annotation surfaces (``tests/lib/annotation/test_conformance.py``) and the CSV
+composer (``tests/lib/csv/test_columns.py``), which is why it lives here rather than in either package.
 
-Adding a shape is one entry in ``VARIANT_SHAPES``. It applies to every annotation surface at once.
+Adding a shape is one entry in ``VARIANT_SHAPES``, and it applies to every surface at once. Not every
+shape bears on every surface: ``unmapped_hgvs_columns`` changes only CSV output, and the calibration
+shapes change only annotation output. That is fine — a shape that is inert on one surface costs one
+cheap assertion there and earns its place on the other.
+
+Two things are deliberately not shapes here:
+
+- **gnomAD records and ClinVar controls.** The CSV composer does read both, but as separate per-row
+  arguments rather than as properties of a mapped variant, so varying them is an orthogonal axis. The
+  annotation layer reads neither.
+- **``score_data`` with no ``score`` key.** Score dataframes are rejected without a ``score`` column
+  (``lib/validation/dataframe``), so a stored variant always has the key; it may be null, which is
+  ``null_score``.
 
 Expected to be short-lived. This builds on the non-DB mock factories in ``tests/helpers/mocks/factories.py``,
 hand-rolling the override plumbing — ``kwargs`` forwarded to a factory, plus a ``mutate`` hook for the axes
@@ -167,6 +179,11 @@ VARIANT_SHAPES: list[VariantShape] = [
         name="non_coding_target",
         why="a regulatory target, whose identifier comes from post-mapped metadata",
         mutate=_make_non_coding,
+    ),
+    VariantShape(
+        name="unmapped_hgvs_columns",
+        why="a mapping carrying no hgvs_c, assay-level hgvs, or VEP consequence; CSV-only axis",
+        kwargs={"hgvs_c": None, "hgvs_assay_level": None, "vep_functional_consequence": None},
     ),
 ]
 

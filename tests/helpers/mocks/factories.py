@@ -325,6 +325,11 @@ def create_mock_mapped_variant(
     pre_mapped=None,
     post_mapped=None,
     variant_data=_UNSET,
+    hgvs_c=_UNSET,
+    hgvs_g=_UNSET,
+    hgvs_p=_UNSET,
+    hgvs_assay_level=_UNSET,
+    vep_functional_consequence=_UNSET,
 ):
     """Create a mock MappedVariant with specified properties.
 
@@ -332,6 +337,16 @@ def create_mock_mapped_variant(
     variant of a different shape. ``variant_data`` overrides the variant's ``data`` wholesale, which is
     how a variant with an absent or non-numeric score is expressed — ``score`` alone can only produce a
     well-formed ``score_data``.
+
+    The ``hgvs_*`` fields and ``vep_functional_consequence`` are read by the CSV surfaces and by nothing
+    in the annotation layer. All are set explicitly, because an attribute left unset on a MagicMock
+    resolves to a truthy mock rather than to absent data — which a CSV row would then carry through as a
+    mock repr instead of a value or NA.
+
+    ``hgvs_g`` and ``hgvs_p`` default to None rather than to a value, deliberately. The CSV resolvers
+    prefer the stored column and fall back to parsing the post-mapped VRS object, so a populated column
+    short-circuits the fallback. Since the fallback is the path the variant shape list exists to
+    exercise, leaving these unset by default is what makes the payload matter.
     """
     mock_variant = create_mock_variant(urn=urn, score=score, score_set=score_set, data=variant_data)
 
@@ -342,6 +357,13 @@ def create_mock_mapped_variant(
         clingen_allele_id=clingen_allele_id,
         pre_mapped=TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X if pre_mapped is None else pre_mapped,
         post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X if post_mapped is None else post_mapped,
+        hgvs_c="NM_000271.5:c.3082G>C" if hgvs_c is _UNSET else hgvs_c,
+        hgvs_g=None if hgvs_g is _UNSET else hgvs_g,
+        hgvs_p=None if hgvs_p is _UNSET else hgvs_p,
+        hgvs_assay_level=("NC_000018.10:g.23536836C>G" if hgvs_assay_level is _UNSET else hgvs_assay_level),
+        vep_functional_consequence=(
+            "missense_variant" if vep_functional_consequence is _UNSET else vep_functional_consequence
+        ),
     )
 
 
