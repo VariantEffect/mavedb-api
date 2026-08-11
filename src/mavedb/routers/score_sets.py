@@ -28,7 +28,7 @@ from mavedb.lib.annotation.annotate import (
     variant_pathogenicity_statement,
     variant_study_result,
 )
-from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
+from mavedb.lib.annotation.exceptions import EXPECTED_ABSENCE_EXCEPTIONS
 from mavedb.lib.authorization import (
     get_current_user,
     get_principal,
@@ -1280,16 +1280,17 @@ def _annotation_stream_record(
     variant is reported in-band instead, as a record carrying an ``error`` object. This includes variants
     failing serialization.
 
-    A variant with no mapping data is *not* an error. It is an expected absence, reported as a null
-    annotation.
+    A variant with nothing to annotate is *not* an error. It is an expected absence, reported as a null
+    annotation. Which exceptions mean that is defined once, in ``EXPECTED_ABSENCE_EXCEPTIONS``, because
+    the corpus sweep has to draw the same line and the two must not drift apart.
     """
     variant_urn = mapped_variant.variant.urn
 
     try:
         annotation = annotation_function(mapped_variant)
         annotation_data = annotation.model_dump(exclude_none=True) if annotation else None
-    except MappingDataDoesntExistException:
-        logger.debug(f"Mapping data does not exist for variant {variant_urn}.")
+    except EXPECTED_ABSENCE_EXCEPTIONS:
+        logger.debug(f"Nothing to annotate for variant {variant_urn}.")
         return {"variant_urn": variant_urn, "annotation": None}, "unannotated"
     except Exception as err:
         logger.exception(
