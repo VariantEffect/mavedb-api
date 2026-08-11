@@ -1,4 +1,8 @@
+# ruff: noqa: E402
+
 import pytest
+
+pytest.importorskip("fastapi")
 
 from mavedb.lib.csv.entries import clinvar_namespace_entries
 from mavedb.lib.csv.namespaces import CsvNamespaceGroup
