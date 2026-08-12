@@ -8,6 +8,48 @@ from mavedb.models.enums.acmg_criterion import ACMGCriterion
 from mavedb.models.enums.strength_of_evidence import StrengthOfEvidenceProvided
 
 
+def acmg_evidence_outcome_code(criterion: str, evidence_strength: Optional[str]) -> str:
+    """Build the ACMG 2015 evidence outcome code for a criterion and the strength it was met at.
+
+    Three rules, which are the ACMG convention rather than anything MaveDB invented:
+
+    - no strength means the criterion was evaluated and *not* met, written ``"PS3_not_met"``
+    - STRONG is the criterion's baseline, so it is written bare: ``"PS3"``
+    - any other strength is suffixed: ``"PS3_moderate"``
+
+    Takes the criterion code and strength *name* as strings rather than enums so that the VA-Spec
+    annotation builders and the flat exports can share one implementation despite drawing their
+    enumerations from different places. That also means this survives any future decision about which
+    enumeration is canonical.
+
+    Parameters
+    ----------
+    criterion : str
+        The criterion code, e.g. ``"PS3"`` or ``"BS3"``.
+    evidence_strength : Optional[str]
+        The strength name, e.g. ``"MODERATE"``. None when the criterion was not met.
+
+    Returns
+    -------
+    str
+        The evidence outcome code.
+
+    Examples
+    --------
+    >>> acmg_evidence_outcome_code("PS3", "STRONG")
+    'PS3'
+    >>> acmg_evidence_outcome_code("PS3", "MODERATE")
+    'PS3_moderate'
+    >>> acmg_evidence_outcome_code("BS3", None)
+    'BS3_not_met'
+    """
+    if evidence_strength is None:
+        return f"{criterion}_not_met"
+    if evidence_strength.upper() == StrengthOfEvidenceProvided.STRONG.name:
+        return criterion
+    return f"{criterion}_{evidence_strength.lower()}"
+
+
 def points_evidence_strength_equivalent(
     points: int,
 ) -> tuple[Optional[ACMGCriterion], Optional[StrengthOfEvidenceProvided]]:

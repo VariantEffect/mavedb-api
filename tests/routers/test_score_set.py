@@ -17,6 +17,8 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
+from mavedb.lib.annotation.annotate import variant_study_result
+from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
 from mavedb.models.enums.processing_state import ProcessingState
@@ -24,9 +26,11 @@ from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
+from mavedb.models.score_calibration import ScoreCalibration as ScoreCalibrationDbModel
 from mavedb.models.mapped_variant import MappedVariant as MappedVariantDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
+from mavedb.routers.score_sets import _annotation_stream_record
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
@@ -63,7 +67,9 @@ from tests.helpers.constants import (
     VALID_CLINGEN_CA_ID,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
+from tests.helpers.mocks.factories import create_mock_mapped_variant
 from tests.helpers.util.common import (
+    create_failing_side_effect,
     deepcamelize,
     parse_ndjson_response,
     update_expected_response_for_created_resources,
@@ -1786,6 +1792,50 @@ def test_recently_published_returns_published_score_sets(session, data_provider,
     assert published_2["urn"] in returned_urns
 
 
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_recently_published_withholds_private_calibrations_from_anonymous_users(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides, mock_publication_fetch
+):
+    """A published score set can carry an unpublished calibration.
+
+    This endpoint checks READ on the score set and on its superseding score set, but a calibration's READ
+    rule is stricter than its score set's, so it needs its own filter. Without it the listing served every
+    private calibration's thresholds to anyone.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    # The owner sees their own private calibration.
+    owner_response = client.get("/api/v1/score-sets/recently-published")
+    assert owner_response.status_code == 200
+    owner_entry = next(ss for ss in owner_response.json() if ss["urn"] == published["urn"])
+    assert len(owner_entry.get("scoreCalibrations") or []) == 1
+
+    with DependencyOverrider(anonymous_app_overrides):
+        anonymous_response = client.get("/api/v1/score-sets/recently-published")
+
+    assert anonymous_response.status_code == 200
+    anonymous_entry = next(ss for ss in anonymous_response.json() if ss["urn"] == published["urn"])
+    assert (anonymous_entry.get("scoreCalibrations") or []) == []
+
+
 def test_recently_published_does_not_return_unpublished_score_sets(client, setup_router_db):
     experiment = create_experiment(client)
     create_seq_score_set(client, experiment["urn"])
@@ -2890,9 +2940,7 @@ def test_search_score_sets_not_affected_by_experiment_metadata(
     assert response.json()["numScoreSets"] == num_score_sets
 
 
-def test_cannot_create_multiple_superseding_versions(
-        session, data_provider, client, setup_router_db, data_files
-):
+def test_cannot_create_multiple_superseding_versions(session, data_provider, client, setup_router_db, data_files):
     """Attempting to create multiple superseding versions should fail."""
     experiment = create_experiment(client, {"title": "Original Experiment"})
     score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Original Score Set"})
@@ -2918,7 +2966,9 @@ def test_cannot_create_multiple_superseding_versions(
 
     response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
     assert response.status_code == 409
-    assert (f"This score set has been superseded by score set: {first_superseding['urn']}.") in response.json()["detail"]
+    assert (f"This score set has been superseded by score set: {first_superseding['urn']}.") in response.json()[
+        "detail"
+    ]
 
 
 def test_search_score_sets_not_affected_by_an_unpublishing_superseding_versions(
@@ -3383,7 +3433,7 @@ def test_download_variants_data_file(
         worker_queue.assert_called_once()
 
     download_scores_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?drop_na_columns=true&include_post_mapped_hgvs=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?drop_unused_hgvs_columns=true&namespaces=scores&namespaces=mavedb"
     )
     assert download_scores_csv_response.status_code == 200
     download_scores_csv = download_scores_csv_response.text
@@ -3398,7 +3448,7 @@ def test_download_variants_data_file(
             "mavedb.post_mapped_hgvs_p",
             "mavedb.post_mapped_hgvs_c",
             "mavedb.post_mapped_hgvs_at_assay_level",
-            "mavedb.post_mapped_vrs_digest",
+            "mavedb.post_mapped_vrs_id",
             "scores.score",
         ]
     )
@@ -3432,7 +3482,7 @@ def test_download_scores_file(session, data_provider, client, setup_router_db, d
         worker_queue.assert_called_once()
 
     download_scores_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/scores?drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/scores?drop_unused_hgvs_columns=true"
     )
     assert download_scores_csv_response.status_code == 200
     download_scores_csv = download_scores_csv_response.text
@@ -3454,7 +3504,7 @@ def test_download_counts_file(session, data_provider, client, setup_router_db, d
         worker_queue.assert_called_once()
 
     download_counts_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/counts?drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/counts?drop_unused_hgvs_columns=true"
     )
     assert download_counts_csv_response.status_code == 200
     download_counts_csv = download_counts_csv_response.text
@@ -3463,6 +3513,144 @@ def test_download_counts_file(session, data_provider, client, setup_router_db, d
     assert "hgvs_nt" in columns
     assert "hgvs_pro" in columns
     assert "hgvs_splice" not in columns
+
+
+# Deprecated query-parameter aliases. Galaxy and other external tooling call these endpoints, so the old
+# names keep working for a release rather than being silently ignored.
+def test_deprecated_drop_na_columns_still_drops_unused_hgvs_columns(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    for path in ("variants/data?namespaces=scores&", "scores?", "counts?"):
+        response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}/{path}drop_na_columns=true")
+
+        assert response.status_code == 200, path
+        columns = response.text.split("\n")[0].split(",")
+        assert "hgvs_splice" not in columns, path
+
+
+def test_deprecated_include_post_mapped_hgvs_adds_the_mavedb_namespace(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    create_mapped_variants_for_score_set(session, score_set["urn"], TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION)
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&include_post_mapped_hgvs=true"
+    )
+
+    assert response.status_code == 200
+    columns = response.text.split("\n")[0].split(",")
+    # Additive, as the flag always was: the requested namespace survives alongside it.
+    assert "scores.score" in columns
+    assert "mavedb.post_mapped_hgvs_g" in columns
+
+
+def test_deprecated_include_custom_columns_adds_the_scores_custom_namespace(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """The flag now appends a namespace, and its columns keep the `scores.` prefix they always had."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    with_flag = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&include_custom_columns=true"
+    )
+    with_namespace = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&namespaces=scores_custom"
+    )
+
+    assert with_flag.status_code == 200
+    assert with_namespace.status_code == 200
+    assert with_flag.text.split("\n")[0] == with_namespace.text.split("\n")[0]
+    assert with_flag.headers["Deprecation"] == "true"
+    assert "include_custom_columns is deprecated" in with_flag.headers["Warning"]
+    # No column is emitted under a `scores_custom.` prefix; the namespace is a request token only.
+    assert "scores_custom." not in with_flag.text
+
+
+def test_current_parameter_name_wins_over_its_deprecated_spelling(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/scores?drop_unused_hgvs_columns=false&drop_na_columns=true"
+    )
+
+    assert response.status_code == 200
+    assert "hgvs_splice" in response.text.split("\n")[0].split(",")
+
+
+def test_deprecated_request_answers_with_deprecation_headers(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """The consumers here are scripts, not people reading our logs, so the response has to say so."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data"
+        "?namespaces=scores&drop_na_columns=true&include_post_mapped_hgvs=true"
+    )
+
+    assert response.status_code == 200
+    assert response.headers["deprecation"] == "true"
+    warning = response.headers["warning"]
+    assert "drop_na_columns is deprecated, use drop_unused_hgvs_columns" in warning
+    assert "include_post_mapped_hgvs is deprecated, use namespaces=mavedb" in warning
+
+
+def test_current_request_carries_no_deprecation_headers(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    response = client.get(
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&drop_unused_hgvs_columns=true"
+    )
+
+    assert response.status_code == 200
+    assert "deprecation" not in response.headers
+    assert "warning" not in response.headers
+
+
+def test_deprecated_parameters_are_marked_deprecated_in_the_openapi_schema(client):
+    """Anyone reading the docs or generating a client should see the deprecation without sending a request."""
+    schema = client.app.openapi()
+
+    def parameter(path: str, name: str):
+        return next(p for p in schema["paths"][path]["get"]["parameters"] if p["name"] == name)
+
+    for path, name in (
+        ("/api/v1/score-sets/{urn}/variants/data", "drop_na_columns"),
+        ("/api/v1/score-sets/{urn}/variants/data", "include_post_mapped_hgvs"),
+        ("/api/v1/score-sets/{urn}/scores", "drop_na_columns"),
+        ("/api/v1/score-sets/{urn}/counts", "drop_na_columns"),
+    ):
+        assert parameter(path, name)["deprecated"] is True, f"{name} on {path}"
+        assert "deprecated" in parameter(path, name)["description"].lower(), f"{name} on {path}"
 
 
 # Namespace variant CSV export tests.
@@ -3477,7 +3665,7 @@ def test_download_scores_file_in_variant_data_path(session, data_provider, clien
         worker_queue.assert_called_once()
 
     download_scores_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&drop_unused_hgvs_columns=true"
     )
     assert download_scores_csv_response.status_code == 200
     download_scores_csv = download_scores_csv_response.text
@@ -3500,7 +3688,7 @@ def test_download_counts_file_in_variant_data_path(session, data_provider, clien
         worker_queue.assert_called_once()
 
     download_counts_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=counts&include_custom_columns=true&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=counts&include_custom_columns=true&drop_unused_hgvs_columns=true"
     )
     assert download_counts_csv_response.status_code == 200
     download_counts_csv = download_counts_csv_response.text
@@ -3524,7 +3712,7 @@ def test_download_scores_and_counts_file(session, data_provider, client, setup_r
         worker_queue.assert_called_once()
 
     download_scores_and_counts_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=counts&namespaces=scores&include_custom_columns=true&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=counts&namespaces=scores&include_custom_columns=true&drop_unused_hgvs_columns=true"
     )
     assert download_scores_and_counts_csv_response.status_code == 200
     download_scores_and_counts_csv = download_scores_and_counts_csv_response.text
@@ -3559,7 +3747,7 @@ def test_download_scores_counts_and_post_mapped_variants_file(
         worker_queue.assert_called_once()
 
     download_multiple_data_csv_response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&namespaces=counts&include_custom_columns=true&include_post_mapped_hgvs=true&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&namespaces=counts&namespaces=mavedb&include_custom_columns=true&drop_unused_hgvs_columns=true"
     )
     assert download_multiple_data_csv_response.status_code == 200
     download_multiple_data_csv = download_multiple_data_csv_response.text
@@ -3573,7 +3761,7 @@ def test_download_scores_counts_and_post_mapped_variants_file(
             "mavedb.post_mapped_hgvs_g",
             "mavedb.post_mapped_hgvs_p",
             "mavedb.post_mapped_hgvs_at_assay_level",
-            "mavedb.post_mapped_vrs_digest",
+            "mavedb.post_mapped_vrs_id",
             "scores.score",
             "scores.s_0",
             "scores.s_1",
@@ -3598,7 +3786,7 @@ def test_download_vep_file_in_variant_data_path(session, data_provider, client, 
         worker_queue.assert_called_once()
 
     response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=vep&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=vep&drop_unused_hgvs_columns=true"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -3627,7 +3815,7 @@ def test_download_clingen_file_in_variant_data_path(session, data_provider, clie
         worker_queue.assert_called_once()
 
     response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=clingen&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=clingen&drop_unused_hgvs_columns=true"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -3649,11 +3837,37 @@ def test_download_gnomad_file_in_variant_data_path(session, data_provider, clien
         worker_queue.assert_called_once()
 
     response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=gnomad&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=gnomad&drop_unused_hgvs_columns=true"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
     assert "gnomad.gnomad_af" in reader.fieldnames
+
+
+def test_download_gnomad_file_keeps_variants_linked_to_other_gnomad_versions(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """A variant linked only to a gnomAD record of another version must still appear, with an NA frequency.
+
+    The version filter belongs in the join's ON clause; in a WHERE it silently drops the variant row.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    # The seeded gnomAD variant's version deliberately differs from the configured export version.
+    link_gnomad_variants_to_mapped_variants(session, score_set)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=gnomad")
+    assert response.status_code == 200
+
+    rows = list(csv.DictReader(StringIO(response.text)))
+    assert len(rows) == 3, "every variant must be present regardless of linked gnomAD versions"
+    assert all(row["gnomad.gnomad_af"] == "NA" for row in rows)
 
 
 def test_download_clingen_and_vep_file_in_variant_data_path(
@@ -3677,7 +3891,7 @@ def test_download_clingen_and_vep_file_in_variant_data_path(
         worker_queue.assert_called_once()
 
     response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=clingen&namespaces=vep&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=clingen&namespaces=vep&drop_unused_hgvs_columns=true"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -3709,7 +3923,7 @@ def test_download_clingen_and_scores_file_in_variant_data_path(
         worker_queue.assert_called_once()
 
     response = client.get(
-        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&namespaces=clingen&drop_na_columns=true"
+        f"/api/v1/score-sets/{published_score_set['urn']}/variants/data?namespaces=scores&namespaces=clingen&drop_unused_hgvs_columns=true"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -3745,7 +3959,7 @@ def test_download_clinvar_namespace_in_variant_data_path(session, data_provider,
 
     response = client.get(
         f"/api/v1/score-sets/{published_score_set['urn']}/variants/data"
-        f"?namespaces={clinvar_namespace}&drop_na_columns=false"
+        f"?namespaces={clinvar_namespace}&drop_unused_hgvs_columns=false"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -3779,7 +3993,7 @@ def test_download_clinvar_namespace_with_no_matching_version(
 
     response = client.get(
         f"/api/v1/score-sets/{published_score_set['urn']}/variants/data"
-        f"?namespaces={clinvar_namespace}&drop_na_columns=false"
+        f"?namespaces={clinvar_namespace}&drop_unused_hgvs_columns=false"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -3809,7 +4023,7 @@ def test_download_multiple_clinvar_namespaces_in_variant_data_path(
 
     response = client.get(
         f"/api/v1/score-sets/{published_score_set['urn']}/variants/data"
-        f"?namespaces={matching_ns}&namespaces={non_matching_ns}&drop_na_columns=false"
+        f"?namespaces={matching_ns}&namespaces={non_matching_ns}&drop_unused_hgvs_columns=false"
     )
     assert response.status_code == 200
     reader = csv.DictReader(StringIO(response.text))
@@ -4021,7 +4235,7 @@ def test_cannot_get_annotated_variants_for_score_set_with_no_mapped_variants(
     publish_score_set = publish_score_set_response.json()
 
     download_scores_csv_response = client.get(
-        f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_na_columns=true"
+        f"/api/v1/score-sets/{publish_score_set['urn']}/scores?drop_unused_hgvs_columns=true"
     )
     assert download_scores_csv_response.status_code == 200
     download_scores_csv = download_scores_csv_response.text
@@ -4462,6 +4676,164 @@ def test_annotated_functional_study_result_exists_for_score_set_when_some_varian
             assert annotated_variant.get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
 
 
+def test_annotation_stream_reports_a_failing_variant_instead_of_truncating(
+    client, session, data_provider, data_files, setup_router_db
+):
+    """One variant that cannot be annotated must not cost the consumer the rest of the download."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    failing_annotation = create_failing_side_effect(
+        # Representative of lib/annotation/util.py, which raises this on an unrecognized VRS Allele state.
+        ValueError("Unsupported VRS state type"),
+        variant_study_result,
+        fail_on_call=2,
+    )
+
+    with patch("mavedb.routers.score_sets.variant_study_result", failing_annotation):
+        response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
+
+    assert response.status_code == 200
+
+    response_data = parse_ndjson_response(response)
+    assert len(response_data) == score_set["numVariants"]
+
+    errored = [record for record in response_data if "error" in record]
+    assert len(errored) == 1
+    assert errored[0]["annotation"] is None
+    assert errored[0]["error"] == {"type": "ValueError", "detail": "Unsupported VRS state type"}
+
+    for record in response_data:
+        if "error" not in record:
+            assert record["annotation"].get("type") == "ExperimentalVariantFunctionalImpactStudyResult"
+
+
+def test_annotation_stream_emits_one_record_per_variant_despite_a_failure(
+    client, session, data_provider, data_files, setup_router_db
+):
+    """Every line is a variant record, so a body shorter than X-Total-Count is a truncated one."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    unmapped_variant = clear_first_mapped_variant_post_mapped(session, score_set["urn"])
+    assert unmapped_variant is not None
+
+    failing_annotation = create_failing_side_effect(
+        ValueError("Unsupported VRS state type"), variant_study_result, fail_on_call=2
+    )
+
+    with patch("mavedb.routers.score_sets.variant_study_result", failing_annotation):
+        response = client.get(f"/api/v1/score-sets/{score_set['urn']}/annotated-variants/study-result")
+
+    total_count = int(response.headers["X-Total-Count"])
+    assert total_count == score_set["numVariants"]
+
+    response_data = parse_ndjson_response(response)
+    assert len(response_data) == total_count
+    assert all("variant_urn" in record for record in response_data)
+
+    # A variant with no mapping data is an expected absence, distinguishable from the failure.
+    errored = [record for record in response_data if "error" in record]
+    unannotated = [record for record in response_data if record["annotation"] is None and "error" not in record]
+    assert len(errored) == 1
+    assert len(unannotated) == 1
+    assert unannotated[0]["variant_urn"] == unmapped_variant.urn
+
+
+########################################################################################################################
+# Building individual annotation stream records
+#
+# Driven directly rather than over HTTP: these branches are about how a failure is classified, and
+# reaching any one of them through the endpoint costs the whole app and a database.
+########################################################################################################################
+
+
+class _StubAnnotation:
+    def model_dump(self, **kwargs):
+        return {"type": "Stub"}
+
+
+class _UndumpableAnnotation:
+    def model_dump(self, **kwargs):
+        raise ValueError("Extension.value is required")
+
+
+def _annotation_raising(exception):
+    """An annotation function that fails."""
+
+    def annotate(_mapped_variant):
+        raise exception
+
+    return annotate
+
+
+@pytest.fixture
+def mock_mapped_variant_for_stream():
+    return create_mock_mapped_variant(clingen_allele_id="CA123456")
+
+
+def test_annotation_stream_record_serializes_a_successful_annotation(mock_mapped_variant_for_stream):
+    record, outcome = _annotation_stream_record(mock_mapped_variant_for_stream, lambda mv: _StubAnnotation())
+
+    assert outcome == "annotated"
+    assert record == {"variant_urn": mock_mapped_variant_for_stream.variant.urn, "annotation": {"type": "Stub"}}
+
+
+def test_annotation_stream_record_treats_a_null_annotation_as_unannotated(mock_mapped_variant_for_stream):
+    """A variant the annotation layer declines to annotate is an expected outcome, not a failure."""
+    record, outcome = _annotation_stream_record(mock_mapped_variant_for_stream, lambda mv: None)
+
+    assert outcome == "unannotated"
+    assert record == {"variant_urn": mock_mapped_variant_for_stream.variant.urn, "annotation": None}
+
+
+def test_annotation_stream_record_treats_missing_mapping_data_as_unannotated(mock_mapped_variant_for_stream):
+    # Preserved deliberately: a missing mapping is an expected absence, and reporting it as an error would
+    # tell consumers a variant failed when nothing went wrong.
+    record, outcome = _annotation_stream_record(
+        mock_mapped_variant_for_stream, _annotation_raising(MappingDataDoesntExistException("no post-mapped allele"))
+    )
+
+    assert outcome == "unannotated"
+    assert "error" not in record
+    assert record["annotation"] is None
+
+
+@pytest.mark.parametrize(
+    "exception",
+    [
+        # lib/annotation/study_result.py, on absent or malformed score data.
+        KeyError("score"),
+        TypeError("'NoneType' object is not subscriptable"),
+        # lib/annotation/util.py, on an unrecognized VRS Allele state type.
+        ValueError("Unsupported VRS state type"),
+        IndexError("list index out of range"),
+    ],
+)
+def test_annotation_stream_record_reports_any_other_failure_as_an_error(mock_mapped_variant_for_stream, exception):
+    record, outcome = _annotation_stream_record(mock_mapped_variant_for_stream, _annotation_raising(exception))
+
+    assert outcome == "errored"
+    assert record["variant_urn"] == mock_mapped_variant_for_stream.variant.urn
+    assert record["annotation"] is None
+    assert record["error"] == {"type": type(exception).__name__, "detail": str(exception)}
+
+
+def test_annotation_stream_record_reports_a_serialization_failure_as_an_error(mock_mapped_variant_for_stream):
+    """An emitted object that no longer dumps is the shape-dependent failure this stream must survive.
+
+    Commit 5c155f4d fixed exactly this: a required field combined with `exclude_none` produced an object
+    that built successfully and then failed on the way out.
+    """
+    record, outcome = _annotation_stream_record(mock_mapped_variant_for_stream, lambda mv: _UndumpableAnnotation())
+
+    assert outcome == "errored"
+    assert record["error"] == {"type": "ValueError", "detail": "Extension.value is required"}
+
+
 ########################################################################################################################
 # Fetching gnomad variants for a score set
 ########################################################################################################################
@@ -4559,3 +4931,67 @@ def test_cannot_fetch_gnomad_variants_for_score_set_when_none_exist(
         f"No gnomad variants matching the provided filters associated with score set URN {score_set['urn']} were found"
         in response_data["detail"]
     )
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_publish_withholds_a_community_private_calibration_from_the_score_set_owner(
+    session, data_provider, client, setup_router_db, data_files, mock_publication_fetch
+):
+    """Owning a score set does not entitle its owner to every calibration attached to it.
+
+    A community calibration -- one contributed by someone who is not a contributor to the score set -- is
+    readable only by its own creator while private. The owner-facing mutation endpoints returned the score
+    set wholesale, so publishing handed the owner a calibration they cannot fetch directly.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    calibration_item = session.query(ScoreCalibrationDbModel).filter_by(urn=calibration["urn"]).one()
+    calibration_item.investigator_provided = False
+    session.commit()
+    change_ownership(session, calibration["urn"], ScoreCalibrationDbModel)
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    assert (published.get("scoreCalibrations") or []) == []
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_publish_returns_the_owners_own_private_calibration(
+    session, data_provider, client, setup_router_db, data_files, mock_publication_fetch
+):
+    """The filter withholds only what a calibration's own READ rule withholds."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    assert [c["urn"] for c in (published.get("scoreCalibrations") or [])] == [calibration["urn"]]

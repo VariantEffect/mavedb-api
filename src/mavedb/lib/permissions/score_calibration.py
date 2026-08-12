@@ -1,9 +1,11 @@
+from dataclasses import dataclass
 from typing import Optional
 
 from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.models import PermissionResponse
 from mavedb.lib.permissions.utils import deny_action_for_entity, roles_permitted
+from mavedb.lib.permissions.viewer import Viewer
 from mavedb.lib.types.authentication import UserData
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.score_calibration import ScoreCalibration
@@ -76,6 +78,20 @@ def has_permission(user_data: Optional[UserData], entity: ScoreCalibration, acti
         entity.private,
         active_roles,
     )
+
+
+@dataclass(frozen=True)
+class ScoreCalibrationViewer(Viewer[ScoreCalibration]):
+    """The audience a calibration-bearing export is being built for.
+
+    Needed wherever a read fans out to calibrations, because a calibration's READ rule is stricter than its
+    score set's: publishing a score set does not publish its calibrations, and reading one does not entitle
+    a caller to read its private calibrations.
+    """
+
+    @staticmethod
+    def _has_permission(user_data: Optional[UserData], entity: ScoreCalibration, action: Action) -> PermissionResponse:
+        return has_permission(user_data, entity, action)
 
 
 def _handle_read_action(

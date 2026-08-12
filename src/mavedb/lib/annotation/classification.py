@@ -21,13 +21,35 @@ class ExperimentalVariantFunctionalImpactClassification(StrEnum):
     INDETERMINATE = "indeterminate"
 
 
+def _classification_contains_variant(
+    functional_classification: ScoreCalibrationFunctionalClassification,
+    mapped_variant: MappedVariant,
+    containing_classification_ids: Optional[set[int]],
+) -> bool:
+    """Whether this classification's score range contains the variant.
+
+    Prefers a pre-resolved id set, which is an O(1) check. Falls back to the ORM relationship, which is
+    correct but loads every variant of the range.
+    """
+    if containing_classification_ids is not None:
+        return functional_classification.id in containing_classification_ids
+    return mapped_variant.variant in functional_classification.variants
+
+
 def functional_classification_of_variant(
-    mapped_variant: MappedVariant, score_calibration: ScoreCalibration
+    mapped_variant: MappedVariant,
+    score_calibration: ScoreCalibration,
+    containing_classification_ids: Optional[set[int]] = None,
 ) -> tuple[Optional[ScoreCalibrationFunctionalClassification], ExperimentalVariantFunctionalImpactClassification]:
     """Classify a variant's functional impact as normal, abnormal, or indeterminate.
 
     Uses the primary score calibration and its functional ranges.
     Raises ValueError if required calibration or score is missing.
+
+    *containing_classification_ids*, when given, is the set of functional-classification ids already known
+    to contain this variant. Pass it to avoid the ORM membership check below, which loads every variant of
+    every range. A caller classifying many variants should resolve membership once from the association
+    table; see ``mavedb.lib.csv.variant``.
     """
     if not mapped_variant.variant.score_set.score_calibrations:
         raise ValueError(
@@ -41,11 +63,8 @@ def functional_classification_of_variant(
             " Unable to classify functional impact."
         )
 
-    # TODO#XXX: Performance: avoid ORM relationship membership checks (`variant in functional_range.variants`) in this
-    #           DB-agnostic function. Resolve class-based matches in an upstream DB-aware layer using the association table,
-    #           pass matched functional classification IDs into this function, and use O(1) ID membership checks here.
     for functional_range in score_calibration.functional_classifications:
-        if mapped_variant.variant in functional_range.variants:
+        if _classification_contains_variant(functional_range, mapped_variant, containing_classification_ids):
             if functional_range.functional_classification is FunctionalClassificationOptions.normal:
                 return functional_range, ExperimentalVariantFunctionalImpactClassification.NORMAL
             elif functional_range.functional_classification is FunctionalClassificationOptions.abnormal:
@@ -58,6 +77,7 @@ def functional_classification_of_variant(
 def pathogenicity_classification_of_variant(
     mapped_variant: MappedVariant,
     score_calibration: ScoreCalibration,
+    containing_classification_ids: Optional[set[int]] = None,
 ) -> tuple[
     Optional[ScoreCalibrationFunctionalClassification],
     VariantPathogenicityEvidenceLine.Criterion,
@@ -87,11 +107,8 @@ def pathogenicity_classification_of_variant(
             " Unable to classify clinical impact."
         )
 
-    # TODO#XXX: Performance: avoid ORM relationship membership checks (`variant in pathogenicity_range.variants`) in this
-    #           DB-agnostic function. Resolve class-based matches in an upstream DB-aware layer using the association table,
-    #           pass matched functional classification IDs into this function, and use O(1) ID membership checks here.
     for pathogenicity_range in score_calibration.functional_classifications:
-        if mapped_variant.variant in pathogenicity_range.variants:
+        if _classification_contains_variant(pathogenicity_range, mapped_variant, containing_classification_ids):
             if pathogenicity_range.acmg_classification is None:
                 return (pathogenicity_range, VariantPathogenicityEvidenceLine.Criterion.PS3, None)
 

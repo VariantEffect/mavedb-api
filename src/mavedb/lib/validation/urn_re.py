@@ -32,6 +32,10 @@ MAVEDB_VARIANT_URN_RE = re.compile(MAVEDB_VARIANT_URN_PATTERN)
 MAVEDB_COLLECTION_URN_PATTERN = r"urn:mavedb:collection-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 MAVEDB_COLLECTION_URN_RE = re.compile(MAVEDB_COLLECTION_URN_PATTERN)
 
+# Score calibration URN
+MAVEDB_CALIBRATION_URN_PATTERN = r"urn:mavedb:calibration-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+MAVEDB_CALIBRATION_URN_RE = re.compile(MAVEDB_CALIBRATION_URN_PATTERN)
+
 # Any URN
 MAVEDB_ANY_URN_PATTERN = "|".join(
     [

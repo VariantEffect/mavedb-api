@@ -18,7 +18,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from itertools import chain
-from typing import Callable, Iterable, TypeVar
+from typing import Callable, Iterable, Optional, TypeVar
 from zipfile import ZipFile
 
 from fastapi.encoders import jsonable_encoder
@@ -26,7 +26,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, lazyload
 
 from mavedb.lib.annotation.annotate import variant_highest_level_annotation
-from mavedb.lib.score_sets import get_current_mapped_variants_for_annotation, get_score_set_variants_as_csv
+from mavedb.lib.csv.namespaces import CsvNamespace
+from mavedb.lib.csv.score_set import (
+    available_score_set_csv_namespaces,
+    get_score_set_variants_as_csv,
+)
+from mavedb.lib.permissions.principal import Principal
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
+from mavedb.lib.score_sets import get_current_mapped_variants_for_annotation
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.license import License
@@ -43,41 +50,88 @@ S = TypeVar("S")
 T = TypeVar("T")
 
 
-def filter_experiment_sets(experiment_sets: Iterable[ExperimentSet]) -> Iterable[ExperimentSet]:
+def annotation_export_namespaces(db: Session, score_set: ScoreSet) -> list[str]:
+    """The namespaces the public annotations CSV should carry for this score set.
+
+    Asks discovery what the score set actually has rather than naming groups by hand. The previous
+    hand-maintained list enumerated ClinVar releases one by one, so it emitted all-NA columns for releases
+    never ingested, needed a code change for every new release, and was fragile to schema changes.
+
+    The archive carries everything MaveDB holds about the score set, so this takes what discovery found
+    and subtracts from it rather than opting groups in.
+
+    In particular it does not filter on `selected_by_default`. That flag answers "what should a download
+    dialog open on", which is a question about attention rather than about what exists, and the reasons a
+    group opens unchecked are not interchangeable. An archive is about completeness, not about what a user
+    should be nudged to look at first.
+
+    Subtractions:
+
+    - Every score and count group, and the score set's own identity: scores and counts get their own
+      files, and the URN is in the filename, so repeating either would be noise.
     """
-    Filter a list of experiment sets. Exclude any experiments with no score sets, then exclude experiment sets with no
-    experiments.
-
-    Filtering is done on the basis of the current contents of Experiment.score_set, which will have been loaded using a
-    query that excludes unpublished score sets and those licensed other than under CC0.
-    """
-    return filter(filter_experiment_set, experiment_sets)
-
-
-def filter_experiment_set(experiment_set: ExperimentSet):
-    """
-    Filter an experiment set. Exclude any experiments it contains that do not contain score sets, and return a value
-    indicating whether any experiments remain.
-
-    Filtering is done on the basis of the current contents of Experiment.score_set, which will have been loaded using a
-    query that excludes unpublished score sets and those licensed other than under CC0.
-    """
-    experiment_set.experiments = list(filter_experiments(experiment_set.experiments))
-    return len(experiment_set.experiments) > 0
-
-
-def filter_experiments(experiments: Iterable[Experiment]) -> Iterable[Experiment]:
-    """
-    Filter a list of experiments, excluding any whose score_sets collection is empty.
-
-    Filtering is done on the basis of the current contents of score_sets, which will have been loaded using a query that
-    excludes unpublished score sets and those licensed other than under CC0.
-    """
-    return filter(lambda e: len(e.score_sets) > 0, experiments)
+    excluded = {
+        CsvNamespace.SCORES,
+        CsvNamespace.SCORES_CUSTOM,
+        CsvNamespace.COUNTS,
+        CsvNamespace.SCORE_SET,
+    }
+    return [
+        entry.namespace
+        for entry in available_score_set_csv_namespaces(db, score_set)
+        if entry.namespace not in excluded
+    ]
 
 
 def flatmap(f: Callable[[S], Iterable[T]], items: Iterable[S]) -> Iterable[T]:
     return chain.from_iterable(map(f, items))
+
+
+def public_experiment_set(
+    experiment_set_view: ExperimentSetPublicDump, visible_calibration_ids: set[int]
+) -> Optional[ExperimentSetPublicDump]:
+    """
+    Narrow a validated experiment set to what belongs in the public dump.
+
+    Drops calibrations an anonymous caller may not read, then experiments left with no score sets, and
+    returns None for an experiment set left with no experiments. The score sets themselves need no filter:
+    the loading query already restricts them to published, CC0-licensed ones.
+
+    Narrowing the validated view rather than the ORM graph is deliberate. ``ExperimentSet.experiments`` and
+    ``ScoreSet.score_calibrations`` are both mapped with ``cascade="all, delete-orphan"``, so removing a
+    member from either ORM collection marks the removed row as an orphan and the next flush deletes it.
+    This script can flush: ``with_database_session`` commits when invoked with ``--commit``.
+
+    Args:
+        experiment_set_view (ExperimentSetPublicDump): The validated experiment set to narrow.
+        visible_calibration_ids (set[int]): Ids of the calibrations an anonymous caller may read.
+
+    Returns:
+        Optional[ExperimentSetPublicDump]: The narrowed experiment set, or None if nothing public remains.
+    """
+    experiments = []
+    for experiment_view in experiment_set_view.experiments:
+        if not experiment_view.score_sets:
+            continue
+
+        score_sets = [
+            score_set_view.model_copy(
+                update={
+                    "score_calibrations": [
+                        calibration
+                        for calibration in (score_set_view.score_calibrations or [])
+                        if calibration.id in visible_calibration_ids
+                    ]
+                }
+            )
+            for score_set_view in experiment_view.score_sets
+        ]
+        experiments.append(experiment_view.model_copy(update={"score_sets": score_sets}))
+
+    if not experiments:
+        return None
+
+    return experiment_set_view.model_copy(update={"experiments": experiments})
 
 
 @script_environment.command()
@@ -99,26 +153,51 @@ def export_public_data(db: Session):
         .order_by(ExperimentSet.urn)
     )
 
-    # Filter the stream of experiment sets to exclude experiments and experiment sets with no public, CC0-licensed score
-    # sets.
-    experiment_sets = list(filter_experiment_sets(experiment_sets_query.all()))
-    logger.info(f"Found {len(experiment_sets)} published experiment sets with CC0-licensed score sets.")
+    experiment_sets = experiment_sets_query.all()
+
+    # The dump is built for an anonymous principal. Publishing a score set does not publish its
+    # calibrations: a calibration keeps its own `private` flag and a stricter READ rule, so every artifact
+    # below is scoped to what this viewer may read.
+    public_principal = Principal()
+    public_viewer = public_principal.viewer_for(ScoreCalibrationViewer)
+    all_calibrations = [
+        calibration
+        for score_set_orm in flatmap(lambda es: flatmap(lambda e: e.score_sets, es.experiments), experiment_sets)
+        for calibration in (score_set_orm.score_calibrations or [])
+    ]
+
+    # TODO(#372): Nullable ids.
+    visible_calibration_ids: set[int] = {calibration.id for calibration in public_viewer.visible(all_calibrations)}  # type: ignore
+    if len(all_calibrations) > len(visible_calibration_ids):
+        logger.info(
+            f"Withholding {len(all_calibrations) - len(visible_calibration_ids)} non-public score "
+            "calibration(s) from the dump."
+        )
 
     # TODO To support very large data sets, we may want to use custom code for JSON-encoding an iterator.
     # Issue: https://github.com/VariantEffect/mavedb-api/issues/192
     # See, for instance, https://stackoverflow.com/questions/12670395/json-encoding-very-long-iterators.
 
-    experiment_set_views = list(map(lambda es: ExperimentSetPublicDump.model_validate(es), experiment_sets))
+    experiment_set_views = [
+        narrowed
+        for narrowed in (
+            public_experiment_set(ExperimentSetPublicDump.model_validate(es), visible_calibration_ids)
+            for es in experiment_sets
+        )
+        if narrowed is not None
+    ]
+    logger.info(f"Found {len(experiment_set_views)} published experiment sets with CC0-licensed score sets.")
 
-    # Get a list of IDS of all the score sets included.
-    score_set_ids = list(
-        flatmap(lambda es: flatmap(lambda e: map(lambda ss: ss.id, e.score_sets), es.experiments), experiment_sets)
+    score_set_urns = list(
+        flatmap(
+            lambda es: flatmap(lambda e: map(lambda ss: ss.urn, e.score_sets), es.experiments), experiment_set_views
+        )
     )
 
     timestamp_format = "%Y%m%d%H%M%S"
     zip_file_name = f"mavedb-dump.{datetime.now().strftime(timestamp_format)}.zip"
 
-    logger.info(f"Writing {zip_file_name} with {len(score_set_ids)} score sets.")
+    logger.info(f"Writing {zip_file_name} with {len(score_set_urns)} score sets.")
     json_data = {
         "title": "MaveDB public data",
         "asOf": datetime.now(timezone.utc).isoformat(),
@@ -135,12 +214,12 @@ def export_public_data(db: Session):
         zipfile.write(os.path.join(resources_dir, "README.md"), "README.md")
 
         # Write score and count files for each score set.
-        num_score_sets = len(score_set_ids)
-        for i, score_set_id in enumerate(score_set_ids):
-            score_set = db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one_or_none()
-            if score_set is not None and score_set.urn is not None:
-                logger.info(f"[{i + 1}/{num_score_sets}] Exporting score set {score_set.urn}")
-                csv_filename_base = score_set.urn.replace(":", "-")
+        num_score_sets = len(score_set_urns)
+        for i, score_set_urn in enumerate(score_set_urns):
+            score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one_or_none()
+            if score_set is not None:
+                logger.info(f"[{i + 1}/{num_score_sets}] Exporting score set {score_set_urn}")
+                csv_filename_base = score_set_urn.replace(":", "-")
 
                 csv_str = get_score_set_variants_as_csv(db, score_set, ["scores"], namespaced=True)
                 zipfile.writestr(f"csv/{csv_filename_base}.scores.csv", csv_str)
@@ -151,7 +230,7 @@ def export_public_data(db: Session):
                 has_annotations = (
                     db.scalars(
                         select(ScoreSet)
-                        .where(ScoreSet.id == score_set_id)
+                        .where(ScoreSet.id == score_set.id)
                         .join(Variant)
                         .join(MappedVariant)
                         .where(MappedVariant.current.is_(True))
@@ -163,24 +242,7 @@ def export_public_data(db: Session):
                     csv_str = get_score_set_variants_as_csv(
                         db,
                         score_set,
-                        [
-                            "vep",
-                            "gnomad",
-                            "clingen",
-                            "clinvar.2015_02",
-                            "clinvar.2016_01",
-                            "clinvar.2017_01",
-                            "clinvar.2018_01",
-                            "clinvar.2019_01",
-                            "clinvar.2020_01",
-                            "clinvar.2021_01",
-                            "clinvar.2022_01",
-                            "clinvar.2023_01",
-                            "clinvar.2024_01",
-                            "clinvar.2025_01",
-                            "clinvar.2026_01",
-                        ],
-                        include_post_mapped_hgvs=True,
+                        annotation_export_namespaces(db, score_set),
                         namespaced=True,
                     )
                     zipfile.writestr(f"csv/{csv_filename_base}.annotations.csv", csv_str)
@@ -190,7 +252,7 @@ def export_public_data(db: Session):
                         select(MappedVariant)
                         .join(Variant, Variant.id == MappedVariant.variant_id)
                         .options(joinedload(MappedVariant.variant))
-                        .where(Variant.score_set_id == score_set_id)
+                        .where(Variant.score_set_id == score_set.id)
                         .where(MappedVariant.current.is_(True))
                     ).all()
                     mapped_variant_views = [
@@ -211,7 +273,7 @@ def export_public_data(db: Session):
                     va_lines = []
                     num_annotations = 0
                     for mv in annotated_variants:
-                        annotation = variant_highest_level_annotation(mv)
+                        annotation = variant_highest_level_annotation(mv, principal=public_principal)
                         if annotation is not None:
                             num_annotations += 1
                         record = {

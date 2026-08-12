@@ -3,7 +3,8 @@ import json
 import logging
 import time
 from datetime import date, datetime
-from typing import Any, List, Optional, Sequence, TypedDict, Union
+from functools import partial
+from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
 
 import numpy as np
 import pandas as pd
@@ -17,7 +18,7 @@ from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from pydantic import ValidationError
 from sqlalchemy import or_, select
-from sqlalchemy.exc import MultipleResultsFound, IntegrityError
+from sqlalchemy.exc import IntegrityError, MultipleResultsFound
 from sqlalchemy.orm import Session, contains_eager
 
 from mavedb import deps
@@ -27,13 +28,23 @@ from mavedb.lib.annotation.annotate import (
     variant_pathogenicity_statement,
     variant_study_result,
 )
-from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
+from mavedb.lib.annotation.exceptions import EXPECTED_ABSENCE_EXCEPTIONS
 from mavedb.lib.authorization import (
     get_current_user,
+    get_principal,
     require_current_user,
     require_current_user_with_email,
 )
 from mavedb.lib.contributors import find_or_create_contributor
+from mavedb.lib.csv.columns import variants_to_csv_rows
+from mavedb.lib.csv.deprecated_params import (
+    DROP_NA_COLUMNS_DESCRIPTION,
+    INCLUDE_CUSTOM_COLUMNS_DESCRIPTION,
+    INCLUDE_POST_MAPPED_HGVS_DESCRIPTION,
+    resolve_deprecated_csv_params,
+)
+from mavedb.lib.csv.namespaces import CSV_NAMESPACES_PARAM_DESCRIPTION, CsvNamespaceStr
+from mavedb.lib.csv.score_set import available_score_set_csv_namespaces, get_score_set_variants_as_csv
 from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.identifiers import (
@@ -48,17 +59,16 @@ from mavedb.lib.logging.context import (
     save_to_logging_context,
 )
 from mavedb.lib.permissions import Action, assert_permission, has_permission
+from mavedb.lib.permissions.principal import Principal
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.score_calibrations import create_score_calibration
 from mavedb.lib.score_sets import (
-    CLINVAR_NS_PATTERN,
     csv_data_to_df,
     fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
     get_current_mapped_variants_for_annotation,
-    get_score_set_variants_as_csv,
     is_replaces_id_unique_violation,
     refresh_variant_urns,
-    variants_to_csv_rows,
 )
 from mavedb.lib.score_sets import (
     search_score_sets as _search_score_sets,
@@ -97,6 +107,7 @@ from mavedb.routers.shared import (
 )
 from mavedb.view_models import clinical_control, gnomad_variant, mapped_variant, score_set
 from mavedb.view_models.contributor import ContributorCreate
+from mavedb.view_models.csv_namespace import AvailableCsvNamespace
 from mavedb.view_models.doi_identifier import DoiIdentifierCreate
 from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
 from mavedb.view_models.score_set_dataset_columns import DatasetColumnMetadata
@@ -579,7 +590,7 @@ async def fetch_score_set_by_urn(
     try:
         query = db.query(ScoreSet).filter(ScoreSet.urn == urn)
         if owner_or_contributor is not None:
-            query.filter(
+            query = query.filter(
                 or_(
                     ScoreSet.private.is_(False),
                     ScoreSet.created_by_id == owner_or_contributor.user.id,
@@ -587,7 +598,7 @@ async def fetch_score_set_by_urn(
                 )
             )
         if only_published:
-            query.filter(ScoreSet.private.is_(False))
+            query = query.filter(ScoreSet.private.is_(False))
         item = query.one_or_none()
     except MultipleResultsFound:
         logger.info(
@@ -601,12 +612,62 @@ async def fetch_score_set_by_urn(
 
     assert_permission(user, item, Action.READ)
 
-    if item.superseding_score_set and not has_permission(user, item.superseding_score_set, Action.READ).permitted:
-        item.superseding_score_set = None
-
-    item.score_calibrations = [sc for sc in item.score_calibrations if has_permission(user, sc, Action.READ).permitted]
-
+    # Narrowing what the score set carries belongs to _score_set_response, so that this function's other
+    # callers -- supersession lookup, publication -- receive the score set as it actually is.
     return item
+
+
+def _score_set_response(item: ScoreSet, principal: Principal) -> score_set.ScoreSet:
+    """
+    Serialize a score set for a response, withholding the sub-resources this caller may not read.
+
+    Every route in this module that returns a ``ScoreSet`` view model builds it here. The two sub-resources
+    a score set carries have READ rules stricter than its own, and each was leaked from a different route
+    before this was centralized:
+
+      - Calibrations. Publishing a score set does not publish its calibrations, and owning a score set does
+        not entitle its owner to a community calibration someone else attached to it.
+      - The superseding score set, which is usually still private while the score set it replaces is public.
+
+    The search routes are the deliberate exception: they answer with ``ShortScoreSet``, which carries neither
+    sub-resource, so there is nothing for this function to narrow. Any route that widens its response model
+    to ``ScoreSet`` must come through here.
+
+    Local to this module by design. A shared response constructor was considered and deferred: the same ORM
+    graph is also serialized as CSV, VA-Spec NDJSON and ScoreSetPublicDump, none of which such a constructor
+    would cover, so the durable guarantee belongs at the session rather than the response layer.
+
+    Narrowing is applied to the validated view. ``ScoreSet.score_calibrations`` is mapped with
+    ``cascade="all, delete-orphan"``, and assigning ``superseding_score_set = None`` nulls the other score
+    set's ``replaces_id``; narrowing the ORM objects instead stages both as writes.
+
+    Args:
+        item (ScoreSet): The score set to serialize. Asserting READ on the score set itself belongs to the
+            caller.
+        principal (Principal): The caller being served.
+
+    Returns:
+        score_set.ScoreSet: The score set view model, carrying only what this caller may read.
+    """
+    visible_calibration_ids = {
+        calibration.id for calibration in principal.viewer_for(ScoreCalibrationViewer).visible(item.score_calibrations)
+    }
+    superseding_is_visible = item.superseding_score_set is not None and (
+        has_permission(principal.user_data, item.superseding_score_set, Action.READ).permitted
+    )
+
+    validated_item = score_set.ScoreSet.model_validate(item)
+    return validated_item.model_copy(
+        update={
+            "experiment": enrich_experiment_with_num_score_sets(item.experiment, principal.user_data),
+            "score_calibrations": [
+                calibration
+                for calibration in (validated_item.score_calibrations or [])
+                if calibration.id in visible_calibration_ids
+            ],
+            "superseding_score_set": validated_item.superseding_score_set if superseding_is_visible else None,
+        }
+    )
 
 
 router = APIRouter(
@@ -781,6 +842,7 @@ def list_recently_published_score_sets(
     ),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Return the most recently published score sets, ordered by publication date descending.
@@ -795,19 +857,9 @@ def list_recently_published_score_sets(
         .all()
     )
 
-    result = []
-    for item in items:
-        if not has_permission(user_data, item, Action.READ).permitted:
-            continue
-        if (
-            item.superseding_score_set
-            and not has_permission(user_data, item.superseding_score_set, Action.READ).permitted
-        ):
-            item.superseding_score_set = None
-        enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-        result.append(score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment}))
-
-    return result
+    return [
+        _score_set_response(item, principal) for item in items if has_permission(user_data, item, Action.READ).permitted
+    ]
 
 
 @router.get(
@@ -823,6 +875,7 @@ async def show_score_sets(
     urns: str = Query(..., description="Comma-separated list of score set URNs"),
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Fetch score sets identified by a list of URNs.
@@ -835,9 +888,7 @@ async def show_score_sets(
     response_items: list[score_set.ScoreSet] = []
     for urn in urn_list:
         item = await fetch_score_set_by_urn(db, urn, user_data, None, False)
-        enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-        response_item = score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
-        response_items.append(response_item)
+        response_items.append(_score_set_response(item, principal))
 
     return response_items
 
@@ -855,14 +906,66 @@ async def show_score_set(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Fetch a single score set by URN.
     """
     save_to_logging_context({"requested_resource": urn})
     item = await fetch_score_set_by_urn(db, urn, user_data, None, False)
-    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
+    return _score_set_response(item, principal)
+
+
+@router.get(
+    "/score-sets/{urn}/csv-namespaces",
+    status_code=200,
+    response_model=list[AvailableCsvNamespace],
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="List the CSV column namespaces this score set has data for",
+)
+def get_score_set_csv_namespaces(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
+) -> Any:
+    """
+    List the CSV column namespaces this score set has data for, labeled and grouped for a picker.
+
+    Each entry's `namespace` is a value accepted by the `namespaces` parameter of the CSV endpoints.
+    Deliberately a separate request rather than a field on the score set: it costs several queries and is
+    only needed when a user opens a download dialog, so it should not sit on the score-set page's
+    critical path.
+
+    Parameters
+    __________
+    urn : str
+        The URN of the score set to inspect.
+    db : Session
+        The database session to use.
+    user_data : Optional[UserData]
+        The user data of the current user. If None, no user-specific permissions are checked.
+
+    Returns
+    _______
+    list[AvailableCsvNamespace]
+        The namespaces with data, each with a human-readable label and group.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "csv-namespaces"})
+
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
+    if not score_set:
+        logger.info(msg="Could not fetch CSV namespaces; No such score set exists.", extra=logging_context())
+        raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
+    assert_permission(user_data, score_set, Action.READ)
+
+    return available_score_set_csv_namespaces(
+        db,
+        score_set,
+        viewer=principal.viewer_for(ScoreCalibrationViewer),
+    )
 
 
 @router.get(
@@ -884,19 +987,21 @@ def get_score_set_variants_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Maximum number of variants to return"),
-    namespaces: List[str] = Query(
+    namespaces: List[CsvNamespaceStr] = Query(
         default=["scores"],
-        description=(
-            'One or more data types to include: "scores", "counts", "vep", "gnomad", "clingen", '
-            'and/or ClinVar-versioned namespaces of the form "clinvar.YEAR_MONTH" '
-            '(e.g. "clinvar.2024_01" for January 2024).'
-        ),
+        description=CSV_NAMESPACES_PARAM_DESCRIPTION,
     ),
-    drop_na_columns: Optional[bool] = None,
-    include_custom_columns: Optional[bool] = None,
-    include_post_mapped_hgvs: Optional[bool] = None,
+    drop_unused_hgvs_columns: Optional[bool] = None,
+    drop_na_columns: Optional[bool] = Query(default=None, deprecated=True, description=DROP_NA_COLUMNS_DESCRIPTION),
+    include_post_mapped_hgvs: Optional[bool] = Query(
+        default=None, deprecated=True, description=INCLUDE_POST_MAPPED_HGVS_DESCRIPTION
+    ),
+    include_custom_columns: Optional[bool] = Query(
+        default=None, deprecated=True, description=INCLUDE_CUSTOM_COLUMNS_DESCRIPTION
+    ),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Return tabular variant data from a score set, identified by URN, in CSV format.
@@ -914,11 +1019,19 @@ def get_score_set_variants_csv(
         The maximum number of variants to return. If None, returns all variants.
     namespaces: List[str]
         The namespaces of all columns except for accession, hgvs_nt, hgvs_pro, and hgvs_splice.
-        Supported values: "scores", "counts", "vep", "gnomad", "clingen", and ClinVar-versioned
-        namespaces of the form "clinvar.YEAR_MONTH" (e.g. "clinvar.2024_01" for January 2024).
-        Multiple ClinVar namespaces with different YEAR_MONTH values may be requested simultaneously.
+        Supported values: "scores" (the required score column), "scores_custom" (the investigator's
+        remaining score columns, emitted under the "scores" prefix), "counts", "mavedb", "vep", "gnomad",
+        "clingen", "score_set", and ClinVar- and calibration-parameterized namespaces. Multiple ClinVar
+        and calibration namespaces may be requested simultaneously.
+    drop_unused_hgvs_columns : bool, optional
+        Whether to omit the HGVS coordinate columns this score set does not use, e.g. hgvs_nt for a
+        protein-only score set. Defaults to False.
     drop_na_columns : bool, optional
-        Whether to drop columns that contain only NA values. Defaults to False.
+        Deprecated spelling of drop_unused_hgvs_columns, accepted for one release.
+    include_post_mapped_hgvs : bool, optional
+        Deprecated: equivalent to requesting the "mavedb" namespace. Accepted for one release.
+    include_custom_columns : bool, optional
+        Deprecated: equivalent to requesting the "scores_custom" namespace. Accepted for one release.
     db : Session
         The database session to use.
     user_data : Optional[UserData]
@@ -929,13 +1042,23 @@ def get_score_set_variants_csv(
     str
         The CSV string containing the variant data.
     """
+    deprecated = resolve_deprecated_csv_params(
+        namespaces=namespaces,
+        drop_unused_hgvs_columns=drop_unused_hgvs_columns,
+        drop_na_columns=drop_na_columns,
+        include_post_mapped_hgvs=include_post_mapped_hgvs,
+        include_custom_columns=include_custom_columns,
+    )
+    namespaces = deprecated.namespaces
+    drop_unused_hgvs_columns = deprecated.drop_unused_hgvs_columns
+
     save_to_logging_context(
         {
             "requested_resource": urn,
             "resource_property": "scores",
             "start": start,
             "limit": limit,
-            "drop_na_columns": drop_na_columns,
+            "drop_unused_hgvs_columns": drop_unused_hgvs_columns,
         }
     )
 
@@ -945,21 +1068,6 @@ def get_score_set_variants_csv(
     if limit is not None and limit <= 0:
         logger.info(msg="Could not fetch scores with non-positive limit.", extra=logging_context())
         raise HTTPException(status_code=422, detail="Limit must be positive")
-
-    _VALID_STATIC_NAMESPACES = {"scores", "counts", "vep", "gnomad", "clingen"}
-    invalid_namespaces = [
-        ns for ns in namespaces if ns not in _VALID_STATIC_NAMESPACES and not CLINVAR_NS_PATTERN.match(ns)
-    ]
-    if invalid_namespaces:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Invalid namespace(s): {invalid_namespaces}. "
-                'Each namespace must be one of "scores", "counts", "vep", "gnomad", "clingen", '
-                'or a ClinVar-versioned namespace of the form "clinvar.YEAR_MM" '
-                '(e.g. "clinvar.2024_01" for January 2024).'
-            ),
-        )
 
     score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
     if not score_set:
@@ -975,11 +1083,12 @@ def get_score_set_variants_csv(
         True,
         start,
         limit,
-        drop_na_columns,
-        include_custom_columns,
-        include_post_mapped_hgvs,
+        drop_unused_hgvs_columns,
+        # Asked separately from the score set: a private calibration is readable only by its owner,
+        # investigator contributors, or an admin, whoever can read the score set.
+        viewer=principal.viewer_for(ScoreCalibrationViewer),
     )
-    return StreamingResponse(iter([csv_str]), media_type="text/csv")
+    return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
 
 
 @router.get(
@@ -1001,7 +1110,8 @@ def get_score_set_scores_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Number of variants to return"),
-    drop_na_columns: Optional[bool] = None,
+    drop_unused_hgvs_columns: Optional[bool] = None,
+    drop_na_columns: Optional[bool] = Query(default=None, deprecated=True, description=DROP_NA_COLUMNS_DESCRIPTION),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
@@ -1013,6 +1123,11 @@ def get_score_set_scores_csv(
     /score-sets/{urn}/scores?start=0&limit=100
     /score-sets/{urn}/scores?start=100
     """
+    deprecated = resolve_deprecated_csv_params(
+        drop_unused_hgvs_columns=drop_unused_hgvs_columns, drop_na_columns=drop_na_columns
+    )
+    drop_unused_hgvs_columns = deprecated.drop_unused_hgvs_columns
+
     save_to_logging_context(
         {
             "requested_resource": urn,
@@ -1036,8 +1151,12 @@ def get_score_set_scores_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_variants_as_csv(db, score_set, ["scores"], False, start, limit, drop_na_columns)
-    return StreamingResponse(iter([csv_str]), media_type="text/csv")
+    # Both score namespaces: this endpoint has always returned every score column the investigator
+    # uploaded, and `scores` alone is now just the required one.
+    csv_str = get_score_set_variants_as_csv(
+        db, score_set, ["scores", "scores_custom"], False, start, limit, drop_unused_hgvs_columns
+    )
+    return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
 
 
 @router.get(
@@ -1059,7 +1178,8 @@ async def get_score_set_counts_csv(
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
     limit: int = Query(default=None, description="Number of variants to return"),
-    drop_na_columns: Optional[bool] = None,
+    drop_unused_hgvs_columns: Optional[bool] = None,
+    drop_na_columns: Optional[bool] = Query(default=None, deprecated=True, description=DROP_NA_COLUMNS_DESCRIPTION),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Any:
@@ -1071,6 +1191,11 @@ async def get_score_set_counts_csv(
     /score-sets/{urn}/counts?start=0&limit=100
     /score-sets/{urn}/counts?start=100
     """
+    deprecated = resolve_deprecated_csv_params(
+        drop_unused_hgvs_columns=drop_unused_hgvs_columns, drop_na_columns=drop_na_columns
+    )
+    drop_unused_hgvs_columns = deprecated.drop_unused_hgvs_columns
+
     save_to_logging_context(
         {
             "requested_resource": urn,
@@ -1094,8 +1219,8 @@ async def get_score_set_counts_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_variants_as_csv(db, score_set, ["counts"], False, start, limit, drop_na_columns)
-    return StreamingResponse(iter([csv_str]), media_type="text/csv")
+    csv_str = get_score_set_variants_as_csv(db, score_set, ["counts"], False, start, limit, drop_unused_hgvs_columns)
+    return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
 
 
 @router.get(
@@ -1143,6 +1268,47 @@ def get_score_set_mapped_variants(
     return mapped_variants
 
 
+def _annotation_stream_record(
+    mapped_variant, annotation_function
+) -> tuple[dict, Literal["annotated", "unannotated", "errored"]]:
+    """
+    Build the NDJSON record for one mapped variant, and classify its outcome.
+
+    Returns the record together with one of ``annotated``, ``unannotated``, or ``errored``. Nothing raises:
+    a failure past the first record would end the body mid-stream, and since the 200 and its headers went
+    out with the first chunk the consumer has no way to be told and simply receives a short file. A failed
+    variant is reported in-band instead, as a record carrying an ``error`` object. This includes variants
+    failing serialization.
+
+    A variant with nothing to annotate is *not* an error. It is an expected absence, reported as a null
+    annotation. Which exceptions mean that is defined once, in ``EXPECTED_ABSENCE_EXCEPTIONS``, because
+    the corpus sweep has to draw the same line and the two must not drift apart.
+    """
+    variant_urn = mapped_variant.variant.urn
+
+    try:
+        annotation = annotation_function(mapped_variant)
+        annotation_data = annotation.model_dump(exclude_none=True) if annotation else None
+    except EXPECTED_ABSENCE_EXCEPTIONS:
+        logger.debug(f"Nothing to annotate for variant {variant_urn}.")
+        return {"variant_urn": variant_urn, "annotation": None}, "unannotated"
+    except Exception as err:
+        logger.exception(
+            f"Failed to annotate variant {variant_urn}; streaming it as an error record.",
+            extra=logging_context(),
+        )
+        return {
+            "variant_urn": variant_urn,
+            "annotation": None,
+            "error": {"type": type(err).__name__, "detail": str(err)},
+        }, "errored"
+
+    if annotation_data is None:
+        return {"variant_urn": variant_urn, "annotation": None}, "unannotated"
+
+    return {"variant_urn": variant_urn, "annotation": annotation_data}, "annotated"
+
+
 def _stream_generated_annotations(mapped_variants, annotation_function):
     """
     Generator function to stream annotations as pure NDJSON data.
@@ -1152,26 +1318,23 @@ def _stream_generated_annotations(mapped_variants, annotation_function):
     - X-Processing-Started: ISO timestamp when processing began
     - X-Stream-Type: Type of annotation being streamed
 
+    Emits exactly one record per mapped variant, so a body holding fewer lines than ``X-Total-Count`` is
+    a truncated one. Outcome counts are logged rather than appended to the body, which keeps every line a
+    variant record and keeps this format identical to the public dump's ``va/{urn}.va.ndjson``.
+
     Progress updates are sent as structured log events that can be
     consumed via Server-Sent Events if needed.
     """
     start_time = time.time()
     total_variants = len(mapped_variants)
     processed_count = 0
+    outcome_counts = {"annotated": 0, "unannotated": 0, "errored": 0}
     logger.info(f"Starting streaming processing of {total_variants} mapped variants")
 
-    for i, mv in enumerate(mapped_variants):
-        try:
-            annotation = annotation_function(mv)
-        except MappingDataDoesntExistException:
-            logger.debug(f"Mapping data does not exist for variant {mv.variant.urn}.")
-            annotation = None
+    for mv in mapped_variants:
+        result, outcome = _annotation_stream_record(mv, annotation_function)
+        outcome_counts[outcome] += 1
 
-        # Send pure result data (no wrapper)
-        result = {
-            "variant_urn": mv.variant.urn,
-            "annotation": annotation.model_dump(exclude_none=True) if annotation else None,
-        }
         yield json.dumps(result, default=str) + "\n"
 
         # Log server-side progress
@@ -1198,6 +1361,7 @@ def _stream_generated_annotations(mapped_variants, annotation_function):
         {
             "stream_completion": {
                 "total_processed": processed_count,
+                **outcome_counts,
                 "total_time": round(total_time, 2),
                 "average_time_per_variant": average_time_per_variant,
                 "final_rate": final_rate,
@@ -1206,7 +1370,8 @@ def _stream_generated_annotations(mapped_variants, annotation_function):
         }
     )
     logger.info(
-        f"Completed streaming {processed_count} variants in {total_time:.2f} seconds (avg: {average_time_per_variant:.4f}s/variant)",
+        f"Completed streaming {processed_count} variants in {total_time:.2f} seconds "
+        f"({outcome_counts['errored']} errored, avg: {average_time_per_variant:.4f}s/variant)",
         extra=logging_context(),
     )
 
@@ -1230,6 +1395,7 @@ def get_score_set_annotated_variants(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Retrieve annotated variants with pathogenicity statements for a given score set.
@@ -1239,8 +1405,8 @@ def get_score_set_annotated_variants(
     JSON (NDJSON) format for efficient processing of large datasets.
 
     NDJSON Response Format:
-        Each line in the response corresponds to a mapped variant and contains a JSON
-        object with the following structure:
+        Each line corresponds to a mapped variant and contains a JSON object with the following
+        structure:
         ```
         {
             "variant_urn": "<URN of the mapped variant>",
@@ -1249,6 +1415,20 @@ def get_score_set_annotated_variants(
             }
         }
         ```
+
+        `annotation` is null where the variant has no mapping data to annotate, or no pathogenicity statements apply
+        to it. A variant whose annotation could not be built is reported in-band rather than by
+        truncating the stream, and carries an additional `error` object:
+        ```
+        {
+            "variant_urn": "<URN of the mapped variant>",
+            "annotation": null,
+            "error": {"type": "<exception class>", "detail": "<exception message>"}
+        }
+        ```
+
+        Every line is a variant record: a response holds exactly `X-Total-Count` lines, so a shorter
+        body is a truncated one.
 
     Args:
         urn (str): The Uniform Resource Name (URN) of the score set to retrieve
@@ -1299,7 +1479,7 @@ def get_score_set_annotated_variants(
         )
 
     return StreamingResponse(
-        _stream_generated_annotations(mapped_variants, variant_pathogenicity_statement),
+        _stream_generated_annotations(mapped_variants, partial(variant_pathogenicity_statement, principal=principal)),
         media_type="application/x-ndjson",
         headers={
             "X-Total-Count": str(len(mapped_variants)),
@@ -1329,6 +1509,7 @@ def get_score_set_annotated_variants_functional_statement(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ):
     """
     Retrieve functional impact statements for annotated variants in a score set.
@@ -1338,8 +1519,8 @@ def get_score_set_annotated_variants_functional_statement(
     JSON (NDJSON) format.
 
     NDJSON Response Format:
-        Each line in the response corresponds to a mapped variant and contains a JSON
-        object with the following structure:
+        Each line corresponds to a mapped variant and contains a JSON object with the following
+        structure:
         ```
         {
             "variant_urn": "<URN of the mapped variant>",
@@ -1348,6 +1529,20 @@ def get_score_set_annotated_variants_functional_statement(
             }
         }
         ```
+
+        `annotation` is null where the variant has no mapping data to annotate, or no functional impact statements apply
+        to it. A variant whose annotation could not be built is reported in-band rather than by
+        truncating the stream, and carries an additional `error` object:
+        ```
+        {
+            "variant_urn": "<URN of the mapped variant>",
+            "annotation": null,
+            "error": {"type": "<exception class>", "detail": "<exception message>"}
+        }
+        ```
+
+        Every line is a variant record: a response holds exactly `X-Total-Count` lines, so a shorter
+        body is a truncated one.
 
     Args:
         urn (str): The unique resource name (URN) identifying the score set.
@@ -1391,7 +1586,9 @@ def get_score_set_annotated_variants_functional_statement(
         )
 
     return StreamingResponse(
-        _stream_generated_annotations(mapped_variants, variant_functional_impact_statement),
+        _stream_generated_annotations(
+            mapped_variants, partial(variant_functional_impact_statement, principal=principal)
+        ),
         media_type="application/x-ndjson",
         headers={
             "X-Total-Count": str(len(mapped_variants)),
@@ -1430,8 +1627,8 @@ def get_score_set_annotated_variants_functional_study_result(
     (NDJSON) format for efficient streaming of large datasets.
 
     NDJSON Response Format:
-        Each line in the response corresponds to a mapped variant and contains a JSON
-        object with the following structure:
+        Each line corresponds to a mapped variant and contains a JSON object with the following
+        structure:
         ```
         {
             "variant_urn": "<URN of the mapped variant>",
@@ -1440,6 +1637,20 @@ def get_score_set_annotated_variants_functional_study_result(
             }
         }
         ```
+
+        `annotation` is null where the variant has no mapping data to annotate, or no study results apply
+        to it. A variant whose annotation could not be built is reported in-band rather than by
+        truncating the stream, and carries an additional `error` object:
+        ```
+        {
+            "variant_urn": "<URN of the mapped variant>",
+            "annotation": null,
+            "error": {"type": "<exception class>", "detail": "<exception message>"}
+        }
+        ```
+
+        Every line is a variant record: a response holds exactly `X-Total-Count` lines, so a shorter
+        body is a truncated one.
 
     Args:
         urn (str): The URN (Uniform Resource Name) of the score set to retrieve variants for.
@@ -1510,6 +1721,7 @@ async def create_score_set(
     item_create: score_set.ScoreSetCreate,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Create a score set.
@@ -1843,8 +2055,7 @@ async def create_score_set(
 
     save_to_logging_context({"created_resource": item.urn})
 
-    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
+    return _score_set_response(item, principal)
 
 
 @router.post(
@@ -1900,6 +2111,7 @@ async def upload_score_set_variant_data(
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
     worker: ArqRedis = Depends(deps.get_worker),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Upload scores and variant count files for a score set, and initiate processing these files to
@@ -1976,8 +2188,7 @@ async def upload_score_set_variant_data(
     db.commit()
     db.refresh(item)
 
-    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
+    return _score_set_response(item, principal)
 
 
 @router.patch(
@@ -2032,6 +2243,7 @@ async def update_score_set_with_variants(
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
     worker: ArqRedis = Depends(deps.get_worker),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Update a score set and variants.
@@ -2168,8 +2380,7 @@ async def update_score_set_with_variants(
     db.commit()
     db.refresh(updatedItem)
 
-    enriched_experiment = enrich_experiment_with_num_score_sets(updatedItem.experiment, user_data)
-    return score_set.ScoreSet.model_validate(updatedItem).copy(update={"experiment": enriched_experiment})
+    return _score_set_response(updatedItem, principal)
 
 
 @router.put(
@@ -2186,6 +2397,7 @@ async def update_score_set(
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
     worker: ArqRedis = Depends(deps.get_worker),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Update a score set.
@@ -2245,8 +2457,7 @@ async def update_score_set(
         db.commit()
         db.refresh(updatedItem)
 
-    enriched_experiment = enrich_experiment_with_num_score_sets(updatedItem.experiment, user_data)
-    return score_set.ScoreSet.model_validate(updatedItem).copy(update={"experiment": enriched_experiment})
+    return _score_set_response(updatedItem, principal)
 
 
 @router.delete(
@@ -2300,6 +2511,7 @@ async def publish_score_set(
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
     worker: ArqRedis = Depends(deps.get_worker),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Publish a score set.
@@ -2391,8 +2603,7 @@ async def publish_score_set(
         )
         send_slack_error(err=exc)
 
-    enriched_experiment = enrich_experiment_with_num_score_sets(item.experiment, user_data)
-    return score_set.ScoreSet.model_validate(item).copy(update={"experiment": enriched_experiment})
+    return _score_set_response(item, principal)
 
 
 @router.get(
