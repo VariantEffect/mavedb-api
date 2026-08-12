@@ -53,6 +53,27 @@ metadata = {
 }
 
 
+def _narrow_user_roles_for_non_admins(item: Collection, user_data: Optional[UserData]) -> None:
+    """Reduce a collection's visible user roster to admins only, for callers who cannot add users.
+
+    The rule is `Action.ADD_ROLE`: whoever may add a user to a collection may see who is in it.
+    Everyone else sees the admin list alone, so contributors know who to contact without the
+    full membership being disclosed to them.
+    """
+    if has_permission(user_data, item, Action.ADD_ROLE).permitted:
+        return
+
+    admins = []
+    for user_assoc in item.user_associations:
+        if user_assoc.contribution_role == ContributionRole.admin:
+            admin = user_assoc.user
+            # role must be set in order to assign users to collection
+            setattr(admin, "role", ContributionRole.admin)
+            admins.append(admin)
+
+    item.users = admins
+
+
 @router.get(
     "/users/me/collections",
     status_code=200,
@@ -89,25 +110,14 @@ def list_my_collections(
             item.score_set_associations = [
                 assoc
                 for assoc in item.score_set_associations
-                if has_permission(user_data, assoc.score_set, Action.READ)
+                if has_permission(user_data, assoc.score_set, Action.READ).permitted
             ]
             item.experiment_associations = [
                 assoc
                 for assoc in item.experiment_associations
-                if has_permission(user_data, assoc.experiment, Action.READ)
+                if has_permission(user_data, assoc.experiment, Action.READ).permitted
             ]
-            # unless user is admin of this collection, filter users to only admins
-            # the rationale is that all collection contributors should be able to see admins
-            # to know who to contact, but only collection admins should be able to see viewers and editors
-            if role in (ContributionRole.viewer, ContributionRole.editor):
-                admins = []
-                for user_assoc in item.user_associations:
-                    if user_assoc.contribution_role == ContributionRole.admin:
-                        admin = user_assoc.user
-                        # role must be set in order to assign users to collection
-                        setattr(admin, "role", ContributionRole.admin)
-                        admins.append(admin)
-                item.users = admins
+            _narrow_user_roles_for_non_admins(item, user_data)
 
     return collection_bundle
 
@@ -140,24 +150,17 @@ def fetch_collection(
     # filter score set and experiment associations based on user permissions
     # work with associations directly to preserve position ordering
     item.score_set_associations = [
-        assoc for assoc in item.score_set_associations if has_permission(user_data, assoc.score_set, Action.READ)
+        assoc
+        for assoc in item.score_set_associations
+        if has_permission(user_data, assoc.score_set, Action.READ).permitted
     ]
     item.experiment_associations = [
-        assoc for assoc in item.experiment_associations if has_permission(user_data, assoc.experiment, Action.READ)
+        assoc
+        for assoc in item.experiment_associations
+        if has_permission(user_data, assoc.experiment, Action.READ).permitted
     ]
 
-    # Only collection admins can see all user roles for the collection. Other users can only see the list of admins.
-    # We could create a new permission action for this. But for now, assume that any user who has the ADD_ROLE
-    # permission is a collection admin and should be able to see all user roles for the collection.
-    if not has_permission(user_data, item, Action.ADD_ROLE):
-        admins = []
-        for user_assoc in item.user_associations:
-            if user_assoc.contribution_role == ContributionRole.admin:
-                admin = user_assoc.user
-                # role must be set in order to assign users to collection
-                setattr(admin, "role", ContributionRole.admin)
-                admins.append(admin)
-        item.users = admins
+    _narrow_user_roles_for_non_admins(item, user_data)
 
     return item
 
@@ -399,24 +402,17 @@ async def update_collection(
     # note that this filtering occurs after saving changes to db; the filtering is only for the returned view model
     # work with associations directly to preserve position ordering
     item.score_set_associations = [
-        assoc for assoc in item.score_set_associations if has_permission(user_data, assoc.score_set, Action.READ)
+        assoc
+        for assoc in item.score_set_associations
+        if has_permission(user_data, assoc.score_set, Action.READ).permitted
     ]
     item.experiment_associations = [
-        assoc for assoc in item.experiment_associations if has_permission(user_data, assoc.experiment, Action.READ)
+        assoc
+        for assoc in item.experiment_associations
+        if has_permission(user_data, assoc.experiment, Action.READ).permitted
     ]
 
-    # Only collection admins can see all user roles for the collection. Other users can only see the list of admins.
-    # We could create a new permission action for this. But for now, assume that any user who has the ADD_ROLE
-    # permission is a collection admin and should be able to see all user roles for the collection.
-    if not has_permission(user_data, item, Action.ADD_ROLE):
-        admins = []
-        for user_assoc in item.user_associations:
-            if user_assoc.contribution_role == ContributionRole.admin:
-                admin = user_assoc.user
-                # role must be set in order to assign users to collection
-                setattr(admin, "role", ContributionRole.admin)
-                admins.append(admin)
-        item.users = admins
+    _narrow_user_roles_for_non_admins(item, user_data)
 
     return item
 
@@ -482,24 +478,17 @@ async def add_score_set_to_collection(
     # note that this filtering occurs after saving changes to db; the filtering is only for the returned view model
     # work with associations directly to preserve position ordering
     item.score_set_associations = [
-        assoc for assoc in item.score_set_associations if has_permission(user_data, assoc.score_set, Action.READ)
+        assoc
+        for assoc in item.score_set_associations
+        if has_permission(user_data, assoc.score_set, Action.READ).permitted
     ]
     item.experiment_associations = [
-        assoc for assoc in item.experiment_associations if has_permission(user_data, assoc.experiment, Action.READ)
+        assoc
+        for assoc in item.experiment_associations
+        if has_permission(user_data, assoc.experiment, Action.READ).permitted
     ]
 
-    # Only collection admins can see all user roles for the collection. Other users can only see the list of admins.
-    # We could create a new permission action for this. But for now, assume that any user who has the ADD_ROLE
-    # permission is a collection admin and should be able to see all user roles for the collection.
-    if not has_permission(user_data, item, Action.ADD_ROLE):
-        admins = []
-        for user_assoc in item.user_associations:
-            if user_assoc.contribution_role == ContributionRole.admin:
-                admin = user_assoc.user
-                # role must be set in order to assign users to collection
-                setattr(admin, "role", ContributionRole.admin)
-                admins.append(admin)
-        item.users = admins
+    _narrow_user_roles_for_non_admins(item, user_data)
 
     return item
 
@@ -574,24 +563,17 @@ async def delete_score_set_from_collection(
     # note that this filtering occurs after saving changes to db; the filtering is only for the returned view model
     # work with associations directly to preserve position ordering
     item.score_set_associations = [
-        assoc for assoc in item.score_set_associations if has_permission(user_data, assoc.score_set, Action.READ)
+        assoc
+        for assoc in item.score_set_associations
+        if has_permission(user_data, assoc.score_set, Action.READ).permitted
     ]
     item.experiment_associations = [
-        assoc for assoc in item.experiment_associations if has_permission(user_data, assoc.experiment, Action.READ)
+        assoc
+        for assoc in item.experiment_associations
+        if has_permission(user_data, assoc.experiment, Action.READ).permitted
     ]
 
-    # Only collection admins can see all user roles for the collection. Other users can only see the list of admins.
-    # We could create a new permission action for this. But for now, assume that any user who has the ADD_ROLE
-    # permission is a collection admin and should be able to see all user roles for the collection.
-    if not has_permission(user_data, item, Action.ADD_ROLE):
-        admins = []
-        for user_assoc in item.user_associations:
-            if user_assoc.contribution_role == ContributionRole.admin:
-                admin = user_assoc.user
-                # role must be set in order to assign users to collection
-                setattr(admin, "role", ContributionRole.admin)
-                admins.append(admin)
-        item.users = admins
+    _narrow_user_roles_for_non_admins(item, user_data)
 
     return item
 
@@ -650,24 +632,17 @@ async def add_experiment_to_collection(
     # note that this filtering occurs after saving changes to db; the filtering is only for the returned view model
     # work with associations directly to preserve position ordering
     item.score_set_associations = [
-        assoc for assoc in item.score_set_associations if has_permission(user_data, assoc.score_set, Action.READ)
+        assoc
+        for assoc in item.score_set_associations
+        if has_permission(user_data, assoc.score_set, Action.READ).permitted
     ]
     item.experiment_associations = [
-        assoc for assoc in item.experiment_associations if has_permission(user_data, assoc.experiment, Action.READ)
+        assoc
+        for assoc in item.experiment_associations
+        if has_permission(user_data, assoc.experiment, Action.READ).permitted
     ]
 
-    # Only collection admins can see all user roles for the collection. Other users can only see the list of admins.
-    # We could create a new permission action for this. But for now, assume that any user who has the ADD_ROLE
-    # permission is a collection admin and should be able to see all user roles for the collection.
-    if not has_permission(user_data, item, Action.ADD_ROLE):
-        admins = []
-        for user_assoc in item.user_associations:
-            if user_assoc.contribution_role == ContributionRole.admin:
-                admin = user_assoc.user
-                # role must be set in order to assign users to collection
-                setattr(admin, "role", ContributionRole.admin)
-                admins.append(admin)
-        item.users = admins
+    _narrow_user_roles_for_non_admins(item, user_data)
 
     return item
 
@@ -738,24 +713,17 @@ async def delete_experiment_from_collection(
     # note that this filtering occurs after saving changes to db; the filtering is only for the returned view model
     # work with associations directly to preserve position ordering
     item.score_set_associations = [
-        assoc for assoc in item.score_set_associations if has_permission(user_data, assoc.score_set, Action.READ)
+        assoc
+        for assoc in item.score_set_associations
+        if has_permission(user_data, assoc.score_set, Action.READ).permitted
     ]
     item.experiment_associations = [
-        assoc for assoc in item.experiment_associations if has_permission(user_data, assoc.experiment, Action.READ)
+        assoc
+        for assoc in item.experiment_associations
+        if has_permission(user_data, assoc.experiment, Action.READ).permitted
     ]
 
-    # Only collection admins can see all user roles for the collection. Other users can only see the list of admins.
-    # We could create a new permission action for this. But for now, assume that any user who has the ADD_ROLE
-    # permission is a collection admin and should be able to see all user roles for the collection.
-    if not has_permission(user_data, item, Action.ADD_ROLE):
-        admins = []
-        for user_assoc in item.user_associations:
-            if user_assoc.contribution_role == ContributionRole.admin:
-                admin = user_assoc.user
-                # role must be set in order to assign users to collection
-                setattr(admin, "role", ContributionRole.admin)
-                admins.append(admin)
-        item.users = admins
+    _narrow_user_roles_for_non_admins(item, user_data)
 
     return item
 
@@ -838,10 +806,14 @@ async def add_user_to_collection_role(
     # note that this filtering occurs after saving changes to db; the filtering is only for the returned view model
     # work with associations directly to preserve position ordering
     item.score_set_associations = [
-        assoc for assoc in item.score_set_associations if has_permission(user_data, assoc.score_set, Action.READ)
+        assoc
+        for assoc in item.score_set_associations
+        if has_permission(user_data, assoc.score_set, Action.READ).permitted
     ]
     item.experiment_associations = [
-        assoc for assoc in item.experiment_associations if has_permission(user_data, assoc.experiment, Action.READ)
+        assoc
+        for assoc in item.experiment_associations
+        if has_permission(user_data, assoc.experiment, Action.READ).permitted
     ]
 
     # Only collection admins can get to this point in the function, so here we don't need to filter the list of user
@@ -926,10 +898,14 @@ async def remove_user_from_collection_role(
     # note that this filtering occurs after saving changes to db; the filtering is only for the returned view model
     # work with associations directly to preserve position ordering
     item.score_set_associations = [
-        assoc for assoc in item.score_set_associations if has_permission(user_data, assoc.score_set, Action.READ)
+        assoc
+        for assoc in item.score_set_associations
+        if has_permission(user_data, assoc.score_set, Action.READ).permitted
     ]
     item.experiment_associations = [
-        assoc for assoc in item.experiment_associations if has_permission(user_data, assoc.experiment, Action.READ)
+        assoc
+        for assoc in item.experiment_associations
+        if has_permission(user_data, assoc.experiment, Action.READ).permitted
     ]
 
     # Only collection admins can get to this point in the function, so here we don't need to filter the list of user
