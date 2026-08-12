@@ -76,7 +76,7 @@ identifies which data source a column belongs to and is separated from the colum
 | *(no prefix)* | Core identifiers — `accession`, `hgvs_nt`, `hgvs_pro`, `hgvs_splice` |
 | `scores.` | Score columns defined by the score set author (e.g. `scores.score`) |
 | `counts.` | Count columns defined by the score set author |
-| `mavedb.` | Columns computed by the MaveDB mapping pipeline (post-mapped HGVS, VRS digest) |
+| `mavedb.` | Columns computed by the MaveDB mapping pipeline (post-mapped HGVS, VRS identifier) |
 | `vep.` | Ensembl Variant Effect Predictor annotations |
 | `gnomad.` | gnomAD population frequency data |
 | `clingen.` | ClinGen Allele Registry linkage |
@@ -128,7 +128,7 @@ Columns are grouped by a namespace prefix. The groups below always appear:
 | `mavedb.post_mapped_hgvs_c` | Post-mapped coding HGVS (c. notation) |
 | `mavedb.post_mapped_hgvs_p` | Post-mapped protein HGVS (p. notation) |
 | `mavedb.post_mapped_hgvs_at_assay_level` | Post-mapped HGVS at the assay reference level (transcript or protein) |
-| `mavedb.post_mapped_vrs_digest` | GA4GH VRS digest identifier for the post-mapped allele |
+| `mavedb.post_mapped_vrs_id` | GA4GH VRS identifier for the post-mapped allele (e.g. `ga4gh:VA.n9ax-9x6gOC0OEt73VMYqCBfqfxG1XUH`) |
 | `vep.vep_functional_consequence` | VEP functional consequence term (e.g. `missense_variant`) |
 | `gnomad.gnomad_af` | gnomAD v4.1 allele frequency |
 | `clingen.clingen_allele_id` | ClinGen Allele Registry CA identifier (e.g. `CA12345`) |

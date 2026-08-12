@@ -23,8 +23,8 @@ from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.models.acmg_classification import ACMGClassification
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.enums.acmg_criterion import ACMGCriterion
-from mavedb.models.enums.user_role import UserRole
 from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassificationOptions
+from mavedb.models.enums.user_role import UserRole
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_calibration import ScoreCalibration
@@ -33,11 +33,14 @@ from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.variant import Variant
 from tests.helpers.constants import (
+    TEST_GA4GH_DIGEST,
+    TEST_GA4GH_IDENTIFIER,
     TEST_GNOMAD_DATA_VERSION,
     TEST_GNOMAD_VARIANT,
     TEST_MINIMAL_MAPPED_VARIANT,
     TEST_MINIMAL_VARIANT,
     TEST_SEQ_SCORESET,
+    TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
 )
 
 # ---------------------------------------------------------------------------
@@ -449,6 +452,7 @@ class TestGetVariantCsv:
         mapped_variant.hgvs_g = "NC_000010.11:g.87933147C>T"
         mapped_variant.hgvs_c = "NM_000314.8:c.100A>G"
         mapped_variant.hgvs_p = "NP_000305.3:p.Lys34Glu"
+        mapped_variant.post_mapped = TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X
         mapped_variant.vep_functional_consequence = "missense_variant"
         mapped_variant.clingen_allele_id = "CA123456"
         mapped_variant.gnomad_variants.append(GnomADVariant(**TEST_GNOMAD_VARIANT))
@@ -463,9 +467,28 @@ class TestGetVariantCsv:
         assert rows[0]["mavedb.post_mapped_hgvs_g"] == "NC_000010.11:g.87933147C>T"
         assert rows[0]["mavedb.post_mapped_hgvs_c"] == "NM_000314.8:c.100A>G"
         assert rows[0]["mavedb.post_mapped_hgvs_p"] == "NP_000305.3:p.Lys34Glu"
+        assert rows[0]["mavedb.post_mapped_vrs_id"] == TEST_GA4GH_IDENTIFIER
+        assert rows[0]["mavedb.post_mapped_vrs_id"] != TEST_GA4GH_DIGEST
         assert rows[0]["vep.vep_functional_consequence"] == "missense_variant"
         assert rows[0]["gnomad.gnomad_af"] == str(TEST_GNOMAD_VARIANT["allele_frequency"])
         assert rows[0]["clingen.clingen_allele_id"] == "CA123456"
+
+    def test_post_mapped_vrs_id_is_never_synthesized_from_digest(self, session, setup_lib_db_with_mapped_variant):
+        """A post-mapped object carrying only a ``digest`` reports NA rather than a built-up CURIE.
+
+        The two stored fields are known to disagree on some rows, and only ``id`` is indexed and matched
+        by the VRS lookup, so a digest-derived identifier would resolve to nothing.
+        """
+        mapped_variant = setup_lib_db_with_mapped_variant
+        mapped_variant.post_mapped = {
+            key: value for key, value in TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X.items() if key != "id"
+        }
+        session.add(mapped_variant)
+        session.commit()
+
+        rows = _parse_csv(get_variant_csv(session, mapped_variant.variant.urn))
+
+        assert rows[0]["mavedb.post_mapped_vrs_id"] == "NA"
 
     def test_gnomad_variant_from_another_version_is_not_reported(self, session, setup_lib_db_with_mapped_variant):
         mapped_variant = setup_lib_db_with_mapped_variant

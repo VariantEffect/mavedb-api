@@ -357,7 +357,7 @@ def test_plan_csv_columns_reference_hgvs_namespace_populates_columns():
         "post_mapped_hgvs_p",
         "post_mapped_hgvs_c",
         "post_mapped_hgvs_at_assay_level",
-        "post_mapped_vrs_digest",
+        "post_mapped_vrs_id",
     ]
 
 

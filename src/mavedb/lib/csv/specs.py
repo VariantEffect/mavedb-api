@@ -7,7 +7,7 @@ from typing import Callable, Optional
 
 from mavedb.lib.csv.namespaces import CALIBRATION_NS_PATTERN, CLINVAR_NS_PATTERN, CsvNamespace
 from mavedb.lib.mave.constants import REQUIRED_SCORE_COLUMN
-from mavedb.lib.variants import get_digest_from_post_mapped, get_hgvs_from_post_mapped, is_hgvs_g, is_hgvs_p
+from mavedb.lib.variants import get_hgvs_from_post_mapped, get_id_from_post_mapped, is_hgvs_g, is_hgvs_p
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
 
@@ -129,11 +129,15 @@ def _post_mapped_hgvs_p(mapping: Optional[MappedVariant]) -> Optional[str]:
     return fallback if fallback is not None and is_hgvs_p(fallback) else None
 
 
-def _post_mapped_vrs_digest(mapping: Optional[MappedVariant]) -> Optional[str]:
-    """The digest of the post-mapped VRS object, or None if there is no post-mapped object."""
+def _post_mapped_vrs_id(mapping: Optional[MappedVariant]) -> Optional[str]:
+    """The GA4GH identifier of the post-mapped VRS object, or None if there is no post-mapped object.
+
+    The full ``ga4gh:VA.{digest}`` identifier rather than the bare digest, so a value copied out of an
+    export can be pasted straight into the VRS search, which validates against the GA4GH CURIE form.
+    """
     if mapping is None or not mapping.post_mapped:
         return None
-    return get_digest_from_post_mapped(mapping.post_mapped)
+    return get_id_from_post_mapped(mapping.post_mapped)
 
 
 def _target_genes(variant: Variant) -> Optional[str]:
@@ -179,7 +183,7 @@ _NAMESPACE_SPECS: dict[str, CsvNamespaceSpec] = {
             "post_mapped_hgvs_p": _post_mapped_hgvs_p,
             "post_mapped_hgvs_c": _optional(lambda mapping: mapping.hgvs_c),
             "post_mapped_hgvs_at_assay_level": _optional(lambda mapping: mapping.hgvs_assay_level),
-            "post_mapped_vrs_digest": _post_mapped_vrs_digest,
+            "post_mapped_vrs_id": _post_mapped_vrs_id,
         },
         needs_mappings=True,
     ),
