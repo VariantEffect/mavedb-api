@@ -1,14 +1,18 @@
 """Utilities for building and mutating score calibration ORM objects."""
 
+import logging
 import math
 from typing import Optional, Union
 
 import pandas as pd
-from sqlalchemy import Float, and_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, Float, func, or_, select
+from sqlalchemy.orm import contains_eager, joinedload, Query, selectinload, Session
 
 from mavedb.lib.acmg import find_or_create_acmg_classification
 from mavedb.lib.identifiers import find_or_create_publication_identifier
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.permissions import Action, has_permission
+from mavedb.lib.types.authentication import UserData
 from mavedb.lib.types.score_calibrations import ClassificationDict
 from mavedb.lib.validation.constants.general import (
     calibration_class_column_name,
@@ -17,14 +21,91 @@ from mavedb.lib.validation.constants.general import (
     hgvs_pro_column,
 )
 from mavedb.lib.validation.utilities import inf_or_float
+from mavedb.models.contributor import Contributor
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
+from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_calibration_publication_identifier import ScoreCalibrationPublicationIdentifierAssociation
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.view_models import score_calibration
+from mavedb.view_models.score_calibration import ScoreCalibrationCreate
+from mavedb.view_models.search import ScoreCalibrationsSearch
+
+logger = logging.getLogger(__name__)
+
+def build_search_score_calibrations_query_filter(
+    db: Session, query: Query[ScoreCalibration], owner_or_contributor: Optional[User], search: ScoreCalibrationsSearch
+):
+    # Exclude score calibrations that have been publicly superseded (i.e., have at least one
+    # published superseding version). Uses NOT EXISTS instead of LEFT OUTER JOIN to
+    # avoid row multiplication when multiple superseding versions point to the same
+    # original via replaces_id (which has no uniqueness constraint). A LEFT JOIN would
+    # produce N rows per original, all counted against the LIMIT, causing paginated
+    # searches to return fewer unique score calibrations than requested.
+    query = query.filter(~ScoreCalibration.superseding_calibration.has(ScoreCalibration.private.is_(False)))
+
+    if owner_or_contributor is not None:
+        query = query.filter(
+            or_(
+                ScoreCalibration.created_by_id == owner_or_contributor.id,
+                ScoreCalibration.score_set.has(ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.username)),
+            )
+        )
+
+    if search.primary is not None:
+        query = query.filter(ScoreCalibration.primary == search.primary)
+
+    if search.private is not None:
+        query = query.filter(ScoreCalibration.private == search.private)
+
+    if search.text:
+        lower_search_text = search.text.lower().strip()
+        query = query.filter(
+            or_(
+                ScoreCalibration.urn.icontains(lower_search_text),
+                ScoreCalibration.title.icontains(lower_search_text),
+                ScoreCalibration.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.identifier).icontains(lower_search_text)
+                ),
+                ScoreCalibration.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.doi).icontains(lower_search_text)
+                ),
+                ScoreCalibration.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.abstract).icontains(lower_search_text)
+                ),
+                ScoreCalibration.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.title).icontains(lower_search_text)
+                ),
+                ScoreCalibration.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.publication_journal).icontains(lower_search_text)
+                ),
+                ScoreCalibration.publication_identifiers.any(
+                    func.jsonb_path_exists(
+                        PublicationIdentifier.authors,
+                        f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")""",
+                    )
+                ),
+            )
+        )
+
+    if search.authors:
+        query = query.filter(
+            ScoreCalibration.publication_identifiers.any(
+                func.jsonb_path_query_array(PublicationIdentifier.authors, "$.name").op("?|")(search.authors)
+            )
+        )
+
+    if search.research_use_only is not None:
+        if search.primary:
+            query = query.filter(ScoreCalibration.research_use_only.isnot(None))
+        else:
+            query = query.filter(ScoreCalibration.research_use_only.is_(None))
+
+    return query
 
 
 def create_functional_classification(
@@ -97,7 +178,7 @@ def create_functional_classification(
 async def _create_score_calibration(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
-    user: User,
+    user_data: UserData,
     variant_classes: Optional[ClassificationDict] = None,
     containing_score_set: Optional[ScoreSet] = None,
 ) -> ScoreCalibration:
@@ -176,6 +257,11 @@ async def _create_score_calibration(
             db.add(pub)
             db.flush()
 
+    if calibration_create.superseded_calibration_urn:
+        superseded_calibration = validate_superseded_score_calibration(db, calibration_create, user_data)
+    else:
+        superseded_calibration = None
+
     calibration = ScoreCalibration(
         **calibration_create.model_dump(
             by_alias=False,
@@ -185,12 +271,14 @@ async def _create_score_calibration(
                 "evidence_sources",
                 "method_sources",
                 "score_set_urn",
+                "superseded_calibration_urn"
             },
         ),
         publication_identifier_associations=calibration_pub_assocs,
         functional_classifications=[],
-        created_by=user,
-        modified_by=user,
+        superseded_calibration=superseded_calibration,
+        created_by=user_data.user,
+        modified_by=user_data.user,
     )  # type: ignore[call-arg]
 
     if containing_score_set:
@@ -210,7 +298,7 @@ async def _create_score_calibration(
 async def create_score_calibration_in_score_set(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
-    user: User,
+    user_data: UserData,
     variant_classes: Optional[ClassificationDict] = None,
 ) -> ScoreCalibration:
     """
@@ -251,9 +339,9 @@ async def create_score_calibration_in_score_set(
         raise ValueError("score_set_urn must be provided to create a score calibration within a score set.")
 
     containing_score_set = db.query(ScoreSet).where(ScoreSet.urn == calibration_create.score_set_urn).one()
-    calibration = await _create_score_calibration(db, calibration_create, user, variant_classes, containing_score_set)
+    calibration = await _create_score_calibration(db, calibration_create, user_data, variant_classes, containing_score_set)
 
-    if user.username in [contributor.orcid_id for contributor in containing_score_set.contributors] + [
+    if user_data.user.username in [contributor.orcid_id for contributor in containing_score_set.contributors] + [
         containing_score_set.created_by.username,
         containing_score_set.modified_by.username,
     ]:
@@ -268,7 +356,7 @@ async def create_score_calibration_in_score_set(
 async def create_score_calibration(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
-    user: User,
+    user_data: UserData,
     variant_classes: Optional[ClassificationDict] = None,
 ) -> ScoreCalibration:
     """
@@ -321,11 +409,38 @@ async def create_score_calibration(
         raise ValueError("score_set_urn must not be provided to create a score calibration outside a score set.")
 
     created_calibration = await _create_score_calibration(
-        db, calibration_create, user, variant_classes, containing_score_set=None
+        db, calibration_create, user_data, variant_classes, containing_score_set=None
     )
 
     db.add(created_calibration)
     return created_calibration
+
+
+def find_superseded_score_calibration_tail(
+    score_calibration: ScoreCalibration, action: Optional["Action"] = None, user_data: Optional["UserData"] = None
+) -> Optional[ScoreCalibration]:
+    while score_calibration.superseding_calibration is not None:
+        next_score_calibration_in_chain = score_calibration.superseding_calibration
+
+        # If we were given a permission to check and the next score calibration in the chain does not have that permission,
+        # pretend like we have reached the end of the chain. Otherwise, continue to the next score calibration.
+        if action is not None and not has_permission(user_data, next_score_calibration_in_chain, action).permitted:
+            return score_calibration
+
+        score_calibration = next_score_calibration_in_chain
+
+    # Handle unpublished superseding score calibration case.
+    # The score calibration has a published superseded score calibration but has not superseding score calibration.
+    if action is not None and not has_permission(user_data, score_calibration, action).permitted:
+        while score_calibration.superseded_calibration is not None:
+            next_score_calibration_in_chain = score_calibration.superseded_calibration
+            if has_permission(user_data, next_score_calibration_in_chain, action).permitted:
+                return next_score_calibration_in_chain
+            else:
+                score_calibration = next_score_calibration_in_chain
+        return None
+
+    return score_calibration
 
 
 async def modify_score_calibration(
@@ -486,6 +601,56 @@ async def modify_score_calibration(
     return calibration
 
 
+def search_score_calibrations(db: Session, owner_or_contributor: Optional[User], search: ScoreCalibrationsSearch):
+    save_to_logging_context({"score_calibration_search_criteria": search.model_dump()})
+
+    query = db.query(ScoreCalibration)
+    query = build_search_score_calibrations_query_filter(db, query, owner_or_contributor, search)
+
+    score_calibrations: list[ScoreCalibration] = (
+        query.join(ScoreCalibration.score_set)
+        .options(
+            # Use selectinload for ALL relationships loaded via the main query. The presence of
+            # contains_eager disables SQLAlchemy's subquery-wrapping logic for the ENTIRE query,
+            # not just the relationships nested inside it. This means any joinedload that adds a
+            # LEFT OUTER JOIN to the main SQL query — even for many-to-one relationships — can
+            # corrupt the LIMIT clause by applying it to joined rows rather than unique score sets,
+            # causing fewer results than expected and suppressing the count query fallback.
+            # The only JOINs that should remain in the main query are the explicit experiment
+            # INNER JOIN (required by contains_eager) and the superseding score set LEFT OUTER JOIN
+            # added by the filter builder.
+            contains_eager(ScoreCalibration.score_set).options(
+                selectinload(ScoreSet.created_by),
+                selectinload(ScoreSet.modified_by),
+                selectinload(ScoreSet.doi_identifiers),
+                selectinload(ScoreSet.publication_identifier_associations).joinedload(
+                    ScoreSetPublicationIdentifierAssociation.publication
+                ),
+                selectinload(ScoreSet.score_calibrations).options(
+                    joinedload(ScoreCalibration.publication_identifier_associations).joinedload(
+                        ScoreCalibrationPublicationIdentifierAssociation.publication
+                    ),
+                ),
+            ),
+            selectinload(ScoreCalibration.created_by),
+            selectinload(ScoreCalibration.modified_by),
+            selectinload(ScoreCalibration.publication_identifier_associations).joinedload(
+                ScoreCalibrationPublicationIdentifierAssociation.publication
+            ),
+        )
+        .order_by(ScoreSet.title)
+        .all()
+    )
+    if not score_calibrations:
+        score_calibrations = []
+
+    num_score_calibrations = len(score_calibrations)
+    save_to_logging_context({"matching_resources": num_score_calibrations})
+    logger.debug(msg=f"Score calibrations search yielded {len(score_calibrations)} matching resources.", extra=logging_context())
+
+    return {"score_calibrations": score_calibrations, "num_score_calibrations": num_score_calibrations}
+
+
 def publish_score_calibration(db: Session, calibration: ScoreCalibration, user: User) -> ScoreCalibration:
     """Publish a private ScoreCalibration, marking it as publicly accessible.
 
@@ -513,13 +678,17 @@ def publish_score_calibration(db: Session, calibration: ScoreCalibration, user: 
     This function adds the modified calibration to the session but does not commit;
     the caller is responsible for committing the transaction.
     """
-    if not calibration.private:
+    if calibration.private is False: # It's possible None value
         raise ValueError("Calibration is already published.")
 
     calibration.private = False
     calibration.modified_by = user
 
     db.add(calibration)
+
+    if calibration.superseded_calibration and calibration.superseded_calibration.primary:
+        promote_score_calibration_to_primary(db, calibration, user, force=True)
+
     return calibration
 
 
@@ -552,6 +721,7 @@ def promote_score_calibration_to_primary(
               - If the calibration is already primary.
               - If the calibration is research-use-only.
               - If the calibration is private.
+              - If the calibration is superseded.
               - If another primary calibration exists for the score set and force is False.
 
     Side Effects:
@@ -570,6 +740,9 @@ def promote_score_calibration_to_primary(
 
     if calibration.private:
         raise ValueError("Cannot promote a private calibration to primary.")
+
+    if calibration.superseding_calibration:
+        raise ValueError("Cannot promote a superseded calibration to primary.")
 
     existing_primary_calibrations = (
         db.query(ScoreCalibration)
@@ -650,6 +823,35 @@ def delete_score_calibration(db: Session, calibration: ScoreCalibration) -> None
 
     db.delete(calibration)
     return None
+
+
+def validate_superseded_score_calibration(
+    db: Session,
+    calibration_create: ScoreCalibrationCreate,
+    user_data: Optional[UserData],
+) -> Optional[ScoreCalibration]:
+    if not calibration_create.superseded_calibration_urn:
+        return None
+
+    superseded_calibration = (
+        db.query(ScoreCalibration)
+        .where(ScoreCalibration.urn == calibration_create.superseded_calibration_urn)
+        .one_or_none()
+    )
+
+    if superseded_calibration is None:
+        raise ValueError("Superseded calibration does not exist.")
+
+    if not has_permission(user_data, superseded_calibration, Action.READ).permitted:
+        raise ValueError("No access right to supersede this calibration.")
+
+    if superseded_calibration.private:
+        raise ValueError("Cannot supersede a private calibration. Please edit it instead.")
+
+    if superseded_calibration.superseding_calibration:
+        raise ValueError("Cannot supersede a superseded calibration. Please edit it instead.")
+
+    return superseded_calibration
 
 
 def variants_for_functional_classification(

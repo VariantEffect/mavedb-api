@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Boolean, Column, Date, Float, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
@@ -59,6 +59,17 @@ class ScoreCalibration(Base):
     )
 
     calibration_metadata = Column(JSONB(none_as_null=True), nullable=True)
+
+    superseded_calibration_id = Column("replaces_id", Integer, ForeignKey("score_calibrations.id"), index=True, nullable=True)
+    superseded_calibration: Mapped[Optional["ScoreCalibration"]] = relationship(
+        "ScoreCalibration",
+        uselist=False,
+        foreign_keys="ScoreCalibration.superseded_calibration_id",
+        remote_side=[id],
+    )
+    superseding_calibration: Mapped[Optional["ScoreCalibration"]] = relationship(
+        "ScoreCalibration", uselist=False, back_populates="superseded_calibration"
+    )
 
     created_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     created_by: Mapped["User"] = relationship("User", foreign_keys="ScoreCalibration.created_by_id")

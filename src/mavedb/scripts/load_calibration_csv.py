@@ -100,6 +100,7 @@ from sqlalchemy.orm import Session
 from mavedb.lib.acmg import ACMGCriterion, StrengthOfEvidenceProvided
 from mavedb.lib.oddspaths import oddspaths_evidence_strength_equivalent
 from mavedb.lib.score_calibrations import create_score_calibration_in_score_set
+from mavedb.lib.types.authentication import UserData
 from mavedb.models import score_calibration
 from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassifcationOptions
 from mavedb.models.score_set import ScoreSet
@@ -414,8 +415,9 @@ def main(db: Session, csv_path: str, delimiter: str, overwrite: bool, purge_publ
 
                 system_user = db.query(User).filter(User.id == 1).one()
                 calibration_user = score_set.created_by if calibration_is_investigator_provided else system_user
+                calibration_user_data = UserData(calibration_user, calibration_user.roles)
                 new_calibration_object = asyncio.run(
-                    create_score_calibration_in_score_set(db, created_score_calibration, calibration_user)
+                    create_score_calibration_in_score_set(db, created_score_calibration, calibration_user_data)
                 )
                 new_calibration_object.primary = primary
                 new_calibration_object.private = False

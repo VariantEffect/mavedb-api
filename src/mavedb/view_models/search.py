@@ -2,6 +2,7 @@ from typing import Optional
 
 from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.score_set import ShortScoreSet
+from mavedb.view_models.score_calibration import ScoreCalibration
 
 
 class ControlledKeywordSearch(BaseModel):
@@ -18,6 +19,23 @@ class ExperimentsSearch(BaseModel):
     keywords: Optional[list[ControlledKeywordSearch]] = None
     text: Optional[str] = None
     meta_analysis: Optional[bool] = None
+
+
+class ScoreCalibrationsSearch(BaseModel):
+    authors: Optional[list[str]] = None
+    primary: Optional[bool] = None
+    private: Optional[bool] = None
+    publication_identifiers: Optional[list[str]] = None
+    research_use_only: Optional[bool] = None
+    text: Optional[str] = None
+
+
+class ScoreCalibrationsSearchResponse(BaseModel):
+    score_calibrations: list[ScoreCalibration]
+    num_score_calibrations: int
+
+    class Config:
+        from_attributes = True
 
 
 class ScoreSetsSearch(BaseModel):

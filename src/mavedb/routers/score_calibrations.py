@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session, selectinload
@@ -21,9 +21,10 @@ from mavedb.lib.score_calibrations import (
     modify_score_calibration,
     promote_score_calibration_to_primary,
     publish_score_calibration,
+    search_score_calibrations as _search_score_calibrations,
     variant_classification_df_to_dict,
 )
-from mavedb.lib.score_sets import csv_data_to_df
+from mavedb.lib.score_sets import csv_data_to_df, enrich_score_set_with_num_score_calibrations
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import calibration_class_column_name, calibration_variant_column_name
 from mavedb.lib.validation.dataframe.calibration import validate_and_standardize_calibration_classes_dataframe
@@ -33,6 +34,7 @@ from mavedb.models.score_calibration_functional_classification import ScoreCalib
 from mavedb.models.score_set import ScoreSet
 from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES
 from mavedb.view_models import score_calibration
+from mavedb.view_models.search import ScoreCalibrationsSearch, ScoreCalibrationsSearchResponse
 
 logger = logging.getLogger(__name__)
 
@@ -132,13 +134,25 @@ async def get_score_calibrations_for_score_set(
     calibrations = (
         db.query(ScoreCalibration)
         .filter(ScoreCalibration.score_set_id == score_set.id)
+        .filter(~ScoreCalibration.superseding_calibration.has(ScoreCalibration.private.is_(False)))
         .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
         .all()
     )
 
-    permitted_calibrations = [
+    visible_calibrations = [
         calibration for calibration in calibrations if has_permission(user_data, calibration, Action.READ).permitted
     ]
+
+    superseded_ids = [sc.superseded_calibration_id for sc in visible_calibrations if
+                      sc.superseded_calibration_id is not None]
+
+    permitted_calibrations = [sc for sc in visible_calibrations if sc.id not in superseded_ids]
+
+    # Solve Pydantic model validation error
+    for sc in permitted_calibrations:
+        sc.superseded_calibration = None
+        sc.superseding_calibration = None
+
     if not permitted_calibrations:
         logger.debug("No score calibrations found for the requested score set", extra=logging_context())
         raise HTTPException(status_code=404, detail="No score calibrations found for the requested score set")
@@ -338,9 +352,12 @@ async def create_score_calibration_route(
                 detail=[{"loc": [e.custom_loc or "classesFile"], "msg": str(e), "type": "value_error"}],
             )
 
-    created_calibration = await create_score_calibration_in_score_set(
-        db, calibration, user_data.user, variant_classes if classes_file else None
-    )
+    try:
+        created_calibration = await create_score_calibration_in_score_set(
+            db, calibration, user_data, variant_classes if classes_file else None
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
     db.commit()
     db.refresh(created_calibration)
@@ -598,6 +615,10 @@ async def promote_score_calibration_to_primary_route(
         logger.debug("Private score calibrations cannot be promoted to primary", extra=logging_context())
         raise HTTPException(status_code=400, detail="Private score calibrations cannot be promoted to primary")
 
+    if item.superseding_calibration:
+        logger.debug("Superseded score calibrations cannot be promoted to primary", extra=logging_context())
+        raise HTTPException(status_code=400, detail="Superseded score calibrations cannot be promoted to primary")
+
     # We've already checked whether the item matching the calibration URN is primary, so this
     # will necessarily be a different calibration, if it exists.
     existing_primary_calibration = next((c for c in item.score_set.score_calibrations if c.primary), None)
@@ -706,6 +727,31 @@ def publish_score_calibration_route(
     db.refresh(item)
 
     return item
+
+
+@router.post(
+    "/me/search",
+    status_code=200,
+    summary="Search my calibrations",
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    response_model=ScoreCalibrationsSearchResponse,
+)
+def search_my_score_calibrations(
+    search: ScoreCalibrationsSearch,
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(require_current_user),
+) -> Any:
+    """
+    Search calibrations created by the current user.
+    """
+    score_calibrations, num_score_calibrations = _search_score_calibrations(db, user_data.user, search).values()
+    enriched_score_calibrations = []
+    for sc in score_calibrations:
+        enriched_score_calibration = enrich_score_set_with_num_score_calibrations(sc.score_set, user_data)
+        response_item = score_calibration.ScoreCalibration.model_validate(sc).copy(update={"score_calibration": enriched_score_calibration})
+        enriched_score_calibrations.append(response_item)
+
+    return {"score_calibrations": enriched_score_calibrations, "num_score_calibrations": num_score_calibrations}
 
 
 @router.get(
