@@ -16,6 +16,7 @@ from zipfile import ZipFile
 import pytest
 
 pytest.importorskip("psycopg2")
+pytest.importorskip("fastapi")
 
 from mavedb.lib.csv.namespaces import CsvNamespace, calibration_namespace_for_urn
 from mavedb.lib.permissions.principal import Principal
