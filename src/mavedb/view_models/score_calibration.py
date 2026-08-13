@@ -501,6 +501,7 @@ class ScoreCalibrationCreate(ScoreCalibrationModify):
 
 class ShorterScoreCalibration(BaseModel):
     urn: str
+    title: str
     record_type: str = None  # type: ignore
 
     _record_type_factory = record_type_validator()(set_record_type)

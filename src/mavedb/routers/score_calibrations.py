@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session, selectinload
@@ -21,9 +21,10 @@ from mavedb.lib.score_calibrations import (
     modify_score_calibration,
     promote_score_calibration_to_primary,
     publish_score_calibration,
+    search_score_calibrations as _search_score_calibrations,
     variant_classification_df_to_dict,
 )
-from mavedb.lib.score_sets import csv_data_to_df
+from mavedb.lib.score_sets import csv_data_to_df, enrich_score_set_with_num_score_calibrations
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import calibration_class_column_name, calibration_variant_column_name
 from mavedb.lib.validation.dataframe.calibration import validate_and_standardize_calibration_classes_dataframe
@@ -33,6 +34,7 @@ from mavedb.models.score_calibration_functional_classification import ScoreCalib
 from mavedb.models.score_set import ScoreSet
 from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES
 from mavedb.view_models import score_calibration
+from mavedb.view_models.search import ScoreCalibrationsSearch, ScoreCalibrationsSearchResponse
 
 logger = logging.getLogger(__name__)
 
@@ -725,6 +727,31 @@ def publish_score_calibration_route(
     db.refresh(item)
 
     return item
+
+
+@router.post(
+    "/me/search",
+    status_code=200,
+    summary="Search my calibrations",
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    response_model=ScoreCalibrationsSearchResponse,
+)
+def search_my_score_calibrations(
+    search: ScoreCalibrationsSearch,
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(require_current_user),
+) -> Any:
+    """
+    Search calibrations created by the current user.
+    """
+    score_calibrations, num_score_calibrations = _search_score_calibrations(db, user_data.user, search).values()
+    enriched_score_calibrations = []
+    for sc in score_calibrations:
+        enriched_score_calibration = enrich_score_set_with_num_score_calibrations(sc.score_set, user_data)
+        response_item = score_calibration.ScoreCalibration.model_validate(sc).copy(update={"score_calibration": enriched_score_calibration})
+        enriched_score_calibrations.append(response_item)
+
+    return {"score_calibrations": enriched_score_calibrations, "num_score_calibrations": num_score_calibrations}
 
 
 @router.get(

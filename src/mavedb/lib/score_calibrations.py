@@ -1,14 +1,16 @@
 """Utilities for building and mutating score calibration ORM objects."""
 
+import logging
 import math
 from typing import Optional, Union
 
 import pandas as pd
-from sqlalchemy import Float, and_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, Float, func, or_, select
+from sqlalchemy.orm import aliased, contains_eager, joinedload, Query, selectinload, Session
 
 from mavedb.lib.acmg import find_or_create_acmg_classification
 from mavedb.lib.identifiers import find_or_create_publication_identifier
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.types.score_calibrations import ClassificationDict
@@ -19,15 +21,91 @@ from mavedb.lib.validation.constants.general import (
     hgvs_pro_column,
 )
 from mavedb.lib.validation.utilities import inf_or_float
+from mavedb.models.contributor import Contributor
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
+from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_calibration_publication_identifier import ScoreCalibrationPublicationIdentifierAssociation
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.view_models import score_calibration
 from mavedb.view_models.score_calibration import ScoreCalibrationCreate
+from mavedb.view_models.search import ScoreCalibrationsSearch
+
+logger = logging.getLogger(__name__)
+
+def build_search_score_calibrations_query_filter(
+    db: Session, query: Query[ScoreCalibration], owner_or_contributor: Optional[User], search: ScoreCalibrationsSearch
+):
+    # Exclude score calibrations that have been publicly superseded (i.e., have at least one
+    # published superseding version). Uses NOT EXISTS instead of LEFT OUTER JOIN to
+    # avoid row multiplication when multiple superseding versions point to the same
+    # original via replaces_id (which has no uniqueness constraint). A LEFT JOIN would
+    # produce N rows per original, all counted against the LIMIT, causing paginated
+    # searches to return fewer unique score calibrations than requested.
+    query = query.filter(~ScoreCalibration.superseding_calibration.has(ScoreCalibration.private.is_(False)))
+
+    if owner_or_contributor is not None:
+        query = query.filter(
+            or_(
+                ScoreCalibration.created_by_id == owner_or_contributor.id,
+                ScoreCalibration.score_set.has(ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.username)),
+            )
+        )
+
+    if search.primary is not None:
+        query = query.filter(ScoreCalibration.primary == search.primary)
+
+    if search.private is not None:
+        query = query.filter(ScoreCalibration.private == search.private)
+
+    if search.text:
+        lower_search_text = search.text.lower().strip()
+        query = query.filter(
+            or_(
+                ScoreCalibration.urn.icontains(lower_search_text),
+                ScoreCalibration.title.icontains(lower_search_text),
+                ScoreCalibration.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.identifier).icontains(lower_search_text)
+                ),
+                ScoreCalibration.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.doi).icontains(lower_search_text)
+                ),
+                ScoreCalibration.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.abstract).icontains(lower_search_text)
+                ),
+                ScoreCalibration.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.title).icontains(lower_search_text)
+                ),
+                ScoreCalibration.publication_identifiers.any(
+                    func.lower(PublicationIdentifier.publication_journal).icontains(lower_search_text)
+                ),
+                ScoreCalibration.publication_identifiers.any(
+                    func.jsonb_path_exists(
+                        PublicationIdentifier.authors,
+                        f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")""",
+                    )
+                ),
+            )
+        )
+
+    if search.authors:
+        query = query.filter(
+            ScoreCalibration.publication_identifiers.any(
+                func.jsonb_path_query_array(PublicationIdentifier.authors, "$.name").op("?|")(search.authors)
+            )
+        )
+
+    if search.research_use_only is not None:
+        if search.primary:
+            query = query.filter(ScoreCalibration.research_use_only.isnot(None))
+        else:
+            query = query.filter(ScoreCalibration.research_use_only.is_(None))
+
+    return query
 
 
 def create_functional_classification(
@@ -338,6 +416,33 @@ async def create_score_calibration(
     return created_calibration
 
 
+def find_superseded_score_calibration_tail(
+    score_calibration: ScoreCalibration, action: Optional["Action"] = None, user_data: Optional["UserData"] = None
+) -> Optional[ScoreCalibration]:
+    while score_calibration.superseding_calibration is not None:
+        next_score_calibration_in_chain = score_calibration.superseding_calibration
+
+        # If we were given a permission to check and the next score calibration in the chain does not have that permission,
+        # pretend like we have reached the end of the chain. Otherwise, continue to the next score calibration.
+        if action is not None and not has_permission(user_data, next_score_calibration_in_chain, action).permitted:
+            return score_calibration
+
+        score_calibration = next_score_calibration_in_chain
+
+    # Handle unpublished superseding score calibration case.
+    # The score calibration has a published superseded score calibration but has not superseding score calibration.
+    if action is not None and not has_permission(user_data, score_calibration, action).permitted:
+        while score_calibration.superseded_calibration is not None:
+            next_score_calibration_in_chain = score_calibration.superseded_calibration
+            if has_permission(user_data, next_score_calibration_in_chain, action).permitted:
+                return next_score_calibration_in_chain
+            else:
+                score_calibration = next_score_calibration_in_chain
+        return None
+
+    return score_calibration
+
+
 async def modify_score_calibration(
     db: Session,
     calibration: ScoreCalibration,
@@ -494,6 +599,56 @@ async def modify_score_calibration(
 
     db.add(calibration)
     return calibration
+
+
+def search_score_calibrations(db: Session, owner_or_contributor: Optional[User], search: ScoreCalibrationsSearch):
+    save_to_logging_context({"score_calibration_search_criteria": search.model_dump()})
+
+    query = db.query(ScoreCalibration)
+    query = build_search_score_calibrations_query_filter(db, query, owner_or_contributor, search)
+
+    score_calibrations: list[ScoreCalibration] = (
+        query.join(ScoreCalibration.score_set)
+        .options(
+            # Use selectinload for ALL relationships loaded via the main query. The presence of
+            # contains_eager disables SQLAlchemy's subquery-wrapping logic for the ENTIRE query,
+            # not just the relationships nested inside it. This means any joinedload that adds a
+            # LEFT OUTER JOIN to the main SQL query — even for many-to-one relationships — can
+            # corrupt the LIMIT clause by applying it to joined rows rather than unique score sets,
+            # causing fewer results than expected and suppressing the count query fallback.
+            # The only JOINs that should remain in the main query are the explicit experiment
+            # INNER JOIN (required by contains_eager) and the superseding score set LEFT OUTER JOIN
+            # added by the filter builder.
+            contains_eager(ScoreCalibration.score_set).options(
+                selectinload(ScoreSet.created_by),
+                selectinload(ScoreSet.modified_by),
+                selectinload(ScoreSet.doi_identifiers),
+                selectinload(ScoreSet.publication_identifier_associations).joinedload(
+                    ScoreSetPublicationIdentifierAssociation.publication
+                ),
+                selectinload(ScoreSet.score_calibrations).options(
+                    joinedload(ScoreCalibration.publication_identifier_associations).joinedload(
+                        ScoreCalibrationPublicationIdentifierAssociation.publication
+                    ),
+                ),
+            ),
+            selectinload(ScoreCalibration.created_by),
+            selectinload(ScoreCalibration.modified_by),
+            selectinload(ScoreCalibration.publication_identifier_associations).joinedload(
+                ScoreCalibrationPublicationIdentifierAssociation.publication
+            ),
+        )
+        .order_by(ScoreSet.title)
+        .all()
+    )
+    if not score_calibrations:
+        score_calibrations = []
+
+    num_score_calibrations = len(score_calibrations)
+    save_to_logging_context({"matching_resources": num_score_calibrations})
+    logger.debug(msg=f"Score calibrations search yielded {len(score_calibrations)} matching resources.", extra=logging_context())
+
+    return {"score_calibrations": score_calibrations, "num_score_calibrations": num_score_calibrations}
 
 
 def publish_score_calibration(db: Session, calibration: ScoreCalibration, user: User) -> ScoreCalibration:

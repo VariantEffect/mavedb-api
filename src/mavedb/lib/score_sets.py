@@ -25,6 +25,7 @@ from mavedb.lib.mave.constants import (
 )
 from mavedb.lib.mave.utils import is_csv_null
 from mavedb.lib.permissions import Action, has_permission
+from mavedb.lib.score_calibrations import find_superseded_score_calibration_tail
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.lib.validation.utilities import is_null as validate_is_null
@@ -57,6 +58,7 @@ from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
+from mavedb.view_models import score_set
 from mavedb.view_models.search import ScoreSetsSearch, ControlledKeywordFilterOption
 
 if TYPE_CHECKING:
@@ -319,6 +321,33 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
 
 def score_set_search_filter_options_from_counter(counter: Counter):
     return [{"value": value, "count": count} for value, count in counter.items()]
+
+
+def enrich_score_set_with_num_score_calibrations(
+    item_update: ScoreSet, user_data: Optional[UserData]
+) -> score_set.ScoreSet:
+    """
+    Validate and update the number of score calibration in score set. The superseded score calibration is excluded.
+    Data structure: score_set{score_calibration_urns, num_score_calibrations}
+    """
+    filter_superseded_score_calibration_tails = [
+        find_superseded_score_calibration_tail(score_calibration, Action.READ, user_data) for score_calibration in item_update.score_calibrations
+    ]
+    filtered_score_calibration_urns = sorted(
+        {
+            score_calibration.urn
+            for score_calibration in filter_superseded_score_calibration_tails
+            if score_calibration is not None and score_calibration.urn is not None
+        }
+    )
+
+    updated_score_set = score_set.ScoreSet.model_validate(item_update).copy(
+        update={
+            "num_score_calibrations": len(filtered_score_calibration_urns),
+            "score_calibration_urns": filtered_score_calibration_urns,
+        }
+    )
+    return updated_score_set
 
 
 def fetch_score_set_search_filter_options(
