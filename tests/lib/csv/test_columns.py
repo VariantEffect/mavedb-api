@@ -5,6 +5,7 @@ import pytest
 
 from mavedb.lib.annotation.flatten import FlatAnnotation
 from mavedb.lib.csv.columns import (
+    _OUTPUT_NULL_STRINGS,
     _is_output_null,
     assemble_csv_headers,
     drop_unused_hgvs_columns,
@@ -439,11 +440,11 @@ def test_assemble_csv_headers(namespaced_columns, namespaced, expected):
 
 
 # ---------------------------------------------------------------------------
-# TestDropNaColumns
+# TestDropUnusedHgvsColumns
 # ---------------------------------------------------------------------------
 
 
-class TestDropNaColumns:
+class TestDropUnusedHgvsColumns:
     def test_removes_all_na_hgvs_column(self):
         rows = [
             {"hgvs_nt": "g.1A>G", "hgvs_splice": "NA", "hgvs_pro": "p.Met1Val"},
@@ -529,6 +530,18 @@ def test_plan_csv_columns_omits_reference_hgvs_when_not_requested():
 )
 def test_is_output_null(value, expected):
     assert _is_output_null(value) is expected
+
+
+@pytest.mark.unit
+def test_the_output_null_vocabulary_is_closed():
+    """Spelled out because `_OUTPUT_NULL_STRINGS` is derived from an upload-parsing constant.
+
+    ``mave.utils.NULL_VALUES`` exists to decide what a value read *from* a submitted file means. These
+    tokens decide what the export *writes*, and the export's output is published. The parametrization
+    above catches a token being dropped; only an equality check catches one being added, which is how a
+    change made for the reading side would otherwise start rendering NA in a published dump.
+    """
+    assert _OUTPUT_NULL_STRINGS == frozenset({"n/a", "na", "nan", "nil", "none", "null", "undefined"})
 
 
 @pytest.mark.unit

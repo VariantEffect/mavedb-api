@@ -17,14 +17,19 @@ from mavedb.lib.csv.namespaces import (
     parse_clinvar_namespace,
 )
 from mavedb.lib.csv.specs import CORE_NAMESPACE, RowSource, namespace_spec
-from mavedb.lib.mave.utils import NA_VALUE
-from mavedb.lib.validation.utilities import is_null as validate_is_null
+from mavedb.lib.mave.utils import NA_VALUE, NULL_VALUES
+from mavedb.lib.validation.constants.general import hgvs_columns
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
 
-_OUTPUT_NULL_STRINGS = frozenset({"none", "nan", "na", "undefined", "n/a", "null", "nil"})
+_OUTPUT_NULL_STRINGS = frozenset(value.lower() for value in NULL_VALUES if value)
+"""The null tokens this export recognises, derived from the shared vocabulary rather than restated.
+
+The empty string is dropped because ``_is_output_null`` tests emptiness directly, and ``NA_VALUE`` folds
+into ``"na"`` once lowercased.
+"""
 
 
 @dataclass(frozen=True)
@@ -40,8 +45,9 @@ class CsvColumnPlan:
 def _is_output_null(value: Any) -> bool:
     """Whether *value* should be written as the NA sentinel rather than rendered.
 
-    Distinct from ``lib.mave.utils.is_csv_null``, which decides whether a value read *from* an uploaded
-    file counts as missing: that one copes with pandas NA types and treats 0 specially.
+    Shares its token vocabulary with ``lib.mave.utils.is_csv_null`` but **not its behaviour**. That one decides
+    whether a value read *from* an uploaded file counts as missing, so it copes with pandas NA types and
+    treats 0 specially.
     """
     text = str(value).strip().lower()
     return not text or text in _OUTPUT_NULL_STRINGS
@@ -239,11 +245,10 @@ def drop_unused_hgvs_columns(
     Assumes the "core" namespace is present, which ``plan_csv_columns`` guarantees.
     """
     rows_data = list(rows_data)
-    columns_to_check = ["hgvs_nt", "hgvs_splice", "hgvs_pro"]
     columns_to_remove = []
 
-    for col in columns_to_check:
-        if all(validate_is_null(row[col]) for row in rows_data):
+    for col in hgvs_columns:
+        if all(_is_output_null(row[col]) for row in rows_data):
             columns_to_remove.append(col)
             for row in rows_data:
                 row.pop(col, None)
