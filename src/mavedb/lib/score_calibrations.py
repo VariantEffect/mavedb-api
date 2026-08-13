@@ -6,7 +6,7 @@ from typing import Optional, Union
 
 import pandas as pd
 from sqlalchemy import and_, Float, func, or_, select
-from sqlalchemy.orm import aliased, contains_eager, joinedload, Query, selectinload, Session
+from sqlalchemy.orm import contains_eager, joinedload, Query, selectinload, Session
 
 from mavedb.lib.acmg import find_or_create_acmg_classification
 from mavedb.lib.identifiers import find_or_create_publication_identifier

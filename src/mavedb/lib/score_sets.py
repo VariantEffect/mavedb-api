@@ -380,13 +380,13 @@ def fetch_score_set_search_filter_options(
     #   - Use parallelization (e.g., multiprocessing or concurrent.futures) for large datasets
     #   - Pre-fetch or denormalize target/publication data in the DB query
     #   - Profile and refactor nested attribute lookups to minimize Python overhead
-    for score_set in score_sets:
+    for ss in score_sets:
         # Check read permission for each score set, skip if no permission
-        if not has_permission(requester, score_set, Action.READ).permitted:
+        if not has_permission(requester, ss, Action.READ).permitted:
             continue
 
         # Target related options
-        for target in getattr(score_set, "target_genes", []):
+        for target in getattr(ss, "target_genes", []):
             category = getattr(target, "category", None)
             if category:
                 target_category_counter[category] += 1
@@ -409,7 +409,7 @@ def fetch_score_set_search_filter_options(
                 target_accession_counter[accession] += 1
 
         # Publication related options
-        for publication_association in getattr(score_set, "publication_identifier_associations", []):
+        for publication_association in getattr(ss, "publication_identifier_associations", []):
             publication = getattr(publication_association, "publication", None)
 
             authors = getattr(publication, "authors", [])
@@ -427,7 +427,7 @@ def fetch_score_set_search_filter_options(
                 publication_journal_counter[journal] += 1
 
         # Controlled keywords related options
-        for controlled_keyword in getattr(score_set.experiment, "keyword_objs", []):
+        for controlled_keyword in getattr(ss.experiment, "keyword_objs", []):
             keyword = getattr(controlled_keyword, "controlled_keyword", [])
             if not keyword:
                 continue
