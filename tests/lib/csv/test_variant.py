@@ -712,9 +712,9 @@ class TestGetVariantCsv:
             for statement in statements
             if "score_calibrations" in statement and " variants" in statement.replace("\n", " ")
         ]
-        assert calibration_scans == [], (
-            "calibration discovery joined the variants table; it should filter on score_set_id"
-        )
+        assert (
+            calibration_scans == []
+        ), "calibration discovery joined the variants table; it should filter on score_set_id"
 
     def test_base_namespaces_are_all_present_by_default(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
@@ -1167,10 +1167,12 @@ class TestPrivateCalibrationsAreNotDisclosed:
         assert rows[0][f"{CALIBRATION_NS_1}.title"] == "Unpublished Calibration"
 
     def test_the_public_export_never_carries_it(self, session, private_calibration):
-        """The dump has no caller, so the default must be the public subset."""
+        """The dump is built for an anonymous principal, so it never reaches a private calibration."""
         from mavedb.scripts.export_public_data import annotation_export_namespaces
 
-        assert CALIBRATION_NS_1 not in annotation_export_namespaces(session, private_calibration.score_set)
+        anonymous = Principal().viewer_for(ScoreCalibrationViewer)
+
+        assert CALIBRATION_NS_1 not in annotation_export_namespaces(session, private_calibration.score_set, anonymous)
 
 
 class TestScoreColumnNamespaces:
