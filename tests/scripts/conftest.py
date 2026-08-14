@@ -112,37 +112,17 @@ def sample_score_set(sample_experiment, sample_user, sample_license, session):
 
 
 @pytest.fixture
-def make_taxonomy(session):
-    """Factory for Taxonomy rows distinguished by code/organism_name."""
-    counter = {"n": TEST_SAVED_TAXONOMY["id"]}
-
-    def _make(*, code=None, organism_name=None):
-        counter["n"] += 1
-        taxonomy = Taxonomy(
-            **{
-                **TEST_SAVED_TAXONOMY,
-                "id": counter["n"],
-                "code": code if code is not None else TEST_SAVED_TAXONOMY["code"],
-                "organism_name": organism_name or TEST_SAVED_TAXONOMY["organism_name"],
-                "url": f"https://example.test/taxonomy/{counter['n']}",
-            }
-        )
-        session.add(taxonomy)
-        session.commit()
-        return taxonomy
-
-    return _make
-
-
-@pytest.fixture
 def make_score_set(session, sample_experiment, sample_user, sample_license):
-    """Factory for score sets with varying target genes / taxonomy / publication state.
+    """Factory for score sets with varying target genes and publication state.
 
-    gene_names: names for sequence-based target genes (normalized for grouping/ordering tests).
-    taxonomies: optional list of Taxonomy rows, one per gene_names entry (or a single Taxonomy
-        applied to all genes). Omit for genes with no taxonomy at all.
-    accession_gene_names: names for accession-based target genes (never matched by
-        --taxonomy-id/--organism, since they carry no target_sequence).
+    gene_names: names for sequence-based target genes. Passed through verbatim, so tests
+        can exercise the curator-authored decorations the symbol extractor sees
+        ("BRCA1 RING domain").
+    mapped_hgnc_names: optional HGNC symbol per gene_names entry, as the mapper would
+        populate it. None/omitted leaves the column NULL, which is what forces the
+        extractor to fall back to the curator-authored name.
+    accession_gene_names: names for accession-based target genes, which carry no
+        target_sequence.
     """
 
     counter = {"n": 0}
@@ -150,25 +130,28 @@ def make_score_set(session, sample_experiment, sample_user, sample_license):
     def _make(
         *,
         gene_names=("Sample Gene",),
-        taxonomies=None,
+        mapped_hgnc_names=None,
         accession_gene_names=(),
         published=False,
+        num_variants=0,
     ):
         counter["n"] += 1
         target_genes: list[TargetGene] = []
 
-        if taxonomies is not None and not isinstance(taxonomies, (list, tuple)):
-            taxonomies = [taxonomies] * len(gene_names)
-
         for i, name in enumerate(gene_names):
-            taxonomy = taxonomies[i] if taxonomies else None
             target_sequence = TargetSequence(
                 label=f"seq-{counter['n']}-{i}",
                 sequence_type="dna",
                 sequence="ATGCAT",
-                taxonomy=taxonomy,
             )
-            target_genes.append(TargetGene(name=name, category="protein_coding", target_sequence=target_sequence))
+            target_genes.append(
+                TargetGene(
+                    name=name,
+                    category="protein_coding",
+                    target_sequence=target_sequence,
+                    mapped_hgnc_name=mapped_hgnc_names[i] if mapped_hgnc_names else None,
+                )
+            )
 
         for name in accession_gene_names:
             target_genes.append(
@@ -189,6 +172,7 @@ def make_score_set(session, sample_experiment, sample_user, sample_license):
             created_by=sample_user,
             license=sample_license,
             published_date=date(2024, 1, 1) if published else None,
+            num_variants=num_variants,
             target_genes=target_genes,
         )
         session.add(score_set)

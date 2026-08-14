@@ -1,34 +1,49 @@
 """Bulk-drive map + annotate pipelines across a cohort of score sets.
 
 Unlike run_pipeline.py (exactly one score set per invocation), this script selects a
-cohort of score sets, orders it to exploit ClinGen's 24h Allele Registry cache, bounds
-concurrency against a campaign-wide in-flight window, skips work already done, and
-reports per-score-set outcomes.
+cohort of score sets, clusters it by gene so co-running pipelines share ClinGen Allele
+Registry lookups, bounds concurrency against a campaign-wide in-flight window, skips
+work already done, and reports per-score-set outcomes.
+
+The ClinGen cache has a 24h TTL, so the throughput lever is *what runs together*, not
+just how much runs at once: pipelines assaying the same gene resolve overlapping
+alleles, and every hit after the first is free. Cohort entries are therefore grouped
+into gene clusters (see cluster_cohort) and slots are filled one cluster at a time.
 
 This is a windowed top-up driver, not a long-lived babysitter: each invocation refills
-the in-flight window up to --concurrency in gene order, prints campaign status, and
-exits. Re-invoke it (by hand, cron, or /loop) to keep driving progress; the heavy
-pipeline work happens entirely in the worker, with the Pipeline/JobRun tables as
-durable state.
+the in-flight window up to --concurrency, prints campaign status, and exits. Re-invoke
+it (by hand, cron, or /loop) to keep driving progress; the heavy pipeline work happens
+entirely in the worker, with the Pipeline/JobRun tables as durable state.
 
 Usage:
     # Preview what would be enqueued, without enqueuing anything.
     poetry run python -m mavedb.scripts.run_score_set_pipelines map_annotate_score_set \\
         --collection-urn urn:mavedb:collection-0000001 --published-only --dry-run
 
-    # Drive up to 4 concurrent pipelines for every published human score set.
+    # Drive up to 4 concurrent pipelines, cache-coherently, over published score sets.
     poetry run python -m mavedb.scripts.run_score_set_pipelines map_annotate_score_set \\
-        --taxonomy-id 9606 --published-only --concurrency 4
+        --published-only --concurrency 4
 
     # Get every score set a CAID first (fast), before annotating.
     poetry run python -m mavedb.scripts.run_score_set_pipelines map_annotate_score_set \\
         --phase caid --collection-urn urn:mavedb:collection-0000001
 
+    # Run one gene you already know, no cohort files involved.
+    poetry run python -m mavedb.scripts.run_score_set_pipelines map_annotate_score_set \\
+        --gene BRCA1 --concurrency 4
+
+    # Plan only: inspect the gene clusters and write one URN file per cluster.
+    poetry run python -m mavedb.scripts.run_score_set_pipelines \\
+        --published-only --emit-cohorts --cohort-out ./cohorts
+
     poetry run python -m mavedb.scripts.run_score_set_pipelines --list
 """
 
+import dataclasses
 import datetime
 import logging
+import os
+import re
 import sys
 from typing import Literal, Optional, Sequence
 
@@ -47,9 +62,6 @@ from mavedb.models.enums.job_pipeline import PipelineStatus
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_set import ScoreSet
-from mavedb.models.target_gene import TargetGene
-from mavedb.models.target_sequence import TargetSequence
-from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
 from mavedb.scripts.run_pipeline import _print_available_pipelines
 from mavedb.worker.lib.managers.utils import arq_job_id
@@ -57,21 +69,13 @@ from mavedb.worker.settings import RedisWorkerSettings
 
 logger = logging.getLogger(__name__)
 
-# This script owns its own terminal/in-flight classification rather than importing
+# This script owns its own in-flight set rather than importing
 # mavedb.worker.lib.managers.constants' TERMINAL_PIPELINE_STATUSES/CANCELLABLE_PIPELINE_STATUSES:
 # those lists are defined for the worker's cancellability semantics, and while they
 # currently happen to partition PipelineStatus the same way we need, coupling to them
 # would mean a worker-motivated change could silently change this script's throttling
-# behavior. classify_status asserts exhaustiveness so any future 8th status is caught
-# loudly rather than defaulting.
-_TERMINAL_STATUSES = frozenset(
-    {
-        PipelineStatus.SUCCEEDED,
-        PipelineStatus.FAILED,
-        PipelineStatus.PARTIAL,
-        PipelineStatus.CANCELLED,
-    }
-)
+# behavior. A new PipelineStatus that should count against concurrency has to be added
+# here explicitly.
 _IN_FLIGHT_STATUSES = frozenset({PipelineStatus.CREATED, PipelineStatus.RUNNING, PipelineStatus.PAUSED})
 
 PRESET_JOB_KEYS: dict[str, frozenset[str]] = {
@@ -97,19 +101,6 @@ EnqueueDecision = Literal["enqueue", "skip_current", "skip_in_flight", "skip_cap
 # ---------------------------------------------------------------------------
 
 
-def classify_status(status: PipelineStatus) -> Literal["terminal", "in_flight"]:
-    """Classify a PipelineStatus as terminal or in-flight.
-
-    Raises ValueError on an unrecognized status rather than silently defaulting,
-    so an unhandled future PipelineStatus member is caught immediately.
-    """
-    if status in _TERMINAL_STATUSES:
-        return "terminal"
-    if status in _IN_FLIGHT_STATUSES:
-        return "in_flight"
-    raise ValueError(f"Unrecognized PipelineStatus: {status!r}")
-
-
 def is_failure(status: PipelineStatus) -> bool:
     """CANCELLED is a terminal, intentional outcome, not a failure."""
     return status in (PipelineStatus.FAILED, PipelineStatus.PARTIAL)
@@ -132,18 +123,89 @@ def is_current(
     return finished_at.astimezone(datetime.timezone.utc).date() >= current_since
 
 
-def normalize_gene(name: str) -> str:
-    return name.strip().casefold()
+CLUSTER_KEY_UNKNOWN = ""
 
 
-def grouping_key(normalized_gene_names: Sequence[str]) -> str:
-    return min(normalized_gene_names) if normalized_gene_names else ""
+@dataclasses.dataclass(frozen=True)
+class CohortEntry:
+    """One score set, the gene symbols it assays, and the cluster it was assigned to."""
+
+    score_set: ScoreSet
+    symbols: frozenset[str]
+    cluster_key: str
 
 
-def order_cohort(items: list[tuple[ScoreSet, list[str]]]) -> list[tuple[ScoreSet, list[str]]]:
-    """Stable sort by (grouping_key(genes), urn) to cluster gene-adjacent score sets
-    together, exploiting ClinGen's 24h cache for shared variants/alleles."""
-    return sorted(items, key=lambda item: (grouping_key(item[1]), item[0].urn or ""))
+def extract_symbol(name: str) -> str:
+    """The first word of a target gene name, casefolded.
+
+    Curator-authored names put the symbol first and the decoration after it ("BRCA1
+    RING domain", "TERT promoter", "TP53 (P72R)"), so the first word is the symbol
+    often enough to be worth nothing more elaborate. Names that lead with something
+    else just cluster on their own, which costs a missed cache share rather than
+    pooling score sets that have no alleles in common.
+
+    Returns "" for a blank name; callers treat that as "gene unknown".
+    """
+    tokens = name.split()
+    return tokens[0].casefold() if tokens else ""
+
+
+def score_set_symbols(score_set: ScoreSet) -> frozenset[str]:
+    """The gene symbols a score set assays, one per target gene.
+
+    mapped_hgnc_name is authoritative when the mapper has populated it, and is used
+    *instead of* the curator-authored name rather than alongside it. Including both
+    would let a vague name bridge unrelated clusters: two score sets both named "Ras"
+    but mapped to HRAS and KRAS share no alleles, and unioning them through the shared
+    "ras" token would pool cohorts that get no cache benefit from running together.
+    """
+    symbols = {
+        extract_symbol(target_gene.mapped_hgnc_name or target_gene.name or "") for target_gene in score_set.target_genes
+    }
+    return frozenset(symbol for symbol in symbols if symbol)
+
+
+def cluster_cohort(score_sets: Sequence[ScoreSet]) -> list[CohortEntry]:
+    """Assign each score set to a gene cluster, then order by (cluster_key, urn).
+
+    This ordering is what makes slots cache-coherent: plan_enqueue spends them in cohort
+    order, so a window stays on one gene until that gene is exhausted.
+
+    A multi-target score set is filed under its alphabetically first symbol. Score sets
+    with no recoverable symbol get CLUSTER_KEY_UNKNOWN and sort last — they share no gene
+    with each other, so pooling them buys nothing and they are fill-in work for slots the
+    real clusters left over.
+    """
+    entries = []
+    for score_set in score_sets:
+        symbols = score_set_symbols(score_set)
+        entries.append(
+            CohortEntry(
+                score_set=score_set,
+                symbols=symbols,
+                cluster_key=min(symbols) if symbols else CLUSTER_KEY_UNKNOWN,
+            )
+        )
+    return sorted(
+        entries,
+        key=lambda entry: (
+            entry.cluster_key == CLUSTER_KEY_UNKNOWN,
+            entry.cluster_key,
+            entry.score_set.urn or "",
+        ),
+    )
+
+
+def filter_by_gene(ordered_cohort: Sequence[CohortEntry], gene_symbols: Sequence[str]) -> list[CohortEntry]:
+    """Narrow the cohort to score sets assaying any of gene_symbols.
+
+    Matches on the entry's full symbol set rather than its cluster key, so a
+    [BRCA1, BARD1] score set is found by --gene BRCA1 even though it clusters under
+    bard1. Inputs run through extract_symbol, so "BRCA1", "brca1" and a stray
+    "BRCA1 exon 11" all resolve to the same thing.
+    """
+    wanted = {extract_symbol(symbol) for symbol in gene_symbols} - {""}
+    return [entry for entry in ordered_cohort if entry.symbols & wanted]
 
 
 def effective_pipeline_name(pipeline_name: str, phase: Optional[str]) -> str:
@@ -187,7 +249,7 @@ def build_custom_pipeline_def(
 
 
 def plan_enqueue(
-    ordered_cohort: list[tuple[ScoreSet, list[str]]],
+    ordered_cohort: Sequence[CohortEntry],
     *,
     in_flight_score_set_ids: set[int],
     current_score_set_ids: set[int],
@@ -196,34 +258,30 @@ def plan_enqueue(
 ) -> list[tuple[ScoreSet, str, EnqueueDecision]]:
     """Single source of truth for both --dry-run output and the real enqueue loop.
 
+    Slots are spent in cohort order, which cluster_cohort has already grouped by gene:
+    a window therefore stays on one gene until that gene is exhausted, rather than
+    splitting its concurrency across two genes where half the running pipelines warm a
+    ClinGen cache the other half never reads.
+
     Skip-current/skip-in-flight decisions never consume a slot; only "enqueue" does.
     """
     plan: list[tuple[ScoreSet, str, EnqueueDecision]] = []
     remaining_slots = slots
     enqueued_count = 0
 
-    for score_set, genes in ordered_cohort:
-        key = grouping_key(genes)
+    for entry in ordered_cohort:
+        score_set = entry.score_set
 
         if score_set.id in current_score_set_ids:
-            plan.append((score_set, key, "skip_current"))
-            continue
-
-        if score_set.id in in_flight_score_set_ids:
-            plan.append((score_set, key, "skip_in_flight"))
-            continue
-
-        if remaining_slots <= 0:
-            plan.append((score_set, key, "skip_cap"))
-            continue
-
-        if limit is not None and enqueued_count >= limit:
-            plan.append((score_set, key, "skip_cap"))
-            continue
-
-        plan.append((score_set, key, "enqueue"))
-        remaining_slots -= 1
-        enqueued_count += 1
+            plan.append((score_set, entry.cluster_key, "skip_current"))
+        elif score_set.id in in_flight_score_set_ids:
+            plan.append((score_set, entry.cluster_key, "skip_in_flight"))
+        elif remaining_slots <= 0 or (limit is not None and enqueued_count >= limit):
+            plan.append((score_set, entry.cluster_key, "skip_cap"))
+        else:
+            plan.append((score_set, entry.cluster_key, "enqueue"))
+            remaining_slots -= 1
+            enqueued_count += 1
 
     return plan
 
@@ -239,8 +297,6 @@ def resolve_cohort(
     explicit_urns: Optional[list[str]],
     collection_urn: Optional[str],
     published_only: bool,
-    taxonomy_id: Optional[int],
-    organism: Optional[str],
 ) -> list[ScoreSet]:
     """Resolve the cohort of score sets targeted by this invocation.
 
@@ -248,11 +304,7 @@ def resolve_cohort(
     Callers must refuse to run (see main()) when every filter is empty, rather than
     silently operating over every score set in MaveDB.
     """
-    query = select(ScoreSet).options(
-        selectinload(ScoreSet.target_genes)
-        .selectinload(TargetGene.target_sequence)
-        .selectinload(TargetSequence.taxonomy)
-    )
+    query = select(ScoreSet).options(selectinload(ScoreSet.target_genes))
 
     if explicit_urns is not None:
         query = query.where(ScoreSet.urn.in_(explicit_urns))
@@ -267,27 +319,7 @@ def resolve_cohort(
     if published_only:
         query = query.where(ScoreSet.published_date.isnot(None))
 
-    needs_distinct = False
-    if taxonomy_id is not None or organism:
-        query = (
-            query.join(TargetGene, TargetGene.score_set_id == ScoreSet.id)
-            .join(TargetSequence, TargetSequence.id == TargetGene.target_sequence_id)
-            .join(Taxonomy, Taxonomy.id == TargetSequence.taxonomy_id)
-        )
-        if taxonomy_id is not None:
-            query = query.where(Taxonomy.code == taxonomy_id)
-        if organism:
-            query = query.where(Taxonomy.organism_name == organism)
-        needs_distinct = True
-
-    if needs_distinct:
-        query = query.distinct()
-
     return list(db.scalars(query).all())
-
-
-def build_cohort_items(score_sets: list[ScoreSet]) -> list[tuple[ScoreSet, list[str]]]:
-    return [(ss, [normalize_gene(tg.name) for tg in ss.target_genes]) for ss in score_sets]  # type: ignore[arg-type]
 
 
 def _pipeline_score_set_query(*, tracked_name: str, statuses: Optional[Sequence[PipelineStatus]]):
@@ -448,6 +480,76 @@ async def enqueue_pipeline(
     return EnqueueOutcome(ok=True, message=f"Enqueued pipeline id={pipeline.id}, job={job.job_id}")
 
 
+# ---------------------------------------------------------------------------
+# Cohort builder
+# ---------------------------------------------------------------------------
+
+
+def group_clusters(ordered_cohort: Sequence[CohortEntry]) -> list[tuple[str, list[CohortEntry]]]:
+    """Group the cohort into (cluster_key, entries), largest cluster first.
+
+    Size is the whole ranking signal: the more score sets on one gene, the more ClinGen
+    lookups amortize across a single warm-up. The unknown-gene cluster sorts last, since
+    its members share no gene with each other and pooling them buys nothing.
+    """
+    grouped: dict[str, list[CohortEntry]] = {}
+    for entry in ordered_cohort:
+        grouped.setdefault(entry.cluster_key, []).append(entry)
+
+    return sorted(
+        grouped.items(),
+        key=lambda item: (item[0] == CLUSTER_KEY_UNKNOWN, -len(item[1]), item[0]),
+    )
+
+
+def render_cluster_table(clusters: Sequence[tuple[str, list[CohortEntry]]]) -> str:
+    lines = [
+        f"{len(clusters)} gene cluster(s), largest first:",
+        f"{'CLUSTER':<20} {'SETS':>5} {'VARIANTS':>10}  GENES",
+    ]
+    for cluster_key, entries in clusters:
+        variants = sum(entry.score_set.num_variants or 0 for entry in entries)
+        genes = ", ".join(sorted({symbol for entry in entries for symbol in entry.symbols})) or "(unknown)"
+        lines.append(f"{cluster_key or '(unknown)':<20} {len(entries):>5} {variants:>10}  {genes}")
+    return "\n".join(lines)
+
+
+def cohort_filename(cluster_key: str) -> str:
+    """Filesystem-safe name for a cluster's URN file. Gene symbols can carry dots and
+    primes ("Kir2.1", "5'"), so anything outside a conservative set is flattened —
+    which also keeps a stray separator from writing outside the target directory."""
+    if not cluster_key:
+        return "_unknown.urns"
+    return f"{re.sub(r'[^a-z0-9._-]+', '_', cluster_key)}.urns"
+
+
+def write_cohort_files(clusters: Sequence[tuple[str, list[CohortEntry]]], out_dir: str) -> tuple[list[str], list[str]]:
+    """Write one URN-per-line file per cluster, directly consumable by --urns-file.
+
+    Returns (written, stale) — stale being pre-existing .urns files this run did not
+    write, which a shrinking cohort leaves behind for --urns-file to consume. Raises
+    ValueError on two cluster keys that sanitize to one filename, rather than letting
+    the second write silently clobber the first.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    pre_existing = {name for name in os.listdir(out_dir) if name.endswith(".urns")}
+
+    written: list[str] = []
+    names: set[str] = set()
+    for cluster_key, entries in clusters:
+        name = cohort_filename(cluster_key)
+        if name in names:
+            raise ValueError(f"Two gene clusters share the cohort filename {name!r}; refusing to overwrite.")
+        names.add(name)
+        path = os.path.join(out_dir, name)
+        with open(path, "w") as handle:
+            for entry in entries:
+                handle.write(f"{entry.score_set.urn}\n")
+        written.append(path)
+
+    return written, sorted(os.path.join(out_dir, name) for name in pre_existing - names)
+
+
 def _format_age(now: datetime.datetime, created_at: Optional[datetime.datetime]) -> str:
     if created_at is None:
         return "-"
@@ -462,7 +564,7 @@ def render_report(
     db: Session,
     *,
     tracked_name: str,
-    ordered_cohort: list[tuple[ScoreSet, list[str]]],
+    ordered_cohort: Sequence[CohortEntry],
     in_flight_rows: list[tuple[Pipeline, Optional[int]]],
     current_since: Optional[datetime.date],
 ) -> tuple[str, list[str]]:
@@ -473,15 +575,17 @@ def render_report(
     lines: list[str] = []
     failed_urns: list[str] = []
 
-    score_set_ids: list[int] = [ss.id for ss, _ in ordered_cohort]  # type: ignore[misc]
+    score_set_ids: list[int] = [entry.score_set.id for entry in ordered_cohort]  # type: ignore[misc]
     latest_by_score_set = pipelines_by_score_set(db, tracked_name=tracked_name, score_set_ids=score_set_ids)
 
     lines.append(f"Cohort report for '{tracked_name}' ({len(ordered_cohort)} score sets):")
-    lines.append(f"{'URN':<40} {'STATUS':<12} ERROR")
-    for score_set, _genes in ordered_cohort:
-        pipelines = latest_by_score_set.get(score_set.id, [])  # type: ignore[arg-type]
+    lines.append(f"{'URN':<40} {'CLUSTER':<20} {'STATUS':<12} ERROR")
+    for entry in ordered_cohort:
+        score_set = entry.score_set
+        cluster = entry.cluster_key or "-"
+        pipelines = latest_by_score_set.get(entry.score_set.id, [])  # type: ignore[arg-type]
         if not pipelines:
-            lines.append(f"{score_set.urn:<40} {'no run':<12}")
+            lines.append(f"{score_set.urn:<40} {cluster:<20} {'no run':<12}")
             continue
 
         latest = max(pipelines, key=lambda p: p.created_at)
@@ -489,14 +593,14 @@ def render_report(
         if is_failure(latest.status):
             failed_urns.append(score_set.urn)  # type: ignore[arg-type]
             error = representative_error(db, latest.id) or ""
-        lines.append(f"{score_set.urn:<40} {str(latest.status):<12} {error}")
+        lines.append(f"{score_set.urn:<40} {cluster:<20} {str(latest.status):<12} {error}")
 
     lines.append("")
     lines.append(f"In-flight ('{tracked_name}'), {len(in_flight_rows)} pipeline(s):")
     if in_flight_rows:
         now = datetime.datetime.now(datetime.timezone.utc)
         lines.append(f"{'URN':<40} {'STATUS':<12} AGE")
-        score_set_by_id = {ss.id: ss for ss, _ in ordered_cohort}
+        score_set_by_id = {entry.score_set.id: entry.score_set for entry in ordered_cohort}
         for pipeline, score_set_id in in_flight_rows:
             urn = (
                 score_set_by_id[score_set_id].urn
@@ -527,15 +631,11 @@ def render_report(
 @click.option("--collection-urn", default=None, help="Only score sets in this collection.")
 @click.option("--published-only", is_flag=True, help="Only score sets with a published_date.")
 @click.option(
-    "--taxonomy-id",
-    type=int,
-    default=None,
-    help="Only score sets with a sequence-based target in this taxonomy (Taxonomy.code).",
-)
-@click.option(
-    "--organism",
-    default=None,
-    help="Only score sets with a sequence-based target for this organism (Taxonomy.organism_name).",
+    "--gene",
+    "genes",
+    multiple=True,
+    help="Only score sets assaying this gene symbol (repeatable). Matched against mapped_hgnc_name, "
+    "falling back to the first word of the target gene name.",
 )
 @click.option("--score-set-urn", "score_set_urns", multiple=True, help="Restrict to these URNs (repeatable).")
 @click.option(
@@ -560,6 +660,19 @@ def render_report(
 @click.option("--limit", type=int, default=None, help="Additional cap on this invocation's enqueue count.")
 @click.option("--dry-run", is_flag=True, help="Print the planned decision per cohort entry; enqueue nothing.")
 @click.option(
+    "--emit-cohorts",
+    is_flag=True,
+    help="Plan only: print the gene clusters in the cohort, largest first, and exit. "
+    "PIPELINE_NAME is optional in this mode.",
+)
+@click.option(
+    "--cohort-out",
+    type=click.Path(file_okay=False, writable=True),
+    default=None,
+    help="With --emit-cohorts, write one URN-per-line file per cluster into this directory "
+    "(consumable by --urns-file).",
+)
+@click.option(
     "--failure-out",
     type=click.Path(dir_okay=False, writable=True),
     default=None,
@@ -579,26 +692,37 @@ async def main(
     phase: Optional[str],
     collection_urn: Optional[str],
     published_only: bool,
-    taxonomy_id: Optional[int],
-    organism: Optional[str],
+    genes: tuple[str, ...],
     score_set_urns: tuple[str, ...],
     urns_file: Optional[str],
     current_since: Optional[datetime.datetime],
     concurrency: int,
     limit: Optional[int],
     dry_run: bool,
+    emit_cohorts: bool,
+    cohort_out: Optional[str],
     failure_out: Optional[str],
     updater_id: Optional[int],
     extra_params: tuple[tuple[str, str], ...],
 ) -> None:
     """Bulk-drive PIPELINE_NAME across a cohort of score sets. Use --list to see available pipelines."""
-    if list_pipelines or not pipeline_name:
+    if list_pipelines or not (pipeline_name or emit_cohorts):
         _print_available_pipelines()
         return
 
-    if pipeline_name not in PIPELINE_DEFINITIONS:
+    if pipeline_name is not None and pipeline_name not in PIPELINE_DEFINITIONS:
         click.echo(f"Unknown pipeline: {pipeline_name}", err=True)
         click.echo(f"Available: {', '.join(PIPELINE_DEFINITIONS.keys())}", err=True)
+        sys.exit(1)
+
+    if cohort_out and not emit_cohorts:
+        click.echo("--cohort-out only applies with --emit-cohorts.", err=True)
+        sys.exit(1)
+
+    # "Current" is defined against a tracked pipeline name, which --emit-cohorts makes
+    # optional: the cohort shape it reports is a pipeline-independent question.
+    if emit_cohorts and current_since:
+        click.echo("--current-since does not apply with --emit-cohorts.", err=True)
         sys.exit(1)
 
     explicit_urns: Optional[list[str]] = None
@@ -609,14 +733,56 @@ async def main(
                 urns.extend(line.strip() for line in f if line.strip())
         explicit_urns = urns
 
-    if not (explicit_urns or collection_urn or published_only or taxonomy_id is not None or organism):
+    if not (explicit_urns or collection_urn or published_only or genes):
         click.echo(
             "Refusing to run with no cohort filter (--collection-urn, --score-set-urn, --urns-file, "
-            "--published-only, --taxonomy-id, --organism). Operating over every score set in MaveDB "
-            "is almost certainly not what you want.",
+            "--published-only, --gene). Operating over every score set in MaveDB is almost certainly "
+            "not what you want.",
             err=True,
         )
         sys.exit(1)
+
+    db = SessionLocal()
+
+    score_sets = resolve_cohort(
+        db,
+        explicit_urns=explicit_urns,
+        collection_urn=collection_urn,
+        published_only=published_only,
+    )
+
+    if explicit_urns is not None:
+        missing = set(explicit_urns) - {ss.urn for ss in score_sets}
+        for urn in sorted(missing):
+            click.echo(f"Requested URN not found (or excluded by other filters): {urn}", err=True)
+
+    ordered_cohort = cluster_cohort(score_sets)
+
+    if genes:
+        # --gene filters in Python rather than SQL. The mapped half is indexable (see
+        # routers.genes._gene_score_set_base_query), but the fallback is the first word of
+        # a free-text name, and the cohort is small enough that filtering here beats
+        # keeping a second, half-expressible copy of extract_symbol in SQL.
+        known_symbols = {symbol for entry in ordered_cohort for symbol in entry.symbols}
+        for symbol in sorted({extract_symbol(gene) for gene in genes} - {""} - known_symbols):
+            click.echo(f"No score set found for gene: {symbol}", err=True)
+        ordered_cohort = filter_by_gene(ordered_cohort, genes)
+
+    if emit_cohorts:
+        clusters = group_clusters(ordered_cohort)
+        click.echo(render_cluster_table(clusters))
+        if cohort_out:
+            written, stale = write_cohort_files(clusters, cohort_out)
+            click.echo("")
+            click.echo(f"Wrote {len(written)} cohort file(s) to {cohort_out}:")
+            for path in written:
+                click.echo(f"  {path}")
+            for path in stale:
+                click.echo(f"Stale cohort file left by an earlier plan, not rewritten: {path}", err=True)
+        db.close()
+        return
+
+    assert pipeline_name is not None  # Guaranteed by the --list / --emit-cohorts branch above.
 
     custom_pipeline: Optional[tuple[str, PipelineDefinition]] = None
     effective_name = effective_pipeline_name(pipeline_name, phase)
@@ -631,23 +797,6 @@ async def main(
         custom_pipeline = (effective_name, build_custom_pipeline_def(base_def, phase, subset_jobs))
         run_pipeline_name = None
 
-    db = SessionLocal()
-
-    score_sets = resolve_cohort(
-        db,
-        explicit_urns=explicit_urns,
-        collection_urn=collection_urn,
-        published_only=published_only,
-        taxonomy_id=taxonomy_id,
-        organism=organism,
-    )
-
-    if explicit_urns is not None:
-        missing = set(explicit_urns) - {ss.urn for ss in score_sets}
-        for urn in sorted(missing):
-            click.echo(f"Requested URN not found (or excluded by other filters): {urn}", err=True)
-
-    ordered_cohort = order_cohort(build_cohort_items(score_sets))
     current_since_date = current_since.date() if current_since else None
 
     current_score_set_ids: set[int] = set()
@@ -655,7 +804,7 @@ async def main(
         succeeded = pipelines_by_score_set(
             db,
             tracked_name=effective_name,
-            score_set_ids=[ss.id for ss, _ in ordered_cohort],  # type: ignore[misc]
+            score_set_ids=[entry.score_set.id for entry in ordered_cohort],  # type: ignore[misc]
             statuses=[PipelineStatus.SUCCEEDED],
         )
         for ss_id, pipelines in succeeded.items():
@@ -674,14 +823,16 @@ async def main(
         limit=limit,
     )
 
+    cluster_count = len({entry.cluster_key for entry in ordered_cohort})
     click.echo(f"Tracked pipeline name: {effective_name}")
     click.echo(
-        f"Cohort size: {len(ordered_cohort)}; in-flight: {len(in_flight_rows)}; concurrency: {concurrency}; slots available: {slots}"
+        f"Cohort size: {len(ordered_cohort)} across {cluster_count} gene cluster(s); "
+        f"in-flight: {len(in_flight_rows)}; concurrency: {concurrency}; slots available: {slots}"
     )
 
     if dry_run:
         for score_set, key, decision in plan:
-            click.echo(f"  [{decision:<14}] {score_set.urn}  (gene={key or '-'})")
+            click.echo(f"  [{decision:<14}] {score_set.urn}  (cluster={key or '-'})")
     elif any(decision == "enqueue" for _ss, _key, decision in plan):
         user_cache: dict[int, User] = {}
         redis = await create_pool(RedisWorkerSettings)
