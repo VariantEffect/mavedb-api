@@ -1,23 +1,22 @@
 """The variant page's measurements list — ``GET /clingen-alleles/{caid}/measurements``.
 
-Given a ClinGen allele id — a nucleotide ``CA`` or a protein ``PA`` — return every measurement related to
-it across sequence levels. Two measurements are related when their mapping records share an allele (in the
-mapping + reverse-translation graph). A ``CA`` anchors on its nt alleles; a ``PA`` on the protein allele.
-Each measurement is labelled by its own measured level relative to the query: ``direct`` (measured at the
-query), ``protein_consequence``, or ``nucleotide_encoding``.
+Given a ClinGen allele id, return every measurement related to it across sequence levels. Two measurements
+are related when their mapping records share an allele. A ``CA`` anchors on its nt alleles; a ``PA`` on the
+protein allele. Each measurement is labelled by its own measured level relative to the query: ``direct``
+(measured at the query), ``protein_consequence``, or ``nucleotide_encoding``.
 
-Example. Reference codon ``TTT`` (Phe200): both ``c.598T>C`` and the sibling ``c.600T>A`` encode
-``p.Phe200Leu``. Call them ``CA1``, ``CA2``, ``PA1`` — X assays ``c.598T>C`` (nt), Y assays
-``p.Phe200Leu`` (protein), Z assays ``c.600T>A`` (nt):
+Example. Reference codon ``TTT`` (Phe200): both ``c.598T>C`` and the encoding ``c.600T>A`` encode
+``p.Phe200Leu``. Call them ``CA1``, ``CA2``, ``PA1``. Score set X assays ``c.598T>C`` (nt), score set Y
+assays ``p.Phe200Leu`` (protein), score set Z assays ``c.600T>A`` (nt):
 
     query CA1  → X direct, Y protein_consequence, Z nucleotide_encoding
     query PA1  → Y direct, X and Z nucleotide_encoding
 
 A CA query reaches its protein consequence (Y) through the shared protein node ``PA1``. This is what makes
-Y reachable when a protein assay has not been reverse-translated: its record then links only the protein
-node, with no nt allele for the CA anchor to match, so the apex is the only path to it. The sibling Z is
-reached without the apex — reverse translation links every record to its full synonymous nt set, so Z's
-record already links ``CA1`` directly. There is no page/search distinction: every surface runs one query.
+Y reachable even when a protein assay has not been reverse-translated: its record then links only the
+protein node, with no nt allele for the CA anchor to match, so the apex is the only path to it. The
+encoding Z is reached without the apex: reverse translation links every record to its full synonymous nt set,
+so Z's record already links ``CA1`` directly.
 
 The protein-consequence step is resolved once, in :func:`_resolve_protein_apex`, which also measures it:
 a consequence resolving to more than one protein id (a data-integrity signal) is logged, and the number of
@@ -25,9 +24,10 @@ consequences reached with no reverse-translation data of their own is written to
 
 Authorization (``has_permission``, per ``lib/score_sets.py``): score-set READ gates whether a measurement
 appears; calibration READ gates only its inline classification. ``as_of`` reconstructs which records and
-links were live at a past instant; scores and calibrations are as-of-invariant.
+links were live at a past instant.
 
-Distinct from :func:`lib.variant_detail.get_variant_detail` — the record-scoped detail of one measurement.
+Distinct from :func:`lib.variant_detail.get_variant_detail`, which is the record-scoped detail of one
+measurement.
 """
 
 import logging
@@ -63,17 +63,15 @@ class MeasurementRelationship(str, Enum):
 
     direct = "direct"  # assayed at the queried allele
     protein_consequence = "protein_consequence"  # protein measurement of a CA's consequence
-    # an nt measurement of a PA's encoding, or a CA's sibling nt change (encodes the same protein)
-    nucleotide_encoding = "nucleotide_encoding"
+    nucleotide_encoding = "nucleotide_encoding"  # an nt measurement of the protein apex's encoding
 
 
 @dataclass(frozen=True)
 class AlleleMeasurement:
-    """One measurement in the query's equivalence class (transit; serialized by ``view_models``).
+    """One measurement in the query's equivalence class.
 
-    ``assay_level`` is where this measurement was assayed (always shown, the clinically load-bearing
-    fact). ``preferred_classification`` is the readable classification the UI defaults to (primary-first
-    cascade, RUO excluded; ``None`` when none applies or the calibration is unreadable).
+    ``assay_level`` is the sequence level at which this measurement was assayed. ``preferred_classification``
+    is the readable classification the UI will default to.
     """
 
     variant_urn: str
@@ -94,6 +92,11 @@ class _ProteinApex:
     """Protein consequence(s) co-membered with a CA anchor's nt alleles — the shared node a CA query
     reaches protein measurements through. One PAID is well-formed; ``len(caids) > 1`` is a data-quality
     signal (a duplicate or divergent consequence). ``unregistered`` counts apex rows without a PAID yet.
+
+    nt→protein is deterministic only per (assembly, transcript), and the anchor includes the CAID's
+    transcript-agnostic genomic allele. So records targeting different transcripts of one gene reach
+    different consequences legitimately, and >1 PAID is a signal to investigate rather than proof of
+    corruption.
     """
 
     allele_ids: list[int]
@@ -107,9 +110,8 @@ def _preferred_classification(
     """The variant's preferred *readable* functional classification, or ``None``.
 
     Mirrors the UI's calibration cascade — ``primary`` then ``investigator_provided``, strongest evidence
-    within a tier, then ``id`` for determinism. RUO calibrations are excluded outright (never shown here),
-    and calibrations the caller can't read are skipped rather than blanking a readable call. Kept in sync
-    with the UI's ``activeCalibrationOptions`` default.
+    within a tier, then ``id`` for determinism. RUO calibrations are excluded outright, and calibrations
+    the caller can't read are skipped rather than blanking a readable call.
     """
     candidates = [
         (classification, calibration)
@@ -191,9 +193,8 @@ def get_allele_measurements(
     """The measurements in ``clingen_allele_id``'s equivalence class, or ``[]`` if it resolves to no live
     record.
 
-    A CA query returns ``direct`` measurements, its ``protein_consequence`` (reached through the protein
-    apex, see the module docstring), and the ``nucleotide_encoding`` siblings. A PA query returns its
-    ``direct`` protein measurements and their ``nucleotide_encoding`` encodings.
+    A CA query returns ``direct`` measurements, its ``protein_consequence``, and the ``nucleotide_encoding``
+    members. A PA query returns its ``direct`` protein measurements and their ``nucleotide_encoding`` encodings.
     """
     anchor = db.execute(select(Allele.id, Allele.level).where(Allele.clingen_allele_id == clingen_allele_id)).all()
     if not anchor:
@@ -203,13 +204,14 @@ def get_allele_measurements(
     entry_is_protein = any(row.level == SequenceLevel.protein.value for row in anchor)
 
     # A CA query always includes its protein consequence, reached through the shared protein node, so it is
-    # reachable even when a protein assay isn't reverse-translated yet (its record then links only the
-    # protein node). Transitive, so it's measured: cardinality >1 logged, provenance tallied below. No-op
-    # for a PA (already anchored on the protein).
+    # reachable even when a protein assay isn't reverse-translated yet. This is calculated transitively, but
+    # the calculation should be deterministic.
     apex: Optional[_ProteinApex] = None
     if not entry_is_protein:
         apex = _resolve_protein_apex(db, anchor_ids, as_of=as_of)
         anchor_ids += apex.allele_ids
+
+        # Warn if multiple distinct protein apexes were resolved for this CA.
         if len(apex.caids) > 1:
             logger.warning(
                 msg=(

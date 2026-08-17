@@ -79,8 +79,8 @@ def get_allele(
     *,
     response: Response,
     identifier: str = Path(
-        description="A GA4GH VRS digest (one allele), or a ClinGen allele id — a nucleotide CAID (the "
-        "nt-canonical change, its genomic + coding frames) or a protein PAID.",
+        description="A GA4GH VRS digest (one allele), or a ClinGen allele id: a nucleotide CAID "
+        "(the nt-canonical change, its genomic + coding frames) or a protein PAID.",
         json_schema_extra={"example": "ga4gh:VA.0123abcd"},
     ),
     as_of: Optional[datetime] = Query(
@@ -96,7 +96,7 @@ def get_allele(
 ):
     """Fetch the detail envelope for a deduplicated allele, by any of its identifiers.
 
-    The allele-grain sibling of ``GET /variants/{urn}``. Flat anchor identity (digest, level, HGVS,
+    The allele-grain counterpart of ``GET /variants/{urn}``. Flat anchor identity (digest, level, HGVS,
     ClinGen id, spec-pure VRS) plus the cross-layer equivalence class (each member labelled relative to
     the focus) and a digest-keyed annotation map. The ``identifier`` may be:
 

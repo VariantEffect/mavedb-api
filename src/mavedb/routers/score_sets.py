@@ -2591,6 +2591,8 @@ async def get_clinical_controls_for_score_set(
     )
 
     if not controls:
+        # Can legitimately fire even for a (db_name, db_version) sourced from `.../options`: liveness
+        # is re-evaluated per call, see that endpoint's docstring.
         logger.info(
             msg="No clinical control variants matching the provided filters are associated with the requested score set.",
             extra=logging_context(),
@@ -2647,6 +2649,12 @@ async def get_clinical_controls_options_for_score_set(
 ) -> list[dict[str, Union[str, list[str]]]]:
     """
     Fetch clinical control options for a given score set.
+
+    Each ``(db_name, db_version)`` pair returned here was live at the moment of this call, but
+    liveness is re-evaluated independently per request. A pair fetched here can have its backing
+    ``ClinvarAlleleLink`` retired before a later call to ``GET /score-sets/{urn}/clinical-controls``
+    filters on it, in which case that call 404s. Pin an explicit ``as_of`` on both calls to avoid this
+    possibility.
     """
     save_to_logging_context(
         {

@@ -4,9 +4,8 @@ A score set's clinical controls are the ClinVar assertions whose allele is live-
 score set's variants, reached by walking ``ClinvarAlleleLink → Allele → MappingRecordAllele →
 MappingRecord → Variant`` with every ``ValidTime`` hop constrained to the same instant (``as_of``,
 defaulting to currently-live). Both serving endpoints — the controls list
-(``GET /score-sets/{urn}/clinical-controls``) and its options facet (``.../options``) — walk that same
-chain, so it lives here once: the two cannot drift, and the ``as_of`` semantics are defined in a single
-place.
+(``GET /score-sets/{urn}/clinical-controls``) and its options facet (``.../options``) walk the chain
+that is defined here.
 """
 
 from dataclasses import dataclass
@@ -30,11 +29,13 @@ SelectT = TypeVar("SelectT", bound=Select[Any])
 class ControlVariantLink:
     """One (score-set variant, annotated allele) pair that a clinical control reaches.
 
-    ``allele_digest`` is the VRS digest of the allele the control actually annotates — the entity
-    ClinVar made its call on. A client applies **D78 precedence** by comparing it to the variant's
-    authoritative ``assay_level_digest``: a match is a call *on the assayed level* (which wins), a
-    mismatch is a call on a *projection sibling* (the fallback that only fires when the assayed level
-    is unannotated). Without the digest the two are indistinguishable and precedence is unimplementable.
+    ``allele_digest`` is the VRS digest of the allele the control annotates. A client compares it to
+    the variant's authoritative ``assay_level_digest``:
+      - a match is a call *on the assayed level* (this call takes precedence)
+      - a mismatch is a call on an *encoding* level (this call is only used when the assayed level is
+        unannotated).
+
+    Without the digest, the two are indistinguishable and precedence is unimplementable.
     """
 
     variant_urn: str
@@ -68,9 +69,9 @@ def get_clinical_controls_with_variant_urns(
     db_version: Optional[str] = None,
 ) -> list[tuple[ClinvarControl, list[ControlVariantLink]]]:
     """The live ClinVar controls for a score set, each paired with the score-set variants that link to
-    it — every link carrying the digest of the allele the control annotates (see
-    :class:`ControlVariantLink`). Optionally narrowed to one control DB (``db_name``) and/or release
-    (``db_version``). Controls come back in first-seen order; each control's links preserve query order."""
+    it. Every link carrying the digest of the allele the control annotates (see :class:`ControlVariantLink`).
+    Optionally narrowed to one control DB (``db_name``) and/or release (``db_version``). Controls come back
+    in first-seen order. Each control's links preserve query order."""
     stmt = _scope_to_live_score_set_controls(
         select(ClinvarControl, Variant.urn.label("variant_urn"), Allele.vrs_digest.label("allele_digest")),
         score_set_id,
@@ -84,8 +85,8 @@ def get_clinical_controls_with_variant_urns(
     controls: dict[int, ClinvarControl] = {}
     links_by_control: dict[int, list[ControlVariantLink]] = {}
 
-    # A persisted variant reached through the join always carries a URN (unique, set at creation);
-    # narrow the nullable column so the URN matches the view model's required `str`.
+    # A persisted variant reached through the join always carries a URN. Narrow the nullable column so the
+    # URN matches the view model's required `str`. TODO(#372)
     for ctrl, variant_urn, allele_digest in db.execute(stmt).tuples():
         if variant_urn is None:
             continue
@@ -102,8 +103,7 @@ def get_clinical_control_options(
     db: Session, score_set_id: int, *, as_of: Optional[datetime] = None
 ) -> list[tuple[str, list[str]]]:
     """The options facet: each control DB live-linked to the score set, paired with its available
-    versions newest-first. Options are returned even for pairwise groupings that may have no variants
-    when ultimately requested together (the list endpoint 404s that case)."""
+    versions newest-first."""
     stmt = _scope_to_live_score_set_controls(
         select(ClinvarControl.db_name, ClinvarControl.db_version), score_set_id, as_of
     )
