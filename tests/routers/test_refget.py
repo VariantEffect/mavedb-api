@@ -3,6 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
+pytestmark = pytest.mark.unit
+
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
@@ -10,6 +12,24 @@ biocommons = pytest.importorskip("biocommons")
 bioutils = pytest.importorskip("bioutils")
 
 from tests.helpers.constants import TEST_SEQREPO_INITIAL_STATE, VALID_ENSEMBL_IDENTIFIER
+
+
+@pytest.mark.parametrize(
+    "env_value,expected_data_version",
+    [(None, "unknown"), ("/some/path/seqrepo/20240101", "20240101")],
+)
+def test_service_info(client, monkeypatch, env_value, expected_data_version):
+    if env_value is None:
+        monkeypatch.delenv("HGVS_SEQREPO_DIR", raising=False)
+    else:
+        monkeypatch.setenv("HGVS_SEQREPO_DIR", env_value)
+
+    resp = client.get("/api/v1/refget/sequence/service-info")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "MaveDB API"
+    assert data["seqrepo_data_version"] == expected_data_version
+    assert data["refget"]["identifier_types"] == ["refseq", "ensembl"]
 
 
 @pytest.mark.parametrize("entry", TEST_SEQREPO_INITIAL_STATE)
@@ -94,6 +114,16 @@ def test_get_sequence_only_end(client, entry):
     resp = client.get(f"/api/v1/refget/sequence/{alias}", params={"end": end})
     assert resp.status_code == 200
     assert resp.text == metadata["seq"][:end]
+
+
+def test_get_sequence_range_header_and_query_params_conflict(client):
+    resp = client.get(
+        f"/api/v1/refget/sequence/{VALID_ENSEMBL_IDENTIFIER}",
+        params={"start": 1},
+        headers={"Range": "bytes=1-2"},
+    )
+    assert resp.status_code == 400
+    assert "Cannot use both start/end query parameters and Range header" in resp.text
 
 
 def test_get_sequence_invalid_query_range_only_start_negative(client):
