@@ -46,8 +46,45 @@ def test_get_sequence_multiple_ids(client):
         assert "Multiple sequences exist" in resp.text
 
 
+@pytest.mark.parametrize("entry", TEST_SEQREPO_INITIAL_STATE)
+def test_get_sequence_only_start(client, entry):
+    alias = list(entry.keys())[0]
+    metadata = list(entry.values())[0]
+    start = 1
+    resp = client.get(f"/api/v1/seqrepo/sequence/{alias}?start={start}")
+    assert resp.status_code == 200
+    assert resp.text == metadata["seq"][start:]
+
+
+@pytest.mark.parametrize("entry", TEST_SEQREPO_INITIAL_STATE)
+def test_get_sequence_only_end(client, entry):
+    alias = list(entry.keys())[0]
+    metadata = list(entry.values())[0]
+    end = 3
+    resp = client.get(f"/api/v1/seqrepo/sequence/{alias}?end={end}")
+    assert resp.status_code == 200
+    assert resp.text == metadata["seq"][:end]
+
+
 def test_get_sequence_invalid_coords(client):
     resp = client.get(f"/api/v1/seqrepo/sequence/{VALID_ENSEMBL_IDENTIFIER}?start=10&end=5")
+    assert resp.status_code == 422
+    assert "Invalid coordinates" in resp.text
+
+
+# Coordinates outside the sequence used to stream a truncated body under a 200 instead of being rejected.
+@pytest.mark.parametrize(
+    "query",
+    [
+        "start=10&end=12",
+        "start=1&end=12",
+        "start=10",
+        "end=12",
+        "start=-1&end=2",
+    ],
+)
+def test_get_sequence_coords_outside_sequence(client, query):
+    resp = client.get(f"/api/v1/seqrepo/sequence/{VALID_ENSEMBL_IDENTIFIER}?{query}")
     assert resp.status_code == 422
     assert "Invalid coordinates" in resp.text
 

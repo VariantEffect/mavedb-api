@@ -76,6 +76,78 @@ def test_get_sequence_with_range_query(client, entry):
     assert resp.text == metadata["seq"][start:end]
 
 
+@pytest.mark.parametrize("entry", TEST_SEQREPO_INITIAL_STATE)
+def test_get_sequence_only_start(client, entry):
+    alias = list(entry.keys())[0]
+    metadata = list(entry.values())[0]
+    start = 1
+    resp = client.get(f"/api/v1/refget/sequence/{alias}", params={"start": start})
+    assert resp.status_code == 200
+    assert resp.text == metadata["seq"][start:]
+
+
+@pytest.mark.parametrize("entry", TEST_SEQREPO_INITIAL_STATE)
+def test_get_sequence_only_end(client, entry):
+    alias = list(entry.keys())[0]
+    metadata = list(entry.values())[0]
+    end = 3
+    resp = client.get(f"/api/v1/refget/sequence/{alias}", params={"end": end})
+    assert resp.status_code == 200
+    assert resp.text == metadata["seq"][:end]
+
+
+def test_get_sequence_invalid_query_range_only_start_negative(client):
+    resp = client.get(f"/api/v1/refget/sequence/{VALID_ENSEMBL_IDENTIFIER}", params={"start": -1})
+    assert resp.status_code == 416
+    assert "Invalid coordinates" in resp.text
+    assert "Content-Range" in resp.headers
+
+
+def test_get_sequence_invalid_query_range_only_start_too_large(client):
+    resp = client.get(f"/api/v1/refget/sequence/{VALID_ENSEMBL_IDENTIFIER}", params={"start": 7})
+    assert resp.status_code == 416
+    assert "Invalid coordinates" in resp.text
+    assert "Content-Range" in resp.headers
+
+
+def test_get_sequence_invalid_query_range_only_end_too_large(client):
+    resp = client.get(f"/api/v1/refget/sequence/{VALID_ENSEMBL_IDENTIFIER}", params={"end": 10})
+    assert resp.status_code == 416
+    assert "Invalid coordinates" in resp.text
+    assert "Content-Range" in resp.headers
+
+
+@pytest.mark.parametrize(
+    "params,headers",
+    [
+        ({}, {}),
+        ({"start": 1, "end": 3}, {}),
+        ({"start": 1}, {}),
+        ({"end": 3}, {}),
+        ({}, {"Range": "bytes=1-3"}),
+    ],
+)
+def test_get_sequence_content_length_matches_body(client, params, headers):
+    resp = client.get(
+        f"/api/v1/refget/sequence/{VALID_ENSEMBL_IDENTIFIER}",
+        params=params,
+        # Accept-Encoding: identity is required — GZipMiddleware strips Content-Length from compressed responses.
+        headers={**headers, "Accept-Encoding": "identity"},
+    )
+    assert resp.status_code in (200, 206)
+    assert resp.headers["Content-Length"] == str(len(resp.content))
+
+
+def test_get_sequence_range_header_reports_requested_span(client):
+    resp = client.get(
+        f"/api/v1/refget/sequence/{VALID_ENSEMBL_IDENTIFIER}",
+        headers={"Range": "bytes=1-2", "Accept-Encoding": "identity"},
+    )
+    assert resp.status_code == 206
+    assert resp.headers["Content-Range"] == "bytes 1-2/4"
+    assert resp.headers["Content-Length"] == "2"
+
+
 def test_get_sequence_not_found(client):
     resp = client.get("/api/v1/refget/sequence/notfound")
     assert resp.status_code == 404
