@@ -218,7 +218,7 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
                     Disposition.NOT_APPLICABLE,
                     EventReason.PROTEIN_LEVEL_ALLELE,
                     source_version=clinvar_version,
-                    error_message="Protein-level alleles are not linked to ClinVar; see nucleotide siblings.",
+                    error_message="Protein-level alleles are not linked to ClinVar; see the nucleotide encodings.",
                     metadata={"clingen_allele_id": caid},
                 )
                 continue

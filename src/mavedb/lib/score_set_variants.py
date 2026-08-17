@@ -1,30 +1,22 @@
-"""The lean whole-set view backing the score-set page.
+"""Lean whole-set view backing the score-set page (table, heatmap, score/effect histograms).
 
-The score-set table, heatmap, and score/effect histograms all compose from one pre-chewed per-variant
-dataset. This module assembles that dataset for an entire score set in two O(N) bulk queries — a base
-per-variant projection plus a standalone protein-HGVS projection stitched back in Python — and returns
-one record per variant. (The protein projection is deliberately *not* a join: folded in, its opaque
-cardinality drives the SQL planner into an O(N^2) per-variant rescan; see ``get_lean_score_set_variants``.)
+Assembles one record per variant in two O(N) bulk queries: a base per-variant projection, plus a
+separate protein-HGVS query stitched back in Python (see :func:`get_protein_hgvs_by_record` for why
+it's split out).
 
-Each record carries the **submitted** HGVS the heatmap's frame toggle needs (``hgvs_nt``/``hgvs_pro``/
-``hgvs_splice``, the depositor's target frame) plus the **mapped** (reference frame) representation as a
-``MappedTriple`` — one canonical HGVS per level (``genomic`` / ``cdna`` / ``protein``) and an
-``assay_level`` pointer naming which slot is the measured one. ``mapped[assay_level]`` is the measured
-representation. Only the *canonical* projection is served here — never the reverse-translation
-fan-out (that lives in the detail endpoint), so a nucleotide assay fills all three slots while a protein
-assay fills only ``protein`` (``cdna``/``genomic`` stay ``None`` — the c/g fan-out is ambiguous, so no
-pick is fabricated). Each HGVS rides as an ``HgvsField``: the string (canonical, lossless) plus a parsed
-``position``/``ref``/``alt`` block when it is a placeable simple substitution (the heatmap grid; ``None``
-for splice/indels/multivariants).
+Each record carries the **submitted** HGVS (``hgvs_nt``/``hgvs_pro``/``hgvs_splice``, the depositor's
+target frame) and the **mapped** (reference-frame) HGVS as a ``MappedTriple`` — one canonical HGVS per
+level (``genomic``/``cdna``/``protein``), with ``assay_level`` naming the measured slot. A nucleotide
+assay fills all three slots; a protein assay fills only ``protein`` (the c/g fan-out is ambiguous, so
+no pick is fabricated). This is the canonical projection only, never the reverse-translation fan-out.
 
-The canonical nucleotide pair comes from the **authoritative** (measured) allele — its digest, ClinGen
-id, and VEP consequence — plus one indexed join to its ``projection_group`` sibling at the other
-nucleotide level (still **one row per variant**: a group has ≤2 members, so the authoritative has ≤1
-sibling). The protein slot is the separate ``DISTINCT ON`` subquery. Where ``projection_group`` is
-unpopulated (pre-reverse-translation data) the sibling join returns null → the other nucleotide slot
-stays ``None`` and improves as data is re-processed. This view does not assemble Cat-VRS. ``as_of``
-reconstructs the annotation layer at a past instant over the variant's immutable scores/submitted HGVS;
-it defaults to the currently-live rows.
+The nucleotide pair comes from the authoritative (measured) allele plus its ``projection_group``
+partner at the other nucleotide level (a group has ≤2 members, so this stays one row per variant).
+Where ``projection_group`` is unpopulated (pre-reverse-translation data), that slot is ``None`` until
+reprocessed. Does not assemble Cat-VRS.
+
+``as_of`` reconstructs the annotation layer at a past instant; submitted HGVS and scores are immutable
+and unaffected. Defaults to currently-live rows.
 """
 
 from dataclasses import dataclass
@@ -47,11 +39,10 @@ from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 
 @dataclass(frozen=True)
 class HgvsField:
-    """An HGVS expression plus its parsed simple-substitution block when representable.
+    """An HGVS string plus its parsed position/ref/alt when it's a placeable simple substitution.
 
-    ``hgvs`` is always present (canonical, lossless). ``position``/``ref``/``alt`` are populated only
-    when the expression is a single-locus substitution the heatmap can place; they stay ``None`` for
-    splice/intronic positions, indels, frameshifts, and multivariants, which carry the string alone.
+    ``position``/``ref``/``alt`` are ``None`` for splice/intronic, indels, frameshifts, and
+    multivariants — those carry ``hgvs`` alone.
     """
 
     hgvs: str
@@ -62,16 +53,14 @@ class HgvsField:
 
 @dataclass(frozen=True)
 class MappedTriple:
-    """The mapped (reference-frame) HGVS at each level — the canonical projection of the measured change.
+    """The canonical mapped (reference-frame) HGVS at each level, or ``None`` where absent.
 
-    One slot per level, each an :class:`HgvsField` or ``None``. A **nucleotide** assay populates all
-    three (``mapped[assay_level]`` is the measured slot, the other nucleotide slot is the authoritative
-    allele's ``projection_group`` sibling, ``protein`` is the apex). A **protein** assay populates only
-    ``protein`` — the c/g fan-out is ambiguous, so ``cdna``/``genomic`` stay ``None`` rather than
-    fabricate a canonical pick. A slot is also ``None`` when its source is simply absent (an unmapped
-    variant; a projection that failed; pre-reverse-translation data with no sibling recorded).
+    A nucleotide assay populates all three slots (measured + the authoritative allele's
+    ``projection_group`` partner + protein apex); a protein assay populates only ``protein`` — the
+    c/g fan-out is ambiguous, so no pick is fabricated for ``cdna``/``genomic``.
 
-    ``cdna`` is the level-invariant search key — populated even when ``assay_level`` is ``genomic``.
+    ``cdna`` is the level-invariant field: populated whether the assay was measured at ``cdna`` or
+    ``genomic``, so it's the field to key cross-assay searches on.
     """
 
     genomic: Optional[HgvsField] = None
@@ -81,13 +70,13 @@ class MappedTriple:
 
 @dataclass(frozen=True)
 class LeanVariantRecord:
-    """One pre-chewed per-variant record: the selection key (``variant_urn``), the baseline ``score``,
-    a representative (lossy) VEP ``consequence``, the bridge identifiers into the annotation dimensions
-    (``clingen_allele_id``, ``assay_level_digest``), the submitted HGVS at each level, and the mapped
-    (reference-frame) representation as an ``assay_level`` pointer (an ``SequenceLevel`` value naming
-    the measured/canonical slot) plus a ``mapped`` :class:`MappedTriple`. ``mapped[assay_level]`` is the
-    measured representation; ``mapped.cdna`` is the level-invariant search key. Any field is ``None``
-    when its source is absent (unmapped variant → null ``assay_level`` + empty triple)."""
+    """One pre-chewed per-variant record, keyed by ``variant_urn``.
+
+    ``consequence`` is a representative (most severe) VEP call. ``clingen_allele_id``/``assay_level_digest``
+    bridge into the annotation dimensions. ``mapped`` is the canonical :class:`MappedTriple`;
+    ``assay_level`` names which of its slots is the measured one. Any field is ``None`` when its
+    source is absent (an unmapped variant → null ``assay_level`` and an empty triple).
+    """
 
     variant_urn: str
     score: Optional[float]
@@ -102,8 +91,7 @@ class LeanVariantRecord:
 
 
 def _level(value: Optional[str]) -> Optional[SequenceLevel]:
-    """Coerce a stored assay-level string (the ``mapping_records.assay_level`` column) into the closed
-    :class:`SequenceLevel` set. ``None`` for an absent value."""
+    """Coerce a stored assay-level string into :class:`SequenceLevel`, or ``None`` if absent."""
     return SequenceLevel(value) if value else None
 
 
@@ -112,9 +100,11 @@ def _hgvs_field_for_str(hgvs: Optional[str]) -> Optional[HgvsField]:
     simple substitution. ``None`` for an absent string."""
     if not hgvs:
         return None
+
     block = parse_simple_substitution(hgvs)
     if block is None:
         return HgvsField(hgvs=hgvs)
+
     return HgvsField(hgvs=hgvs, position=block.position, ref=block.ref, alt=block.alt)
 
 
@@ -122,21 +112,19 @@ def mapped_hgvs_by_level(
     *,
     assay_level: Optional[SequenceLevel],
     assay_level_hgvs: Optional[str],
-    sibling_level: Optional[str],
-    sibling_hgvs: Optional[str],
+    projection_level: Optional[str],
+    projection_hgvs: Optional[str],
     protein_hgvs: Optional[str],
 ) -> dict[str, Optional[str]]:
-    """The canonical mapped HGVS **string** at each populated level slot, keyed by ``SequenceLevel`` value.
+    """The canonical mapped HGVS string at each populated level, keyed by ``SequenceLevel`` value.
 
-    The canonical projection of a measured allele onto various levels relative to its reference frame:
-    - Measured slot (``[assay_level]``) ← ``assay_level_hgvs`` (the record's mapped assay HGVS).
-    - Other nucleotide slot ← the authoritative link's ``projection_group`` sibling (``sibling_level`` /
-      ``sibling_hgvs``), populated only on a nucleotide assay and only where the pairing is recorded.
+    - Measured slot ← ``assay_level_hgvs``.
+    - Other nucleotide slot ← the authoritative link's ``projection_group`` partner (nucleotide assays
+      only, and only where the pairing is recorded).
     - ``protein`` slot ← the separate protein-apex subquery.
 
-    A **protein** assay fills only ``protein`` (the measured slot is protein itself); its nucleotide
-    fan-out is ambiguous, so ``cdna``/``genomic`` are deliberately absent. An unmapped variant
-    (``assay_level is None``) yields an empty mapping.
+    A protein assay fills only ``protein``. An unmapped variant (``assay_level is None``) yields an
+    empty mapping.
     """
     slots: dict[str, Optional[str]] = {}
     if assay_level == SequenceLevel.protein:
@@ -144,9 +132,9 @@ def mapped_hgvs_by_level(
     elif assay_level in (SequenceLevel.cdna, SequenceLevel.genomic):
         slots[assay_level.value] = assay_level_hgvs
         slots[SequenceLevel.protein.value] = protein_hgvs
-        # The other nucleotide level, from the projection_group sibling (null where unpopulated).
-        if sibling_level is not None:
-            slots[sibling_level] = sibling_hgvs
+        # The other nucleotide level, from the projection_group partner (null where unpopulated).
+        if projection_level is not None:
+            slots[projection_level] = projection_hgvs
 
     return slots
 
@@ -155,8 +143,8 @@ def _mapped_triple(
     *,
     assay_level: Optional[SequenceLevel],
     assay_level_hgvs: Optional[str],
-    sibling_level: Optional[str],
-    sibling_hgvs: Optional[str],
+    projection_level: Optional[str],
+    projection_hgvs: Optional[str],
     protein_hgvs: Optional[str],
 ) -> MappedTriple:
     """Assemble the canonical :class:`MappedTriple` for one variant, wrapping each slot from
@@ -164,8 +152,8 @@ def _mapped_triple(
     slots = mapped_hgvs_by_level(
         assay_level=assay_level,
         assay_level_hgvs=assay_level_hgvs,
-        sibling_level=sibling_level,
-        sibling_hgvs=sibling_hgvs,
+        projection_level=projection_level,
+        projection_hgvs=projection_hgvs,
         protein_hgvs=protein_hgvs,
     )
     return MappedTriple(
@@ -176,14 +164,14 @@ def _mapped_triple(
 
 
 def get_protein_hgvs_by_record(db: Session, score_set_id: int, *, as_of: Optional[datetime] = None) -> dict[int, str]:
-    """The canonical protein-level mapped HGVS for each of a score set's live mapping records, keyed by
-    ``mapping_record.id``. Records with no protein projection (UTR/intronic) are simply absent from the
-    map. Shared by the lean whole-set view and the CSV export so both resolve the protein slot the same way.
+    """The canonical protein-level mapped HGVS for a score set's live mapping records, keyed by
+    ``mapping_record.id``. Records with no protein projection (UTR/intronic) are absent from the map.
+    Shared by the lean whole-set view and the CSV export.
 
-    This runs as its **own** query, never a join into a per-variant projection. Joined in, it forces an
-    O(N^2) plan: the ``DISTINCT ON`` cardinality is opaque to the planner, so it lands on the inner side
-    of a nested loop and is rescanned in full once per variant — historically ~97% of the lean endpoint's
-    total time. Pulling it out and stitching by ``mapping_record_id`` in Python keeps both queries O(N).
+    Runs as its own query rather than a join: the ``DISTINCT ON`` cardinality is opaque to the planner,
+    so a join lands it on the inner side of a nested loop and rescans it once per variant — O(N^2), and
+    historically ~97% of the lean endpoint's runtime. Stitching by ``mapping_record_id`` in Python keeps
+    both queries O(N).
     """
     prot_link = aliased(MappingRecordAllele)
     prot_allele = aliased(Allele)
@@ -203,13 +191,13 @@ def get_protein_hgvs_by_record(db: Session, score_set_id: int, *, as_of: Optiona
         .join(prot_variant, prot_variant.id == prot_record.variant_id)
         # Scope to this score set so the cost scales with the response.
         .where(prot_variant.score_set_id == score_set_id)
-        # Live links only. A live link implies a live parent record (ValidTime invariant), so this also
-        # covers record-liveness — no prot_record.live_at needed; the MR join is just the scoping bridge.
+        # Live links only; a live link implies a live parent record (ValidTime invariant), so no
+        # separate prot_record.live_at check is needed.
         .where(prot_link.live_at(as_of))
         # Only the protein-level allele.
         .where(prot_allele.level == SequenceLevel.protein.value)
-        # DISTINCT ON requires ORDER BY to lead with its column; allele.id then picks which row survives
-        # per record — inert today (only one protein allele exists).
+        # DISTINCT ON needs ORDER BY to lead with its column; allele.id breaks ties (inert today —
+        # only one protein allele exists per record).
         .order_by(prot_link.mapping_record_id, prot_allele.id)
     )
     # Keyed by record id (a globally-unique PK -> the right protein row, no cross-set risk).
@@ -219,20 +207,17 @@ def get_protein_hgvs_by_record(db: Session, score_set_id: int, *, as_of: Optiona
 def get_lean_score_set_variants(
     db: Session, score_set: ScoreSet, *, as_of: Optional[datetime] = None
 ) -> list[LeanVariantRecord]:
-    """Assemble the lean whole-set view for ``score_set`` — one record per variant, ordered by variant
-    number. Unmapped variants are retained (left joins) with null mapped fields so the table and score
-    histogram still see them. ``as_of`` reconstructs the annotation layer at a past instant (submitted
-    HGVS and scores are immutable and unaffected); it defaults to the currently-live rows.
+    """Assemble the lean whole-set view for ``score_set``, one record per variant, ordered by variant
+    number. Unmapped variants are retained (left joins, null mapped fields) so the table and score
+    histogram still see them. ``as_of`` defaults to currently-live rows.
     """
-    # The other-nucleotide sibling of the authoritative link: same mapping record + same
-    # projection_group, but NOT authoritative (so it is the *other* member of the ≤2-member group). Its
-    # allele carries the canonical HGVS at the level the assay was not measured at. See the join below.
-    sibling_link = aliased(MappingRecordAllele)
-    sibling_allele = aliased(Allele)
+    # The authoritative link's *other* projection_group member — same record, same group, not
+    # authoritative — carries the canonical HGVS at the unmeasured nucleotide level. See join below.
+    projection_link = aliased(MappingRecordAllele)
+    projection_allele = aliased(Allele)
 
-    # The base per-variant projection: 1:1 annotation joins, so this whole query is a stream of O(N)
-    # index-scan lookups. MappingRecord.id rides along as the key the protein projection (a *separate*
-    # query, below) is stitched back on.
+    # 1:1 annotation joins, so this is a stream of O(N) index-scan lookups. MappingRecord.id rides
+    # along as the key the protein projection (separate query, below) is stitched back on.
     base_statement = (
         select(
             Variant.urn,
@@ -246,18 +231,16 @@ def get_lean_score_set_variants(
             Allele.vrs_digest,
             Allele.clingen_allele_id,
             VepAlleleConsequence.functional_consequence,
-            sibling_allele.level.label("sibling_level"),
-            # Exactly one of the sibling's hgvs_g/hgvs_c is populated (it is a nucleotide allele), so
-            # coalesce yields its canonical string regardless of which nucleotide level it sits at.
-            func.coalesce(sibling_allele.hgvs_g, sibling_allele.hgvs_c).label("sibling_hgvs"),
+            projection_allele.level.label("projection_level"),
+            # Exactly one of hgvs_g/hgvs_c is populated (it's a nucleotide allele); coalesce picks it.
+            func.coalesce(projection_allele.hgvs_g, projection_allele.hgvs_c).label("projection_hgvs"),
         )
-        # Variant -> its live mapping record. LEFT join so unmapped variants stay (with null mapped fields)
-        # for the table + score histogram. live_at rides in the ON clause, never a WHERE: a WHERE would
-        # reject the null-record row an outer join makes for an unmapped variant, silently collapsing the
-        # LEFT join to an inner one. Same pattern on every join below.
+        # LEFT join so unmapped variants stay (null mapped fields) for the table + score histogram.
+        # live_at rides in the ON clause, not WHERE. a WHERE would reject the outer join's null row,
+        # silently turning this into an INNER join. Same pattern on every join below.
         .outerjoin(MappingRecord, and_(MappingRecord.variant_id == Variant.id, MappingRecord.live_at(as_of)))
-        # The one authoritative (measured) allele. is_authoritative keeps this 1:1 with the variant
-        # (one authoritative link per live record — the invariant the mapping job upholds).
+        # The one authoritative (measured) allele; is_authoritative keeps this 1:1 (one authoritative
+        # link per live record, an invariant the mapping job upholds).
         .outerjoin(
             MappingRecordAllele,
             and_(
@@ -266,39 +249,34 @@ def get_lean_score_set_variants(
                 MappingRecordAllele.live_at(as_of),
             ),
         )
-        # The authoritative allele row itself (digest, ClinGen id). No live_at: alleles are immutable and
-        # deduplicated, not ValidTime — the live link already establishes what applies.
+        # The allele row itself (digest, ClinGen id). No live_at: alleles are immutable/deduplicated,
+        # not ValidTime — the live link already establishes what applies.
         .outerjoin(Allele, Allele.id == MappingRecordAllele.allele_id)
         # Its VEP consequence.
         .outerjoin(
             VepAlleleConsequence, and_(VepAlleleConsequence.allele_id == Allele.id, VepAlleleConsequence.live_at(as_of))
         )
-        # The authoritative link's projection_group sibling — the canonical projection at the *other*
-        # nucleotide level. UNLIKE the protein subquery, this stays a direct 1:1 outer join: a group has
-        # ≤2 members and the authoritative link is one of them, so at most one non-authoritative sibling
-        # shares its (mapping_record_id, projection_group). The mapping_record_id predicate rides the
-        # existing ix_mapping_record_alleles_mapping_record_id index; within a record only a handful of
-        # links are scanned, so no O(N^2) rescan (contrast the opaque-cardinality protein subquery below).
-        # A NULL authoritative group (protein assay, or pre-reverse-translation data) matches nothing —
-        # SQL equality on NULL is never true — so the sibling stays null and the slot degrades gracefully.
+        # The authoritative link's projection_group partner (other nucleotide level). Unlike the protein
+        # subquery, this is safe as a direct join: a group has ≤2 members, so at most one match, and the
+        # mapping_record_id predicate uses an existing index — no O(N^2) rescan. A NULL group (protein
+        # assay, or pre-reverse-translation data) matches nothing, so the slot degrades to None.
         .outerjoin(
-            sibling_link,
+            projection_link,
             and_(
-                sibling_link.mapping_record_id == MappingRecord.id,
-                sibling_link.projection_group == MappingRecordAllele.projection_group,
-                sibling_link.is_authoritative.is_(False),
-                sibling_link.live_at(as_of),
+                projection_link.mapping_record_id == MappingRecord.id,
+                projection_link.projection_group == MappingRecordAllele.projection_group,
+                projection_link.is_authoritative.is_(False),
+                projection_link.live_at(as_of),
             ),
         )
-        .outerjoin(sibling_allele, sibling_allele.id == sibling_link.allele_id)
+        .outerjoin(projection_allele, projection_allele.id == projection_link.allele_id)
         # The anchor: just this score set's variants.
         .where(Variant.score_set_id == score_set.id)
         # Natural table order: variant number (the integer after '#'), id breaks ties stably.
         .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer), Variant.id)
     )
 
-    # The protein projection runs as its own query, NOT a join into the base statement (see
-    # get_protein_hgvs_by_record for why), stitched back by mapping_record_id below.
+    # Runs as its own query, not a join (see get_protein_hgvs_by_record), stitched back below.
     protein_hgvs_by_record = get_protein_hgvs_by_record(db, score_set.id, as_of=as_of)
 
     return [
@@ -315,8 +293,8 @@ def get_lean_score_set_variants(
             mapped=_mapped_triple(
                 assay_level=_level(row.assay_level),
                 assay_level_hgvs=row.hgvs_assay_level,
-                sibling_level=row.sibling_level,
-                sibling_hgvs=row.sibling_hgvs,
+                projection_level=row.projection_level,
+                projection_hgvs=row.projection_hgvs,
                 protein_hgvs=protein_hgvs_by_record.get(row.mapping_record_id),
             ),
         )

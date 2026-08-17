@@ -211,7 +211,7 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
                 allele_id,
                 Disposition.NOT_APPLICABLE,
                 EventReason.PROTEIN_LEVEL_ALLELE,
-                error_message="Protein-level alleles are not linked to gnomAD; see nucleotide siblings.",
+                error_message="Protein-level alleles are not linked to gnomAD; see the nucleotide encodings.",
                 metadata={"clingen_allele_id": caid},
             )
             continue

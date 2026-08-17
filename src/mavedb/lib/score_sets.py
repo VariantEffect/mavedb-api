@@ -714,12 +714,12 @@ def _csv_header_columns(columns: dict[str, list[str]], *, namespaced: Optional[b
 def _csv_substrate_query(score_set_id: int, *, as_of: Optional[datetime]) -> Select[Any]:
     """The base per-variant query for the annotation namespaces: each variant LEFT-joined to its live mapping
     record, its authoritative (measured) allele (digest / ClinGen id / VEP consequence), and the
-    projection-group nucleotide sibling — mirroring the lean whole-set view's join
+    projection-group nucleotide projection — mirroring the lean whole-set view's join
     (:func:`mavedb.lib.score_set_variants.get_lean_score_set_variants`). LEFT joins with ``live_at`` in the ON
     clause keep unmapped variants (with null mapped fields); a WHERE would collapse them out. The protein slot
     and the gnomAD/ClinVar dimensions are resolved by separate fetches and stitched on by id."""
-    sibling_link = aliased(MappingRecordAllele)
-    sibling_allele = aliased(Allele)
+    projection_link = aliased(MappingRecordAllele)
+    projection_allele = aliased(Allele)
     return (
         select(
             Variant,
@@ -730,10 +730,10 @@ def _csv_substrate_query(score_set_id: int, *, as_of: Optional[datetime]) -> Sel
             Allele.vrs_digest,
             Allele.clingen_allele_id,
             VepAlleleConsequence.functional_consequence,
-            sibling_allele.level.label("sibling_level"),
-            # Exactly one of the sibling's hgvs_g/hgvs_c is populated (it is a nucleotide allele), so
+            projection_allele.level.label("projection_level"),
+            # Exactly one of the projection's hgvs_g/hgvs_c is populated (it is a nucleotide allele), so
             # coalesce yields its canonical string regardless of which nucleotide level it sits at.
-            func.coalesce(sibling_allele.hgvs_g, sibling_allele.hgvs_c).label("sibling_hgvs"),
+            func.coalesce(projection_allele.hgvs_g, projection_allele.hgvs_c).label("projection_hgvs"),
         )
         .outerjoin(MappingRecord, and_(MappingRecord.variant_id == Variant.id, MappingRecord.live_at(as_of)))
         .outerjoin(
@@ -750,15 +750,15 @@ def _csv_substrate_query(score_set_id: int, *, as_of: Optional[datetime]) -> Sel
             and_(VepAlleleConsequence.allele_id == Allele.id, VepAlleleConsequence.live_at(as_of)),
         )
         .outerjoin(
-            sibling_link,
+            projection_link,
             and_(
-                sibling_link.mapping_record_id == MappingRecord.id,
-                sibling_link.projection_group == MappingRecordAllele.projection_group,
-                sibling_link.is_authoritative.is_(False),
-                sibling_link.live_at(as_of),
+                projection_link.mapping_record_id == MappingRecord.id,
+                projection_link.projection_group == MappingRecordAllele.projection_group,
+                projection_link.is_authoritative.is_(False),
+                projection_link.live_at(as_of),
             ),
         )
-        .outerjoin(sibling_allele, sibling_allele.id == sibling_link.allele_id)
+        .outerjoin(projection_allele, projection_allele.id == projection_link.allele_id)
         .where(Variant.score_set_id == score_set_id)
         .order_by(*_VARIANT_NUMBER_ORDER)
     )
@@ -823,8 +823,8 @@ def _csv_mapped_row(row: Any, protein_hgvs_by_record: dict[int, str]) -> _CsvMap
     slots = mapped_hgvs_by_level(
         assay_level=SequenceLevel(row.assay_level) if row.assay_level else None,
         assay_level_hgvs=row.hgvs_assay_level,
-        sibling_level=row.sibling_level,
-        sibling_hgvs=row.sibling_hgvs,
+        projection_level=row.projection_level,
+        projection_hgvs=row.projection_hgvs,
         protein_hgvs=protein_hgvs_by_record.get(row.mapping_record_id),
     )
     return _CsvMappedRow(

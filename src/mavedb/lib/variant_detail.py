@@ -1,19 +1,15 @@
-"""The assayed variant-detail view backing ``GET /variants/{urn}``.
+"""Assembles the variant-detail envelope backing ``GET /variants/{urn}``.
 
-Assembles the two-tier envelope for a single variant: flat, UI-ergonomic assay fields (the
-assay-level HGVS pair, digest, ClinGen id) plus the spec-pure GA4GH ``CategoricalVariant`` (built
-on the fly by :mod:`lib.cat_vrs`) and, riding alongside it keyed by VRS digest, the MaveDB layer —
-the per-allele identity sidecar (level / HGVS / ClinGen id / member→defining relation) and the
-digest-keyed external-annotation map (:mod:`lib.allele_annotations`). Also
-carries the per-calibration functional ``classifications`` the variant falls into, and its version
-standing (``is_current`` / ``superseded_by_score_set``) so a superseded variant self-describes rather
-than reading as current.
+The envelope has two tiers: flat, UI-ergonomic assay-level fields (HGVS pair, digest, ClinGen id),
+and a spec-pure GA4GH ``CategoricalVariant`` (built by :mod:`lib.cat_vrs`) with a MaveDB layer
+riding alongside it, keyed by VRS digest — per-allele identity (level, HGVS, ClinGen id,
+member→defining relation) and external annotations (:mod:`lib.allele_annotations`). Also includes
+the variant's functional ``classifications`` per calibration, and its version standing
+(``is_current`` / ``superseded_by_score_set``), so a superseded variant self-describes.
 
-Temporal scope of ``as_of``: only the **molecular** layer is versioned — Cat-VRS membership and the
-VEP/gnomAD/ClinVar annotations reconstruct at the past instant. Scores are immutable (``Variant`` is
-not ``ValidTime``) and calibrations carry no ``ValidTime`` at all (they are frozen/append-only), so
-scores and classifications are as-of-invariant and returned as they stand now. ``as_of`` defaults to
-the currently-live rows.
+``as_of`` only reconstructs the **molecular** layer (Cat-VRS membership and VEP/gnomAD/ClinVar
+annotations) at the past instant. Scores are immutable and calibrations carry no ``ValidTime``, so
+both are always returned as they stand now, regardless of ``as_of``.
 """
 
 from dataclasses import dataclass
@@ -26,7 +22,7 @@ from sqlalchemy.orm import Session
 from mavedb.lib.allele_annotations import AlleleAnnotations, get_allele_annotations
 from mavedb.lib.allele_identity import AlleleDerivation, AlleleIdentity
 from mavedb.lib.alleles import get_live_record_allele_links
-from mavedb.lib.cat_vrs import categorical_variant_for_variant, is_convergent_cousin
+from mavedb.lib.cat_vrs import categorical_variant_for_variant, is_convergent_encoding
 from mavedb.lib.score_calibrations import calibration_preference_key
 from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.mapping_record import MappingRecord
@@ -41,12 +37,11 @@ from mavedb.models.variant import Variant
 
 @dataclass(frozen=True)
 class VariantClassificationRecord:
-    """One functional classification the variant falls into, tagged with its calibration context.
+    """One functional classification the variant belongs to, tagged with its calibration.
 
-    ``calibration_id`` / ``primary`` locate the classification among the score set's (possibly
-    several) calibrations — ``primary`` is the UI default. ``classification`` is the ORM
-    :class:`ScoreCalibrationFunctionalClassification` (functional call, ACMG, oddspath), serialized
-    at the view-model boundary.
+    ``calibration_id`` / ``primary`` locate it among the score set's calibrations (``primary`` is
+    the UI default). ``classification`` is the ORM
+    :class:`ScoreCalibrationFunctionalClassification`, serialized at the view-model boundary.
     """
 
     calibration_id: int
@@ -70,14 +65,14 @@ class VariantDetail:
     assay_level_digest: Optional[str]
     clingen_allele_id: Optional[str]
 
-    # The raw GA4GH VRS pair, surfaced flat so a bulk/VRS consumer reads them directly rather than
-    # digging the measured allele out of the Cat-VRS below.
+    # Raw GA4GH VRS pair, surfaced flat so a bulk/VRS consumer doesn't need to dig the measured
+    # allele out of the Cat-VRS below.
     pre_mapped: Optional[dict[str, Any]]
     post_mapped: Optional[dict[str, Any]]
 
-    # Spec-pure GA4GH Cat-VRS (no MaveDB fields inside), plus the MaveDB layer riding alongside: the
-    # per-allele identity sidecar, keyed by VRS digest — one entry per linked allele (the record-scoped,
-    # all-levels set, sharing keys with `annotations`), carrying level + HGVS + ClinGen id + relation.
+    # Spec-pure GA4GH Cat-VRS (no MaveDB fields), plus the MaveDB layer alongside it: a per-allele
+    # identity sidecar keyed by VRS digest, one entry per linked allele (shares keys with
+    # `annotations`), carrying level, HGVS, ClinGen id, and relation.
     molecular_representation: Optional[dict[str, Any]]
     mode: Optional[str]  # CatVrsMode value — projection | reverse_translation
     alleles: dict[str, AlleleIdentity]
@@ -87,21 +82,23 @@ class VariantDetail:
 
     # Version standing — self-descriptive for a superseded variant.
     is_current: bool
-    # URN of the score-set version that supersedes this variant's, if any (and readable). This is a
-    # *score set* URN, not a variant URN — supersession is versioned at the score-set level, and a newer
-    # version may add/drop/renumber variants, so there is no stable superseding-variant to point at;
-    # consumers resolve the current measurement by looking this variant up within that score set.
+    # Score-set URN (not variant URN) of the version that supersedes this one, if any and readable.
+    # Supersession is versioned at the score-set level, and a newer version may add/drop/renumber
+    # variants, so consumers must look this variant up within that score set rather than follow a
+    # superseding-variant pointer.
     superseded_by_score_set: Optional[str]
 
 
 def _classifications_for_variant(
     db: Session, variant: Variant, *, visible_calibration_ids: Optional[set[int]]
 ) -> list[VariantClassificationRecord]:
-    """The functional classifications the variant belongs to (membership is materialized on the
-    calibration→classification→variant m2m). One row per calibration that classifies the variant, ordered
-    by the shared calibration preference cascade (``calibration_preference_key`` + id) so the first entry
-    is the same default the UI and the allele-measurements card surface. ``visible_calibration_ids``
-    restricts to calibrations the caller resolved as readable (``None`` = no restriction, for lib-level use)."""
+    """Functional classifications the variant belongs to, one row per calibration that classifies it.
+
+    Membership is read from the calibration→classification→variant association table, ordered by
+    ``calibration_preference_key`` (+ id) so the first entry matches the UI's default.
+    ``visible_calibration_ids`` restricts to readable calibrations (``None`` = no restriction, for
+    lib-level callers).
+    """
     statement = (
         select(ScoreCalibrationFunctionalClassification, ScoreCalibration)
         .join(
@@ -125,37 +122,35 @@ def _classifications_for_variant(
     ]
 
 
-def _derivation_for(*, assay_level: Optional[SequenceLevel], is_cousin: bool) -> AlleleDerivation:
-    """The provenance of a *non-focus* linked allele's representation, from the assay level.
+def _derivation_for(*, assay_level: Optional[SequenceLevel], is_convergent: bool) -> AlleleDerivation:
+    """Provenance of a *non-focus* linked allele, derived from the assay level.
 
-    The measured allele is the focus (``is_focus=True``, no derivation). Every *other* allele's
-    provenance turns on the protein → codon boundary, which surfaces three ways:
+    The measured allele is the focus (no derivation). For every other allele:
 
-    - **protein assay** (``assay_level`` protein) → ``candidate`` for the whole derived (nucleotide)
-      fan-out: reverse translation is genuinely ambiguous (which codon was measured is unknown).
-    - **nucleotide assay** (``assay_level`` genomic/cdna), synonymous *cousin* (``is_cousin``) → an nt
-      member in a different projection group: a distinct, precisely-known variant that merely
-      *converges* on the measured protein consequence. It is ``convergent`` — not ambiguous (so not a
-      ``candidate``) and not a projection *of* the measured change.
-    - **nucleotide assay**, otherwise → ``projection`` for the precise class derived from the measured
-      change itself (its coordinate partner and its protein consequence, both deterministic).
+    - **Protein assay** → ``CANDIDATE``: reverse translation is ambiguous, so the derived nucleotide
+      fan-out is only a candidate (which codon was actually measured is unknown).
+    - **Nucleotide assay, convergent encoding** (``is_convergent``) → ``CONVERGENT``: an nt member in
+      a different projection group. A distinct, precisely-known variant that happens to converge on
+      the same protein consequence, not a projection of the measured change.
+    - **Nucleotide assay, otherwise** → ``PROJECTION``: the deterministic class derived from the
+      measured change itself.
 
-    ``is_cousin`` is :func:`cat_vrs.is_convergent_cousin` for this allele, keeping the ``derivation``
-    (provenance) axis in lockstep with the Cat-VRS ``relation`` axis — ``co_encodes`` ↔ ``convergent``,
-    ``coordinate_representation_of`` / ``translation_of`` ↔ ``projection``, protein-assay ``encodes`` ↔
-    ``candidate``.
+    ``is_convergent`` comes from :func:`cat_vrs.is_convergent_encoding`, keeping this ``derivation``
+    axis aligned with the Cat-VRS ``relation`` axis (``co_encodes`` ↔ ``convergent``,
+    ``coordinate_representation_of`` / ``translation_of`` ↔ ``projection``, ``encodes`` ↔
+    ``candidate``).
     """
     if assay_level == SequenceLevel.protein.value:
         return AlleleDerivation.CANDIDATE
-    if is_cousin:
+    if is_convergent:
         return AlleleDerivation.CONVERGENT
     return AlleleDerivation.PROJECTION
 
 
 def _submitted_assay_level_hgvs(variant: Variant, assay_level: Optional[SequenceLevel]) -> Optional[str]:
-    """The depositor-submitted HGVS in the variant's assay frame: protein for a protein assay,
-    otherwise the nucleotide expression (genomic or coding share ``hgvs_nt`` and ``hgvs_splice`` is
-    never an index column)."""
+    """Depositor-submitted HGVS in the variant's assay frame: ``hgvs_pro`` for a protein assay,
+    otherwise ``hgvs_nt`` (genomic and coding assays share this column; ``hgvs_splice`` is never an
+    index column)."""
     if assay_level == SequenceLevel.protein.value:
         return variant.hgvs_pro
     return variant.hgvs_nt
@@ -171,11 +166,11 @@ def get_variant_detail(
 ) -> VariantDetail:
     """Assemble the variant-detail envelope for ``variant``.
 
-    ``superseding_score_set`` is the newer version the caller has already resolved for visibility
-    (blanked when the user cannot read it, mirroring ``fetch_score_set_by_urn``); its presence drives
-    ``is_current``/``superseded_by_score_set``. ``visible_calibration_ids`` restricts classifications to
-    readable calibrations. ``as_of`` reconstructs the molecular layer (Cat-VRS membership +
-    annotations); scores and classifications are as-of-invariant. See the module docstring.
+    ``superseding_score_set`` is the newer version the caller already resolved for visibility
+    (``None`` if unreadable, mirroring ``fetch_score_set_by_urn``); its presence drives
+    ``is_current`` / ``superseded_by_score_set``. ``visible_calibration_ids`` restricts
+    classifications to readable calibrations. ``as_of`` reconstructs the molecular layer only —
+    see the module docstring.
     """
     data = variant.data if isinstance(variant.data, dict) else {}
     scores = data.get("score_data")
@@ -197,9 +192,8 @@ def get_variant_detail(
 
     annotations = get_allele_annotations(db, [link.allele for link in links], as_of=as_of)
 
-    # Spec-pure Cat-VRS built on the fly, plus the MaveDB layer (mode + per-member relations). The
-    # relations key the sidecar below; the defining allele is deliberately absent from them, so it
-    # gets relation=None.
+    # Spec-pure Cat-VRS built on the fly, plus mode + per-member relations. The defining allele is
+    # deliberately absent from `relations`, so it gets relation=None below.
     transit = categorical_variant_for_variant(db, variant.id, name=variant.urn or "", as_of=as_of)
     if transit is not None:
         molecular_representation = transit.categorical_variant.model_dump(mode="json", exclude_none=True)
@@ -210,28 +204,27 @@ def get_variant_detail(
         mode = None
         relations = {}
 
-    # The per-allele identity sidecar: one entry per linked allele, keyed by VRS digest (the same
-    # record-scoped, all-levels link set that seeds `annotations`, so the two maps share keys). Carries
-    # the molecular-identity facts the UI labels annotations by — level, reference-frame HGVS (exactly one
-    # of hgvs_g/c/p is populated per allele), ClinGen id — and the member→defining relation.
-    # Within-record projection grouping: projection_group -> the digests sharing it. A link's projection
-    # sibling is the ≤1 *other* digest in its group (the c↔g pair); the protein apex and any pre-RT link
-    # carry a NULL group and so appear in no bucket (projection_of stays None for them).
+    # Per-allele identity sidecar: one entry per linked allele, keyed by VRS digest (the same link
+    # set that seeds `annotations`, so the two maps share keys). Carries level, reference-frame HGVS
+    # (exactly one of hgvs_g/c/p is populated per allele), ClinGen id, and the member→defining relation.
+
+    # projection_group -> the digests sharing it, for within-record projection grouping. A link's
+    # projection is the ≤1 *other* digest in its group; the protein apex and any pre-RT link carry a
+    # NULL group, so they appear in no bucket and projection_of stays None for them.
     group_digests: dict[int, list[str]] = {}
     for link in links:
         if link.projection_group is not None and link.allele.vrs_digest is not None:
             group_digests.setdefault(link.projection_group, []).append(link.allele.vrs_digest)
 
-    # The measured change's projection group anchors the cousin test: an nt member in a *different* group
-    # is a synonymous cousin (co_encodes / convergent), not the measured change's coordinate partner.
+    # Anchor for the convergence test: an nt member in a *different* projection group than the
+    # measured change is a convergent encoding (co_encodes / convergent), not a projection of it.
     defining_group = authoritative.projection_group if authoritative is not None else None
 
     alleles: dict[str, AlleleIdentity] = {}
     for link in links:
         allele = link.allele
 
-        # The projection sibling: the other digest in this link's projection_group, if any. A group has
-        # ≤2 members, so there is at most one sibling — this allele's projection partner.
+        # The other digest in this link's projection_group, if any (groups have ≤2 members).
         projection_of: Optional[str] = None
         if link.projection_group is not None:
             projection_of = next(
@@ -240,7 +233,7 @@ def get_variant_detail(
             )
 
         relation = relations.get(allele.vrs_digest)
-        is_cousin = is_convergent_cousin(allele.level, link.projection_group, defining_group=defining_group)
+        is_convergent = is_convergent_encoding(allele.level, link.projection_group, defining_group=defining_group)
         alleles[allele.vrs_digest] = AlleleIdentity(
             level=allele.level,
             hgvs=allele.hgvs_g or allele.hgvs_c or allele.hgvs_p,
@@ -248,12 +241,13 @@ def get_variant_detail(
             is_focus=link.is_authoritative,
             relation=relation.value if relation is not None else None,
             derivation=(
-                None if link.is_authoritative else _derivation_for(assay_level=assay_level, is_cousin=is_cousin).value
+                None if link.is_authoritative else _derivation_for(assay_level=assay_level, is_convergent=is_convergent)
             ),
             projection_of=projection_of,
         )
 
     return VariantDetail(
+        # TODO(#372)
         urn=variant.urn or "",
         scores=scores,
         counts=counts,
