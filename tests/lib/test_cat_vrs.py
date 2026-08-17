@@ -13,9 +13,12 @@ import pytest
 
 pytest.importorskip("psycopg2")
 
-from ga4gh.cat_vrs.models import CategoricalVariant, DefiningAlleleConstraint
+from ga4gh.cat_vrs.models import CategoricalVariant, DefiningAlleleConstraint, Relation
+from ga4gh.core.models import Relation as MappingRelation
 
 from mavedb.lib.cat_vrs import (
+    _SPEC_EQUIVALENT,
+    _relation_concept,
     CatVrsMode,
     CatVrsRelation,
     build_categorical_variant,
@@ -343,3 +346,76 @@ def test_wrapper_threads_as_of_to_the_historical_record(session, setup_lib_db_wi
 
     assert past is not None and past.mode == CatVrsMode.REVERSE_TRANSLATION
     assert current is not None and current.mode == CatVrsMode.PROJECTION
+
+
+# ---------------------------------------------------------------------------
+# Spec alignment
+#
+# MaveDB maintains its own relation vocabulary (Cat-VRS's `Relation` is an enum with members, so it
+# cannot be subclassed, and inheriting would buy nothing — interop rides on `Coding.system`, not on
+# Python enum identity). These tests are the drift guard that keeps the vocabulary honest: they fail
+# when the spec gains a term MaveDB has not triaged, or when MaveDB coins a term without recording
+# whether the spec already covers it.
+# ---------------------------------------------------------------------------
+
+
+def test_mapped_relations_emit_an_exact_match_to_the_spec_term():
+    """A code with a spec equivalent must carry a machine-readable mapping to it.
+
+    A matching code *string* is not enough: the two codings sit in different systems, so nothing but an
+    explicit ConceptMapping tells a consumer they are the same concept.
+    """
+    concept = _relation_concept(CatVrsRelation.TRANSLATION_OF)
+
+    assert concept.primaryCoding is not None
+    assert concept.primaryCoding.system == "https://mavedb.org/cat-vrs/relations"
+    assert concept.mappings is not None and len(concept.mappings) == 1
+
+    mapping = concept.mappings[0]
+    assert mapping.relation == MappingRelation.EXACT_MATCH
+    assert mapping.coding.code.root == Relation.TRANSLATION_OF.value
+    assert mapping.coding.system != concept.primaryCoding.system
+
+
+@pytest.mark.parametrize(
+    "relation",
+    [CatVrsRelation.ENCODES, CatVrsRelation.CO_ENCODES, CatVrsRelation.COORDINATE_REPRESENTATION_OF],
+)
+def test_unmapped_relations_carry_no_mapping(relation):
+    """The absence of a mapping is the interoperable statement that no spec term covers this code.
+
+    Emitting a `closeMatch` to something approximate would be worse than silence — a consumer would
+    resolve it and be wrong. See `_SPEC_EQUIVALENT` for why each of these three has no equivalent.
+    """
+    concept = _relation_concept(relation)
+
+    assert concept.primaryCoding is not None and concept.primaryCoding.code.root == relation.value
+    assert concept.mappings is None
+
+
+def test_every_relation_is_either_mapped_or_a_declared_gap():
+    """No MaveDB relation may exist without a triage decision recorded in `_SPEC_EQUIVALENT`.
+
+    Coining a new code is fine; coining one *without deciding whether the spec already covers it* is the
+    drift this guards against. A new member fails here until it is either mapped or listed below.
+    """
+    declared_gaps = {
+        CatVrsRelation.ENCODES,
+        CatVrsRelation.CO_ENCODES,
+        CatVrsRelation.COORDINATE_REPRESENTATION_OF,
+    }
+
+    assert set(CatVrsRelation) == set(_SPEC_EQUIVALENT) | declared_gaps
+
+
+def test_spec_relations_maveDB_deliberately_never_emits():
+    """Fails when Cat-VRS publishes a relation MaveDB has not triaged.
+
+    `liftover_to` is assembly-to-assembly, which MaveDB does not do. `transcribed_to` is genomic->
+    transcript only and asserts transcription; MaveDB's c<->g relation is direction-neutral coordinate
+    equivalence that also holds for intronic/UTR-offset positions, so it is deliberately unmapped.
+    """
+    emitted = {spec_term.value for spec_term in _SPEC_EQUIVALENT.values()}
+    never_emitted = {"liftover_to", "transcribed_to"}
+
+    assert {relation.value for relation in Relation} == emitted | never_emitted
