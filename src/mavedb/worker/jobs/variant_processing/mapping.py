@@ -203,6 +203,8 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
             target_gene.pre_mapped_metadata = cast(pre_mapped_metadata, JSONB)
             target_gene.post_mapped_metadata = cast(post_mapped_metadata, JSONB)
+            target_gene.uniprot_id_from_mapped_metadata = None
+
             job_manager.db.add(target_gene)
             logger.debug("Added mapping metadata to target gene.", extra=job_manager.logging_context())
 
