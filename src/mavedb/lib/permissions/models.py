@@ -7,6 +7,19 @@ logger = logging.getLogger(__name__)
 
 
 class PermissionResponse:
+    """The outcome of a permission check.
+
+    Deliberately not truthy. Callers must read `.permitted`; evaluating the response
+    object itself in a boolean context silently resolves any permission check to True.
+    `__bool__` raises to ensure this contract is enforced.
+    """
+
+    def __bool__(self) -> bool:
+        raise TypeError(
+            "PermissionResponse is not truthy; check `.permitted` instead. "
+            "A bare `if has_permission(...)` is always true and silently permits everything."
+        )
+
     def __init__(self, permitted: bool, http_code: int = 403, message: Optional[str] = None):
         self.permitted = permitted
         self.http_code = http_code if not permitted else None

@@ -1,17 +1,14 @@
-import csv
-import io
 import logging
-import re
 from collections import Counter, defaultdict
 from operator import attrgetter
-from typing import TYPE_CHECKING, Any, BinaryIO, Iterable, List, Optional, Sequence
+from typing import TYPE_CHECKING, BinaryIO, Optional, Sequence
 
 import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
-from sqlalchemy import Integer, and_, cast, func, or_, select
-from sqlalchemy.orm import Query, Session, aliased, contains_eager, joinedload, selectinload
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Query, Session, aliased, contains_eager, joinedload, selectinload
 
 from mavedb.lib.exceptions import ValidationError
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
@@ -19,7 +16,6 @@ from mavedb.lib.mave.constants import (
     HGVS_NT_COLUMN,
     HGVS_PRO_COLUMN,
     HGVS_SPLICE_COLUMN,
-    REQUIRED_SCORE_COLUMN,
     VARIANT_COUNT_DATA,
     VARIANT_SCORE_DATA,
 )
@@ -27,8 +23,6 @@ from mavedb.lib.mave.utils import is_csv_null
 from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import null_values_list
-from mavedb.lib.validation.utilities import is_null as validate_is_null
-from mavedb.lib.variants import get_digest_from_post_mapped, get_hgvs_from_post_mapped, is_hgvs_g, is_hgvs_p
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
@@ -38,9 +32,6 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
-from mavedb.models.clinical_control import ClinicalControl
-from mavedb.models.clinical_control_mapped_variant import mapped_variants_clinical_controls_association_table
-from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.refseq_identifier import RefseqIdentifier
@@ -57,7 +48,7 @@ from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
-from mavedb.view_models.search import ScoreSetsSearch, ControlledKeywordFilterOption
+from mavedb.view_models.search import ControlledKeywordFilterOption, ScoreSetsSearch
 
 if TYPE_CHECKING:
     from mavedb.lib.permissions import Action
@@ -65,10 +56,6 @@ if TYPE_CHECKING:
 VariantData = dict[str, Optional[dict[str, dict]]]
 
 logger = logging.getLogger(__name__)
-
-# Pattern for ClinVar-versioned namespaces of the form "clinvar.YEAR_MONTH",
-# e.g. "clinvar.2024_01" for January 2024.
-CLINVAR_NS_PATTERN = re.compile(r"^clinvar\.(\d+)_(0[1-9]|1[0-2])$")
 
 
 class HGVSColumns:
@@ -587,258 +574,6 @@ def get_current_mapped_variants_for_annotation(db: Session, score_set: ScoreSet)
     )
 
 
-def get_score_set_variants_as_csv(
-    db: Session,
-    score_set: ScoreSet,
-    namespaces: List[str],
-    namespaced: Optional[bool] = None,
-    start: Optional[int] = None,
-    limit: Optional[int] = None,
-    drop_na_columns: Optional[bool] = None,
-    include_custom_columns: Optional[bool] = True,
-    include_post_mapped_hgvs: Optional[bool] = False,
-) -> str:
-    """
-    Get the variant data from a score set as a CSV string.
-
-    Parameters
-    __________
-    db : Session
-        The database session to use.
-    score_set : ScoreSet
-        The score set to get the variants from.
-    namespaces : List[str]
-        The namespaces for data: "scores", "counts", "vep", "gnomad", "clingen", and/or
-        ClinVar-versioned namespaces of the form "clinvar.YEAR_MONTH" (e.g. "clinvar.2024_01"
-        for January 2024, which joins on db_name="ClinVar" and db_version="01_2024").
-    namespaced: Optional[bool] = None
-        Whether namespace the columns or not.
-    start : int, optional
-        The index to start from. If None, starts from the beginning.
-    limit : int, optional
-        The maximum number of variants to return. If None, returns all variants.
-    drop_na_columns : bool, optional
-        Whether to drop columns that contain only NA values. Defaults to False.
-    include_custom_columns : bool, optional
-        Whether to include custom columns defined in the score set. Defaults to True.
-    include_post_mapped_hgvs : bool, optional
-        Whether to include post-mapped HGVS notations and VEP functional consequence in the output. Defaults to False. If True, the output will include
-        columns for post-mapped HGVS genomic (g.) and protein (p.) notations, and VEP functional consequence.
-
-    Returns
-    _______
-    str
-        The CSV string containing the variant data.
-    """
-    assert type(score_set.dataset_columns) is dict
-    namespaced_score_set_columns: dict[str, list[str]] = {
-        "core": ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"],
-        "mavedb": [],
-    }
-    if include_post_mapped_hgvs:
-        namespaced_score_set_columns["mavedb"].append("post_mapped_hgvs_g")
-        namespaced_score_set_columns["mavedb"].append("post_mapped_hgvs_p")
-        namespaced_score_set_columns["mavedb"].append("post_mapped_hgvs_c")
-        namespaced_score_set_columns["mavedb"].append("post_mapped_hgvs_at_assay_level")
-        namespaced_score_set_columns["mavedb"].append("post_mapped_vrs_digest")
-    for namespace in namespaces:
-        namespaced_score_set_columns[namespace] = []
-
-    if include_custom_columns:
-        if "scores" in namespaced_score_set_columns:
-            namespaced_score_set_columns["scores"] = [
-                col for col in [str(x) for x in list(score_set.dataset_columns.get("score_columns", []))]
-            ]
-        if "counts" in namespaced_score_set_columns:
-            namespaced_score_set_columns["counts"] = [
-                col for col in [str(x) for x in list(score_set.dataset_columns.get("count_columns", []))]
-            ]
-    elif "scores" in namespaced_score_set_columns:
-        namespaced_score_set_columns["scores"].append(REQUIRED_SCORE_COLUMN)
-    if "vep" in namespaced_score_set_columns:
-        namespaced_score_set_columns["vep"].append("vep_functional_consequence")
-    if "gnomad" in namespaced_score_set_columns:
-        namespaced_score_set_columns["gnomad"].append("gnomad_af")
-    if "clingen" in namespaced_score_set_columns:
-        namespaced_score_set_columns["clingen"].append("clingen_allele_id")
-
-    # Parse ClinVar-versioned namespaces of the form "clinvar.YEAR_MONTH".
-    # The corresponding db_version stored in clinical_controls is "MONTH_YEAR".
-    clinvar_namespaces: dict[str, str] = {}  # namespace -> db_version (MONTH_YEAR)
-    for ns in namespaces:
-        m = CLINVAR_NS_PATTERN.match(ns)
-        if m:
-            year, month = m.group(1), m.group(2)
-            db_version = f"{month}_{year}"
-            clinvar_namespaces[ns] = db_version
-            namespaced_score_set_columns[ns] = ["clinical_significance", "clinical_review_status"]
-
-    need_mappings = (
-        include_post_mapped_hgvs
-        or "clingen" in namespaces
-        or "vep" in namespaces
-        or "gnomad" in namespaces
-        or bool(clinvar_namespaces)
-    )
-    need_gnomad = "gnomad" in namespaces
-
-    variants: list[Variant] = []
-    mappings: Optional[list[Optional[MappedVariant]]] = [] if need_mappings else None
-    gnomad_data: Optional[list[Optional[GnomADVariant]]] = [] if need_gnomad else None
-
-    select_columns: list[Any] = [Variant]
-    if need_mappings:
-        select_columns.append(MappedVariant)
-    if need_gnomad:
-        select_columns.append(GnomADVariant)
-
-    query = (
-        select(*select_columns)
-        .where(Variant.score_set_id == score_set.id)
-        .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer))
-    )
-
-    if need_mappings:
-        query = query.join(
-            MappedVariant,
-            and_(Variant.id == MappedVariant.variant_id, MappedVariant.current.is_(True)),
-            isouter=True,
-        )
-
-    if need_gnomad:
-        query = query.join(
-            MappedVariant.gnomad_variants.of_type(GnomADVariant),
-            isouter=True,
-        ).where(
-            or_(
-                and_(GnomADVariant.db_name == "gnomAD", GnomADVariant.db_version == "v4.1"),
-                GnomADVariant.id.is_(None),
-            )
-        )
-
-    if start:
-        query = query.offset(start)
-    if limit:
-        query = query.limit(limit)
-
-    result = db.execute(query).all()
-
-    for row in result:
-        variant = row[0]
-        variants.append(variant)
-
-        if need_mappings and mappings is not None:
-            mappings.append(row[1])
-
-        if need_gnomad and gnomad_data is not None:
-            idx = 2 if need_mappings else 1
-            gnomad_data.append(row[idx])
-
-    # For each ClinVar namespace, fetch a mapping from mapped_variant_id to ClinicalControl.
-    clinvar_data_map: dict[str, dict[int, Optional[ClinicalControl]]] = {}
-    if clinvar_namespaces and mappings is not None:
-        mv_ids = [m.id for m in mappings if m is not None]
-        for ns, db_version in clinvar_namespaces.items():
-            mv_to_cc: dict[int, Optional[ClinicalControl]] = {}
-            if mv_ids:
-                aliased_cc = aliased(ClinicalControl)
-                cc_query = (
-                    select(
-                        mapped_variants_clinical_controls_association_table.c.mapped_variant_id,
-                        aliased_cc,
-                    )
-                    .join(
-                        aliased_cc,
-                        mapped_variants_clinical_controls_association_table.c.clinical_control_id == aliased_cc.id,
-                    )
-                    .where(
-                        and_(
-                            mapped_variants_clinical_controls_association_table.c.mapped_variant_id.in_(mv_ids),
-                            aliased_cc.db_name == "ClinVar",
-                            aliased_cc.db_version == db_version,
-                        )
-                    )
-                )
-                for mv_id, cc in db.execute(cc_query).all():
-                    mv_to_cc[mv_id] = cc
-            clinvar_data_map[ns] = mv_to_cc
-
-    # Build per-variant ClinVar lookup (list indexed in parallel with variants).
-    clinvar_per_variant: Optional[list[Optional[dict[str, Optional[ClinicalControl]]]]] = None
-    if clinvar_namespaces and mappings is not None:
-        clinvar_per_variant = []
-        for mapping in mappings:
-            row_clinvar: dict[str, Optional[ClinicalControl]] = {}
-            for ns, mv_to_cc in clinvar_data_map.items():
-                if mapping is not None and mapping.id is not None:
-                    row_clinvar[ns] = mv_to_cc.get(mapping.id)
-                else:
-                    row_clinvar[ns] = None
-            clinvar_per_variant.append(row_clinvar)
-
-    rows_data = variants_to_csv_rows(
-        variants,
-        columns=namespaced_score_set_columns,
-        namespaced=namespaced,
-        mappings=mappings,
-        gnomad_data=gnomad_data,
-        clinvar_data_by_ns=clinvar_per_variant,
-    )  # type: ignore
-
-    rows_columns = []
-    for namespace, cols in namespaced_score_set_columns.items():
-        for col in cols:
-            if CLINVAR_NS_PATTERN.match(namespace):
-                # ClinVar versioned namespaces always include the full namespace prefix
-                # to avoid column-name collisions when multiple versions are requested.
-                rows_columns.append(f"{namespace}.{col}")
-            elif namespaced and namespace not in ["core", "mavedb"]:
-                rows_columns.append(f"{namespace}.{col}")
-            elif namespaced and namespace == "mavedb":
-                rows_columns.append(f"mavedb.{col}")
-            else:
-                rows_columns.append(col)
-
-    if drop_na_columns:
-        rows_data, rows_columns = drop_na_columns_from_csv_file_rows(rows_data, rows_columns)
-
-    stream = io.StringIO()
-    writer = csv.DictWriter(stream, fieldnames=rows_columns, quoting=csv.QUOTE_MINIMAL)
-    writer.writeheader()
-    writer.writerows(rows_data)
-    return stream.getvalue()
-
-
-def drop_na_columns_from_csv_file_rows(
-    rows_data: Iterable[dict[str, Any]], columns: list[str]
-) -> tuple[list[dict[str, Any]], list[str]]:
-    """Process rows_data for downloadable CSV by removing empty columns."""
-    # Convert map to list.
-    rows_data = list(rows_data)
-    columns_to_check = ["hgvs_nt", "hgvs_splice", "hgvs_pro"]
-    columns_to_remove = []
-
-    # Check if all values in a column are None or "NA"
-    for col in columns_to_check:
-        if all(validate_is_null(row[col]) for row in rows_data):
-            columns_to_remove.append(col)
-            for row in rows_data:
-                row.pop(col, None)  # Remove column from each row
-
-    # Remove these columns from the header list
-    columns = [col for col in columns if col not in columns_to_remove]
-    return rows_data, columns
-
-
-null_values_re = re.compile(r"\s+|none|nan|na|undefined|n/a|null|nil", flags=re.IGNORECASE)
-
-
-def is_null(value):
-    """Return True if a string represents a null value."""
-    value = str(value).strip().lower()
-    return null_values_re.fullmatch(value) or not value
-
-
 def is_replaces_id_unique_violation(exc: IntegrityError) -> bool:
     """
     Return True if the IntegrityError was caused by the unique constraint on score_set.replaces_id.
@@ -850,203 +585,6 @@ def is_replaces_id_unique_violation(exc: IntegrityError) -> bool:
     diag = getattr(orig, "diag", None)
     detail = getattr(diag, "detail", "") or ""
     return "replaces_id" in detail
-
-
-def variant_to_csv_row(
-    variant: Variant,
-    columns: dict[str, list[str]],
-    mapping: Optional[MappedVariant] = None,
-    gnomad_data: Optional[GnomADVariant] = None,
-    clinvar_data_by_ns: Optional[dict[str, Optional[ClinicalControl]]] = None,
-    namespaced: Optional[bool] = None,
-    na_rep="NA",
-) -> dict[str, Any]:
-    """
-    Format a variant into a containing the keys specified in `columns`.
-
-    Parameters
-    ----------
-    variant : variant.models.Variant
-        List of variants.
-    columns : list[str]
-        Columns to serialize.
-    namespaced: Optional[bool] = None
-        Namespace the columns or not.
-    mapping : variant.models.MappedVariant, optional
-        Mapped variant corresponding to the variant.
-    gnomad_data : variant.models.GnomADVariant, optional
-        gnomAD variant data corresponding to the variant.
-    clinvar_data_by_ns : dict[str, Optional[ClinicalControl]], optional
-        Per-variant ClinVar data keyed by namespace (e.g. "clinvar.2024_01").
-    na_rep : str
-        String to represent null values.
-
-    Returns
-    -------
-    dict[str, Any]
-    """
-    row: dict[str, Any] = {}
-    # Handle each column key explicitly as part of its namespace.
-    for column_key in columns.get("core", []):
-        if column_key == "hgvs_nt":
-            value = str(variant.hgvs_nt)
-        elif column_key == "hgvs_pro":
-            value = str(variant.hgvs_pro)
-        elif column_key == "hgvs_splice":
-            value = str(variant.hgvs_splice)
-        elif column_key == "accession":
-            value = str(variant.urn)
-        if is_null(value):
-            value = na_rep
-
-        # export columns in the `core` namespace without a namespace
-        row[column_key] = value
-    for column_key in columns.get("mavedb", []):
-        if column_key == "post_mapped_hgvs_g":
-            value = str(mapping.hgvs_g) if mapping and mapping.hgvs_g else na_rep
-            if value == na_rep:
-                fallback_hgvs = (
-                    get_hgvs_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
-                )
-                if fallback_hgvs is not None and is_hgvs_g(fallback_hgvs):
-                    value = fallback_hgvs
-                else:
-                    value = na_rep
-
-        elif column_key == "post_mapped_hgvs_p":
-            value = str(mapping.hgvs_p) if mapping and mapping.hgvs_p else na_rep
-            if value == na_rep:
-                fallback_hgvs = (
-                    get_hgvs_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
-                )
-                if fallback_hgvs is not None and is_hgvs_p(fallback_hgvs):
-                    value = fallback_hgvs
-                else:
-                    value = na_rep
-
-        elif column_key == "post_mapped_hgvs_c":
-            value = str(mapping.hgvs_c) if mapping and mapping.hgvs_c else na_rep
-        elif column_key == "post_mapped_hgvs_at_assay_level":
-            value = str(mapping.hgvs_assay_level) if mapping and mapping.hgvs_assay_level else na_rep
-        elif column_key == "post_mapped_vrs_digest":
-            digest = get_digest_from_post_mapped(mapping.post_mapped) if mapping and mapping.post_mapped else None
-            value = digest if digest is not None else na_rep
-        if is_null(value):
-            value = na_rep
-        key = f"mavedb.{column_key}" if namespaced else column_key
-        row[key] = value
-    for column_key in columns.get("vep", []):
-        if column_key == "vep_functional_consequence":
-            vep_functional_consequence = mapping.vep_functional_consequence if mapping else None
-            if vep_functional_consequence is not None:
-                value = vep_functional_consequence
-            else:
-                value = na_rep
-        key = f"vep.{column_key}" if namespaced else column_key
-        row[key] = value
-    for column_key in columns.get("scores", []):
-        parent = variant.data.get("score_data") if variant.data else None
-        value = str(parent.get(column_key)) if parent else na_rep
-        if is_null(value):
-            value = na_rep
-        key = f"scores.{column_key}" if namespaced else column_key
-        row[key] = value
-    for column_key in columns.get("counts", []):
-        parent = variant.data.get("count_data") if variant.data else None
-        value = str(parent.get(column_key)) if parent else na_rep
-        if is_null(value):
-            value = na_rep
-        key = f"counts.{column_key}" if namespaced else column_key
-        row[key] = value
-    for column_key in columns.get("gnomad", []):
-        if column_key == "gnomad_af":
-            gnomad_af = gnomad_data.allele_frequency if gnomad_data else None
-            if gnomad_af is not None:
-                value = str(gnomad_af)
-            else:
-                value = na_rep
-        key = f"gnomad.{column_key}" if namespaced else column_key
-        row[key] = value
-    for column_key in columns.get("clingen", []):
-        if column_key == "clingen_allele_id":
-            clingen_allele_id = mapping.clingen_allele_id if mapping else None
-            if clingen_allele_id is not None:
-                value = str(clingen_allele_id)
-            else:
-                value = na_rep
-        key = f"clingen.{column_key}" if namespaced else column_key
-        row[key] = value
-    # Handle ClinVar-versioned namespaces (e.g. "clinvar.2024_01").
-    # These always use the full "namespace.column" key regardless of the namespaced flag
-    # to avoid collisions when multiple versions are requested.
-    for namespace_key, namespace_cols in columns.items():
-        if not CLINVAR_NS_PATTERN.match(namespace_key):
-            continue
-        clinvar_entry = (clinvar_data_by_ns or {}).get(namespace_key)
-        for column_key in namespace_cols:
-            if column_key == "clinical_significance":
-                value = str(clinvar_entry.clinical_significance) if clinvar_entry else na_rep
-            elif column_key == "clinical_review_status":
-                value = str(clinvar_entry.clinical_review_status) if clinvar_entry else na_rep
-            else:
-                value = na_rep
-            if is_null(value):
-                value = na_rep
-            row[f"{namespace_key}.{column_key}"] = value
-    return row
-
-
-def variants_to_csv_rows(
-    variants: Sequence[Variant],
-    columns: dict[str, list[str]],
-    mappings: Optional[Sequence[Optional[MappedVariant]]] = None,
-    gnomad_data: Optional[Sequence[Optional[GnomADVariant]]] = None,
-    clinvar_data_by_ns: Optional[Sequence[Optional[dict[str, Optional[ClinicalControl]]]]] = None,
-    namespaced: Optional[bool] = None,
-    na_rep="NA",
-) -> Iterable[dict[str, Any]]:
-    """
-    Format each variant into a dictionary row containing the keys specified in `columns`.
-
-    Parameters
-    ----------
-    variants : list[variant.models.Variant]
-        List of variants.
-    columns : list[str]
-        Columns to serialize.
-    namespaced: Optional[bool] = None
-        Namespace the columns or not.
-    mappings : list[Optional[variant.models.MappedVariant]], optional
-        List of mapped variants corresponding to the variants.
-    gnomad_data : list[Optional[variant.models.GnomADVariant]], optional
-        List of gnomAD variant data corresponding to the variants.
-    clinvar_data_by_ns : list[Optional[dict[str, Optional[ClinicalControl]]]], optional
-        Per-variant ClinVar data keyed by namespace (e.g. "clinvar.2024_01").
-    na_rep : str
-        String to represent null values.
-
-    Returns
-    -------
-    list[dict[str, Any]]
-    """
-    n = len(variants)
-    _mappings: Sequence[Optional[MappedVariant]] = mappings if mappings is not None else [None] * n
-    _gnomad: Sequence[Optional[GnomADVariant]] = gnomad_data if gnomad_data is not None else [None] * n
-    _clinvar: Sequence[Optional[dict[str, Optional[ClinicalControl]]]] = (
-        clinvar_data_by_ns if clinvar_data_by_ns is not None else [None] * n
-    )
-    return map(
-        lambda t: variant_to_csv_row(
-            t[0],
-            columns,
-            mapping=t[1],
-            gnomad_data=t[2],
-            clinvar_data_by_ns=t[3],
-            namespaced=namespaced,
-            na_rep=na_rep,
-        ),
-        zip(variants, _mappings, _gnomad, _clinvar),
-    )
 
 
 def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[ScoreSet]:
