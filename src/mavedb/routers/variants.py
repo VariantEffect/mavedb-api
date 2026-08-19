@@ -1,9 +1,10 @@
 import logging
 from datetime import datetime
-from typing import Annotated, Optional
+from typing import Annotated, Any, List, Optional
 
 from fastapi import APIRouter, Depends, Path, Query, Response
 from fastapi.exceptions import HTTPException
+from fastapi.responses import StreamingResponse
 from ga4gh.core.identifiers import GA4GH_IR_REGEXP
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
@@ -21,17 +22,24 @@ from mavedb.lib.annotation.annotate import (
 from mavedb.lib.annotation.context import variant_annotation_context
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.authentication import get_current_user
+from mavedb.lib.authorization import get_principal
+from mavedb.lib.csv.namespaces import CSV_NAMESPACES_PARAM_DESCRIPTION, CsvNamespaceStr
+from mavedb.lib.csv.variant import available_variant_csv_namespaces, get_variant_csv
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, assert_permission, has_permission
+from mavedb.lib.permissions.principal import Principal
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.variant_detail import get_variant_detail
 from mavedb.models.variant import Variant
 from mavedb.routers.shared import (
     ACCESS_CONTROL_ERROR_RESPONSES,
+    BASE_400_RESPONSE,
     PUBLIC_ERROR_RESPONSES,
     ROUTER_BASE_PREFIX,
 )
+from mavedb.view_models.csv_namespace import AvailableCsvNamespace
 from mavedb.view_models.variant import VariantVrsMatch
 from mavedb.view_models.variant_detail import VariantDetail
 
@@ -253,6 +261,7 @@ def get_variant_functional_impact_statement(
     ),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Statement:
     """Construct a single VA-Spec functional-impact Statement for a variant by URN."""
     save_to_logging_context({"requested_resource": urn, "as_of": as_of})
@@ -268,7 +277,7 @@ def get_variant_functional_impact_statement(
         )
 
     try:
-        functional_impact = variant_functional_impact_statement(context)
+        functional_impact = variant_functional_impact_statement(context, principal=principal)
     except MappingDataDoesntExistException as e:
         logger.info(
             msg=f"Could not construct a functional impact statement for variant {urn}: {e}", extra=logging_context()
@@ -313,6 +322,7 @@ def get_variant_pathogenicity_statement(
     ),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> VariantPathogenicityStatement:
     """Construct a single VA-Spec pathogenicity Statement for a variant by URN."""
     save_to_logging_context({"requested_resource": urn, "as_of": as_of})
@@ -328,7 +338,7 @@ def get_variant_pathogenicity_statement(
         )
 
     try:
-        pathogenicity_statement = variant_pathogenicity_statement(context)
+        pathogenicity_statement = variant_pathogenicity_statement(context, principal=principal)
     except MappingDataDoesntExistException as e:
         logger.info(
             msg=f"Could not construct a pathogenicity statement for variant {urn}: {e}", extra=logging_context()
@@ -349,3 +359,163 @@ def get_variant_pathogenicity_statement(
         )
 
     return pathogenicity_statement
+
+
+@router.get(
+    "/variants/{urn}/csv-namespaces",
+    status_code=200,
+    response_model=list[AvailableCsvNamespace],
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="List the CSV column namespaces this variant has data for",
+)
+def get_variant_csv_namespaces(
+    *,
+    urn: str,
+    response: Response,
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the offered namespaces as they stood at this instant, so discovery matches an "
+            "`as_of` download. ISO 8601, ideally timezone-aware. Defaults to current."
+        ),
+    ),
+) -> Any:
+    """
+    List the CSV column namespaces this variant has data for, labeled and grouped for a picker.
+
+    Widens over the variant's equivalent measurements the same way the CSV does, so a calibration
+    belonging to another score set that also measured this allele is offered here too.
+
+    Parameters
+    __________
+    urn : str
+        The URN of the variant to inspect.
+    db : Session
+        The database session to use.
+    user_data : Optional[UserData]
+        The user data of the current user. If None, no user-specific permissions are checked.
+
+    Returns
+    _______
+    list[AvailableCsvNamespace]
+        The namespaces with data, each with a human-readable label and group.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "csv-namespaces"})
+
+    variant = db.query(Variant).filter(Variant.urn == urn).one_or_none()
+    if not variant:
+        logger.info(msg="Could not fetch CSV namespaces; No such variant exists.", extra=logging_context())
+        raise HTTPException(status_code=404, detail=f"variant with URN '{urn}' not found")
+
+    assert_permission(user_data, variant.score_set, Action.READ)
+
+    # Echoed like the CSV endpoints: the instant discovery answered for is part of the answer.
+    response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
+    return available_variant_csv_namespaces(
+        db,
+        urn,
+        may_read_score_set=lambda score_set: has_permission(user_data, score_set, Action.READ).permitted,
+        viewer=principal.viewer_for(ScoreCalibrationViewer),
+        as_of=as_of,
+    )
+
+
+@router.get(
+    "/variants/{urn}/csv",
+    status_code=200,
+    responses={
+        200: {
+            "content": {"text/csv": {}},
+            "description": (
+                "Variant data in CSV format, one row per measurement of the variant's allele. Columns"
+                " cover identity, mapped coordinates, the measured score, external annotations, and each"
+                " requested calibration's functional and ACMG interpretation."
+            ),
+        },
+        **BASE_400_RESPONSE,
+        **ACCESS_CONTROL_ERROR_RESPONSES,
+    },
+    summary="Get variant data in CSV format",
+)
+def get_variant_csv_data(
+    *,
+    urn: str,
+    namespaces: Optional[List[CsvNamespaceStr]] = Query(default=None, description=CSV_NAMESPACES_PARAM_DESCRIPTION),
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the mapping-derived columns (reference HGVS, VEP, gnomAD, ClinVar) as they "
+            "stood at this instant, over the variant's fixed score. ISO 8601, ideally timezone-aware. "
+            "Defaults to current."
+        ),
+    ),
+) -> Any:
+    """
+    Return tabular data for a single variant, identified by URN, in CSV format.
+
+    Where the variant-level annotation endpoints return nested VA-Spec objects, this flattens the same
+    interpretation into columns a clinical information system can consume: ACMG criteria, evidence
+    strengths, and evidence outcome codes alongside the measurement they were derived from.
+
+    A row is emitted for every current measurement of the variant's ClinGen allele, so a variant assayed
+    in several score sets yields several rows. The requested variant is always first.
+
+    Parameters
+    __________
+    urn : str
+        The URN of the variant to fetch.
+    namespaces : Optional[List[str]]
+        The groups of columns to include. When omitted, the response includes the fixed groups plus one
+        namespace per calibration eligible to annotate these measurements and the most recent ClinVar
+        release covering them.
+    db : Session
+        The database session to use.
+    user_data : Optional[UserData]
+        The user data of the current user. If None, no user-specific permissions are checked.
+
+    Returns
+    _______
+    Any
+        StreamingResponse containing the CSV data.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "csv", "namespaces": namespaces})
+
+    try:
+        variant = db.query(Variant).filter(Variant.urn == urn).one_or_none()
+    except MultipleResultsFound:
+        logger.info(msg="Could not fetch the requested variant; Multiple such variants exist.", extra=logging_context())
+        raise HTTPException(status_code=500, detail=f"multiple variants with URN '{urn}' were found")
+
+    if not variant:
+        logger.info(msg="Could not fetch the requested variant; No such variant exists.", extra=logging_context())
+        raise HTTPException(status_code=404, detail=f"variant with URN '{urn}' not found")
+
+    assert_permission(user_data, variant.score_set, Action.READ)
+
+    # Only measurements the requester may read are emitted. The predicate runs against the score sets
+    # reached by the widening, keeping the permission check proportional to the result.
+    # A calibration's READ permission is stricter than its score set's, so it is asked separately: being
+    # able to read the measurement does not entitle a caller to a private calibration's interpretation.
+    csv_str = get_variant_csv(
+        db,
+        urn,
+        namespaces=namespaces,
+        may_read_score_set=lambda score_set: has_permission(user_data, score_set, Action.READ).permitted,
+        viewer=principal.viewer_for(ScoreCalibrationViewer),
+        as_of=as_of,
+    )
+    return StreamingResponse(
+        iter([csv_str]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{urn}.csv"',
+            "X-As-Of": as_of.isoformat() if as_of is not None else "current",
+            "Access-Control-Expose-Headers": "X-As-Of",
+        },
+    )

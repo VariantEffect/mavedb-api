@@ -10,16 +10,26 @@ substrate-backed context build is covered by the integration tests in ``test_uti
 # ruff: noqa: E402
 
 from copy import deepcopy
+from unittest.mock import patch
 
 import pytest
 
 pytest.importorskip("psycopg2")
+pytest.importorskip("fastapi")
 
 from mavedb.lib.annotation.annotate import (
     variant_functional_impact_statement,
     variant_highest_level_annotation,
     variant_pathogenicity_statement,
     variant_study_result,
+)
+from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
+from tests.lib.annotation.conftest import (
+    admin_principal,
+    annotation_context_for,
+    make_private,
+    owner_principal,
+    scope_of,
 )
 
 
@@ -33,6 +43,11 @@ class TestVariantStudyResult:
 
         assert result is not None
         assert result.type == "ExperimentalVariantFunctionalImpactStudyResult"
+
+    def test_a_study_result_discloses_a_calibration_scope(self, mock_mapped_variant):
+        # Emitted unconditionally so that a record with no scope is never ambiguous between "public" and
+        # "produced before disclosure existed".
+        assert scope_of(variant_study_result(annotation_context_for(mock_mapped_variant))) == "public"
 
 
 @pytest.mark.unit
@@ -115,6 +130,41 @@ class TestVariantFunctionalImpactStatement:
             assert result.type == "Statement"
             # Classification should be INDETERMINATE
             assert result.classification.primaryCoding.code.root == "indeterminate"
+
+    def test_no_statement_is_built_from_a_private_calibration(
+        self, mock_mapped_variant_with_functional_calibration_score_set
+    ):
+        """A private calibration's thresholds and baseline scores must not reach an anonymous caller."""
+        context = annotation_context_for(make_private(mock_mapped_variant_with_functional_calibration_score_set))
+
+        assert variant_functional_impact_statement(context) is None
+
+    def test_an_entitled_caller_receives_a_statement_from_a_private_calibration(
+        self, mock_mapped_variant_with_functional_calibration_score_set
+    ):
+        """Viewer-scoped emission: an export shows each principal what that principal may see."""
+        context = annotation_context_for(make_private(mock_mapped_variant_with_functional_calibration_score_set))
+
+        assert variant_functional_impact_statement(context, principal=admin_principal()) is not None
+
+    def test_a_public_statement_discloses_a_public_calibration_scope(
+        self, mock_mapped_variant_with_functional_calibration_score_set
+    ):
+        # VA-Spec statements carry no stable id, so a viewer-scoped statement must say that it is one.
+        statement = variant_functional_impact_statement(
+            annotation_context_for(mock_mapped_variant_with_functional_calibration_score_set)
+        )
+
+        assert scope_of(statement) == "public"
+
+    def test_a_statement_widened_by_entitlement_discloses_a_restricted_scope(
+        self, mock_mapped_variant_with_functional_calibration_score_set
+    ):
+        context = annotation_context_for(make_private(mock_mapped_variant_with_functional_calibration_score_set))
+
+        statement = variant_functional_impact_statement(context, principal=admin_principal())
+
+        assert scope_of(statement) == "restricted"
 
 
 @pytest.mark.unit
@@ -297,6 +347,30 @@ class TestVariantPathogenicityStatement:
                 ), "hasEvidenceItems contained a raw dict instead of a model instance"
                 assert evidence_item.type == "Statement"
 
+    def test_no_statement_is_built_from_a_private_calibration(
+        self, mock_mapped_variant_with_pathogenicity_calibration_score_set
+    ):
+        """A private calibration's ACMG criteria must not reach an anonymous caller."""
+        context = annotation_context_for(make_private(mock_mapped_variant_with_pathogenicity_calibration_score_set))
+
+        assert variant_pathogenicity_statement(context) is None
+
+    def test_the_owner_receives_a_statement_from_their_private_calibration(
+        self, mock_mapped_variant_with_pathogenicity_calibration_score_set
+    ):
+        context = annotation_context_for(make_private(mock_mapped_variant_with_pathogenicity_calibration_score_set))
+
+        assert variant_pathogenicity_statement(context, principal=owner_principal()) is not None
+
+    def test_a_statement_widened_by_entitlement_discloses_a_restricted_scope(
+        self, mock_mapped_variant_with_pathogenicity_calibration_score_set
+    ):
+        context = annotation_context_for(make_private(mock_mapped_variant_with_pathogenicity_calibration_score_set))
+
+        statement = variant_pathogenicity_statement(context, principal=admin_principal())
+
+        assert scope_of(statement) == "restricted"
+
 
 @pytest.mark.unit
 class TestVariantHighestLevelAnnotation:
@@ -327,3 +401,34 @@ class TestVariantHighestLevelAnnotation:
         assert result is not None
         assert result.type == "Statement"
         assert result.proposition.type == "VariantPathogenicityProposition"
+
+    def test_none_when_the_variant_has_nothing_to_annotate(self, mock_annotation_context):
+        """An unmapped variant yields no context at all, so it never reaches a builder. What this guards
+        is the other absence: one raised part-way through a build must degrade to None, not propagate."""
+        with patch(
+            "mavedb.lib.annotation.annotate.can_annotate_variant_for_pathogenicity_evidence",
+            side_effect=MappingDataDoesntExistException("no mapping data"),
+        ):
+            assert variant_highest_level_annotation(mock_annotation_context) is None
+
+    def test_degrades_to_a_study_result_when_the_calibration_is_private(
+        self, mock_mapped_variant_with_pathogenicity_calibration_score_set
+    ):
+        # A study result reports the measured score, which publishing the score set did make public. The
+        # variant is still described; only the calibration-derived interpretation is withheld.
+        context = annotation_context_for(make_private(mock_mapped_variant_with_pathogenicity_calibration_score_set))
+
+        result = variant_highest_level_annotation(context)
+
+        assert result is not None
+        assert result.type == "ExperimentalVariantFunctionalImpactStudyResult"
+
+    def test_reaches_the_statement_layer_for_an_entitled_caller(
+        self, mock_mapped_variant_with_pathogenicity_calibration_score_set
+    ):
+        context = annotation_context_for(make_private(mock_mapped_variant_with_pathogenicity_calibration_score_set))
+
+        result = variant_highest_level_annotation(context, principal=admin_principal())
+
+        assert result is not None
+        assert result.type != "ExperimentalVariantFunctionalImpactStudyResult"

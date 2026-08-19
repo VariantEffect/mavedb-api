@@ -6,16 +6,37 @@ including mock objects with proper calibrations and configurations.
 """
 
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
 from mavedb.lib.annotation.context import VariantAnnotationContext
 from mavedb.lib.vrs import vrs_object_from_mapped_variant
+from tests.helpers.constants import PRIVATE_CALIBRATION_OWNER_ID
 from tests.helpers.mocks.factories import (
     create_mock_mapped_variant,
     create_mock_mapped_variant_with_functional_calibration_score_set,
     create_mock_mapped_variant_with_pathogenicity_calibration_score_set,
 )
+
+# Permission related helpers coupled to logging context.
+try:
+    from .conftest_optional import *  # noqa: F403
+except ImportError:
+    pass
+
+
+def make_private(mapped_variant, *, owner_id: int = PRIVATE_CALIBRATION_OWNER_ID):
+    """Mark every calibration on a mapped variant's score set private, owned by ``owner_id``.
+
+    The real permission check reads ``created_by_id`` and the owning score set's contributor list, neither
+    of which the annotation mocks populate.
+    """
+    for calibration in mapped_variant.variant.score_set.score_calibrations:
+        calibration.private = True
+        calibration.created_by_id = owner_id
+        calibration.score_set = Mock(contributors=[], created_by_id=owner_id, modified_by_id=owner_id)
+    return mapped_variant
 
 
 def annotation_context_for(mapped_variant, subject_variant=None) -> VariantAnnotationContext:

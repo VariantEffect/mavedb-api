@@ -2,18 +2,20 @@
 
 Gate predicates the annotation builders consult before constructing a statement: a variant needs a real
 score (the base assumption) and its score set needs at least one calibration usable for the target
-annotation type (:func:`calibration.score_calibration_may_be_used_for_annotation`). Split by annotation
-type into ``can_annotate_variant_for_pathogenicity_evidence`` / ``can_annotate_variant_for_functional_statement``.
+annotation type (:func:`calibration.calibrations_available_for_annotation`). This calibration must be readable
+by the requesting principal. Split by annotation type into ``can_annotate_variant_for_pathogenicity_evidence`` /
+``can_annotate_variant_for_functional_statement``.
 """
 
-from typing import Literal
+from typing import Optional
 
-from mavedb.lib.annotation.calibration import score_calibration_may_be_used_for_annotation
+from mavedb.lib.annotation.calibration import calibrations_available_for_annotation
+from mavedb.lib.annotation.context import VariantAnnotationContext
+from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.variants import variant_score
-from mavedb.models.variant import Variant
 
 
-def _can_annotate_variant_base_assumptions(variant: Variant) -> bool:
+def _can_annotate_variant_base_assumptions(context: VariantAnnotationContext) -> bool:
     """
     Check if a variant meets the basic requirements for annotation.
 
@@ -21,52 +23,22 @@ def _can_annotate_variant_base_assumptions(variant: Variant) -> bool:
     annotation by checking for a valid score value.
 
     Args:
-        variant (Variant): The variant to check for annotation eligibility.
+        context (VariantAnnotationContext): The context containing the variant to check for annotation eligibility.
 
     Returns:
         bool: True if the variant can be annotated (has a non-None numeric score), False otherwise.
     """
     # A variant is annotatable only if it carries a real (non-null, numeric) score.
-    if variant_score(variant) is None:
+    if variant_score(context.variant) is None:
         return False
 
     return True
 
 
-def _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
-    variant: Variant,
-    annotation_type: Literal["pathogenicity", "functional"],
-    allow_research_use_only_calibrations: bool = False,
-) -> bool:
-    """
-    Check if a variant's score set contains any of the required calibrations for annotation.
-
-    Args:
-        variant (Variant): The variant whose score set is checked.
-        annotation_type (Literal["pathogenicity", "functional"]): The type of annotation to check for.
-            Must be either "pathogenicity" or "functional".
-        allow_research_use_only_calibrations (bool, optional): Whether to consider calibrations marked as
-            research use only as valid for annotation. Defaults to False.
-
-    Returns:
-        bool: True if the variant's score set contains at least one valid calibration with the required
-            classifications for the specified annotation type. False otherwise.
-    """
-    if variant.score_set.score_calibrations is None:
-        return False
-
-    return any(
-        score_calibration_may_be_used_for_annotation(
-            score_calibration,
-            annotation_type,
-            allow_research_use_only_calibrations=allow_research_use_only_calibrations,
-        )
-        for score_calibration in variant.score_set.score_calibrations
-    )
-
-
 def can_annotate_variant_for_pathogenicity_evidence(
-    variant: Variant, allow_research_use_only_calibrations=False
+    context: VariantAnnotationContext,
+    allow_research_use_only_calibrations=False,
+    principal: Optional[Principal] = None,
 ) -> bool:
     """
     Determine if a variant can be annotated for pathogenicity evidence.
@@ -76,7 +48,7 @@ def can_annotate_variant_for_pathogenicity_evidence(
     score calibrations contain the required kinds for pathogenicity evidence annotation.
 
     Args:
-        variant (Variant): The variant to evaluate for pathogenicity evidence annotation eligibility.
+        context (VariantAnnotationContext): The context containing the variant to evaluate for pathogenicity evidence annotation eligibility.
 
     Returns:
         bool: True if the variant can be annotated for pathogenicity evidence, False otherwise.
@@ -89,17 +61,22 @@ def can_annotate_variant_for_pathogenicity_evidence(
         Both checks must pass for the variant to be considered eligible for
         pathogenicity evidence annotation.
     """
-    if not _can_annotate_variant_base_assumptions(variant):
-        return False
-    if not _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
-        variant, "pathogenicity", allow_research_use_only_calibrations=allow_research_use_only_calibrations
-    ):
+    if not _can_annotate_variant_base_assumptions(context):
         return False
 
-    return True
+    return bool(
+        calibrations_available_for_annotation(
+            context,
+            "pathogenicity",
+            allow_research_use_only_calibrations=allow_research_use_only_calibrations,
+            principal=principal,
+        )
+    )
 
 
-def can_annotate_variant_for_functional_statement(variant: Variant, allow_research_use_only_calibrations=False) -> bool:
+def can_annotate_variant_for_functional_statement(
+    context: VariantAnnotationContext, allow_research_use_only_calibrations=False, principal: Optional[Principal] = None
+) -> bool:
     """
     Determine if a variant can be annotated for functional statements.
 
@@ -108,7 +85,7 @@ def can_annotate_variant_for_functional_statement(variant: Variant, allow_resear
     score calibrations contain the required kinds for functional annotation.
 
     Args:
-        variant (Variant): The variant to check for annotation eligibility.
+        context (VariantAnnotationContext): The context containing the variant to check for annotation eligibility.
 
     Returns:
         bool: True if the variant can be annotated for functional statements, False otherwise.
@@ -118,11 +95,14 @@ def can_annotate_variant_for_functional_statement(variant: Variant, allow_resear
         1. Validates base assumptions using _can_annotate_variant_base_assumptions
         2. Verifies score calibrations have an appropriate calibration for functional annotation.
     """
-    if not _can_annotate_variant_base_assumptions(variant):
-        return False
-    if not _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
-        variant, "functional", allow_research_use_only_calibrations=allow_research_use_only_calibrations
-    ):
+    if not _can_annotate_variant_base_assumptions(context):
         return False
 
-    return True
+    return bool(
+        calibrations_available_for_annotation(
+            context,
+            "functional",
+            allow_research_use_only_calibrations=allow_research_use_only_calibrations,
+            principal=principal,
+        )
+    )

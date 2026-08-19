@@ -21,7 +21,7 @@ and unaffected. Defaults to currently-live rows.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Sequence
 
 from sqlalchemy import Integer, and_, cast, func, select
 from sqlalchemy.orm import Session, aliased
@@ -163,16 +163,29 @@ def _mapped_triple(
     )
 
 
-def get_protein_hgvs_by_record(db: Session, score_set_id: int, *, as_of: Optional[datetime] = None) -> dict[int, str]:
-    """The canonical protein-level mapped HGVS for a score set's live mapping records, keyed by
+def get_protein_hgvs_by_record(
+    db: Session,
+    score_set_id: Optional[int] = None,
+    *,
+    variant_ids: Optional[Sequence[int]] = None,
+    as_of: Optional[datetime] = None,
+) -> dict[int, str]:
+    """The canonical protein-level mapped HGVS for a set of live mapping records, keyed by
     ``mapping_record.id``. Records with no protein projection (UTR/intronic) are absent from the map.
     Shared by the lean whole-set view and the CSV export.
+
+    Exactly one of *score_set_id* (every variant in one score set) or *variant_ids* (an explicit set,
+    which may span several score sets — the variant-level CSV's cross-set equivalent measurements) is
+    required.
 
     Runs as its own query rather than a join: the ``DISTINCT ON`` cardinality is opaque to the planner,
     so a join lands it on the inner side of a nested loop and rescans it once per variant — O(N^2), and
     historically ~97% of the lean endpoint's runtime. Stitching by ``mapping_record_id`` in Python keeps
     both queries O(N).
     """
+    if (score_set_id is None) == (variant_ids is None):
+        raise ValueError("exactly one of score_set_id or variant_ids must be provided")
+
     prot_link = aliased(MappingRecordAllele)
     prot_allele = aliased(Allele)
     prot_record = aliased(MappingRecord)
@@ -186,11 +199,15 @@ def get_protein_hgvs_by_record(db: Session, score_set_id: int, *, as_of: Optiona
         .distinct(prot_link.mapping_record_id)
         # link -> allele: level and hgvs_p live on the *allele*.
         .join(prot_allele, prot_allele.id == prot_link.allele_id)
-        # link -> record -> variant: the bridge to scoreset_id, to scope the query.
+        # link -> record -> variant: the bridge to scoreset_id/variant_id, to scope the query.
         .join(prot_record, prot_record.id == prot_link.mapping_record_id)
         .join(prot_variant, prot_variant.id == prot_record.variant_id)
-        # Scope to this score set so the cost scales with the response.
-        .where(prot_variant.score_set_id == score_set_id)
+        # Scope to this score set (or this explicit variant set) so the cost scales with the response.
+        .where(
+            prot_variant.score_set_id == score_set_id
+            if score_set_id is not None
+            else prot_variant.id.in_(variant_ids or [])
+        )
         # Live links only; a live link implies a live parent record (ValidTime invariant), so no
         # separate prot_record.live_at check is needed.
         .where(prot_link.live_at(as_of))

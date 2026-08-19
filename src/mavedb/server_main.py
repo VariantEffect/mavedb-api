@@ -34,6 +34,7 @@ from mavedb.lib.logging.context import (
     logging_context,
     save_to_logging_context,
 )
+from mavedb.lib.middleware import CatchAllErrorMiddleware
 from mavedb.lib.permissions.exceptions import PermissionException
 from mavedb.lib.slack import send_slack_error
 from mavedb.models import *  # noqa: F403
@@ -77,6 +78,10 @@ logger = logging.getLogger(__name__)
 configure_mappers()
 
 app = FastAPI()
+# `add_middleware` inserts at the head of the stack, so the *first* call here is the innermost layer.
+# CatchAllErrorMiddleware must sit inside both CORSMiddleware and the context middleware: CORS has to
+# decorate the 500 it produces, and the correlation id it returns comes from the context.
+app.add_middleware(CatchAllErrorMiddleware)
 app.add_middleware(
     PopulatedRawContextMiddleware,
     plugins=(

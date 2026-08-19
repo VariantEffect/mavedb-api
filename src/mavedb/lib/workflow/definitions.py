@@ -96,16 +96,20 @@ def annotation_pipeline_job_definitions(
             },
             "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
-        {
-            "key": "populate_vep_for_score_set",
-            "function": "populate_vep_for_score_set",
-            "type": JobType.MAPPED_VARIANT_ANNOTATION,
-            "params": {
-                "correlation_id": None,  # Required param to be filled in at runtime
-                "score_set_id": None,  # Required param to be filled in at runtime
-            },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
-        },
+        # VEP annotation is intentionally not scheduled: its consequences came from VEP's top-level
+        # most_severe_consequence, the worst call across all overlapping transcripts rather than the
+        # one the variant was mapped to.
+        # TODO(#772): Re-enable once VEP annotates Allele rows directly.
+        # {
+        #     "key": "populate_vep_for_score_set",
+        #     "function": "populate_vep_for_score_set",
+        #     "type": JobType.MAPPED_VARIANT_ANNOTATION,
+        #     "params": {
+        #         "correlation_id": None,  # Required param to be filled in at runtime
+        #         "score_set_id": None,  # Required param to be filled in at runtime
+        #     },
+        #     "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
+        # },
     ]
 
 

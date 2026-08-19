@@ -135,6 +135,9 @@ def setup_lib_db_with_variant(session, setup_lib_db_with_score_set):
 def setup_lib_db_with_mapped_variant(session, setup_lib_db_with_variant):
     """
     Sets up the lib test db with a user, reference, license, and a score set.
+
+    Seeds only the frozen ``MappedVariant`` table; tests that need a mapping on the allele substrate seed
+    their own record, so that they control its alleles. ``tests/lib/csv`` overrides this to add one.
     """
 
     mapped_variant = MappedVariant(**TEST_MINIMAL_MAPPED_VARIANT, variant_id=setup_lib_db_with_variant.id)

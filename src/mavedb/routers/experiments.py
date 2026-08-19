@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.authentication import get_current_user
-from mavedb.lib.authorization import require_current_user, require_current_user_with_email
+from mavedb.lib.authorization import get_principal, require_current_user, require_current_user_with_email
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
@@ -24,6 +24,8 @@ from mavedb.lib.keywords import search_keyword
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, assert_permission, has_permission
+from mavedb.lib.permissions.principal import Principal
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.score_sets import find_superseded_score_set_tail
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.exceptions import ValidationError
@@ -175,6 +177,7 @@ def get_experiment_score_sets(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Any:
     """
     Get all score sets belonging to an experiment.
@@ -215,10 +218,34 @@ def get_experiment_score_sets(
 
     filtered_score_sets.sort(key=attrgetter("urn"))
     save_to_logging_context({"associated_resources": [item.urn for item in score_set_result]})
+    # A calibration's READ rule is stricter than its score set's, so a published score set can carry
+    # calibrations this caller may not see. Filtered on the serialized view rather than by reassigning
+    # ScoreSet.score_calibrations, whose delete-orphan cascade would mark the withheld rows for deletion.
+    viewer = principal.viewer_for(ScoreCalibrationViewer)
+
     enriched_score_sets = []
     for fs in filtered_score_sets:
         enriched_experiment = enrich_experiment_with_num_score_sets(fs.experiment, user_data)
-        response_item = score_set.ScoreSet.model_validate(fs).copy(update={"experiment": enriched_experiment})
+        visible_calibration_ids = {calibration.id for calibration in viewer.visible(fs.score_calibrations)}
+        # A superseded score set reaches this list *because* its successor failed the caller's READ check
+        # (see find_superseded_score_set_tail), so serializing that successor's urn and title would name
+        # the very score set the caller was found not to be entitled to.
+        # TODO(#808): this duplicates score_sets._score_set_response; the two have already drifted once.
+        superseding_is_visible = fs.superseding_score_set is not None and (
+            has_permission(user_data, fs.superseding_score_set, Action.READ).permitted
+        )
+        validated_item = score_set.ScoreSet.model_validate(fs)
+        response_item = validated_item.copy(
+            update={
+                "experiment": enriched_experiment,
+                "score_calibrations": [
+                    calibration
+                    for calibration in (validated_item.score_calibrations or [])
+                    if calibration.id in visible_calibration_ids
+                ],
+                "superseding_score_set": validated_item.superseding_score_set if superseding_is_visible else None,
+            }
+        )
         enriched_score_sets.append(response_item)
 
     return enriched_score_sets

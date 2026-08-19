@@ -55,6 +55,8 @@ VALID_CLINGEN_LDH_ID = "2786738861"
 VALID_MD5_DIGEST = "01234abcde%"
 VALID_VMC_DIGEST = "GS_ASNKvN4=%"
 
+PRIVATE_CALIBRATION_OWNER_ID = 42
+
 TEST_SEQREPO_INITIAL_STATE = [
     {f"refseq:{VALID_ACCESSION}": {"seq_id": "seq1", "seq": "AAAA", "namespace": "refseq", "alias": VALID_ACCESSION}},
     {f"MD5:{VALID_MD5_DIGEST}": {"seq_id": "seq2", "seq": "CCCC", "namespace": "MD5", "alias": VALID_MD5_DIGEST}},
@@ -160,6 +162,48 @@ TEST_VALID_POST_MAPPED_VRS_ALLELE_LENGTH_EXPRESSION = {
         "sequenceReference": {
             "type": "SequenceReference",
             "label": TEST_REFSEQ_IDENTIFIER,
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+}
+
+# A genomic mapping: an hgvs.g expression against a chromosome accession, rather than the protein-level
+# hgvs.p the other post-mapped constants carry.
+TEST_VALID_POST_MAPPED_VRS_ALLELE_GENOMIC = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "G"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 23536836,
+        "type": "SequenceLocation",
+        "start": 23536835,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
+            "label": "NC_000018.10",
+            "refgetAccession": TEST_REFGET_ACCESSION,
+        },
+    },
+    "expressions": [{"value": "NC_000018.10:g.23536836C>G", "syntax": "hgvs.g"}],
+}
+
+# The minimum a mapper can store: an allele with no expressions and no reference-sequence extension.
+# Annotation must not assume either is present.
+TEST_VALID_POST_MAPPED_VRS_ALLELE_DIGEST_ONLY = {
+    "id": TEST_GA4GH_IDENTIFIER,
+    "type": "Allele",
+    "state": {"type": "LiteralSequenceExpression", "sequence": "F"},
+    "digest": TEST_GA4GH_DIGEST,
+    "location": {
+        "id": TEST_SEQUENCE_LOCATION_ACCESSION,
+        "end": 6,
+        "type": "SequenceLocation",
+        "start": 5,
+        "digest": TEST_GA4GH_DIGEST,
+        "sequenceReference": {
+            "type": "SequenceReference",
             "refgetAccession": TEST_REFGET_ACCESSION,
         },
     },

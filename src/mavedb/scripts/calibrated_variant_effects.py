@@ -74,7 +74,16 @@ logger = logging.getLogger(__name__)
 @click.command()
 @with_database_session
 def main(db: Session) -> None:
-    """Count unique variant effect measurements with ACMG-classified functional ranges."""
+    """Count unique variant effect measurements with ACMG-classified functional ranges.
+
+    Counts every calibration on a public score set, applying no ``ScoreCalibrationViewer``. A calibration
+    keeps its own ``private`` flag and a READ rule stricter than its score set's, so some of what is
+    counted here is not readable by any caller the API would serve. That is deliberate: this is an
+    operator's census of what MaveDB holds, not a response to a request, and a viewer-filtered count would
+    under-report the corpus. It is also the aggregate blind spot ``lib/permissions/viewer.py`` names — a
+    count leaks no calibration's contents, but it does reveal that private ones exist. Keep the output
+    internal, and do not lift these totals into anything caller-facing without applying a viewer.
+    """
 
     query = (
         select(ScoreSet)

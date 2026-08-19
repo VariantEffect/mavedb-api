@@ -24,6 +24,7 @@ from mavedb.view_models.orcid import OrcidUser
 from tests.helpers.constants import (
     EXTRA_USER,
     TEST_BIORXIV_IDENTIFIER,
+    TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_CROSSREF_IDENTIFIER,
     TEST_EXPERIMENT_WITH_KEYWORD,
     TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE,
@@ -40,8 +41,13 @@ from tests.helpers.constants import (
     TEST_USER2,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
+from tests.helpers.util.common import deepcamelize
 from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.experiment import create_experiment
+from tests.helpers.util.score_calibration import (
+    create_test_score_calibration_in_score_set_via_client,
+    publish_test_score_calibration_via_client,
+)
 from tests.helpers.util.score_set import create_seq_score_set, create_seq_score_set_with_variants, publish_score_set
 from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import mock_worker_variant_insertion
@@ -1794,6 +1800,86 @@ def test_non_owner_searches_published_superseding_score_sets_for_experiments(
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["urn"] == published_superseding_score_set["urn"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_experiment_score_sets_withhold_private_calibrations_from_anonymous_users(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides, mock_publication_fetch
+):
+    """A published score set can carry an unpublished calibration.
+
+    This endpoint checks READ on the experiment and on each score set, but a calibration's READ rule is
+    stricter than its score set's, so it needs its own filter. Without it the listing served every private
+    calibration's thresholds to anyone.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    experiment_urn = published["experiment"]["urn"]
+
+    # The owner sees their own private calibration.
+    owner_response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+    assert owner_response.status_code == 200
+    owner_entry = next(ss for ss in owner_response.json() if ss["urn"] == published["urn"])
+    assert len(owner_entry.get("scoreCalibrations") or []) == 1
+
+    with DependencyOverrider(anonymous_app_overrides):
+        anonymous_response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+
+    assert anonymous_response.status_code == 200
+    anonymous_entry = next(ss for ss in anonymous_response.json() if ss["urn"] == published["urn"])
+    assert (anonymous_entry.get("scoreCalibrations") or []) == []
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_experiment_score_sets_serve_published_calibrations_to_anonymous_users(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides, mock_publication_fetch
+):
+    """The filter withholds only what a calibration's own READ rule withholds."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    experiment_urn = published["experiment"]["urn"]
+
+    with DependencyOverrider(anonymous_app_overrides):
+        anonymous_response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+
+    assert anonymous_response.status_code == 200
+    anonymous_entry = next(ss for ss in anonymous_response.json() if ss["urn"] == published["urn"])
+    assert [c["urn"] for c in (anonymous_entry.get("scoreCalibrations") or [])] == [calibration["urn"]]
 
 
 def test_search_score_sets_for_contributor_experiments(session, client, setup_router_db, data_files, data_provider):

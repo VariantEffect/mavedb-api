@@ -10,8 +10,8 @@ from ga4gh.va_spec.base.core import (
     StudyResult,
     VariantPathogenicityProposition,
 )
-from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided
 
+from mavedb.lib.acmg import acmg_evidence_outcome_code
 from mavedb.lib.annotation.classification import (
     functional_classification_of_variant,
     pathogenicity_classification_of_variant,
@@ -44,16 +44,14 @@ def acmg_evidence_line(
         context.variant, score_calibration
     )
 
+    evidence_outcome_code = acmg_evidence_outcome_code(
+        evidence_outcome.value, evidence_strength.name if evidence_strength else None
+    )
+
     if not evidence_strength:
-        evidence_outcome_code = f"{evidence_outcome.value}_not_met"
         strength_of_evidence = None
         direction_of_evidence = Direction.NEUTRAL
     else:
-        evidence_outcome_code = (
-            f"{evidence_outcome.value}_{evidence_strength.name.lower()}"
-            if evidence_strength != StrengthOfEvidenceProvided.STRONG
-            else evidence_outcome.value
-        )
         strength_of_evidence = MappableConcept(
             primaryCoding=Coding(
                 code=evidence_strength,

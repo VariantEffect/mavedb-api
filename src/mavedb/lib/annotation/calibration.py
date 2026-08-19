@@ -6,8 +6,9 @@ and, among the eligible ones, which carries the strongest evidence for a given v
 significance). Consumed by the annotation builders in ``annotate.py``.
 """
 
-from typing import Literal, Optional
+from typing import Iterable, Literal, Optional
 
+from ga4gh.core.models import Extension
 from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided as VaSpecStrengthOfEvidenceProvided
 
 from mavedb.lib.annotation.classification import (
@@ -15,9 +16,88 @@ from mavedb.lib.annotation.classification import (
     functional_classification_of_variant,
     pathogenicity_classification_of_variant,
 )
+from mavedb.lib.annotation.context import VariantAnnotationContext
+from mavedb.lib.permissions.principal import Principal
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
-from mavedb.models.variant import Variant
+
+CALIBRATION_SCOPE_EXTENSION_NAME = "mavedb_calibration_scope"
+"""Extension naming the principal an annotation was built for. See ``calibration_scope_extension``."""
+
+
+def calibrations_available_for_annotation(
+    context: VariantAnnotationContext,
+    annotation_type: Literal["pathogenicity", "functional"],
+    allow_research_use_only_calibrations: bool = False,
+    principal: Optional[Principal] = None,
+) -> list[ScoreCalibration]:
+    """
+    Select the calibrations on a mapped variant's score set that may build the requested annotation.
+
+    Two independent questions decide this, and they are asked by different collaborators.
+      - Eligibility: Does this calibration carry the classifications the annotation type needs, and is
+        its research-use-only standing permitted here. This is ``score_calibration_may_be_used_for_annotation``.
+      - Visibility: May this principal read it at all. This is the viewer's, because a calibration's READ rule
+        is stricter than its score set's.
+
+    Args:
+        context (VariantAnnotationContext): The context containing the variant whose score set's calibrations are considered.
+        annotation_type (Literal["pathogenicity", "functional"]): The type of annotation to be built.
+        allow_research_use_only_calibrations (bool, optional): Whether calibrations marked research use
+            only are eligible. Defaults to False.
+        principal (Optional[Principal], optional): The caller being served. Defaults to None, an anonymous
+            caller, so a function that omits it gets public calibrations only.
+
+    Returns:
+        list[ScoreCalibration]: The eligible, visible calibrations, in score set order.
+    """
+    viewer = (principal if principal is not None else Principal()).viewer_for(ScoreCalibrationViewer)
+
+    return [
+        score_calibration
+        for score_calibration in viewer.visible(context.variant.score_set.score_calibrations)
+        if score_calibration_may_be_used_for_annotation(
+            score_calibration,
+            annotation_type,
+            allow_research_use_only_calibrations=allow_research_use_only_calibrations,
+        )
+    ]
+
+
+def calibration_scope_extension(calibrations: Iterable[ScoreCalibration]) -> Extension:
+    """
+    Describe the principal an annotation was built for, given the calibrations behind it.
+
+    VA-Spec statements carry no stable identifier, so two callers can receive materially different
+    statements from the same URL. Naming the scope on the object itself is what keeps that honest: a
+    consumer holding a record can tell whether it is the one anyone would get, or one widened by the
+    requester's own access.
+
+    Args:
+        calibrations (Iterable[ScoreCalibration]): The calibrations contributing evidence to the annotation.
+
+    Returns:
+        Extension: A ``mavedb_calibration_scope`` extension, ``restricted`` when any contributing
+            calibration is private and ``public`` otherwise.
+    """
+    if any(calibration.private for calibration in calibrations):
+        return Extension(
+            name=CALIBRATION_SCOPE_EXTENSION_NAME,
+            value="restricted",
+            description=(
+                "Built from at least one private score calibration, visible to the requesting viewer. "
+                "Another viewer requesting this variant may receive fewer evidence lines, or none."
+            ),
+        )
+
+    return Extension(
+        name=CALIBRATION_SCOPE_EXTENSION_NAME,
+        value="public",
+        description=(
+            "Built only from public score calibrations. Any viewer requesting this variant receives the same evidence."
+        ),
+    )
 
 
 def score_calibration_may_be_used_for_annotation(
@@ -57,7 +137,7 @@ def score_calibration_may_be_used_for_annotation(
 
 
 def select_strongest_functional_calibration(
-    variant: Variant,
+    context: VariantAnnotationContext,
     calibrations: list[ScoreCalibration],
 ) -> tuple[Optional[ScoreCalibration], Optional[ScoreCalibrationFunctionalClassification]]:
     """
@@ -82,7 +162,7 @@ def select_strongest_functional_calibration(
     ] = []
 
     for calibration in calibrations:
-        functional_range, classification = functional_classification_of_variant(variant, calibration)
+        functional_range, classification = functional_classification_of_variant(context.variant, calibration)
         if functional_range is not None:
             candidates.append((calibration, functional_range, classification))
 
@@ -110,7 +190,7 @@ def select_strongest_functional_calibration(
 
 
 def select_strongest_pathogenicity_calibration(
-    variant: Variant,
+    context: VariantAnnotationContext,
     calibrations: list[ScoreCalibration],
 ) -> tuple[Optional[ScoreCalibration], Optional[ScoreCalibrationFunctionalClassification]]:
     """
@@ -142,7 +222,9 @@ def select_strongest_pathogenicity_calibration(
     candidates: list[tuple[ScoreCalibration, ScoreCalibrationFunctionalClassification, int, bool]] = []
 
     for calibration in calibrations:
-        functional_range, criterion, evidence_strength = pathogenicity_classification_of_variant(variant, calibration)
+        functional_range, criterion, evidence_strength = pathogenicity_classification_of_variant(
+            context.variant, calibration
+        )
         if functional_range is not None:
             strength_value = strength_order.get(evidence_strength, 0)
             is_benign = criterion.name.startswith("B") if criterion else False

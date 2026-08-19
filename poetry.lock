@@ -2764,14 +2764,14 @@ test = ["flake8", "nbdime", "nbval", "notebook", "pytest"]
 
 [[package]]
 name = "mavehgvs"
-version = "0.7.0"
+version = "0.8.0"
 description = "Regular expression-based validation of HGVS-style variant strings for Multiplexed Assays of Variant Effect."
 optional = false
 python-versions = ">=3.6"
 groups = ["main"]
 files = [
-    {file = "mavehgvs-0.7.0-py3-none-any.whl", hash = "sha256:a89d2ee16cf18a6a6ecfc2b6f5e280c3c699ddfe106b4389540fb0423f98e922"},
-    {file = "mavehgvs-0.7.0.tar.gz", hash = "sha256:09cc3311b6ccf53a3ce3e474611af9e28b87fa02b8e690343f99a85534f25eae"},
+    {file = "mavehgvs-0.8.0-py3-none-any.whl", hash = "sha256:228f96a93b52192d6dc983f3ddabd3d890b7abaa42690e5e10b6ea280a470f45"},
+    {file = "mavehgvs-0.8.0.tar.gz", hash = "sha256:9b26412de5fbdab6df0a6c9b18686b201a31e179e214896316edc1b7072c927a"},
 ]
 
 [package.dependencies]
@@ -3372,15 +3372,15 @@ tests = ["pytest"]
 
 [[package]]
 name = "pyasn1"
-version = "0.6.3"
+version = "0.6.4"
 description = "Pure-Python implementation of ASN.1 types and DER/BER/CER codecs (X.208)"
 optional = true
 python-versions = ">=3.8"
 groups = ["main"]
 markers = "extra == \"server\""
 files = [
-    {file = "pyasn1-0.6.3-py3-none-any.whl", hash = "sha256:a80184d120f0864a52a073acc6fc642847d0be408e7c7252f31390c0f4eadcde"},
-    {file = "pyasn1-0.6.3.tar.gz", hash = "sha256:697a8ecd6d98891189184ca1fa05d1bb00e2f84b5977c481452050549c8a72cf"},
+    {file = "pyasn1-0.6.4-py3-none-any.whl", hash = "sha256:deda9277cfd454080ec40b207fb6df82206a3a2688735233cdcd8d3d565f088b"},
+    {file = "pyasn1-0.6.4.tar.gz", hash = "sha256:9c447d8431c947fe4c8febc4ed9e760bc29011a5b01e5c74b67025bd9fb8ce81"},
 ]
 
 [[package]]
@@ -4396,15 +4396,15 @@ markers = {main = "extra == \"server\""}
 
 [[package]]
 name = "soupsieve"
-version = "2.8.3"
+version = "2.9.2"
 description = "A modern CSS selector implementation for Beautiful Soup."
 optional = true
-python-versions = ">=3.9"
+python-versions = ">=3.10"
 groups = ["main"]
 markers = "extra == \"server\""
 files = [
-    {file = "soupsieve-2.8.3-py3-none-any.whl", hash = "sha256:ed64f2ba4eebeab06cc4962affce381647455978ffc1e36bb79a545b91f45a95"},
-    {file = "soupsieve-2.8.3.tar.gz", hash = "sha256:3267f1eeea4251fb42728b6dfb746edc9acaffc4a45b27e19450b676586e8349"},
+    {file = "soupsieve-2.9.2-py3-none-any.whl", hash = "sha256:8089a26fd974ca7a1f30276d3d8492ab266ab15af581642dfe8aa162e0c1c823"},
+    {file = "soupsieve-2.9.2.tar.gz", hash = "sha256:4a55d8cf158a9c2e587fa4922f1bbb91d68ac829e2d6f25403a85747c71daf74"},
 ]
 
 [[package]]
@@ -5233,4 +5233,4 @@ server = ["aiocache", "alembic", "alembic-utils", "arq", "authlib", "biocommons"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "980f59e09f8d28d11eaeb01422f167dd2e1f81f88071b1479f8f5785fc70657d"
+content-hash = "615d9e01ee217622e30a81624e5f042b18b2ff5a6d519114e005dcc22fa5cff6"

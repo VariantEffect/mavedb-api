@@ -95,21 +95,29 @@ def get_hgvs_from_post_mapped(post_mapped_vrs: Optional[Any], *, combine_cis: bo
     return hgvs_values[0]
 
 
-def get_digest_from_post_mapped(post_mapped_vrs: Optional[Any]) -> Optional[str]:
+def get_id_from_post_mapped(post_mapped_vrs: Optional[Any]) -> Optional[str]:
     """
-    Extract the digest value from a post-mapped VRS object.
+    Extract the GA4GH identifier from a post-mapped VRS object.
+
+    Returns the stored ``id`` verbatim rather than the ``digest`` field. The two are not interchangeable:
+    ``id`` is the value indexed by ``ix_mapped_variants_post_mapped_id`` and matched by
+    ``GET /mapped-variants/vrs/{identifier}``, so reading it is what makes an exported identifier resolvable
+    against our own records..
+
+    Only the top-level ``id`` is consulted. Early VRS 1.3 objects nest the allele under a ``variation``
+    property, and the lookup endpoint does not reach into that nesting either, so unwrapping it here
+    would emit identifiers no MaveDB query can resolve.
 
     Args:
-        post_mapped_vrs: A post-mapped VRS (Variation Representation Specification) object
-                        that may contain a digest field. Can be None.
+        post_mapped_vrs: A post-mapped VRS (Variation Representation Specification) object. Can be None.
 
     Returns:
-        The digest string if present in the post_mapped_vrs object, otherwise None.
+        The GA4GH identifier (``ga4gh:VA.{digest}`` for an Allele), or None if the object carries none.
     """
     if not post_mapped_vrs:
         return None
 
-    return post_mapped_vrs.get("digest")  # type: ignore
+    return post_mapped_vrs.get("id")  # type: ignore
 
 
 # TODO (https://github.com/VariantEffect/mavedb-api/issues/440) Temporarily, we are using these functions to distinguish
