@@ -1574,12 +1574,59 @@ def test_users_get_one_score_set_from_own_experiment_with_a_superseding_score_se
     assert pub_score_set["urn"] not in response_data["scoreSetUrns"]
 
 
-def test_search_experiments(session, client, setup_router_db):
-    experiment = create_experiment(client)
+def _publish_experiment(session, data_provider, client, data_files, update=None):
+    """Publish an experiment, and return it.
+
+    Publishing a score set is the only path that publishes its experiment, so an experiment cannot be
+    published without one.
+    """
+    experiment = create_experiment(client, update)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    return published_score_set["experiment"]
+
+
+def test_search_experiments(session, data_provider, client, setup_router_db, data_files):
+    experiment = _publish_experiment(session, data_provider, client, data_files)
     search_payload = {"text": experiment["shortDescription"]}
     response = client.post("/api/v1/experiments/search", json=search_payload)
     assert response.status_code == 200
     assert response.json()[0]["title"] == experiment["title"]
+
+
+def test_search_experiments_excludes_unpublished(session, data_provider, client, setup_router_db, data_files):
+    """The public search endpoint serves published experiments only.
+
+    Both experiments match the search text, so this fails whether the visibility filter is too permissive
+    or too restrictive. Asserting only that an unpublished experiment is absent would also pass if the
+    search returned nothing at all.
+    """
+    published = _publish_experiment(
+        session, data_provider, client, data_files, update={"title": "Published Experiment"}
+    )
+    unpublished = create_experiment(client, update={"title": "Unpublished Experiment"})
+
+    search_payload = {"text": TEST_MINIMAL_EXPERIMENT["shortDescription"]}
+    response = client.post("/api/v1/experiments/search", json=search_payload)
+
+    assert response.status_code == 200
+    returned_urns = [item["urn"] for item in response.json()]
+    assert published["urn"] in returned_urns
+    assert unpublished["urn"] not in returned_urns
+
+
+def test_search_experiments_rejects_explicit_unpublished_search(session, client, setup_router_db):
+    """Unpublished experiments are reached through /me/experiments/search, never this endpoint."""
+    response = client.post("/api/v1/experiments/search", json={"published": False})
+    assert response.status_code == 422
+    assert (
+        response.json()["detail"]
+        == "Cannot search for private experiments except in the context of the current user's data."
+    )
 
 
 def test_search_my_experiments(session, client, setup_router_db):
@@ -1934,8 +1981,8 @@ def test_search_score_sets_for_my_experiments(session, client, setup_router_db, 
     )
 
 
-def test_search_their_experiments(session, client, setup_router_db):
-    experiment = create_experiment(client)
+def test_search_their_experiments(session, data_provider, client, setup_router_db, data_files):
+    experiment = _publish_experiment(session, data_provider, client, data_files)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
     change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
     search_payload = {"text": experiment["shortDescription"]}
@@ -1943,6 +1990,22 @@ def test_search_their_experiments(session, client, setup_router_db):
     assert response.status_code == 200
     assert response.json()[0]["createdBy"]["orcidId"] == EXTRA_USER["username"]
     assert response.json()[0]["createdBy"]["firstName"] == EXTRA_USER["first_name"]
+
+
+def test_cannot_search_their_unpublished_experiments(session, client, setup_router_db):
+    """Another user's unpublished experiment is not disclosed by the public search endpoint.
+
+    Regression test: build_search_experiments_query_filter narrows by owner or contributor and receives
+    None from this endpoint, so before the visibility filter was added this returned the experiment along
+    with its owner's name and ORCID iD.
+    """
+    experiment = create_experiment(client)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
+    search_payload = {"text": experiment["shortDescription"]}
+    response = client.post("/api/v1/experiments/search", json=search_payload)
+    assert response.status_code == 200
+    assert experiment["urn"] not in [item["urn"] for item in response.json()]
 
 
 def test_search_not_my_experiments(session, client, setup_router_db):
@@ -1955,13 +2018,27 @@ def test_search_not_my_experiments(session, client, setup_router_db):
     assert len(response.json()) == 0
 
 
-def test_anonymous_search_experiments(session, client, anonymous_app_overrides, setup_router_db):
-    experiment = create_experiment(client)
-    search_payload = {"text": experiment["shortDescription"]}
+def test_anonymous_search_experiments(
+    session, data_provider, client, anonymous_app_overrides, setup_router_db, data_files
+):
+    """An anonymous caller sees published experiments, and only those.
+
+    Both experiments match the search text, so this fails whether the visibility filter is too permissive
+    or too restrictive.
+    """
+    published = _publish_experiment(
+        session, data_provider, client, data_files, update={"title": "Published Experiment"}
+    )
+    unpublished = create_experiment(client, update={"title": "Unpublished Experiment"})
+
+    search_payload = {"text": TEST_MINIMAL_EXPERIMENT["shortDescription"]}
     with DependencyOverrider(anonymous_app_overrides):
         response = client.post("/api/v1/experiments/search", json=search_payload)
+
     assert response.status_code == 200
-    assert response.json()[0]["title"] == experiment["title"]
+    returned_urns = [item["urn"] for item in response.json()]
+    assert published["urn"] in returned_urns
+    assert unpublished["urn"] not in returned_urns
 
 
 def test_anonymous_cannot_search_my_experiments(session, client, anonymous_app_overrides, setup_router_db):
