@@ -363,6 +363,100 @@ def test_cannot_create_score_set_with_invalid_target_gene_category(client, mock_
 
 
 ########################################################################################################################
+# Score set supersession
+########################################################################################################################
+
+
+def _publish_score_set_owned_by_extra_user(session, data_provider, client, data_files):
+    """Create and publish a score set, then reassign it to the extra user."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    change_ownership(session, published["urn"], ScoreSetDbModel)
+    return published
+
+
+def test_owner_can_supersede_own_published_score_set(session, data_provider, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = published["experiment"]["urn"]
+    score_set_post_payload["supersededScoreSetUrn"] = published["urn"]
+
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 200
+    assert response.json()["supersededScoreSet"]["urn"] == published["urn"]
+
+
+def test_cannot_supersede_other_users_published_score_set(session, data_provider, client, setup_router_db, data_files):
+    """A published score set may only be superseded by its owner or a contributor.
+
+    Regression test: fetch_score_set_by_urn's owner_or_contributor filter previously admitted any
+    non-private score set, which only_published already guaranteed, so this call was unauthorized.
+    """
+    published = _publish_score_set_owned_by_extra_user(session, data_provider, client, data_files)
+
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = published["experiment"]["urn"]
+    score_set_post_payload["supersededScoreSetUrn"] = published["urn"]
+
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 404
+    assert published["urn"] in response.json()["detail"]
+
+
+def test_cannot_lock_owner_out_of_superseding_their_own_score_set(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """Supersession is one-shot, so an unauthorized claim would permanently block the real owner."""
+    published = _publish_score_set_owned_by_extra_user(session, data_provider, client, data_files)
+
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = published["experiment"]["urn"]
+    score_set_post_payload["supersededScoreSetUrn"] = published["urn"]
+    assert client.post("/api/v1/score-sets/", json=score_set_post_payload).status_code == 404
+
+    # The owner's own supersession must still be available afterwards.
+    response = client.get(f"/api/v1/score-sets/{published['urn']}")
+    assert response.status_code == 200
+    assert response.json().get("supersedingScoreSet") is None
+
+
+def test_contributor_can_supersede_score_set(
+    session, data_provider, client, setup_router_db, data_files, extra_user_app_overrides
+):
+    """A contributor to a published score set may record its successor, as well as its owner."""
+    experiment = create_experiment(client, {"contributors": [{"orcidId": EXTRA_USER["username"]}]})
+    score_set = create_seq_score_set(
+        client, experiment["urn"], update={"contributors": [{"orcidId": EXTRA_USER["username"]}]}
+    )
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = published["experiment"]["urn"]
+    score_set_post_payload["supersededScoreSetUrn"] = published["urn"]
+
+    # The extra user contributes to the score set but does not own it.
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+
+    assert response.status_code == 200
+    assert response.json()["supersededScoreSet"]["urn"] == published["urn"]
+
+
+########################################################################################################################
 # Score set updating
 ########################################################################################################################
 
