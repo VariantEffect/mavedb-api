@@ -735,15 +735,17 @@ def search_score_sets(
         )
 
     score_sets, num_score_sets = _search_score_sets(db, None, search).values()
-    enriched_score_sets = []
-    if search.include_experiment_score_set_urns_and_count:
-        for ss in score_sets:
-            enriched_experiment = enrich_experiment_with_num_score_sets(ss.experiment, user_data)
-            response_item = score_set.ScoreSet.model_validate(ss).copy(update={"experiment": enriched_experiment})
-            enriched_score_sets.append(response_item)
-        score_sets = enriched_score_sets
 
-    return {"score_sets": score_sets, "num_score_sets": num_score_sets}
+    # Unconditional, because this enrichment is also what filters the nested experiment's score set URNs by
+    # permission. Serializing the ORM experiment directly instead reaches SavedExperiment's score_set_urns
+    # validator, which lists every score set on the experiment, disclosing the URNs of private ones.
+    enriched_score_sets = []
+    for ss in score_sets:
+        enriched_experiment = enrich_experiment_with_num_score_sets(ss.experiment, user_data)
+        response_item = score_set.ScoreSet.model_validate(ss).copy(update={"experiment": enriched_experiment})
+        enriched_score_sets.append(response_item)
+
+    return {"score_sets": enriched_score_sets, "num_score_sets": num_score_sets}
 
 
 @router.post("/score-sets/search/filter-options", status_code=200, response_model=ScoreSetsSearchFilterOptionsResponse)

@@ -2613,6 +2613,48 @@ def test_search_public_score_sets_no_match(session, data_provider, client, setup
     assert len(response.json()["scoreSets"]) == 0
 
 
+def test_search_public_score_sets_does_not_disclose_private_sibling_urns(
+    session, data_provider, client, anonymous_app_overrides, setup_router_db, data_files
+):
+    """A search result's experiment lists only the score set URNs the caller may read.
+
+    Regression test: the enrichment that filters those URNs used to be skipped when the request set
+    includeExperimentScoreSetUrnsAndCount to false, and SavedExperiment's validator then listed every score
+    set on the experiment. The field is gone, and an unknown field is ignored rather than rejected, so the
+    old request shape must now be filtered too.
+    """
+    experiment = create_experiment(client, {"title": "Experiment 1"})
+    published = create_seq_score_set(client, experiment["urn"], update={"title": "Test Fnord Score Set"})
+    published = mock_worker_variant_insertion(client, session, data_provider, published, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, published["urn"])
+
+    # Unpublished, and inside the now-public experiment. This is the URN that leaked.
+    private = create_seq_score_set(
+        client, published["experiment"]["urn"], update={"title": "Unpublished Fnord Score Set"}
+    )
+
+    # The owner may read both, so the enrichment is permission-scoped rather than a blanket strip.
+    response = client.post("/api/v1/score-sets/search", json={"text": "fnord"})
+    assert response.status_code == 200
+    assert set(response.json()["scoreSets"][0]["experiment"]["scoreSetUrns"]) == {published["urn"], private["urn"]}
+
+    for search_payload in (
+        {"text": "fnord"},
+        {"text": "fnord", "includeExperimentScoreSetUrnsAndCount": False},
+    ):
+        with DependencyOverrider(anonymous_app_overrides):
+            response = client.post("/api/v1/score-sets/search", json=search_payload)
+
+        assert response.status_code == 200
+        assert len(response.json()["scoreSets"]) == 1
+
+        score_set_urns = response.json()["scoreSets"][0]["experiment"]["scoreSetUrns"]
+        assert published["urn"] in score_set_urns
+        assert private["urn"] not in score_set_urns
+
+
 def test_search_public_score_sets_match(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client, {"title": "Experiment 1"})
     score_set = create_seq_score_set(client, experiment["urn"], update={"title": "Test Fnord Score Set"})
