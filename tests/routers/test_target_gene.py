@@ -1,5 +1,6 @@
 # ruff: noqa: E402
 import pytest
+from copy import deepcopy
 from unittest.mock import patch
 
 arq = pytest.importorskip("arq")
@@ -8,7 +9,8 @@ fastapi = pytest.importorskip("fastapi")
 
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 
-from tests.helpers.constants import TEST_USER
+from tests.helpers.constants import TEST_MINIMAL_SEQ_SCORESET, TEST_USER
+from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.user import change_ownership
@@ -165,3 +167,62 @@ def test_fetch_public_target_gene_by_id(session, data_provider, client, setup_ro
     response = client.get("/api/v1/target-genes/1")
     assert response.status_code == 200
     assert response.json()["scoreSetUrn"] == published_score_set["urn"]
+
+
+def _score_set_with_target(client, experiment_urn, name, category):
+    """Create a score set whose single target gene carries the given name and category."""
+    target_genes = deepcopy(TEST_MINIMAL_SEQ_SCORESET["targetGenes"])
+    target_genes[0]["name"] = name
+    target_genes[0]["category"] = category
+    return create_seq_score_set(client, experiment_urn, update={"targetGenes": target_genes})
+
+
+def _published_and_unpublished_targets(session, data_provider, client, data_files):
+    """Put one published and one unpublished score set, with distinct target genes, in one experiment.
+
+    The unpublished score set is created after the publish, against the experiment's published URN, so that
+    it sits inside a public experiment. That is the arrangement in which its target gene leaks.
+    """
+    experiment = create_experiment(client, {"title": "Experiment 1"})
+    published = _score_set_with_target(client, experiment["urn"], "PUBLISHEDGENE", "protein_coding")
+    published = mock_worker_variant_insertion(client, session, data_provider, published, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, published["urn"])
+
+    _score_set_with_target(client, published["experiment"]["urn"], "UNPUBLISHEDGENE", "regulatory")
+
+
+def test_list_target_gene_names_excludes_unpublished(session, data_provider, client, setup_router_db, data_files):
+    """Target gene names from unpublished score sets are not disclosed by this unauthenticated route.
+
+    Asserted against one published and one unpublished score set so that the test fails whether the filter
+    is missing or too aggressive.
+    """
+    _published_and_unpublished_targets(session, data_provider, client, data_files)
+
+    response = client.get("/api/v1/target-genes/names")
+    assert response.status_code == 200
+    assert "PUBLISHEDGENE" in response.json()
+    assert "UNPUBLISHEDGENE" not in response.json()
+
+
+def test_list_target_gene_categories_excludes_unpublished(session, data_provider, client, setup_router_db, data_files):
+    _published_and_unpublished_targets(session, data_provider, client, data_files)
+
+    response = client.get("/api/v1/target-genes/categories")
+    assert response.status_code == 200
+    assert "protein_coding" in response.json()
+    assert "regulatory" not in response.json()
+
+
+def test_anonymous_list_target_gene_names_excludes_unpublished(
+    session, data_provider, client, anonymous_app_overrides, setup_router_db, data_files
+):
+    _published_and_unpublished_targets(session, data_provider, client, data_files)
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get("/api/v1/target-genes/names")
+
+    assert response.status_code == 200
+    assert "PUBLISHEDGENE" in response.json()
+    assert "UNPUBLISHEDGENE" not in response.json()
