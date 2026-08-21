@@ -582,17 +582,18 @@ async def fetch_score_set_by_urn(
     :param user: The user who has requested the score set. If the user does not have read permission, the score set will
       not be returned. If None, the score set is returned only if publicly visible.
     :param owner_or_contributor: If not None, require that the result be a score set of which this user is owner or
-      contributor.
+      contributor. This is an ownership requirement, not a visibility one: it does not admit score sets that are
+      merely public. Combining it with only_published therefore yields published score sets owned by this user.
     :param only_published: If true, only return the score set if it is published.
-    :return: The score set, or None if the URL was not found or refers to a private score set not owned by the specified
-        user.
+    :return: The score set.
+    :raises HTTPException: 404 if no score set matches the URN and the supplied filters, or 500 if more than one
+        does. Read permission is asserted on the result and raises through assert_permission.
     """
     try:
         query = db.query(ScoreSet).filter(ScoreSet.urn == urn)
         if owner_or_contributor is not None:
             query = query.filter(
                 or_(
-                    ScoreSet.private.is_(False),
                     ScoreSet.created_by_id == owner_or_contributor.user.id,
                     ScoreSet.contributors.any(Contributor.orcid_id == owner_or_contributor.user.username),
                 )
@@ -1763,6 +1764,8 @@ async def create_score_set(
 
     save_to_logging_context({"requested_superseded_score_set": item_create.superseded_score_set_urn})
     if item_create.superseded_score_set_urn is not None:
+        # Passing user_data as owner_or_contributor is what authorizes the supersession: the fetch returns
+        # only published score sets this user owns or contributes to. There is no Action for supersession yet.
         superseded_score_set = await fetch_score_set_by_urn(
             db, item_create.superseded_score_set_urn, user_data, user_data, True
         )
