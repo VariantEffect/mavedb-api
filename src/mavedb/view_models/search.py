@@ -32,7 +32,6 @@ class ScoreSetsSearch(BaseModel):
     publication_identifiers: Optional[list[str]] = None
     keywords: Optional[list[ControlledKeywordSearch]] = None
     text: Optional[str] = None
-    include_experiment_score_set_urns_and_count: Optional[bool] = True
     offset: Optional[int] = None
     limit: Optional[int] = None
 
