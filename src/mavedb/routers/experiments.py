@@ -112,6 +112,16 @@ def search_experiments(search: ExperimentsSearch, db: Session = Depends(deps.get
     """
     Search experiments.
     """
+    # This endpoint is unauthenticated, so it serves published experiments only. `build_search_experiments_query_filter`
+    # narrows by owner or contributor, not by visibility, and receives None here; without this the search would return
+    # every unpublished experiment in the database. Private experiments are reached through /me/experiments/search.
+    if search.published is False:
+        raise HTTPException(
+            status_code=422,
+            detail="Cannot search for private experiments except in the context of the current user's data.",
+        )
+    search.published = True
+
     items = _search_experiments(db, None, search)
     return [enrich_experiment_with_num_score_sets(exp, None) for exp in items]
 

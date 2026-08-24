@@ -363,6 +363,118 @@ class TestMapVariantsForScoreSetUnit:
         assert annotation_statuses[0].annotation_type == "vrs_mapping"
         assert annotation_statuses[0].disposition == "present"
 
+    async def test_map_variants_for_score_set_clears_stale_uniprot_id(
+        self,
+        session,
+        with_independent_processing_runs,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_score_set,
+    ):
+        """A remap must clear any UniProt ID left over from a prior mapping run.
+
+        The downstream UniProt job only writes on success, so a stale value would otherwise
+        persist and be mismatched against the newly mapped metadata.
+        """
+
+        async def dummy_mapping_job():
+            return await construct_mock_mapping_output(
+                session=session,
+                score_set=sample_score_set,
+                with_gene_info=True,
+                with_layers={"g", "c", "p"},
+                with_pre_mapped=True,
+                with_post_mapped=True,
+                with_reference_metadata=True,
+                with_mapped_scores=True,
+                with_all_variants=True,
+            )
+
+        variant = Variant(
+            score_set_id=sample_score_set.id, hgvs_nt="NM_000000.1:c.1A>G", hgvs_pro="NP_000000.1:p.Met1Val", data={}
+        )
+        session.add(variant)
+
+        for target in sample_score_set.target_genes:
+            target.uniprot_id_from_mapped_metadata = "P00000"
+            session.add(target)
+        session.commit()
+
+        with (
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                return_value=dummy_mapping_job(),
+            ),
+        ):
+            result = await map_variants_for_score_set(
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
+            )
+
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+
+        for target in sample_score_set.target_genes:
+            assert target.uniprot_id_from_mapped_metadata is None
+
+    async def test_map_variants_for_score_set_clears_stale_mapped_hgnc_name(
+        self,
+        session,
+        with_independent_processing_runs,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_score_set,
+    ):
+        """A remap must clear any mapped HGNC name left over from a prior mapping run.
+
+        Gene-level info is only written when the mapping results include it, so a stale value
+        would otherwise persist and be mismatched against the newly mapped metadata.
+        """
+
+        async def dummy_mapping_job():
+            return await construct_mock_mapping_output(
+                session=session,
+                score_set=sample_score_set,
+                with_gene_info=False,
+                with_layers={"g", "c", "p"},
+                with_pre_mapped=True,
+                with_post_mapped=True,
+                with_reference_metadata=True,
+                with_mapped_scores=True,
+                with_all_variants=True,
+            )
+
+        variant = Variant(
+            score_set_id=sample_score_set.id, hgvs_nt="NM_000000.1:c.1A>G", hgvs_pro="NP_000000.1:p.Met1Val", data={}
+        )
+        session.add(variant)
+
+        for target in sample_score_set.target_genes:
+            target.mapped_hgnc_name = "STALE1"
+            session.add(target)
+        session.commit()
+
+        with (
+            patch.object(
+                _UnixSelectorEventLoop,
+                "run_in_executor",
+                return_value=dummy_mapping_job(),
+            ),
+        ):
+            result = await map_variants_for_score_set(
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
+            )
+
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+
+        for target in sample_score_set.target_genes:
+            assert target.mapped_hgnc_name is None
+
     @pytest.mark.parametrize(
         "with_layers",
         [
