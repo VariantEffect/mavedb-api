@@ -16,6 +16,7 @@ pytest.importorskip("psycopg2")
 from ga4gh.core.models import Extension
 from ga4gh.va_spec.base import Contribution
 
+from mavedb import __version__
 from mavedb.lib.annotation.contribution import (
     mavedb_api_contribution,
     mavedb_creator_contribution,
@@ -59,11 +60,11 @@ class TestMavedbApiContributionUnit:
 
         assert contribution.activityType == "software application programming interface"
 
-    def test_has_current_date(self):
-        """Test that contribution uses current date."""
+    def test_carries_no_date(self):
+        """The software's provenance is its version, carried by the agent; serialization time is not provenance."""
         contribution = mavedb_api_contribution()
 
-        assert contribution.date.date() == datetime.today().date()
+        assert contribution.date is None
 
     def test_has_contributor(self):
         """Test that contribution has a contributor."""
@@ -71,14 +72,20 @@ class TestMavedbApiContributionUnit:
 
         assert contribution.contributor is not None
 
-    def test_consistency(self):
-        """Test that multiple calls produce consistent results."""
-        contribution1 = mavedb_api_contribution()
-        contribution2 = mavedb_api_contribution()
+    def test_contributor_carries_the_api_version(self):
+        """The API version is what this contribution actually asserts."""
+        contribution = mavedb_api_contribution()
 
-        assert contribution1.name == contribution2.name
-        assert contribution1.description == contribution2.description
-        assert contribution1.activityType == contribution2.activityType
+        versions = [e.value for e in contribution.contributor.extensions if e.name == "mavedbApiVersion"]
+        assert versions == [__version__]
+
+    def test_repeated_calls_are_identical(self):
+        """Two calls must serialize to the same bytes.
+
+        This is what makes identical provenance deduplicate in a normalized export, and what makes the
+        public `va.ndjson` reproducible across runs of unchanged data.
+        """
+        assert mavedb_api_contribution() == mavedb_api_contribution()
 
 
 @pytest.mark.unit
@@ -376,7 +383,12 @@ class TestContributionIntegration:
             assert contrib.description is not None
             assert contrib.activityType is not None
             assert contrib.contributor is not None
+
+        # A date is carried only where a stored one exists to carry. The API contribution has none:
+        # its provenance is the agent's version, not the moment of serialization.
+        for contrib in [vrs_contrib, cal_contrib, creator_contrib, modifier_contrib]:
             assert contrib.date is not None
+        assert api_contrib.date is None
 
     def test_date_formatting_consistency(self):
         """Test that all functions format dates consistently."""

@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime
 
 from ga4gh.core.models import Extension
 from ga4gh.va_spec.base.core import Contribution
@@ -21,12 +20,22 @@ def mavedb_api_contribution() -> Contribution:
     """
     Create a [VA Contribution](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/activities/contribution.html#contribution)
     object for an arbitary contribution from the MaveDB API/software distribution.
+
+    Carries no ``date``. What this contribution asserts is *which software* produced the annotation, and
+    that is the agent's version — see :func:`mavedb_api_agent`, which stamps ``__version__``. The only
+    date available at this point is the instant of serialization, which is not provenance: it describes
+    when a view was rendered, not when anything was contributed. The sibling builders in this module all
+    carry a real stored date instead.
+
+    Stamping wall-clock time here also made the object unique per call, so identical provenance never
+    deduplicated and ``va.ndjson`` changed bytes on every run of unchanged data — defeating checksum
+    manifests and incremental sync for consumers of the public dump. When an artifact needs a generation
+    time it belongs on that artifact's metadata, once, not on every nested object inside it.
     """
     return Contribution(
         name="MaveDB API",
         description="Contribution from the MaveDB API",
         contributor=mavedb_api_agent(),
-        date=datetime.today(),
         activityType="software application programming interface",
     )
 
