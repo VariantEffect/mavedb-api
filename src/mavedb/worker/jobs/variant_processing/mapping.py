@@ -28,12 +28,13 @@ from mavedb.lib.mapping.schema import MappingOutcome
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variant_translations import get_or_create_allele
 from mavedb.lib.variants import get_hgvs_from_post_mapped
+from mavedb.lib.vrs_utils import canonical_variation_document
 from mavedb.models.allele import Allele as AlleleDbModel
-from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.job_pipeline import FailureCategory
 from mavedb.models.enums.mapping_state import MappingState
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_set import ScoreSet
@@ -383,13 +384,18 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             # Only variants with a post-mapped representation yield an authoritative Allele;
             # failed and benign-absent variants get a MappingRecord but no linked allele.
             if post_mapped_allele:
+                # Recompute rather than trust the incoming id, which may predate normalization for a
+                # deletion/duplication. vrs_digest is the dedup key  the whole allele graph hangs off.
+                canonical_post_mapped, allele_digest = canonical_variation_document(
+                    post_mapped_allele, subject=f"variant {variant.urn}"
+                )
                 allele_draft = AlleleDbModel(
-                    vrs_digest=post_mapped_allele["id"],
+                    vrs_digest=allele_digest,
                     level=sequence_level,
                     hgvs_g=assay_level_hgvs if sequence_level == SequenceLevel.genomic else None,
                     hgvs_c=assay_level_hgvs if sequence_level == SequenceLevel.cdna else None,
                     hgvs_p=assay_level_hgvs if sequence_level == SequenceLevel.protein else None,
-                    post_mapped=post_mapped_allele,
+                    post_mapped=canonical_post_mapped,
                 )
                 authoritative_allele = get_or_create_allele(job_manager.db, allele_draft)
                 job_manager.db.flush()

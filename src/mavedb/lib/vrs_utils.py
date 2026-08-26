@@ -9,6 +9,8 @@ through :func:`identify_allele` so the digest is always recomputed from
 current content.
 """
 
+import logging
+from collections.abc import Mapping
 from itertools import cycle
 from typing import Any
 
@@ -27,6 +29,10 @@ from ga4gh.vrs.models import (
 from ga4gh.vrs.normalize import normalize
 
 from mavedb.lib.hgvs import split_cis_phased_hgvs
+from mavedb.lib.logging.context import logging_context
+from mavedb.lib.vrs import vrs_object_from_mapped_variant
+
+logger = logging.getLogger(__name__)
 
 # HGVS type letter (``accession:g.``) → VRS Expression syntax.
 _HGVS_SYNTAX_BY_TYPE = {
@@ -133,9 +139,20 @@ def identify_allele(allele: Allele) -> str:
     carries one — e.g. stamped by an ``identify=True`` ``AlleleTranslator`` — would
     otherwise keep its stale id even with the digests cleared. Use in_place="always"
     to force it to be recomputed from the content-derived digest.
+
+    The location needs identifying in its own right. ``ga4gh_identify`` writes only the
+    ``id`` of the object it is handed; for sub-objects it calls ``get_or_create_digest``
+    and never ``get_or_create_ga4gh_identifier``. Clearing the location digest therefore
+    fixes what the *allele* id is derived from while leaving ``location.id`` holding
+    whatever was stamped before normalization — the allele id comes out correct and the
+    location it points at claims a digest belonging to the un-normalized span. Mirrors
+    ``dcd_mapping:vrs_utils.py::identify_allele``; both writers populate
+    ``alleles.post_mapped`` and have to agree byte-for-byte.
     """
     if isinstance(allele.location, SequenceLocation):
         allele.location.digest = None
+        allele.location.id = None
+        ga4gh_identify(allele.location, in_place="always")
 
     allele.digest = None
     digest = ga4gh_identify(allele, in_place="always")
@@ -150,17 +167,16 @@ def identify_variation(variation: Allele | CisPhasedBlock) -> str:
 
     Generalizes :func:`identify_allele` to cis-phased blocks. A block's Merkle digest is
     derived from its members' digests, so a stale member digest would silently propagate into
-    the block id. Clear every member (and its location) plus the block itself before
-    identifying so the id always reflects current content.
+    the block id. Re-identifying every member through :func:`identify_allele` clears the member
+    and its location and restamps both, so a block never embeds a member whose ``id`` disagrees
+    with its own coordinates.
     """
     if isinstance(variation, Allele):
         return identify_allele(variation)
 
     for member in variation.members:
         if isinstance(member, Allele):
-            if isinstance(member.location, SequenceLocation):
-                member.location.digest = None
-            member.digest = None
+            member.id = identify_allele(member)
 
     variation.digest = None
     digest = ga4gh_identify(variation, in_place="always")
@@ -219,3 +235,47 @@ def _rle_to_lse(
     c = cycle(subsequence)
     derived_sequence = "".join(next(c) for _ in range(rle.length))
     return LiteralSequenceExpression(sequence=derived_sequence)
+
+
+def canonical_variation_document(document: Mapping[str, Any], *, subject: str) -> tuple[dict[str, Any], str]:
+    """Re-derive identity and canonical serialization for a variation arriving from outside.
+
+    An identifier computed elsewhere is an *assertion*, not an identity: it may have been minted by a
+    different ``ga4gh.vrs`` version, or — the case that actually bit us — before a normalization step
+    this process does not control. ``AlleleTranslator`` stamps ``id`` at translation time by default
+    (``identify=True``), and ``ga4gh_identify``'s default ``in_place`` returns a non-empty ``id``
+    unchanged, so a subsequent normalize-then-identify silently preserves the pre-normalization id.
+    Deletions and duplications are the variant classes whose normalized span differs, so they are the
+    ones that drift; a substitution normalizes to itself and its minted id stays correct by luck.
+
+    Recomputing here makes the stored ``id`` a fact about the stored content rather than a claim
+    inherited from the producer, and returns one canonical serialization regardless of which writer
+    (or which library version) produced the input — so the same object stored twice is byte-identical.
+
+    A disagreement is logged rather than raised: the incoming document is still usable, and refusing
+    the variant would lose a mapping over a repairable identifier. Silence is not an option either,
+    because a corrected identifier changes what the row deduplicates against. A disagreement in identifier
+    implies an upstream issue and should be investigated.
+
+    :param document: the producer's serialized VRS Allele or CisPhasedBlock
+    :param subject: what this variation belongs to, for the warning message
+    :return: the canonical document and its GA4GH identifier
+    """
+    variation = vrs_object_from_mapped_variant(dict(document)).root
+    if not isinstance(variation, Allele | CisPhasedBlock):
+        raise ValueError(f"Expected Allele or CisPhasedBlock for {subject}, got {type(variation).__name__}")
+
+    identifier = identify_variation(variation)
+
+    incoming = document.get("id")
+    if incoming and incoming != identifier:
+        logger.warning(
+            msg=(
+                f"VRS identifier mismatch for {subject}: producer supplied {incoming!r}, but the "
+                f"document's own content identifies as {identifier!r}. Storing the recomputed "
+                "identifier. This usually means the id was minted before normalization."
+            ),
+            extra=logging_context(),
+        )
+
+    return variation.model_dump(mode="json", exclude_none=True), identifier

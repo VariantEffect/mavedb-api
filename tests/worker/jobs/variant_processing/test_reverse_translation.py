@@ -33,7 +33,8 @@ from mavedb.worker.jobs.variant_processing.reverse_translation import (
     reverse_translate_variants_for_score_set,
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
-from tests.helpers.constants import TEST_GA4GH_IDENTIFIER
+from mavedb.lib.vrs_utils import canonical_variation_document
+from tests.helpers.constants import TEST_VALID_POST_MAPPED_VRS_ALLELE
 from tests.helpers.util.setup.worker import construct_mock_mapping_output
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
@@ -124,6 +125,14 @@ def fake_translate(id_by_hgvs: dict, type_by_hgvs: dict | None = None, errors_by
         )
 
     return _translate
+
+
+# Mapping recomputes an incoming allele's identity from its own content rather than trusting the
+# producer's `id`, so a stored authoritative allele carries this rather than the fixture's placeholder.
+# The fold-in tests below depend on the reverse-translated coding allele identifying to the same value.
+CANONICAL_AUTHORITATIVE_DIGEST = canonical_variation_document(
+    TEST_VALID_POST_MAPPED_VRS_ALLELE, subject="mapping fixture"
+)[1]
 
 
 async def _map_variants(session, mock_worker_ctx, mapping_run, score_set, with_layers=frozenset({"g", "c", "p"})):
@@ -566,14 +575,14 @@ class TestReverseTranslateVariantsForScoreSetUnit:
 
         # Exactly one allele exists after mapping: the authoritative (measured) allele.
         assert session.query(Allele).count() == 1
-        assert session.query(Allele).one().vrs_digest == TEST_GA4GH_IDENTIFIER
+        assert session.query(Allele).one().vrs_digest == CANONICAL_AUTHORITATIVE_DIGEST
 
         assay_hgvs = "NM_000000.1:c.1A>G"
         c_candidate = "NM_000001.1:c.5A>G"
         g_sibling = "NC_000001.11:g.1000A>G"
         construct = fake_construct({assay_hgvs: [(c_candidate, g_sibling)]})
         # The coding member IS the measured allele (folds in); the genomic member is its projection.
-        translate = fake_translate({c_candidate: TEST_GA4GH_IDENTIFIER, g_sibling: "ga4gh:VA.genomic"})
+        translate = fake_translate({c_candidate: CANONICAL_AUTHORITATIVE_DIGEST, g_sibling: "ga4gh:VA.genomic"})
 
         with (
             patch(f"{RT_MODULE}.construct_equivalent_variants", construct),
@@ -601,7 +610,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         group_links = [link for link in _live_links(session, record.id) if link.projection_group == 0]
         assert len(group_links) == 2
         assert {link.is_authoritative for link in group_links} == {True, False}
-        assert auth_link.allele.vrs_digest == TEST_GA4GH_IDENTIFIER
+        assert auth_link.allele.vrs_digest == CANONICAL_AUTHORITATIVE_DIGEST
         assert derived_links[0].allele.vrs_digest == "ga4gh:VA.genomic"
 
     async def test_authoritative_fold_in_when_measured_at_genomic_level(
@@ -629,14 +638,14 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         await _map_variants(
             session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set, with_layers={"g", "c"}
         )
-        assert session.query(Allele).one().vrs_digest == TEST_GA4GH_IDENTIFIER
+        assert session.query(Allele).one().vrs_digest == CANONICAL_AUTHORITATIVE_DIGEST
 
         assay_hgvs = "NC_000001.11:g.1000A>G"
         c_sibling = "NM_000001.1:c.5A>G"
         g_candidate = "NC_000001.11:g.1000A>G"
         construct = fake_construct({assay_hgvs: [(c_sibling, g_candidate)]})
         # The genomic member IS the measured allele (folds in); the coding member is its projection.
-        translate = fake_translate({c_sibling: "ga4gh:VA.coding", g_candidate: TEST_GA4GH_IDENTIFIER})
+        translate = fake_translate({c_sibling: "ga4gh:VA.coding", g_candidate: CANONICAL_AUTHORITATIVE_DIGEST})
 
         with (
             patch(f"{RT_MODULE}.construct_equivalent_variants", construct),
@@ -652,7 +661,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         derived_links = _non_authoritative_links(session)
         assert auth_link.projection_group == 0
         assert [link.projection_group for link in derived_links] == [0]
-        assert auth_link.allele.vrs_digest == TEST_GA4GH_IDENTIFIER
+        assert auth_link.allele.vrs_digest == CANONICAL_AUTHORITATIVE_DIGEST
         assert derived_links[0].allele.vrs_digest == "ga4gh:VA.coding"
 
     async def test_projection_failed_candidate_is_a_one_member_group(
@@ -737,7 +746,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         await _map_variants(
             session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set, with_layers={"p"}
         )
-        assert session.query(Allele).one().vrs_digest == TEST_GA4GH_IDENTIFIER
+        assert session.query(Allele).one().vrs_digest == CANONICAL_AUTHORITATIVE_DIGEST
 
         assay_hgvs = "NP_000000.1:p.Met1Val"
         # A degenerate protein consequence -> three coding/genomic projection pairs (the fan-out).
@@ -765,7 +774,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         # The protein authoritative allele is not part of any pair: its group stays NULL.
         auth_link = _authoritative_link(session, record.id)
         assert auth_link.projection_group is None
-        assert auth_link.allele.vrs_digest == TEST_GA4GH_IDENTIFIER
+        assert auth_link.allele.vrs_digest == CANONICAL_AUTHORITATIVE_DIGEST
 
         # Three distinct groups, each a coding/genomic pair (two members).
         groups: dict[int, int] = {}

@@ -1,5 +1,7 @@
 # ruff: noqa: E402
 
+import logging
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
@@ -20,6 +22,8 @@ from ga4gh.vrs.models import (
 from mavedb.lib import vrs_utils
 from mavedb.lib.vrs_utils import (
     _rle_to_lse,
+    canonical_variation_document,
+    identify_allele,
     identify_variation,
     normalize_and_identify,
     translate_hgvs_to_variation,
@@ -160,6 +164,52 @@ def test_identify_variation_clears_stale_block_digest():
     assert digest.startswith("ga4gh:CPB.")  # recomputed from content, not the stale cache
 
 
+# A location id left over from before normalization moved the span. The allele id comes out
+# correct while the location it points at still claims the un-normalized interval.
+_STALE_LOCATION_ID = "ga4gh:SL." + "Y" * 32
+
+
+def test_identify_allele_restamps_a_stale_location_id():
+    """``ga4gh_identify`` writes only the id of the object it is handed, never a sub-object's."""
+    reference = _allele(1000, "G")
+    identify_allele(reference)
+    assert isinstance(reference.location, SequenceLocation)
+
+    drifted = _allele(1000, "G")
+    assert isinstance(drifted.location, SequenceLocation)
+    drifted.location.id = _STALE_LOCATION_ID
+
+    identify_allele(drifted)
+
+    assert drifted.location.id == reference.location.id
+    assert drifted.location.id != _STALE_LOCATION_ID
+
+
+def test_an_identified_location_id_restates_its_own_digest():
+    """The invariant that makes drift detectable by string comparison rather than recomputation."""
+    allele = _allele(1000, "G")
+    identify_allele(allele)
+    assert isinstance(allele.location, SequenceLocation)
+
+    assert allele.location.id == f"ga4gh:SL.{allele.location.digest}"
+
+
+def test_identify_variation_restamps_a_stale_member_location_id():
+    """A block embeds allele copies, so a drifted member location rides into the block unnoticed."""
+    member = _allele(10, "A")
+    assert isinstance(member.location, SequenceLocation)
+    member.location.id = _STALE_LOCATION_ID
+    block = CisPhasedBlock(members=[member, _allele(20, "G")])  # type: ignore[call-arg]
+
+    identify_variation(block)
+
+    embedded = block.members[0]
+    assert isinstance(embedded, Allele)
+    assert isinstance(embedded.location, SequenceLocation)
+    assert embedded.location.id != _STALE_LOCATION_ID
+    assert embedded.location.id == f"ga4gh:SL.{embedded.location.digest}"
+
+
 def _rle_allele(start: int, *, length: int, repeat_subunit_length: int) -> Allele:
     return Allele(
         location=SequenceLocation(
@@ -240,3 +290,116 @@ def test_normalize_and_identify_rejects_iri_location_for_rle(monkeypatch):
 
     with pytest.raises(AssertionError):
         normalize_and_identify(bad, data_proxy=_NEVER_READ)
+
+
+# --------------------------- canonical_variation_document ---------------------------
+#
+# The ingest guard: identifiers arriving from the mapper are assertions, not identity. These pin the
+# behaviour that keeps `vrs_digest` — the dedup key the allele graph hangs off — true of its own content.
+
+
+def _document(start: int, alt: str, *, identifier: str | None = None) -> dict:
+    """A serialized, correctly-identified allele; ``identifier`` overrides the id with a supplied one."""
+    allele = _allele(start, alt)
+    allele.id = identify_allele(allele)
+    document = allele.model_dump(mode="json", exclude_none=True)
+    if identifier is not None:
+        document["id"] = identifier
+    return document
+
+
+def test_canonicalization_is_a_no_op_for_a_correct_identifier(caplog):
+    """The overwhelming majority of incoming alleles are already right; they must pass through unchanged."""
+    correct = identify_allele(_allele(10, "A"))
+
+    document, identifier = canonical_variation_document(_document(10, "A", identifier=correct), subject="v1")
+
+    assert identifier == correct
+    assert document["id"] == correct
+    assert "mismatch" not in caplog.text
+
+
+def test_a_stale_identifier_is_replaced_and_warned_about(caplog):
+    """The drift case: an id minted over different content than the document now carries."""
+    stale = identify_allele(_allele(99, "T"))
+    caplog.set_level(logging.WARNING)
+
+    document, identifier = canonical_variation_document(_document(10, "A", identifier=stale), subject="urn:x#1")
+
+    assert identifier != stale
+    assert identifier == identify_allele(_allele(10, "A"))
+    assert document["id"] == identifier
+    assert "urn:x#1" in caplog.text
+    assert stale in caplog.text
+
+
+def test_an_absent_identifier_is_minted_without_a_warning(caplog):
+    caplog.set_level(logging.WARNING)
+    document = _document(10, "A")
+    document.pop("id", None)
+
+    _, identifier = canonical_variation_document(document, subject="v1")
+
+    assert identifier == identify_allele(_allele(10, "A"))
+    assert "mismatch" not in caplog.text
+
+
+def test_the_same_content_canonicalizes_to_the_same_bytes():
+    """Two writers, two serializations, one identifier is what corrupts a normalized export."""
+    verbose = _document(10, "A")
+    verbose["digest"] = verbose["id"].split(".")[-1]
+    verbose["location"]["sequenceReference"]["label"] = "NC_000001.11"
+    verbose["extensions"] = []
+
+    terse = _document(10, "A")
+    terse.pop("digest", None)
+
+    assert canonical_variation_document(verbose, subject="v")[0] == canonical_variation_document(terse, subject="v")[0]
+
+
+def test_canonicalization_does_not_mutate_the_caller_s_document():
+    document = _document(10, "A", identifier="ga4gh:VA.definitelyWrong")
+    before = deepcopy(document)
+
+    canonical_variation_document(document, subject="v")
+
+    assert document == before
+
+
+def test_a_cis_phased_block_is_canonicalized_too():
+    """CisPhasedBlock members embed allele copies, which is how one writer's convention leaks."""
+    block = CisPhasedBlock(members=[_allele(10, "A"), _allele(20, "G")])  # type: ignore[call-arg]
+    block.id = "ga4gh:CPB.stale"
+    document = block.model_dump(mode="json", exclude_none=True)
+
+    canonical, identifier = canonical_variation_document(document, subject="v")
+
+    assert identifier.startswith("ga4gh:CPB.")
+    assert canonical["id"] == identifier
+
+
+def test_canonicalization_repairs_a_stale_location_id():
+    """The observed drift shape: a correct allele id over a location id minted pre-normalization.
+
+    This is what put 938 identifiers on more than one coordinate span in
+    ``urn:mavedb:00000662-0-1`` — the allele level was repaired and the location level was not.
+    """
+    document = _document(10, "A")
+    document["location"]["id"] = _STALE_LOCATION_ID
+
+    canonical, _ = canonical_variation_document(document, subject="v")
+
+    assert canonical["location"]["id"] != _STALE_LOCATION_ID
+    assert canonical["location"]["id"] == f"ga4gh:SL.{canonical['location']['digest']}"
+
+
+def test_two_spans_that_shared_one_location_id_canonicalize_apart():
+    """One key, two bodies is what corrupts a keyed export; distinct spans must get distinct ids."""
+    first = _document(10, "A")
+    second = _document(11, "A")
+    second["location"]["id"] = first["location"]["id"]
+
+    canonical_first, _ = canonical_variation_document(first, subject="v")
+    canonical_second, _ = canonical_variation_document(second, subject="v")
+
+    assert canonical_first["location"]["id"] != canonical_second["location"]["id"]

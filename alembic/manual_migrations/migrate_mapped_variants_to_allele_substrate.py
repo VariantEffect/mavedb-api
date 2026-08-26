@@ -9,9 +9,9 @@ parallel-tables model::
 
     Variant ─< MappingRecord (1 live/variant, ValidTime) ─< MappingRecordAllele (ValidTime) >─ Allele (dedup by vrs_digest)
 
-This script populates the new tables from the *existing* ``mapped_variants`` data so 
-the read-cutover (the ``v_variant_annotations`` view / ``published_variants`` MV 
-rewrites and the serving readers) resolves for historical score sets, which are 
+This script populates the new tables from the *existing* ``mapped_variants`` data so
+the read-cutover (the ``v_variant_annotations`` view / ``published_variants`` MV
+rewrites and the serving readers) resolves for historical score sets, which are
 otherwise empty in the new substrate.
 
 This is the **reshape half of the hybrid migration**: it reconstructs the
@@ -131,7 +131,10 @@ from sqlalchemy.orm import Session, configure_mappers
 from mavedb.models import *  # noqa: F401,F403  pylint: disable=wildcard-import  — register all mappers for configure_mappers()
 from mavedb.db.session import SessionLocal
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
+from pydantic import ValidationError
+
 from mavedb.lib.variants import get_hgvs_from_post_mapped
+from mavedb.lib.vrs_utils import canonical_variation_document
 from mavedb.models.allele import Allele
 from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
@@ -397,9 +400,23 @@ def _authoritative_allele(
     flush, inside the same per-variant SAVEPOINT it always has — this only removes the redundant reads,
     not the write-time integrity check.
     """
-    post_mapped = mv.post_mapped or {}
-    digest = post_mapped.get("id")
-    if not digest:
+    stored = mv.post_mapped or {}
+    if not stored.get("id"):
+        return None
+
+    # Recompute identity rather than adopt the stored id. `vrs_digest` is the UNIQUE dedup key the
+    # whole allele graph hangs off, `alleles` rows are immutable once written, and `alleles` is the
+    # only table here with no ValidTime - so a wrong digest cannot be corrected in place or
+    # reconstructed by `as_of`, and it silently collapses two different alleles into one row.
+    # Historical `post_mapped` blobs cannot be trusted on this point: an id minted before VRS
+    # normalization moved a del/dup span survives unchanged, because `ga4gh_identify`'s default
+    # `in_place` returns a non-empty id untouched. The live mapping job canonicalizes for the same
+    # reason (`worker/jobs/variant_processing/mapping.py`); a backfill that trusted the blob would
+    # write drift into the substrate permanently. See `scripts/audit_allele_identifiers.py`.
+    try:
+        post_mapped, digest = canonical_variation_document(stored, subject=f"mapped_variant {mv.id}")
+    except (ValidationError, ValueError):
+        logger.exception(f"Could not canonicalize post_mapped for mapped_variant {mv.id}; skipping its allele.")
         return None
 
     existing = allele_cache.get(digest)
@@ -564,7 +581,11 @@ def _emit_vep_consequence(
     if already is not None:  # idempotent re-run
         return
     source_version = _resolve_vep_source_version(access_date)
-    stats["vep_source_version_legacy_fallback" if source_version == LEGACY_VEP_SOURCE_VERSION else "vep_source_version_resolved"] += 1
+    stats[
+        "vep_source_version_legacy_fallback"
+        if source_version == LEGACY_VEP_SOURCE_VERSION
+        else "vep_source_version_resolved"
+    ] += 1
     db.add(
         VepAlleleConsequence(
             allele_id=allele_id,
@@ -835,7 +856,9 @@ def _migrate_variant(
     # (mv, record, allele-or-None, hgvs_assay_level, valid_from, valid_to) per window actually created
     # this pass — resolved to real ids by one flush below, then walked again to emit events and collect
     # touched allele ids.
-    pending: list[tuple[MappedVariant, MappingRecord, Optional[Allele], Optional[str], datetime, Optional[datetime]]] = []
+    pending: list[
+        tuple[MappedVariant, MappingRecord, Optional[Allele], Optional[str], datetime, Optional[datetime]]
+    ] = []
 
     for mv, valid_from, valid_to in result.windows:
         if (variant_id, mv.mapped_date) in existing_records:
@@ -861,10 +884,23 @@ def _migrate_variant(
         elif hgvs_source == "vrs_expression":
             stats["hgvs_recovered_from_vrs_expression"] += 1
 
+        # Same treatment for the pre-mapped representation. MappingRecord.vrs_digest is not a dedup
+        # key, so a wrong value here is less destructive than on Allele - but it is still an identity
+        # claim about content this migration is republishing, and the drift has the same cause.
+        pre_mapped_document, pre_mapped_digest = None, None
+        if (mv.pre_mapped or {}).get("id"):
+            try:
+                pre_mapped_document, pre_mapped_digest = canonical_variation_document(
+                    mv.pre_mapped, subject=f"mapped_variant {mv.id} pre_mapped"
+                )
+            except (ValidationError, ValueError):
+                logger.exception(f"Could not canonicalize pre_mapped for mapped_variant {mv.id}; storing it unkeyed.")
+                pre_mapped_document = mv.pre_mapped
+
         record = MappingRecord(
             variant_id=variant_id,
-            vrs_digest=(mv.pre_mapped or {}).get("id"),
-            pre_mapped=mv.pre_mapped or None,
+            vrs_digest=pre_mapped_digest,
+            pre_mapped=pre_mapped_document,
             assay_level=level,
             hgvs_assay_level=hgvs_assay_level,
             mapped_date=mv.mapped_date,
@@ -1077,9 +1113,7 @@ def do_migration(
                 )
             ).all()
         )
-        candidate_digests = {
-            (mv.post_mapped or {}).get("id") for mvs in mvs_by_variant.values() for mv in mvs
-        }
+        candidate_digests = {(mv.post_mapped or {}).get("id") for mvs in mvs_by_variant.values() for mv in mvs}
         candidate_digests.discard(None)
         allele_cache: dict[str, Allele] = {}
         if candidate_digests:
