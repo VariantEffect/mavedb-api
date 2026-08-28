@@ -1,11 +1,13 @@
 from datetime import date
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Column, Date, ForeignKey, Index, Integer, String, text
+from sqlalchemy import Column, Date, Enum, ForeignKey, Index, Integer, String, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
 from mavedb.db.mixins import ValidTime
+from mavedb.models.enums.vep import VepConsequenceSource
 
 if TYPE_CHECKING:
     from .allele import Allele
@@ -14,34 +16,41 @@ if TYPE_CHECKING:
 class VepAlleleConsequence(ValidTime, Base):
     """Valid-time VEP functional-consequence result for a deduplicated :class:`Allele`.
 
-    Replaces the frozen ``vep_functional_consequence``/``vep_access_date`` columns on
-    ``MappedVariant`` for new-model writes (Step 2 of the annotation infrastructure migration,
-    docs/design/annotation-infrastructure-migration.md). A row is live while ``valid_to`` is NULL;
-    the partial unique index enforces **a single live consequence per allele** — VEP's most-severe
-    consequence is one current value, so a changed result supersedes the prior row rather than
-    accumulating. This matches the gnomAD link shape, not ClinVar's multi-live shape.
+    A row is live while ``valid_to`` is NULL; the partial unique index enforces a
+    single live consequence per allele, matching the gnomAD link shape (not ClinVar's multi-live shape).
 
-    ``source_version`` is the Ensembl release the consequence was resolved under (e.g. ``"116"``,
-    from ``/info/software``). An Ensembl release is coordinated — software + transcript set +
-    consequence vocabulary all bump together under one number — so this single value version-keys the
-    upstream result exactly like gnomAD's ``db_version``. The job skips re-querying any allele already
-    live at the current release. What it does **not** capture is our own ``VEP_CONSEQUENCES`` severity
-    ordering (the list we pick "most severe" from); a change to that is a manual ``force`` re-run, not
-    an automatic supersede.
+    Two version axes key a stored consequence, and the job's current-release skip requires *both* to
+    match:
 
-    Supersede is deliberately **value-keyed, not version-keyed** (the one divergence from gnomAD): a VEP
-    consequence is categorical and usually identical across releases, so superseding on every release
-    bump would churn history every quarter with rows recording "still missense, still missense." Instead
-    a new release that resolves the *same* consequence advances ``source_version``/``access_date`` in
-    place — no supersede — and only a *changed* consequence retires the old row and inserts a successor.
-    The trade-off: the live row's ``source_version`` is the latest release that confirmed the value, not
-    the release it first appeared; acceptable because it describes the currently-held value's
-    provenance, not when it became true. ``access_date`` is retained as a human-facing "last confirmed"
-    audit stamp; it is no longer load-bearing for the skip.
+    - ``source_version`` — the Ensembl release the consequence was resolved under (e.g. ``"116"``),
+      version-keying the upstream result like gnomAD's ``db_version``. Always the *latest* release that
+      confirmed the value, not the release it first appeared.
+    - ``resolver_version`` — ``variant_annotation.lib.vep.RESOLVER_VERSION``, the version of *our*
+      resolution rule (severity ranking, transcript matching, Recoder combination). Catches a rule fix
+      the Ensembl release can't see; a NULL (legacy) row never matches and is re-queried once, then
+      filled in place.
 
-    ``functional_consequence`` is nullable to leave room for a future negative cache (NULL = "VEP ran
-    and found nothing"); the current job writes only non-null consequences and re-queries no-result
-    alleles each run, mirroring gnomAD's no-match handling.
+    Supersede is **value-keyed, not version-keyed** (the one divergence from gnomAD): a re-run
+    confirming the *same* consequence advances both versions and ``access_date`` in place rather than
+    churning history; only a *changed* consequence retires the old row and inserts a successor.
+    ``access_date`` is a human-facing "last confirmed" stamp — it plays no part in the skip itself.
+
+    ``functional_consequence`` is nullable to leave room for a future negative cache; the current job
+    writes only non-null consequences and re-queries no-result alleles each run.
+
+    **Resolution provenance (#772).** ``functional_consequence`` is the headline term; three columns
+    record *how* it was reached, since VEP's cross-transcript ``most_severe`` headline routinely
+    describes a different overlapping isoform than the allele's own transcript:
+
+    - ``consequence_terms`` — every term from the matched transcript entry, severity-ordered;
+      ``functional_consequence`` is its first element.
+    - ``consequence_source`` — transcript-matched, cross-transcript headline, or reference-identical.
+    - ``matched_transcript`` — the transcript VEP actually used, set only when ``consequence_source =
+      'transcript'`` (not assumed equal to the allele's own transcript, since the match is
+      version-insensitive).
+
+    Transient request failures are not stored here, they live in the annotation event stream
+    (``AnnotationEvent``).
     """
 
     __tablename__ = "vep_allele_consequences"
@@ -52,8 +61,23 @@ class VepAlleleConsequence(ValidTime, Base):
         ForeignKey("alleles.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    functional_consequence: Mapped[Optional[str]] = Column(String, nullable=True)
+    functional_consequence = Column(String, nullable=True)
+    consequence_terms = Column(JSONB(none_as_null=True), nullable=True)
+    consequence_source = Column(
+        Enum(
+            VepConsequenceSource,
+            name="vepconsequencesource",
+            create_constraint=True,
+            length=32,
+            native_enum=False,
+            validate_strings=True,
+        ),
+        nullable=True,
+    )
+    matched_transcript = Column(String, nullable=True)
     source_version: Mapped[str] = Column(String, nullable=False)
+    # Nullable only for rows predating the column (treated as stale — re-queried, then filled).
+    resolver_version = Column(String, nullable=True)
     access_date: Mapped[date] = Column(Date, nullable=False)
 
     allele: Mapped["Allele"] = relationship("Allele")
