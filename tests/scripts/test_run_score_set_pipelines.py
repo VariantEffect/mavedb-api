@@ -339,14 +339,12 @@ class TestResolveJobSubset:
             "poll_uniprot_mapping_jobs_for_score_set",
         }
 
-    # TODO(#772)
-    @pytest.mark.skip(reason="vep currently disabled")
     def test_vep_leaf_resolves_against_map_annotate_score_set(self):
         jobs = PIPELINE_DEFINITIONS["map_annotate_score_set"]["job_definitions"]
         subset = resolve_job_subset(jobs, frozenset({"populate_vep_for_score_set"}))
         assert {j["key"] for j in subset} == {
             "map_variants_for_score_set",
-            "submit_score_set_mappings_to_car",
+            "reverse_translate_variants_for_score_set",
             "populate_vep_for_score_set",
         }
 
@@ -362,8 +360,7 @@ class TestResolveJobSubset:
                     "poll_uniprot_mapping_jobs_for_score_set",
                 }
             ),
-            # TODO(#772)
-            # frozenset({"populate_vep_for_score_set"}),
+            frozenset({"populate_vep_for_score_set"}),
         ],
     )
     def test_presets_against_annotate_score_set_exclude_mapping_job(self, leaf):
@@ -376,8 +373,6 @@ class TestResolveJobSubset:
         with pytest.raises(ValueError):
             resolve_job_subset(jobs, frozenset({"populate_vep_for_score_set"}))
 
-    # TODO(#772)
-    @pytest.mark.skip(reason="vep currently disabled")
     def test_preserves_base_pipeline_order(self):
         jobs = PIPELINE_DEFINITIONS["map_annotate_score_set"]["job_definitions"]
         subset = resolve_job_subset(jobs, frozenset({"populate_vep_for_score_set"}))
