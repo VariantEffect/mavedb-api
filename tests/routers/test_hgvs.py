@@ -24,6 +24,7 @@ VALID_TRANSCRIPT = "NM_001408458.1"
 INVALID_TRANSCRIPT = "NX_99999.1"
 VALID_VARIANT = VALID_NT_ACCESSION + ":c.1G>A"
 INVALID_VARIANT = VALID_NT_ACCESSION + ":c.1delA"
+UNPARSEABLE_VARIANT = "not a valid hgvs string"
 HAS_PROTEIN_ACCESSION = "NM_000014.4"
 PROTEIN_ACCESSION = "NP_000005.2"
 
@@ -62,6 +63,21 @@ def test_hgvs_validate_invalid(client, setup_router_db):
 
         assert response.status_code == 400
         assert "does not agree" in response.json()["detail"]
+
+
+def test_hgvs_validate_unparseable(client, setup_router_db):
+    # A syntactically invalid HGVS string fails at the parse stage, before validation. This is a caller
+    # error and must surface as a 400 rather than escaping to the catch-all 500 handler.
+    payload = {"variant": UNPARSEABLE_VARIANT}
+    response = client.post("/api/v1/hgvs/validate", json=payload)
+
+    assert response.status_code == 400
+
+
+def test_hgvs_validate_missing_field(client, setup_router_db):
+    response = client.post("/api/v1/hgvs/validate", json={})
+
+    assert response.status_code == 422
 
 
 def test_hgvs_list_assemblies(client, setup_router_db):
