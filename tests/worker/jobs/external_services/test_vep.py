@@ -9,19 +9,46 @@ from unittest.mock import patch
 
 from sqlalchemy import select
 
+from variant_annotation.lib.vep import (
+    NO_CHANGE_TERM,
+    RESOLVER_VERSION,
+    ConsequenceOutcome,
+    ConsequenceResolution,
+    ConsequenceSource,
+    VepInput,
+)
+
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
+from mavedb.models.enums.vep import VepConsequenceSource
 from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
-from mavedb.lib.vep import VepResolution
 from mavedb.worker.jobs.external_services.vep import populate_vep_for_score_set
 from mavedb.worker.lib.managers.job_manager import JobManager
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
-_RESOLVE = "mavedb.worker.jobs.external_services.vep._resolve_consequences"
+# resolve_consequences lives in mavedb.lib.vep; the worker imports it, so we patch the worker's binding.
+# The orchestration itself is unit-tested in tests/lib/test_vep.py::TestResolveConsequences.
+_RESOLVE = "mavedb.worker.jobs.external_services.vep.resolve_consequences"
 _RELEASE = "mavedb.worker.jobs.external_services.vep.get_ensembl_release"
 _ENSEMBL_RELEASE = "116"
+
+
+def _resolved(hgvs: str, term: str) -> ConsequenceResolution:
+    """A RESOLVED resolution keyed by hgvs — the shape resolve_consequences returns per input."""
+    return ConsequenceResolution(
+        input=VepInput(hgvs=hgvs),
+        outcome=ConsequenceOutcome.RESOLVED,
+        consequence_terms=[term],
+        most_severe_consequence=term,
+        source=ConsequenceSource.TRANSCRIPT,
+    )
+
+
+def _errored(hgvs: str) -> ConsequenceResolution:
+    """An ERRORED resolution — the request failed, result unknown (must be retried, never linked)."""
+    return ConsequenceResolution(input=VepInput(hgvs=hgvs), outcome=ConsequenceOutcome.ERRORED, error="boom")
 
 
 @pytest.fixture(autouse=True)
@@ -67,27 +94,6 @@ class TestPopulateVepForScoreSetUnit:
         assert result.data["preexisting_allele_count"] == 0
         assert result.data["absent_allele_count"] == 0
         assert result.data["errored_allele_count"] == 0
-
-    async def test_calls_resolver_when_alleles_present(
-        self,
-        session,
-        with_populated_domain_data,
-        with_populate_vep_job,
-        mock_worker_ctx,
-        sample_populate_vep_run,
-        setup_sample_alleles_for_vep,
-    ):
-        """The VEP resolver is invoked once when the score set has HGVS-bearing alleles to query."""
-        with patch(_RESOLVE, return_value=VepResolution({}, set())) as mock_resolve:
-            result = await populate_vep_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
-            )
-
-        assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
-        mock_resolve.assert_called_once()
 
     async def test_propagates_exceptions(
         self,
@@ -169,10 +175,10 @@ class TestPopulateVepForScoreSetIntegration:
         setup_sample_alleles_for_vep,
     ):
         """A genuine empty (VEP queried successfully, found nothing) writes no consequence row and an
-        ABSENT/no_record event — a trustworthy negative, now that empty is split from a failed request."""
+        ABSENT/no_record event — a trustworthy negative, distinct from a failed request."""
         _, allele = setup_sample_alleles_for_vep
 
-        with patch(_RESOLVE, return_value=VepResolution({}, set())):
+        with patch(_RESOLVE, return_value={}):
             result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
 
         assert result.status == JobStatus.SUCCEEDED
@@ -185,6 +191,28 @@ class TestPopulateVepForScoreSetIntegration:
         assert events[0].reason == "no_record"
         assert events[0].annotation_type == "vep_functional_consequence"
         assert events[0].allele_id == allele.id and events[0].variant_id is None
+
+    async def test_skips_protein_level_allele(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_protein_allele_for_vep,
+    ):
+        """A protein-level allele is never submitted to VEP (#772 routing) — its consequence is carried
+        by the coding alleles reverse translation enumerates. With only a protein allele present the job
+        has nothing eligible to do: no external query, and no consequence row or event for it."""
+        _, allele = setup_sample_protein_allele_for_vep
+
+        with patch(_RESOLVE) as mock_resolve:
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        assert result.status == JobStatus.SUCCEEDED
+        mock_resolve.assert_not_called()  # protein allele routed out before any query
+        assert len(_live_consequences_for(session, allele.id)) == 0
+        assert session.scalars(select(AnnotationEvent).where(AnnotationEvent.allele_id == allele.id)).all() == []
 
     async def test_request_failure_recorded_as_errored(
         self,
@@ -200,7 +228,7 @@ class TestPopulateVepForScoreSetIntegration:
         _, allele = setup_sample_alleles_for_vep
 
         # Resolver reports the allele's HGVS as errored (request failed), not as a hit or an empty.
-        with patch(_RESOLVE, return_value=VepResolution({}, {allele.hgvs_c})):
+        with patch(_RESOLVE, return_value={allele.hgvs_c: _errored(allele.hgvs_c)}):
             result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
 
         assert result.status == JobStatus.SUCCEEDED
@@ -227,7 +255,7 @@ class TestPopulateVepForScoreSetIntegration:
         """A resolved consequence creates a single live VepAlleleConsequence and a SUCCESS VAS row."""
         _, allele = setup_sample_alleles_for_vep
 
-        with patch(_RESOLVE, return_value=VepResolution({allele.hgvs_c: "missense_variant"}, set())):
+        with patch(_RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}):
             result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
 
         assert result.status == JobStatus.SUCCEEDED
@@ -264,7 +292,7 @@ class TestPopulateVepForScoreSetIntegration:
 
         # VEP resolves only the RT-derived allele's genomic HGVS; the authoritative allele's coding
         # HGVS is queried successfully but yields no consequence this run (a genuine empty, not errored).
-        with patch(_RESOLVE, return_value=VepResolution({rt_allele.hgvs_g: "missense_variant"}, set())):
+        with patch(_RESOLVE, return_value={rt_allele.hgvs_g: _resolved(rt_allele.hgvs_g, "missense_variant")}):
             result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
 
         assert result.status == JobStatus.SUCCEEDED
@@ -286,6 +314,81 @@ class TestPopulateVepForScoreSetIntegration:
         assert by_allele[authoritative_allele.id].disposition == "absent"
         assert by_allele[authoritative_allele.id].reason == "no_record"
 
+    async def test_reference_identical_control_is_labelled(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+    ):
+        """A wild-type control describes no sequence change, so VEP cannot resolve it. When the reference
+        port settles it as reference-identical, it is stored as a live consequence labelled
+        ``reference_identical`` (headline term ``no_change``) rather than dropped to ABSENT — so a control
+        can be told apart from an unannotated allele. The event is present/created: a result was reached."""
+        _, allele = setup_sample_alleles_for_vep
+        hgvs = allele.hgvs_c or allele.hgvs_g
+
+        reference_identical = ConsequenceResolution(
+            input=VepInput(hgvs=hgvs),
+            outcome=ConsequenceOutcome.RESOLVED,
+            consequence_terms=[NO_CHANGE_TERM],
+            most_severe_consequence=NO_CHANGE_TERM,
+            source=ConsequenceSource.REFERENCE_IDENTICAL,
+        )
+        with patch(_RESOLVE, return_value={hgvs: reference_identical}):
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["created_allele_count"] == 1
+
+        live = _live_consequences_for(session, allele.id)
+        assert len(live) == 1
+        assert live[0].functional_consequence == NO_CHANGE_TERM
+        assert live[0].consequence_source == VepConsequenceSource.reference_identical
+        assert live[0].matched_transcript is None
+
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 1
+        assert events[0].disposition == "present"
+        assert events[0].reason == "created"
+        assert events[0].allele_id == allele.id and events[0].variant_id is None
+
+    async def test_resolves_in_chunks_and_merges_results(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_rt_derived_allele_for_vep,
+    ):
+        """Inputs are resolved in chunks (so progress can be reported between them), and the results from
+        every chunk are merged — not just the last chunk's. With the chunk size forced to one, each of the
+        two alleles resolves in its own call and both are still linked; a chunk whose result was dropped
+        would leave one allele unlinked."""
+        _, authoritative_allele, rt_allele = setup_rt_derived_allele_for_vep
+
+        def _resolve_each(inputs, **kwargs):
+            # One input per chunk here; each chunk returns only its own input's resolution, so a chunk
+            # whose result the job failed to merge would drop that allele's link.
+            return {inp.hgvs: _resolved(inp.hgvs, "missense_variant") for inp in inputs}
+
+        with (
+            patch("mavedb.worker.jobs.external_services.vep._RESOLUTION_CHUNK_SIZE", 1),
+            patch(_RESOLVE, side_effect=_resolve_each) as mock_resolve,
+        ):
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        assert result.status == JobStatus.SUCCEEDED
+        # Two unique HGVS at chunk size one -> two resolution calls, each a single-input chunk.
+        assert mock_resolve.call_count == 2
+        assert all(len(call.args[0]) == 1 for call in mock_resolve.call_args_list)
+        # Both alleles linked -> results from both chunks were merged, not overwritten by the last.
+        assert len(_live_consequences_for(session, authoritative_allele.id)) == 1
+        assert len(_live_consequences_for(session, rt_allele.id)) == 1
+
     async def test_skips_allele_already_at_current_release(
         self,
         session,
@@ -295,16 +398,18 @@ class TestPopulateVepForScoreSetIntegration:
         sample_populate_vep_run,
         setup_sample_alleles_for_vep,
     ):
-        """An allele with a live consequence already at the current Ensembl release is skipped: no VEP
-        query, the status reports SUCCESS/preexisting, and the existing row is not churned."""
+        """An allele with a live consequence already at the current Ensembl release *and* resolver
+        version is skipped: no VEP query, the status reports SUCCESS/preexisting, and the row is not
+        churned."""
         _, allele = setup_sample_alleles_for_vep
 
-        # Simulate a prior run at the current release.
+        # Simulate a prior run at the current release and resolver version (current on both axes).
         session.add(
             VepAlleleConsequence(
                 allele_id=allele.id,
                 functional_consequence="missense_variant",
                 source_version=_ENSEMBL_RELEASE,
+                resolver_version=RESOLVER_VERSION,
                 access_date=date.today(),
             )
         )
@@ -327,6 +432,47 @@ class TestPopulateVepForScoreSetIntegration:
         assert events[0].disposition == "present"
         assert events[0].reason == "preexisting"
 
+    async def test_stale_resolver_version_is_requeried(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+    ):
+        """An allele live at the *current* Ensembl release but resolved under an older resolver version is
+        NOT skipped — a resolution-rule fix (RESOLVER_VERSION bump) must re-query without waiting for an
+        Ensembl release bump. Re-resolving the same term reports preexisting and advances the resolver
+        version on the live row in place (no churn)."""
+        _, allele = setup_sample_alleles_for_vep
+
+        # Current Ensembl release but a stale resolver version -> only the resolver axis is out of date.
+        session.add(
+            VepAlleleConsequence(
+                allele_id=allele.id,
+                functional_consequence="missense_variant",
+                source_version=_ENSEMBL_RELEASE,
+                resolver_version=f"{RESOLVER_VERSION}-stale",
+                access_date=date.today() - timedelta(days=1),
+            )
+        )
+        session.commit()
+
+        with patch(
+            _RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}
+        ) as mock_resolve:
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        mock_resolve.assert_called_once()  # stale resolver version -> re-queried despite the current release
+        assert result.data["preexisting_allele_count"] == 1
+        assert result.data["created_allele_count"] == 0
+
+        # The live row is refreshed to the current resolver version (advanced in place, still one live row).
+        live = _live_consequences_for(session, allele.id)
+        assert len(live) == 1
+        assert live[0].resolver_version == RESOLVER_VERSION
+
     async def test_new_release_same_consequence_bumps_in_place(
         self,
         session,
@@ -336,9 +482,9 @@ class TestPopulateVepForScoreSetIntegration:
         sample_populate_vep_run,
         setup_sample_alleles_for_vep,
     ):
-        """An allele live at an older release is re-queried; an unchanged consequence advances
-        source_version (and access_date) in place — no supersede, so a new release does not churn
-        history for a categorical value that did not change."""
+        """An allele live at an *older* release is not skipped: the job re-queries it and reports it
+        preexisting (the unchanged consequence advances in place). The row-level in-place-bump semantics
+        are the linker's, covered by test_link_vep_unchanged_bumps_version_and_fills_provenance_in_place."""
         _, allele = setup_sample_alleles_for_vep
 
         session.add(
@@ -351,19 +497,14 @@ class TestPopulateVepForScoreSetIntegration:
         )
         session.commit()
 
-        with patch(_RESOLVE, return_value=VepResolution({allele.hgvs_c: "missense_variant"}, set())) as mock_resolve:
+        with patch(
+            _RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}
+        ) as mock_resolve:
             result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
 
         mock_resolve.assert_called_once()  # older release -> not skipped, re-queried
         assert result.data["preexisting_allele_count"] == 1
         assert result.data["created_allele_count"] == 0
-
-        # Unchanged value -> no supersede: one row, still live, version + date advanced in place.
-        rows = session.scalars(select(VepAlleleConsequence).where(VepAlleleConsequence.allele_id == allele.id)).all()
-        assert len(rows) == 1
-        assert rows[0].valid_to is None
-        assert rows[0].source_version == _ENSEMBL_RELEASE
-        assert rows[0].access_date == date.today()
 
     async def test_force_requeries_unchanged_without_churn(
         self,
@@ -374,17 +515,18 @@ class TestPopulateVepForScoreSetIntegration:
         sample_populate_vep_run,
         setup_sample_alleles_for_vep,
     ):
-        """force bypasses the current-release skip and re-queries, but the linker only supersedes on a
-        value change: a forced re-run that resolves the same consequence reports preexisting and does
-        not churn the row (version/access_date advanced in place)."""
+        """force bypasses the current-release skip: an allele already at the current release, which would
+        normally be skipped, is re-queried instead. The no-churn-on-unchanged-value guarantee is the
+        linker's, covered by test_link_vep_unchanged_bumps_version_and_fills_provenance_in_place."""
         _, allele = setup_sample_alleles_for_vep
 
-        # Prior live consequence already at the current release (would be skipped without force).
+        # Prior live consequence already current on both axes (would be skipped without force).
         session.add(
             VepAlleleConsequence(
                 allele_id=allele.id,
                 functional_consequence="missense_variant",
                 source_version=_ENSEMBL_RELEASE,
+                resolver_version=RESOLVER_VERSION,
                 access_date=date.today() - timedelta(days=1),
             )
         )
@@ -393,18 +535,14 @@ class TestPopulateVepForScoreSetIntegration:
         sample_populate_vep_run.job_params = {**sample_populate_vep_run.job_params, "force": True}
         session.commit()
 
-        with patch(_RESOLVE, return_value=VepResolution({allele.hgvs_c: "missense_variant"}, set())) as mock_resolve:
+        with patch(
+            _RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}
+        ) as mock_resolve:
             result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
 
         mock_resolve.assert_called_once()  # force bypassed the current-release skip
         assert result.data["preexisting_allele_count"] == 1
         assert result.data["created_allele_count"] == 0
-
-        # Unchanged consequence -> no supersede: one row, still live, access_date touched in place.
-        rows = session.scalars(select(VepAlleleConsequence).where(VepAlleleConsequence.allele_id == allele.id)).all()
-        assert len(rows) == 1
-        assert rows[0].valid_to is None
-        assert rows[0].access_date == date.today()
 
     async def test_new_release_changed_consequence_supersedes(
         self,
@@ -415,8 +553,9 @@ class TestPopulateVepForScoreSetIntegration:
         sample_populate_vep_run,
         setup_sample_alleles_for_vep,
     ):
-        """An allele live at an older release is re-queried; a changed result supersedes it — one live
-        row carrying the new consequence/release and one retired row preserving the old."""
+        """An allele live at an *older* release is not skipped: the job re-queries it and a changed
+        result is reported created. The supersede/retire row semantics are the linker's, covered by
+        test_link_vep_changed_consequence_supersedes."""
         _, allele = setup_sample_alleles_for_vep
 
         # Prior live consequence at an older release -> not skipped, eligible for re-query.
@@ -430,22 +569,53 @@ class TestPopulateVepForScoreSetIntegration:
         )
         session.commit()
 
-        with patch(_RESOLVE, return_value=VepResolution({allele.hgvs_c: "missense_variant"}, set())):
+        with patch(
+            _RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}
+        ) as mock_resolve:
             result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
 
+        mock_resolve.assert_called_once()  # older release -> not skipped, re-queried
         assert result.data["created_allele_count"] == 1
 
+    async def test_retained_on_absence_surfaced_in_outcome(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+    ):
+        """An allele that had a consequence at an older release but for which VEP now returns nothing
+        keeps its prior value (not superseded) and is counted in ``retained_on_absence_count`` — the
+        job-metadata signal for a possible genuine disappearance."""
+        _, allele = setup_sample_alleles_for_vep
+
+        # Prior live consequence at an older release -> re-queried, but VEP returns nothing this run.
+        session.add(
+            VepAlleleConsequence(
+                allele_id=allele.id,
+                functional_consequence="missense_variant",
+                source_version="115",
+                access_date=date.today() - timedelta(days=90),
+            )
+        )
+        session.commit()
+
+        with patch(_RESOLVE, return_value={}):
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        assert result.status == JobStatus.SUCCEEDED
+        # Surfaced in the outcome metadata, and counted as preexisting (the allele still has a value).
+        assert result.data["retained_on_absence_count"] == 1
+        assert result.data["preexisting_allele_count"] == 1
+        assert result.data["absent_allele_count"] == 0
+
+        # The prior consequence was held in place, not superseded or dropped.
         live = _live_consequences_for(session, allele.id)
         assert len(live) == 1
         assert live[0].functional_consequence == "missense_variant"
-        assert live[0].source_version == _ENSEMBL_RELEASE
-
-        # Old consequence retired, not deleted.
-        all_rows = session.scalars(
-            select(VepAlleleConsequence).where(VepAlleleConsequence.allele_id == allele.id)
-        ).all()
-        assert len(all_rows) == 2
-        assert len([r for r in all_rows if r.valid_to is not None]) == 1
+        assert live[0].source_version == "115"
 
     async def test_successful_linking_pipeline(
         self,
@@ -459,7 +629,7 @@ class TestPopulateVepForScoreSetIntegration:
         """End-to-end successful linking within a pipeline updates both job and pipeline status."""
         _, allele = setup_sample_alleles_for_vep
 
-        with patch(_RESOLVE, return_value=VepResolution({allele.hgvs_c: "missense_variant"}, set())):
+        with patch(_RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}):
             result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run_pipeline.id)
 
         assert result.status == JobStatus.SUCCEEDED
@@ -520,7 +690,7 @@ class TestPopulateVepForScoreSetArqContext:
         """The VEP job links a consequence and records a SUCCESS annotation through the ARQ worker."""
         _, allele = setup_sample_alleles_for_vep
 
-        with patch(_RESOLVE, return_value=VepResolution({allele.hgvs_c: "missense_variant"}, set())):
+        with patch(_RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}):
             await arq_redis.enqueue_job("populate_vep_for_score_set", sample_populate_vep_run.id)
             await arq_worker.async_run()
             await arq_worker.run_check()
@@ -550,7 +720,7 @@ class TestPopulateVepForScoreSetArqContext:
         """The VEP job completes and advances the pipeline through the ARQ worker."""
         _, allele = setup_sample_alleles_for_vep
 
-        with patch(_RESOLVE, return_value=VepResolution({allele.hgvs_c: "missense_variant"}, set())):
+        with patch(_RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}):
             await arq_redis.enqueue_job("populate_vep_for_score_set", sample_populate_vep_run_pipeline.id)
             await arq_worker.async_run()
             await arq_worker.run_check()

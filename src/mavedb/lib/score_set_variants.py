@@ -72,7 +72,7 @@ class MappedTriple:
 class LeanVariantRecord:
     """One pre-chewed per-variant record, keyed by ``variant_urn``.
 
-    ``consequence`` is a representative (most severe) VEP call. ``clingen_allele_id``/``assay_level_digest``
+    ``consequence`` is the allele's VEP molecular-consequence call. ``clingen_allele_id``/``assay_level_digest``
     bridge into the annotation dimensions. ``mapped`` is the canonical :class:`MappedTriple`;
     ``assay_level`` names which of its slots is the measured one. Any field is ``None`` when its
     source is absent (an unmapped variant → null ``assay_level`` and an empty triple).

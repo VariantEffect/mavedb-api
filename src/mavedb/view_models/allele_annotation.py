@@ -13,7 +13,7 @@ from mavedb.view_models.base.base import BaseModel
 
 
 class VepAnnotation(BaseModel):
-    """VEP most-severe functional consequence and the Ensembl release it resolved under."""
+    """VEP molecular consequence for an allele and the Ensembl release it resolved under."""
 
     consequence: Optional[str] = None
     source_version: str

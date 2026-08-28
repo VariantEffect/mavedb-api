@@ -35,7 +35,7 @@ from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 
 @dataclass(frozen=True)
 class VepAnnotation:
-    """A VEP most-severe functional consequence and the Ensembl release it was resolved under."""
+    """A VEP molecular consequence for an allele and the Ensembl release it was resolved under."""
 
     consequence: Optional[str]
     source_version: str
