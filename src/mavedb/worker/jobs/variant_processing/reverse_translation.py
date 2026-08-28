@@ -29,7 +29,12 @@ from sqlalchemy import select
 from variant_annotation import __version__ as variant_annotation_version
 from variant_annotation.lib.accessions import looks_like_refseq_protein_accession
 from variant_annotation.lib.translation import construct_equivalent_variants
-from variant_annotation.lib.translation.types import TranslationConfig, VariantInput, WtCodonMode
+from variant_annotation.lib.translation.types import (
+    TranslationConfig,
+    TranslationErrorReason,
+    VariantInput,
+    WtCodonMode,
+)
 
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.hgvs import extract_accession, strip_protein_prediction_parens
@@ -501,12 +506,25 @@ async def reverse_translate_variants_for_score_set(
         MappingRecordAllele.mapping_record_id.in_(current_record_ids),
     )
 
-    # TODO#767: some non-substitution consequences (del/ins/delins/fs/ext) have no synonymous
-    # equivalence class, so they arrive here as TranslationErrors and are miscounted as
-    # FAILED. Classify by the protein consequence's edit type up front and map these to
-    # SKIPPED instead of pattern-matching engine error strings.
+    # The library types each error's reason: NOT_TRANSLATABLE is a benign structural gap (the
+    # protein consequence's edit type — del/ins/delins/fs/ext/stop-loss — has no DNA equivalence
+    # class to construct), everything else is a genuine failure. Split on that typed reason rather
+    # than pattern-matching the engine's error text.
     for error in errors:
         _rec, variant = variant_input_map[id(error.input)]
+        if error.reason is TranslationErrorReason.NOT_TRANSLATABLE:
+            # A structural gap ("we could not ask"), not a failure — count it as a skip and record
+            # NOT_APPLICABLE so it never pollutes the failed tally (mirrors NO_ASSAY_LEVEL_HGVS).
+            annotation_counts["skipped"] += 1
+            _annotate_translation(
+                annotation_manager,
+                variant_id=variant.id,
+                disposition=Disposition.NOT_APPLICABLE,
+                reason=EventReason.NOT_TRANSLATABLE,
+                metadata={"hgvs_input": error.input.hgvs, "error_message": error.error},
+            )
+            continue
+
         annotation_counts["failed"] += 1
         _annotate_translation(
             annotation_manager,
@@ -516,7 +534,9 @@ async def reverse_translate_variants_for_score_set(
             metadata={"hgvs_input": error.input.hgvs, "error_message": error.error},
         )
 
-    annotation_counts["skipped"] = len(skipped_variants)
+    # skipped already holds the NOT_TRANSLATABLE skips counted above; add the transcript-unresolved
+    # skips (skipped_variants) rather than overwriting.
+    annotation_counts["skipped"] += len(skipped_variants)
     for p in skipped_variants:
         category = target_category_by_gene.get(p.target_gene_id) if p.target_gene_id is not None else None
         reason, disposition = _classify_skip(p, category)

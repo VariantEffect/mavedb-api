@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from variant_annotation.lib.translation.types import (
     ProjectionPair,
     TranslationError,
+    TranslationErrorReason,
     TranslationResult,
     WtCodonMode,
 )
@@ -61,7 +62,11 @@ class FakeVrsVariation:
         return {"type": self.vrs_type, "id": self.id}
 
 
-def fake_construct(results_by_hgvs: dict, errors_by_hgvs: dict | None = None):
+def fake_construct(
+    results_by_hgvs: dict,
+    errors_by_hgvs: dict | None = None,
+    not_translatable_by_hgvs: dict | None = None,
+):
     """Build a stand-in for ``construct_equivalent_variants``.
 
     The job correlates each TranslationResult/TranslationError back to its originating
@@ -77,13 +82,26 @@ def fake_construct(results_by_hgvs: dict, errors_by_hgvs: dict | None = None):
 
     Each pair becomes one ProjectionPair, mirroring the position-aligned
     coding↔genomic rows the real reverse-translate CLI emits (with ``--one-row-per-input``).
+
+    ``errors_by_hgvs`` maps an assay HGVS to a genuine-failure message (reason ``FAILED``);
+    ``not_translatable_by_hgvs`` maps one to a benign non-translatable message (reason
+    ``NOT_TRANSLATABLE``), standing in for an edit type the library screens out up front.
     """
     errors_by_hgvs = errors_by_hgvs or {}
+    not_translatable_by_hgvs = not_translatable_by_hgvs or {}
 
     def _construct(inputs, *, transcripts, coordinates, config):
         results, errors = [], []
         for inp in inputs:
-            if inp.hgvs in errors_by_hgvs:
+            if inp.hgvs in not_translatable_by_hgvs:
+                errors.append(
+                    TranslationError(
+                        input=inp,
+                        error=not_translatable_by_hgvs[inp.hgvs],
+                        reason=TranslationErrorReason.NOT_TRANSLATABLE,
+                    )
+                )
+            elif inp.hgvs in errors_by_hgvs:
                 errors.append(TranslationError(input=inp, error=errors_by_hgvs[inp.hgvs]))
             elif inp.hgvs in results_by_hgvs:
                 spec = results_by_hgvs[inp.hgvs]
@@ -963,6 +981,107 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert len(_cross_level_events(session, sample_score_set.id, disposition="present")) == 1
         assert len(_cross_level_events(session, sample_score_set.id, disposition="failed")) == 1
         assert len(_non_authoritative_links(session)) == 1
+
+    async def test_non_translatable_edit_is_skipped_not_failed(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+    ):
+        """A protein consequence whose edit type has no DNA equivalence class (the library screens it
+        out as NOT_TRANSLATABLE) is a benign structural gap, not a failure: it is counted as skipped
+        and recorded as (not_applicable, not_translatable) — never in the failed tally. This is the
+        #767 fix: such variants must not pollute FAILED for the retroactive backfill."""
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn="variant:1",
+            hgvs_nt="NM_000000.1:c.1A>G",
+            hgvs_pro="NP_000000.1:p.Met1Val",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        await _map_variants(session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set)
+
+        assay_hgvs = "NM_000000.1:c.1A>G"
+        construct = fake_construct(
+            {},
+            not_translatable_by_hgvs={
+                assay_hgvs: "Protein edit type has no DNA equivalence class to reverse-translate"
+            },
+        )
+
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", construct),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", fake_translate({})),
+        ):
+            result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        # A whole score set of non-translatable variants is a benign no-op, not a job failure.
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0}
+
+        # No alleles/links, and no failed event at all.
+        assert _non_authoritative_links(session) == []
+        assert _cross_level_events(session, sample_score_set.id, disposition="failed") == []
+
+        # Recorded as a structural gap: not_applicable / not_translatable, carrying the input HGVS.
+        events = _cross_level_events(session, sample_score_set.id, reason="not_translatable")
+        assert len(events) == 1
+        assert events[0].disposition == "not_applicable"
+        assert events[0].event_metadata["hgvs_input"] == assay_hgvs
+
+    async def test_non_translatable_skip_coexists_with_success_and_failure(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+    ):
+        """Across three variants — one translatable, one non-translatable, one genuinely erroring —
+        each lands in its own bucket: translated / skipped / failed. The genuine error still records
+        FAILED (translation_error); the non-translatable one is a not_translatable skip."""
+        variant_ok = Variant(score_set_id=sample_score_set.id, urn="variant:1", hgvs_nt="NM_000000.1:c.1A>G", data={})
+        variant_skip = Variant(score_set_id=sample_score_set.id, urn="variant:2", hgvs_nt="NM_000000.1:c.2G>T", data={})
+        variant_fail = Variant(score_set_id=sample_score_set.id, urn="variant:3", hgvs_nt="NM_000000.1:c.3T>A", data={})
+        session.add_all([variant_ok, variant_skip, variant_fail])
+        session.commit()
+        await _map_variants(session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set)
+
+        c_candidate = "NM_000001.1:c.5A>G"
+        construct = fake_construct(
+            {"NM_000000.1:c.1A>G": [(c_candidate, None)]},
+            errors_by_hgvs={"NM_000000.1:c.3T>A": "forward translation failed"},
+            not_translatable_by_hgvs={"NM_000000.1:c.2G>T": "no DNA equivalence class"},
+        )
+        translate = fake_translate({c_candidate: "ga4gh:VA.coding"})
+
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", construct),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", translate),
+        ):
+            result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data == {"translated": 1, "failed": 1, "skipped": 1, "alleles_created": 1}
+
+        # The genuine error is FAILED with reason translation_error — distinct from the benign skip.
+        failed = _cross_level_events(session, sample_score_set.id, disposition="failed")
+        assert len(failed) == 1
+        assert failed[0].reason == "translation_error"
+        assert failed[0].event_metadata["error_message"] == "forward translation failed"
+
+        # The non-translatable one is not_applicable / not_translatable.
+        skipped = _cross_level_events(session, sample_score_set.id, reason="not_translatable")
+        assert len(skipped) == 1
+        assert skipped[0].disposition == "not_applicable"
 
     async def test_partial_candidate_translation_failure_keeps_success_with_metadata(
         self,

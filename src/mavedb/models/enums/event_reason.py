@@ -43,6 +43,7 @@ class EventReason(str, Enum):
         "protein_level_allele"  # protein allele excluded from nucleotide-level annotation (ClinVar, gnomAD)
     )
     NO_ASSAY_LEVEL_HGVS = "no_assay_level_hgvs"  # no assay-level HGVS to translate (RT)
+    NOT_TRANSLATABLE = "not_translatable"  # protein consequence's edit type has no DNA equivalence class (RT)
 
     # failed — errored
     API_ERROR = "api_error"  # network/timeout/upstream error (ClinVar, VEP, LDH, CAR no-response)
