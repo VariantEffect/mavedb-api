@@ -9,7 +9,7 @@ for the ARQ worker. These hooks manage:
 
 from concurrent import futures
 
-from mavedb.data_providers.services import cdot_rest
+from mavedb.data_providers.services import cdot_rest, seqrepo_data_proxy
 
 
 def standalone_ctx():
@@ -18,6 +18,7 @@ def standalone_ctx():
     ctx["pool"] = futures.ProcessPoolExecutor()
     ctx["redis"] = None  # Redis connection can be set up here if needed.
     ctx["hdp"] = cdot_rest()
+    ctx["seqrepo"] = seqrepo_data_proxy()
     ctx["state"] = {}
 
     # Additional context setup can be added here as needed.
@@ -37,6 +38,7 @@ async def shutdown(ctx):
 
 async def on_job_start(ctx):
     ctx["hdp"] = cdot_rest()
+    ctx["seqrepo"] = seqrepo_data_proxy()
     ctx["state"] = {}
 
 

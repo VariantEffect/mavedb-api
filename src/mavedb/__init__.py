@@ -6,7 +6,7 @@ application_logging.configure()
 logger = module_logging.getLogger(__name__)
 
 __project__ = "mavedb-api"
-__version__ = "2026.2.7.2"
+__version__ = "2026.2.7.2-dev"
 
 logger.info(f"MaveDB {__version__}")
 

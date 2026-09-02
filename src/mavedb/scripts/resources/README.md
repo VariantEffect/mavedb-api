@@ -38,11 +38,14 @@ mavedb-dump.YYYYMMDDHHMMSS.zip
 │   ├── {urn}.counts.csv                       # Variant counts (score sets with count data only)
 │   └── {urn}.annotations.csv                  # Variant annotations from VEP, gnomAD, ClinGen and ClinVar, plus score calibration interpretations
 │                                              #   (score sets that have completed mapping only)
-├── mapped/
-│   └── {urn}.mapped-variants.json             # Mapped variant data including VRS alleles and HGVS
+├── vrs/
+│   └── {urn}.vrs.ndjson                       # GA4GH VRS and Cat-VRS objects, one record per variant placed on a reference
 │                                              #   (score sets that have completed mapping only)
+├── mapped/
+│   └── {urn}.mapped-variants.json             # Legacy; superseded by vrs/. Score sets mapped before the
+│                                              #   allele-graph migration only
 └── va/
-    └── {urn}.va.ndjson                        # GA4GH VA-Spec annotations, one record per mapped variant
+    └── {urn}.va.ndjson                        # GA4GH VA-Spec annotations, one record per variant placed on a reference
                                                #   (score sets that have completed mapping only)
 ```
 
@@ -137,7 +140,7 @@ Columns are grouped by a namespace prefix. The groups below always appear:
 | `gnomad.gnomad_faf95_max` | Maximum filtering allele frequency at 95% confidence across genetic ancestry groups |
 | `gnomad.gnomad_faf95_max_ancestry` | Genetic ancestry group attaining `gnomad_faf95_max` |
 | `gnomad.gnomad_id` | gnomAD variant identifier (`chrom-pos-ref-alt`), e.g. `17-43092919-G-A` |
-| `gnomad.gnomad_version` | gnomAD release the frequencies were drawn from (e.g. `v4.1`) |
+| `gnomad.gnomad_version` | gnomAD release *this row's* frequencies were drawn from (e.g. `v4.1`). Varies by row — see Caveats |
 | `clingen.clingen_allele_id` | ClinGen Allele Registry CA identifier (e.g. `CA12345`) |
 
 Two further groups vary by score set, because they exist only where MaveDB holds the underlying data.
@@ -183,11 +186,44 @@ Variants that could not be mapped, or for which a specific annotation is unavail
 will be `NA` because a single combined HGVS string cannot currently be derived. This may be updated in
 a future release.
 
+### `vrs/{urn}.vrs.ndjson`
+
+[Newline-delimited JSON](https://ndjson.org/): one line per variant the pipeline placed onto a reference
+sequence, carrying the GA4GH molecular objects for that variant and nothing else. Each line is:
+
+| Field | Description |
+|-------|-------------|
+| `variant_urn` | URN of the source variant — use this to join with `accession` in the CSV files |
+| `pre_mapped` | VRS object using coordinates on the assay's own reference sequence (transcript or protein accession) |
+| `post_mapped` | VRS object for the measured allele, lifted to a genomic or transcript reference |
+| `categorical_variant` | GA4GH Cat-VRS `CategoricalVariant`, anchored on the measured allele with the derived alleles as members |
+
+A separate artifact rather than columns in `csv/{urn}.annotations.csv` because these are nested objects: a
+CSV cell can carry an identifier or an HGVS string, but not a VRS object. Join the two on
+`mavedb.post_mapped_vrs_id`, which is the same identifier as `post_mapped.id`.
+
+`categorical_variant` is spec-pure — it contains no MaveDB-specific fields. A variant the pipeline could
+not place carries no reference coordinates and is omitted from this file, so every line carries a non-null
+`post_mapped` and the line count equals the number of variants with reference coordinates. `pre_mapped` is
+`null` where no assay-frame VRS was recorded, and `categorical_variant` is `null` where the stored VRS
+could not be resolved to a GA4GH object.
+
+Unlike `va/{urn}.va.ndjson`, nothing here is derived from a score calibration, so no part of this file is
+withheld on calibration-visibility grounds.
+
+**Only present for score sets that have completed the MaveDB mapping pipeline.**
+
+---
+
 ### `mapped/{urn}.mapped-variants.json`
 
-A JSON array of the score set's **current** mapped variant records. The same shape as
-`GET /api/v1/score-sets/{urn}/mapped-variants`, narrowed to `current: true`. Each record
-corresponds to a single variant:
+> **Legacy artifact, superseded by `vrs/{urn}.vrs.ndjson`.** This file is sourced from the
+> pre-allele-graph mapping store, which no longer receives writes, so it is present only for score sets
+> mapped before that migration and will be removed in a future release. `vrs/{urn}.vrs.ndjson` carries the
+> same `preMapped`/`postMapped` pair for *every* mapped score set, plus the Cat-VRS object. New consumers
+> should read that instead.
+
+A JSON array of the score set's **current** mapped variant records, one per variant:
 
 | Field | Description |
 |-------|-------------|
@@ -205,14 +241,15 @@ corresponds to a single variant:
 `preMapped` and `postMapped` are raw GA4GH VRS objects (JSON). The `type` field within them may be
 `"Allele"`, `"Haplotype"`, or `"CisPhasedBlock"` depending on the variant. Records where mapping
 failed will have `preMapped: null`, `postMapped: null`, and a non-null `errorMessage`. **Only
-present for score sets that have completed the MaveDB mapping pipeline.**
+present for score sets mapped before the allele-graph migration** — see the note above.
 
 ---
 
 ### `va/{urn}.va.ndjson`
 
-[Newline-delimited JSON](https://ndjson.org/): one line per current mapped variant. Each line is an
-envelope mirroring the `GET /api/v1/score-sets/{urn}/annotated-variants/*` streaming endpoints:
+[Newline-delimited JSON](https://ndjson.org/): one line per variant the pipeline currently places onto a
+reference sequence. Each line is an envelope mirroring the
+`GET /api/v1/score-sets/{urn}/annotated-variants/*` streaming endpoints:
 
 ```json
 {"variant_urn": "urn:mavedb:00000001-a-1#1", "annotation": { ... }}
@@ -245,10 +282,11 @@ be combined with other evidence downstream, not as a standalone clinical verdict
 Research-use-only calibrations are excluded from this file, unlike `csv/{urn}.annotations.csv`, which
 includes them under a `research_use_only` flag.
 
-`annotation` is `null` for current mapped variants that have no post-mapped allele (and therefore
-cannot be annotated); the `variant_urn` is still present on those lines. Every current mapped variant
-produces exactly one line, so the line count equals the current mapped-variant count. **Only present
-for score sets that have completed the MaveDB mapping pipeline.**
+`annotation` is `null` where no VA-Spec layer could be built for a variant that does have reference
+coordinates. A variant the pipeline could not place has none, and is omitted from this file entirely.
+Every variant it currently places produces exactly one line, so the line count equals the number of
+variants with current reference coordinates. **Only present for score sets that have completed the MaveDB
+mapping pipeline.**
 
 ---
 
@@ -296,7 +334,7 @@ score_set = next(
 
 - Only **published**, **CC0-licensed** data is included. Datasets with other licenses are not
   present in this dump even if they are publicly visible on MaveDB.
-- Annotation files (`.annotations.csv`), mapped variant files (`.mapped-variants.json`), and
+- Annotation files (`.annotations.csv`), the legacy `.mapped-variants.json` files, and
   VA-Spec files (`.va.ndjson`) are **only present for score sets that have been processed by the
   MaveDB variant mapping pipeline**. Score sets that have not yet been mapped, or for which mapping
   failed entirely, will not have these files.
@@ -312,12 +350,16 @@ score_set = next(
   `preMapped: null` / `postMapped: null` in the JSON.
 - This dump is a snapshot of MaveDB's **current** state, not a historical archive. The `mapped/`
   JSON files include only each variant's current mapping — superseded records from earlier mapping
-  runs are not retained here. (Unlike this per-run dump, `GET /api/v1/score-sets/{urn}/mapped-variants`
-  does return superseded mappings, for callers that need that history directly.) The same applies to
+  runs are not retained here. (Callers that need mapping history directly can ask the API for a past
+  instant with the `as_of` parameter.) The same applies to
   `annotations.csv` and the `va/` files: annotations are always reported with respect to the current
   mapping object. If you need MaveDB's state as of a specific point in time, use a dump from that
   time (e.g. an earlier Zenodo-archived release) rather than looking for historical rows within one.
-- gnomAD allele frequencies in `annotations.csv` are sourced from **gnomAD v4.1** specifically.
+- gnomAD allele frequencies are **not all from one release**. MaveDB records a frequency per allele from
+  whichever gnomAD release last covered it, and a release that does not include an allele leaves that
+  allele's earlier frequency in place. Read `gnomad.gnomad_version` per row rather than assuming a single
+  release for the file; a mixture is normal and expected. (ClinVar differs: each release MaveDB holds gets
+  its own `clinvar.YYYY_MM` column group, so those coexist as columns rather than varying by row.)
 - `preMapped` VRS objects reference the assay's input sequence (a transcript or protein accession).
   `postMapped` VRS objects are remapped to the **GRCh38** reference genome. Do not compare
   coordinates between `preMapped` and `postMapped` directly.

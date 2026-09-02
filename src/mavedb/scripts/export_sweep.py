@@ -14,7 +14,7 @@ database get a chance to fail somewhere other than a user's download.
 Writes one CSV row per attempted (score set, surface) pair, successes included: a report showing only
 failures cannot distinguish "nothing broke" from "nothing ran". Exits non-zero if any pair failed.
 
-Every current mapped variant of every published score set is attempted. The measured cost of sweeping all
+Every annotatable variant of every published score set is attempted. The measured cost of sweeping all
 score set level surfaces at the current database size is well under an hour for CSV surfaces and a little
 over an hour for VA annotation surfaces.
 
@@ -43,13 +43,13 @@ from mavedb.lib.annotation.annotate import (
     variant_study_result,
 )
 from mavedb.lib.annotation.conformance import AnnotationRoundTripError, round_trip_annotation
+from mavedb.lib.annotation.context import VariantAnnotationContext, variant_annotation_context
 from mavedb.lib.annotation.exceptions import EXPECTED_ABSENCE_EXCEPTIONS
 from mavedb.lib.csv.score_set import available_score_set_csv_namespaces, get_score_set_variants_as_csv
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
-from mavedb.lib.score_sets import get_current_mapped_variants_for_annotation
+from mavedb.lib.score_sets import get_annotatable_variants
 from mavedb.lib.urns import variant_urn_sort_key
-from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.scripts.environment import script_environment, with_database_session
@@ -78,7 +78,7 @@ CSV_COLUMNS = [
 ]
 
 
-def _surfaces(principal: Principal) -> list[tuple[str, Callable[[MappedVariant], Optional[Any]]]]:
+def _surfaces(principal: Principal) -> list[tuple[str, Callable[[VariantAnnotationContext], Optional[Any]]]]:
     """The three annotation surfaces the API streams, named as their endpoint path segments."""
     return [
         ("study-result", variant_study_result),
@@ -89,7 +89,7 @@ def _surfaces(principal: Principal) -> list[tuple[str, Callable[[MappedVariant],
 
 @dataclass
 class SurfaceResult:
-    """What one annotation surface did across every current mapped variant of one score set."""
+    """What one annotation surface did across every annotatable variant of one score set."""
 
     score_set_urn: str
     surface: str
@@ -101,7 +101,7 @@ class SurfaceResult:
     first_failing_variant_urn: str = ""
     exception_class: str = ""
     message: str = ""
-    #: Set when the pair was never attempted, e.g. the score set has no current mapped variants.
+    #: Set when the pair was never attempted, e.g. the score set has no annotatable variants.
     skip_reason: str = ""
 
     def record_failure(self, variant_urn: str, outcome: str, err: BaseException) -> None:
@@ -145,12 +145,17 @@ class SweepTotals:
 
 
 def sweep_annotation_surface(
+    db: Session,
     score_set_urn: str,
     surface: str,
-    annotate: Callable[[MappedVariant], Optional[Any]],
-    mapped_variants: list[MappedVariant],
+    annotate: Callable[[VariantAnnotationContext], Optional[Any]],
+    variants: list[Variant],
 ) -> SurfaceResult:
-    """Attempt one annotation surface across every current mapped variant of one score set.
+    """Attempt one annotation surface across every annotatable variant of one score set.
+
+    The context is built per variant per surface, rather than once and reused, because that is what the
+    streaming endpoints do per request — a defect in context construction is a defect in what the API
+    serves, and the sweep only sees it by taking the same path.
 
     Nothing raises out of here. A sweep that aborted on the first bad variant would report the corpus as
     far healthier than it is.
@@ -158,14 +163,15 @@ def sweep_annotation_surface(
     result = SurfaceResult(
         score_set_urn=score_set_urn,
         surface=surface,
-        variants_attempted=len(mapped_variants),
+        variants_attempted=len(variants),
     )
 
-    for mapped_variant in mapped_variants:
-        variant_urn = getattr(mapped_variant.variant, "urn", "") or ""
+    for variant in variants:
+        variant_urn = getattr(variant, "urn", "") or ""
 
         try:
-            annotation = annotate(mapped_variant)
+            context = variant_annotation_context(db, variant)
+            annotation = annotate(context) if context is not None else None
         except EXPECTED_ABSENCE_EXCEPTIONS:
             # An expected absence, drawn from the same definition the streaming endpoints use so the two
             # cannot disagree. Counting it as a failure would bury real defects under millions of
@@ -347,7 +353,7 @@ def export_sweep(db: Session, max_score_sets: Optional[int], output: Optional[st
 
     logger.info(
         f"Sweeping {len(score_sets)} published score sets across {len(surfaces) + 1} surfaces, "
-        "attempting every current mapped variant of each."
+        "attempting every annotatable variant of each."
     )
     if max_score_sets is not None:
         logger.warning(f"Bounded to the first {max_score_sets} score sets by --max-score-sets; not full coverage.")
@@ -356,21 +362,21 @@ def export_sweep(db: Session, max_score_sets: Optional[int], output: Optional[st
 
     for index, score_set in enumerate(score_sets):
         urn = score_set.urn or f"<score set id {score_set.id}>"
-        mapped_variants = list(get_current_mapped_variants_for_annotation(db, score_set))
+        variants = list(get_annotatable_variants(db, score_set))
         variant_count = variant_counts.get(score_set.id, 0)
         surface_results: list[SurfaceResult] = []
 
         # The annotation surfaces need a current mapping to have anything to say. The CSV surface does
         # not: it emits a row per variant and outer-joins the mapping, so an unmapped variant still gets
         # a row of NA columns. The two skip on different conditions for that reason.
-        if mapped_variants:
+        if variants:
             surface_results.extend(
-                sweep_annotation_surface(urn, surface, annotate, mapped_variants) for surface, annotate in surfaces
+                sweep_annotation_surface(db, urn, surface, annotate, variants) for surface, annotate in surfaces
             )
         else:
             surface_results.extend(
                 SurfaceResult(
-                    score_set_urn=urn, surface=surface, outcome=SKIPPED, skip_reason="no current mapped variants"
+                    score_set_urn=urn, surface=surface, outcome=SKIPPED, skip_reason="no annotatable variants"
                 )
                 for surface, _ in surfaces
             )
@@ -382,9 +388,9 @@ def export_sweep(db: Session, max_score_sets: Optional[int], output: Optional[st
                 SurfaceResult(score_set_urn=urn, surface="score-set-csv", outcome=SKIPPED, skip_reason="no variants")
             )
 
-        if mapped_variants or variant_count:
+        if variants or variant_count:
             totals.score_sets_attempted += 1
-            totals.variants_attempted += len(mapped_variants)
+            totals.variants_attempted += len(variants)
         else:
             totals.score_sets_skipped += 1
 
@@ -418,7 +424,7 @@ def export_sweep(db: Session, max_score_sets: Optional[int], output: Optional[st
     logger.info(f"Wrote {len(rows)} rows to {output_path}")
     logger.info(
         f"Score sets: {totals.score_sets_published} published, {totals.score_sets_attempted} attempted, "
-        f"{totals.score_sets_skipped} skipped with no current mapped variants."
+        f"{totals.score_sets_skipped} skipped with no annotatable variants."
     )
     logger.info(f"Variants: {totals.variants_attempted} attempted per surface, every one held by those score sets.")
     logger.info("Outcomes: " + ", ".join(f"{outcome}={count}" for outcome, count in sorted(outcomes.items())))

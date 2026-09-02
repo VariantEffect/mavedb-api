@@ -3,14 +3,22 @@
 This module provides database operations for the variant_translations table,
 which stores relationships between protein allele (PA) and nucleotide allele (CA)
 ClinGen IDs.
+
+FROZEN (serving-only). The populate_variant_translations_for_score_set job that wrote this table was
+retired in the #742 migration: the reverse-translation allele equivalence space (genomic/coding/protein
+VRS alleles per variant, linked via MappingRecordAllele with HGVS on Allele) now covers PA<->CA
+relationships without querying ClinGen. These helpers and the variant_translations table remain only to
+serve existing old-model data; they are never written for new score sets and are dropped at read-cutover.
 """
 
 from typing import cast
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
+from mavedb.models.allele import Allele
 from mavedb.models.variant_translation import VariantTranslation
 
 
@@ -39,3 +47,21 @@ def upsert_variant_translations(db: Session, translations: list[tuple[str, str]]
     created = result.rowcount
     existing = len(unique) - created
     return created, existing
+
+
+def get_or_create_allele(db: Session, allele_draft: Allele) -> Allele:
+    """Return the existing Allele matching ``allele_draft``'s vrs_digest, else add the draft.
+
+    This is a get-or-create, not an upsert: a matching row is returned untouched, and on
+    a miss the draft is added to the session (not flushed). The draft is never used to
+    update an existing row.
+
+    NOTE: This function does not persist the returned Allele to the database; the caller
+          is responsible for committing the session.
+    """
+    existing = db.scalars(select(Allele).where(Allele.vrs_digest == allele_draft.vrs_digest)).one_or_none()
+    if existing is not None:
+        return existing
+
+    db.add(allele_draft)
+    return allele_draft

@@ -3,7 +3,7 @@ from shutil import copytree
 
 import pytest
 
-from mavedb.models.clinical_control import ClinicalControl
+from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.enums.user_role import UserRole
@@ -52,8 +52,8 @@ def setup_router_db(session):
     db.add(License(**TEST_INACTIVE_LICENSE))
     db.add(License(**EXTRA_LICENSE))
     db.add(Contributor(**EXTRA_CONTRIBUTOR))
-    db.add(ClinicalControl(**TEST_CLINVAR_CONTROL))
-    db.add(ClinicalControl(**TEST_GENERIC_CLINICAL_CONTROL))
+    db.add(ClinvarControl(**TEST_CLINVAR_CONTROL))
+    db.add(ClinvarControl(**TEST_GENERIC_CLINICAL_CONTROL))
     db.add(GnomADVariant(**TEST_GNOMAD_VARIANT))
     db.bulk_save_objects([ControlledKeyword(**keyword_obj) for keyword_obj in TEST_DB_KEYWORDS])
     db.commit()

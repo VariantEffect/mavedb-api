@@ -10,11 +10,12 @@ from sqlalchemy import select
 
 from mavedb.lib.clinvar.constants import CLINVAR_FIELDS_TO_KEEP
 from mavedb.lib.clinvar.utils import fetch_clinvar_variant_data
-from mavedb.models.clinical_control import ClinicalControl
+from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationStatus, JobStatus
-from mavedb.models.variant_annotation_status import VariantAnnotationStatus
-from mavedb.worker.jobs.external_services.clinvar import generate_clinvar_versions
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.job_pipeline import JobStatus
+from mavedb.worker.jobs.external_services.clinvar import _generate_clinvar_versions
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
@@ -43,7 +44,7 @@ class TestE2ERefreshClinvarControls:
         arq_redis,
         arq_worker,
         standalone_worker_context,
-        setup_sample_variants_with_caid,
+        setup_sample_alleles_with_caid,
         with_refresh_clinvar_controls_job,
         sample_refresh_clinvar_controls_job_run,
     ):
@@ -53,7 +54,7 @@ class TestE2ERefreshClinvarControls:
         """
         with (
             patch(
-                "mavedb.worker.jobs.external_services.clinvar.generate_clinvar_versions",
+                "mavedb.worker.jobs.external_services.clinvar._generate_clinvar_versions",
                 return_value=_E2E_VERSIONS,
             ),
             patch(
@@ -65,27 +66,25 @@ class TestE2ERefreshClinvarControls:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        # The variant should be present in the 2025-01 archive.
-        clinical_controls = session.scalars(select(ClinicalControl)).all()
+        # Verify that clinical controls were added successfully — one row per ClinVar version
+        # that contains the variant, so there may be more than one.
+        clinical_controls = session.scalars(select(ClinvarControl)).all()
         assert len(clinical_controls) >= 1
         assert all(cc.db_identifier == "3045425" for cc in clinical_controls)
 
-        success_annotations = session.scalars(
-            select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.annotation_type == AnnotationType.CLINVAR_CONTROL,
-                VariantAnnotationStatus.status == AnnotationStatus.SUCCESS,
+        # Verify that at least one present event was recorded for the allele. The job processes one
+        # event per ClinVar version; versions without the allele produce absent events, so filtering
+        # for present gives a stable assertion. Events are allele-keyed (no variant_id).
+        present_events = session.scalars(
+            select(AnnotationEvent).where(
+                AnnotationEvent.annotation_type == AnnotationType.CLINVAR_CONTROL,
+                AnnotationEvent.disposition == Disposition.PRESENT,
             )
         ).all()
-        assert len(success_annotations) == 1
+        assert len(present_events) >= 1
+        assert all(e.variant_id is None and e.allele_id is not None for e in present_events)
 
-        # Total annotations == versions processed.
-        all_annotations = session.scalars(
-            select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.annotation_type == AnnotationType.CLINVAR_CONTROL,
-            )
-        ).all()
-        assert len(all_annotations) == len(_E2E_VERSIONS)
-
+        # Verify that the job run was completed successfully
         session.refresh(sample_refresh_clinvar_controls_job_run)
         assert sample_refresh_clinvar_controls_job_run.status == JobStatus.SUCCEEDED
 
@@ -101,7 +100,7 @@ class TestClinVarSchemaCompatibility:
         CLINVAR_FIELDS_TO_KEEP is present. Fails fast if ClinVar renames or removes
         a column before a deploy reaches production.
         """
-        year, month = generate_clinvar_versions()[-1]
+        year, month = _generate_clinvar_versions()[-1]
         data = await fetch_clinvar_variant_data(month, year)
 
         assert len(data) > 0, "ClinVar archive returned no records"

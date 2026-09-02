@@ -16,7 +16,7 @@ from mavedb.lib.csv.columns import (
 from mavedb.lib.csv.namespaces import CsvNamespace
 from tests.helpers.constants import VALID_CALIBRATION_URN
 from tests.helpers.mocks.factories import create_mock_mapped_variant
-from tests.helpers.variant_shapes import VARIANT_SHAPES, shape_ids
+from tests.helpers.variant_shapes import VARIANT_SHAPES, shape_ids, to_csv_mapped_row
 
 # ---------------------------------------------------------------------------
 # MockVariant
@@ -617,7 +617,9 @@ class TestCsvRowAcrossVariantShapes:
         mapped_variant = shape.build(create_mock_mapped_variant)
         plan = self._plan()
 
-        row = variant_to_csv_row(mapped_variant.variant, plan.namespaced_columns, mapping=mapped_variant)
+        row = variant_to_csv_row(
+            mapped_variant.variant, plan.namespaced_columns, mapping=to_csv_mapped_row(mapped_variant)
+        )
 
         assert set(row) == set(assemble_csv_headers(plan.namespaced_columns))
 
@@ -634,7 +636,9 @@ class TestCsvRowAcrossVariantShapes:
         mapped_variant = shape.build(create_mock_mapped_variant)
         plan = self._plan()
 
-        row = variant_to_csv_row(mapped_variant.variant, plan.namespaced_columns, mapping=mapped_variant)
+        row = variant_to_csv_row(
+            mapped_variant.variant, plan.namespaced_columns, mapping=to_csv_mapped_row(mapped_variant)
+        )
 
         leaked = {column: value for column, value in row.items() if "Mock" in str(value)}
         assert not leaked, f"{shape.name} leaked mock reprs into the row: {leaked}"
@@ -645,7 +649,9 @@ class TestCsvRowAcrossVariantShapes:
         mapped_variant = shape.build(create_mock_mapped_variant)
         plan = self._plan()
 
-        row = variant_to_csv_row(mapped_variant.variant, plan.namespaced_columns, mapping=mapped_variant)
+        row = variant_to_csv_row(
+            mapped_variant.variant, plan.namespaced_columns, mapping=to_csv_mapped_row(mapped_variant)
+        )
 
         assert row["post_mapped_hgvs_c"] == "NA"
         assert row["post_mapped_hgvs_at_assay_level"] == "NA"
@@ -658,7 +664,9 @@ class TestCsvRowAcrossVariantShapes:
         plan = self._plan()
         columns = assemble_csv_headers(plan.namespaced_columns)
 
-        row = variant_to_csv_row(mapped_variant.variant, plan.namespaced_columns, mapping=mapped_variant)
+        row = variant_to_csv_row(
+            mapped_variant.variant, plan.namespaced_columns, mapping=to_csv_mapped_row(mapped_variant)
+        )
         rendered = rows_to_csv([row], columns)
 
         assert len(list(csv.reader(StringIO(rendered)))) == 2

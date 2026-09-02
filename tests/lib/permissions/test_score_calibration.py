@@ -178,7 +178,9 @@ class TestScoreCalibrationReadActionHandler:
                 "ScoreCalibration", "private", "anonymous", Action.READ, False, 404, investigator_provided=False
             ),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{'investigator' if tc.investigator_provided else 'community'}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.entity_state}_{'investigator' if tc.investigator_provided else 'community'}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_read_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_read_action helper function directly."""
@@ -265,7 +267,9 @@ class TestScoreCalibrationUpdateActionHandler:
                 "ScoreCalibration", "published", "anonymous", Action.UPDATE, False, 401, investigator_provided=False
             ),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{'investigator' if tc.investigator_provided else 'community'}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.entity_state}_{'investigator' if tc.investigator_provided else 'community'}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_update_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_update_action helper function directly."""
@@ -350,7 +354,9 @@ class TestScoreCalibrationDeleteActionHandler:
                 "ScoreCalibration", "published", "anonymous", Action.DELETE, False, 401, investigator_provided=False
             ),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{'investigator' if tc.investigator_provided else 'community'}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.entity_state}_{'investigator' if tc.investigator_provided else 'community'}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_delete_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_delete_action helper function directly."""
@@ -431,7 +437,9 @@ class TestScoreCalibrationPublishActionHandler:
                 "ScoreCalibration", "published", "anonymous", Action.PUBLISH, False, 401, investigator_provided=False
             ),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{'investigator' if tc.investigator_provided else 'community'}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.entity_state}_{'investigator' if tc.investigator_provided else 'community'}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_publish_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_publish_action helper function directly."""
@@ -561,7 +569,9 @@ class TestScoreCalibrationChangeRankActionHandler:
                 investigator_provided=False,
             ),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{'investigator' if tc.investigator_provided else 'community'}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.entity_state}_{'investigator' if tc.investigator_provided else 'community'}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_change_rank_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_change_rank_action helper function directly."""

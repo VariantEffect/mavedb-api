@@ -7,11 +7,11 @@ from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
 from mavedb.models.clinical_control_mapped_variant import mapped_variants_clinical_controls_association_table
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.gnomad_variant_mapped_variant import gnomad_variants_mapped_variants_association_table
 
 if TYPE_CHECKING:
-    from .clinical_control import ClinicalControl
+    from .clinical_control import ClinvarControl
     from .gnomad_variant import GnomADVariant
     from .target_gene_mapping import TargetGeneMapping
     from .variant import Variant
@@ -44,7 +44,7 @@ class MappedVariant(Base):
 
     # Per-mapping QC annotations from dcd-mapping ScoreAnnotation.
     alignment_level = Column(
-        Enum(AnnotationLayer, create_constraint=True, length=16, native_enum=False, validate_strings=True),
+        Enum(SequenceLevel, create_constraint=True, length=16, native_enum=False, validate_strings=True),
         nullable=True,
     )
     at_mismatched_locus = Column(Boolean, nullable=True)
@@ -61,8 +61,8 @@ class MappedVariant(Base):
     hgvs_c = Column(String, nullable=True)
     hgvs_p = Column(String, nullable=True)
 
-    clinical_controls: Mapped[list["ClinicalControl"]] = relationship(
-        "ClinicalControl",
+    clinical_controls: Mapped[list["ClinvarControl"]] = relationship(
+        "ClinvarControl",
         secondary=mapped_variants_clinical_controls_association_table,
         back_populates="mapped_variants",
     )

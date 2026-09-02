@@ -1,5 +1,6 @@
 """The score-set CSV export: every variant in one score set, and the columns it can offer."""
 
+from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy import and_, select
@@ -38,6 +39,7 @@ def get_score_set_variants_as_csv(
     start: Optional[int] = None,
     limit: Optional[int] = None,
     drop_unused_hgvs_columns_flag: Optional[bool] = None,
+    as_of: Optional[datetime] = None,
     viewer: Optional[ScoreCalibrationViewer] = None,
 ) -> str:
     """Get the variant data from a score set as a CSV string."""
@@ -53,6 +55,7 @@ def get_score_set_variants_as_csv(
         score_set=score_set,
         start=start,
         limit=limit,
+        as_of=as_of,
     )
 
     mappings = fetched.mappings or [None] * len(fetched.variants)
@@ -78,12 +81,19 @@ def available_score_set_csv_namespaces(
     db: Session,
     score_set: ScoreSet,
     viewer: Optional[ScoreCalibrationViewer] = None,
+    *,
+    as_of: Optional[datetime] = None,
 ) -> list[AvailableCsvNamespaceEntry]:
     """Every namespace the score-set CSV can serve data for, labeled and grouped for a picker.
 
     Its own endpoint rather than a field on the score-set response: it costs several queries and is only
     needed when a download dialog opens. A namespace absent here is still accepted by the CSV endpoint;
     it just produces a column of NA.
+
+    ``as_of`` must match the instant the caller will download at. Discovery pinned to "now" against an
+    ``as_of`` download disagrees in both directions: it offers mapping namespaces that come back entirely
+    NA, and omits ones the download could have filled. The ClinVar case is the sharpest, since the live
+    release set decides which ``clinvar.YYYY_MM`` headers exist at all.
     """
     dataset_columns = score_set.dataset_columns if isinstance(score_set.dataset_columns, dict) else {}
     # TODO(#372): non-null id fields
@@ -101,12 +111,12 @@ def available_score_set_csv_namespaces(
 
     entries.append(static_namespace_entry(CsvNamespace.SCORE_SET))  # always its own provenance
 
-    if score_sets_have_current_mappings(db, score_set_ids):
+    if score_sets_have_current_mappings(db, score_set_ids, as_of=as_of):
         entries.extend(
             static_namespace_entry(ns)
             for ns in (CsvNamespace.REFERENCE_HGVS, CsvNamespace.VEP, CsvNamespace.GNOMAD, CsvNamespace.CLINGEN)
         )
-        entries.extend(clinvar_namespace_entries(clinvar_release_namespaces(db, score_set_ids)))
+        entries.extend(clinvar_namespace_entries(clinvar_release_namespaces(db, score_set_ids, as_of=as_of)))
 
     # Every calibration the score set defines is offered, rangeless ones included.
     calibrations = db.scalars(

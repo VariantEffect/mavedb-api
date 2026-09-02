@@ -84,8 +84,6 @@ PRESET_JOB_KEYS: dict[str, frozenset[str]] = {
         {
             "link_gnomad_variants",
             "refresh_clinvar_controls",
-            "populate_hgvs_for_score_set",
-            "populate_variant_translations_for_score_set",
             "submit_uniprot_mapping_jobs_for_score_set",
             "poll_uniprot_mapping_jobs_for_score_set",
         }

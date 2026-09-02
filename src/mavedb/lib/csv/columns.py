@@ -16,12 +16,11 @@ from mavedb.lib.csv.namespaces import (
     parse_calibration_namespace,
     parse_clinvar_namespace,
 )
-from mavedb.lib.csv.specs import CORE_NAMESPACE, RowSource, namespace_spec
+from mavedb.lib.csv.specs import CORE_NAMESPACE, CsvMappedRow, RowSource, namespace_spec
 from mavedb.lib.mave.utils import NA_VALUE, NULL_VALUES
 from mavedb.lib.validation.constants.general import hgvs_columns
-from mavedb.models.clinical_control import ClinicalControl
+from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.gnomad_variant import GnomADVariant
-from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
 
 _OUTPUT_NULL_STRINGS = frozenset(value.lower() for value in NULL_VALUES if value)
@@ -133,9 +132,9 @@ def assemble_csv_headers(namespaced_columns: dict[str, list[str]], namespaced: b
 def variant_to_csv_row(
     variant: Variant,
     columns: dict[str, list[str]],
-    mapping: Optional[MappedVariant] = None,
+    mapping: Optional[CsvMappedRow] = None,
     gnomad_data: Optional[GnomADVariant] = None,
-    clinvar_data_by_ns: Optional[dict[str, Optional[ClinicalControl]]] = None,
+    clinvar_data_by_ns: Optional[dict[str, Optional[ClinvarControl]]] = None,
     annotations_by_ns: Optional[dict[str, Optional[FlatAnnotation]]] = None,
     match_type: Optional[str] = None,
     namespaced: bool = False,
@@ -189,9 +188,9 @@ def variant_to_csv_row(
 def variants_to_csv_rows(
     variants: Sequence[Variant],
     columns: dict[str, list[str]],
-    mappings: Optional[Sequence[Optional[MappedVariant]]] = None,
+    mappings: Optional[Sequence[Optional[CsvMappedRow]]] = None,
     gnomad_data: Optional[Sequence[Optional[GnomADVariant]]] = None,
-    clinvar_data_by_ns: Optional[Sequence[Optional[dict[str, Optional[ClinicalControl]]]]] = None,
+    clinvar_data_by_ns: Optional[Sequence[Optional[dict[str, Optional[ClinvarControl]]]]] = None,
     annotations_by_ns: Optional[Sequence[Optional[dict[str, Optional[FlatAnnotation]]]]] = None,
     match_types: Optional[Sequence[Optional[str]]] = None,
     namespaced: bool = False,
@@ -199,9 +198,9 @@ def variants_to_csv_rows(
 ) -> Iterable[dict[str, Any]]:
     """Format each variant into a dictionary row containing the keys specified in *columns*."""
     n = len(variants)
-    _mappings: Sequence[Optional[MappedVariant]] = mappings if mappings is not None else [None] * n
+    _mappings: Sequence[Optional[CsvMappedRow]] = mappings if mappings is not None else [None] * n
     _gnomad: Sequence[Optional[GnomADVariant]] = gnomad_data if gnomad_data is not None else [None] * n
-    _clinvar: Sequence[Optional[dict[str, Optional[ClinicalControl]]]] = (
+    _clinvar: Sequence[Optional[dict[str, Optional[ClinvarControl]]]] = (
         clinvar_data_by_ns if clinvar_data_by_ns is not None else [None] * n
     )
     _annotations: Sequence[Optional[dict[str, Optional[FlatAnnotation]]]] = (

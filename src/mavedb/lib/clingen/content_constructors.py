@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 from uuid import uuid4
 from urllib.parse import quote_plus
 
@@ -7,7 +6,8 @@ from mavedb import __version__
 from mavedb.constants import MAVEDB_BASE_GIT, MAVEDB_FRONTEND_URL
 from mavedb.lib.types.clingen import LdhContentLinkedData, LdhContentSubject, LdhEvent, LdhSubmission
 from mavedb.lib.clingen.constants import LDH_ENTITY_NAME, LDH_SUBMISSION_TYPE
-from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.allele import Allele
+from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.variant import Variant
 
 
@@ -32,8 +32,12 @@ def construct_ldh_submission_subject(hgvs: str) -> LdhContentSubject:
     return {"Variant": {"hgvs": hgvs}}
 
 
-def construct_ldh_submission_entity(variant: Variant, mapped_variant: Optional[MappedVariant]) -> LdhContentLinkedData:
-    entity: LdhContentLinkedData = {
+def construct_ldh_submission_entity(
+    variant: Variant, mapping_record: MappingRecord, allele: Allele
+) -> LdhContentLinkedData:
+    # Pre-mapped data and the mapping API version live on the per-variant MappingRecord;
+    # post-mapped data lives on the (cross-variant deduped) Allele.
+    return {
         # TODO#372: We try to make all possible fields that are non-nullable represented that way.
         "MaveDBMapping": [
             {
@@ -41,27 +45,25 @@ def construct_ldh_submission_entity(variant: Variant, mapped_variant: Optional[M
                     "mavedb_id": variant.urn,  # type: ignore
                     "score": variant.data["score_data"]["score"],  # type: ignore
                     "score_set_description": variant.score_set.short_description,  # type: ignore
+                    "pre_mapped": mapping_record.pre_mapped,
+                    "post_mapped": allele.post_mapped,
+                    "mapping_api_version": mapping_record.mapping_api_version,
                 },
                 "entId": variant.urn,  # type: ignore
                 "entIri": f"{MAVEDB_FRONTEND_URL}/score-sets/{quote_plus(variant.score_set.urn)}?variant={quote_plus(variant.urn)}",  # type: ignore
             }
         ]
     }
-    if mapped_variant is not None:
-        entity["MaveDBMapping"][0]["entContent"]["pre_mapped"] = mapped_variant.pre_mapped
-        entity["MaveDBMapping"][0]["entContent"]["post_mapped"] = mapped_variant.post_mapped
-        entity["MaveDBMapping"][0]["entContent"]["mapping_api_version"] = mapped_variant.mapping_api_version
-    return entity
 
 
 def construct_ldh_submission(
-    variant_content: list[tuple[str, Variant, Optional[MappedVariant]]],
+    variant_content: list[tuple[str, Variant, MappingRecord, Allele]],
 ) -> list[LdhSubmission]:
     content_submission: list[LdhSubmission] = []
-    for hgvs, variant, mapped_variant in variant_content:
+    for hgvs, variant, mapping_record, allele in variant_content:
         subject = construct_ldh_submission_subject(hgvs)
         event = construct_ldh_submission_event(subject)
-        entity = construct_ldh_submission_entity(variant, mapped_variant)
+        entity = construct_ldh_submission_entity(variant, mapping_record, allele)
 
         content_submission.append(
             {

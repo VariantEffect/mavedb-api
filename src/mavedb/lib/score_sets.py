@@ -1,5 +1,6 @@
 import logging
 from collections import Counter, defaultdict
+from datetime import datetime
 from operator import attrgetter
 from typing import TYPE_CHECKING, BinaryIO, Optional, Sequence
 
@@ -23,6 +24,7 @@ from mavedb.lib.mave.utils import is_csv_null
 from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import null_values_list
+from mavedb.models.allele import Allele
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
@@ -32,7 +34,8 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
-from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.mapping_record import MappingRecord
+from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.refseq_identifier import RefseqIdentifier
 from mavedb.models.refseq_offset import RefseqOffset
@@ -541,35 +544,50 @@ def find_publish_or_private_superseded_score_set_tail(
     return score_set
 
 
-def get_current_mapped_variants_for_annotation(db: Session, score_set: ScoreSet) -> Sequence[MappedVariant]:
-    """
-    Load the current mapped variants for a score set with the relationships required to build VA-Spec
-    annotations eagerly loaded.
+def get_annotatable_variants(
+    db: Session, score_set: ScoreSet, *, as_of: Optional[datetime] = None
+) -> Sequence[Variant]:
+    """Load a score set's annotatable variants from its variant's allele-graph, with the score-set
+    relationships the VA-Spec builders need eagerly loaded.
 
-    This is the single source of truth for the eager-load shape shared by the annotated-variant
-    streaming endpoints and the public data export. The annotation builders reach through
-    ``MappedVariant.variant.score_set`` for publications, contributors, license, experiment, and score
-    calibrations, so each of those is loaded up front to avoid per-variant lazy loads.
+    A variant is *annotatable* when it has a live ``MappingRecord`` whose authoritative allele carries a
+    ``post_mapped`` VRS — exactly the condition under which :func:`annotation.context.variant_annotation_context`
+    yields a context. This is the single source of truth for the eager-load shape shared by the
+    annotated-variant streaming endpoints and the public data export. The annotation builders reach through
+    ``variant.score_set`` for publications, contributors, license, experiment, and score calibrations, so
+    each of those is loaded up front to avoid per-variant lazy loads.
+
+    ``as_of`` reconstructs the annotatable set as it stood at a past instant: the same half-open
+    ``[valid_from, valid_to)`` predicate is applied to both the record and the authoritative link, so the
+    set is evaluated at one moment (matching :func:`annotation.context.variant_annotation_context`'s own
+    ``as_of``, so a per-variant context can be rebuilt at the same instant downstream). Defaults to the
+    currently-live rows.
     """
     return (
-        db.query(MappedVariant)
-        .join(MappedVariant.variant)
-        .join(Variant.score_set)
-        .filter(Variant.score_set_id == score_set.id)
-        .filter(MappedVariant.current.is_(True))
-        .options(
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set),
-            contains_eager(MappedVariant.variant)
-            .contains_eager(Variant.score_set)
-            .selectinload(ScoreSet.publication_identifier_associations),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.created_by),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.modified_by),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.license),
-            contains_eager(MappedVariant.variant).contains_eager(Variant.score_set).selectinload(ScoreSet.experiment),
-            contains_eager(MappedVariant.variant)
-            .contains_eager(Variant.score_set)
-            .selectinload(ScoreSet.score_calibrations),
+        db.scalars(
+            select(Variant)
+            .join(MappingRecord, and_(MappingRecord.variant_id == Variant.id, MappingRecord.live_at(as_of)))
+            .join(
+                MappingRecordAllele,
+                and_(
+                    MappingRecordAllele.mapping_record_id == MappingRecord.id,
+                    MappingRecordAllele.is_authoritative.is_(True),
+                    MappingRecordAllele.live_at(as_of),
+                ),
+            )
+            .join(Allele, and_(Allele.id == MappingRecordAllele.allele_id, Allele.post_mapped.isnot(None)))
+            .where(Variant.score_set_id == score_set.id)
+            .options(
+                selectinload(Variant.score_set).selectinload(ScoreSet.publication_identifier_associations),
+                selectinload(Variant.score_set).selectinload(ScoreSet.created_by),
+                selectinload(Variant.score_set).selectinload(ScoreSet.modified_by),
+                selectinload(Variant.score_set).selectinload(ScoreSet.license),
+                selectinload(Variant.score_set).selectinload(ScoreSet.experiment),
+                selectinload(Variant.score_set).selectinload(ScoreSet.score_calibrations),
+            )
+            .distinct()
         )
+        .unique()
         .all()
     )
 

@@ -237,6 +237,13 @@ def get_experiment_score_sets(
     for fs in filtered_score_sets:
         enriched_experiment = enrich_experiment_with_num_score_sets(fs.experiment, user_data)
         visible_calibration_ids = {calibration.id for calibration in viewer.visible(fs.score_calibrations)}
+        # A superseded score set reaches this list *because* its successor failed the caller's READ check
+        # (see find_superseded_score_set_tail), so serializing that successor's urn and title would name
+        # the very score set the caller was found not to be entitled to.
+        # TODO(#808): this duplicates score_sets._score_set_response; the two have already drifted once.
+        superseding_is_visible = fs.superseding_score_set is not None and (
+            has_permission(user_data, fs.superseding_score_set, Action.READ).permitted
+        )
         validated_item = score_set.ScoreSet.model_validate(fs)
         response_item = validated_item.copy(
             update={
@@ -246,6 +253,7 @@ def get_experiment_score_sets(
                     for calibration in (validated_item.score_calibrations or [])
                     if calibration.id in visible_calibration_ids
                 ],
+                "superseding_score_set": validated_item.superseding_score_set if superseding_is_visible else None,
             }
         )
         enriched_score_sets.append(response_item)

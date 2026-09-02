@@ -3,6 +3,7 @@ from enum import Enum
 
 class AnnotationType(str, Enum):
     VRS_MAPPING = "vrs_mapping"
+    CROSS_LEVEL_TRANSLATION = "cross_level_translation"
     CLINGEN_ALLELE_ID = "clingen_allele_id"
     MAPPED_HGVS = "mapped_hgvs"
     VARIANT_TRANSLATION = "variant_translation"

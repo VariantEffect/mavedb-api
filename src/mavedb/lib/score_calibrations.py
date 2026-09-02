@@ -17,6 +17,8 @@ from mavedb.lib.validation.constants.general import (
     hgvs_pro_column,
 )
 from mavedb.lib.validation.utilities import inf_or_float
+from mavedb.lib.variants import score_from_variant_data
+from mavedb.models.enums.functional_classification import FunctionalClassification
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
@@ -25,6 +27,56 @@ from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.view_models import score_calibration
+
+
+def calibration_preference_key(calibration: ScoreCalibration) -> tuple[int, int, int]:
+    """The UI's default-calibration preference cascade as a sort key (lower sorts first = more preferred):
+    ``primary``, then ``investigator_provided``, then non-``research_use_only``. Mirrors the UI's
+    ``activeCalibrationOptions`` default selection, so the API and UI agree on which calibration is "the
+    default" for a score set.
+
+    Intentionally stops at the cascade tiers and carries **no** evidence strength (a variant-specific
+    concern) and **no** id — callers append their own deterministic tiebreak (calibration id or urn), and, where
+    a within-tier strongest-evidence tiebreak is wanted, :func:`classification_evidence_strength`.
+    """
+    return (
+        0 if calibration.primary else 1,
+        0 if calibration.investigator_provided else 1,
+        0 if not calibration.research_use_only else 1,
+    )
+
+
+def classification_evidence_strength(
+    classification: Optional[ScoreCalibrationFunctionalClassification],
+) -> tuple[float, int]:
+    """``(magnitude, direction)`` of a functional classification's evidence, for ranking.
+
+    ``magnitude`` is the evidence strength (larger = stronger); ``direction`` biases toward pathogenic
+    (0 = pathogenic, 1 = benign, 2 = unknown). ACMG points are the primary signal (signed:
+    positive = pathogenic), falling back to ``|ln(oddspaths_ratio)|`` then the functional call
+    (abnormal → pathogenic, normal → benign) for direction only.
+    """
+    if classification is None:
+        return (0.0, 2)
+
+    acmg = classification.acmg_classification
+    if acmg is not None and acmg.points is not None:
+        points = float(acmg.points)
+        return (abs(points), 0 if points > 0 else 1 if points < 0 else 2)
+
+    # OddsPath is a ratio centered at 1 (pathogenic >1, benign <1); ln maps it to a symmetric log-odds
+    # strength around 0 (x and 1/x are equal-and-opposite), comparable across direction and commensurate
+    # with the already-log-scaled ACMG points.
+    ratio = classification.oddspaths_ratio
+    if ratio is not None and ratio > 0:
+        return (abs(math.log(ratio)), 0 if ratio > 1 else 1 if ratio < 1 else 2)
+
+    if classification.functional_classification == FunctionalClassification.abnormal:
+        return (0.0, 0)
+    elif classification.functional_classification == FunctionalClassification.normal:
+        return (0.0, 1)
+
+    return (0.0, 2)
 
 
 def create_functional_classification(
@@ -773,18 +825,8 @@ def variants_for_functional_classification(
                 continue
 
         elif functional_classification.range is not None and len(functional_classification.range) == 2:
-            try:
-                container = v.data.get("score_data") if isinstance(v.data, dict) else None
-                if not container or not isinstance(container, dict):
-                    continue
-
-                raw = container.get("score")
-                if raw is None:
-                    continue
-
-                score = float(raw)
-
-            except Exception:  # noqa: BLE001
+            score = score_from_variant_data(v.data)
+            if score is None:
                 continue
 
             if functional_classification.score_is_contained_in_range(score):

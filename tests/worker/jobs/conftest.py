@@ -1,9 +1,13 @@
 import pytest
+from sqlalchemy import select
 
+from mavedb.models.allele import Allele
 from mavedb.models.enums.job_pipeline import DependencyType
 from mavedb.models.job_dependency import JobDependency
 from mavedb.models.job_run import JobRun
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.mapping_record import MappingRecord
+from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -42,6 +46,38 @@ def map_variants_sample_params(with_populated_domain_data, sample_score_set, sam
         "correlation_id": "sample-mapping-correlation-id",
         "updater_id": sample_user.id,
     }
+
+
+@pytest.fixture
+def reverse_translate_variants_sample_params(with_populated_domain_data, sample_score_set):
+    """Provide sample parameters for reverse_translate_variants_for_score_set job."""
+
+    return {
+        "score_set_id": sample_score_set.id,
+        "correlation_id": "sample-reverse-translation-correlation-id",
+    }
+
+
+@pytest.fixture
+def sample_independent_reverse_translation_run(reverse_translate_variants_sample_params):
+    """Create a JobRun instance for the reverse_translate_variants_for_score_set job."""
+
+    return JobRun(
+        urn="test:reverse_translate_variants_for_score_set",
+        job_type="reverse_translate_variants_for_score_set",
+        job_function="reverse_translate_variants_for_score_set",
+        max_retries=3,
+        retry_count=0,
+        job_params=reverse_translate_variants_sample_params,
+    )
+
+
+@pytest.fixture
+def with_reverse_translation_run(session, sample_independent_reverse_translation_run):
+    """Add a reverse_translate_variants_for_score_set job run to the session."""
+
+    session.add(sample_independent_reverse_translation_run)
+    session.commit()
 
 
 @pytest.fixture
@@ -247,6 +283,87 @@ def setup_sample_variants_with_caid(
     session.add(mapped_variant)
     session.commit()
     return variant, mapped_variant
+
+
+@pytest.fixture
+def setup_sample_alleles_with_caid(session, with_populated_domain_data, sample_link_gnomad_variants_run):
+    """Set up new-model rows (Variant + live MappingRecord + authoritative MappingRecordAllele + Allele)
+    for the gnomAD linkage job. The allele carries the CAID matched by the mocked Athena row, and the
+    allele is the authoritative measurement for the variant so the bandaid seam writes its VAS row.
+    """
+    score_set = session.get(ScoreSet, sample_link_gnomad_variants_run.job_params["score_set_id"])
+
+    variant = Variant(
+        urn="urn:variant:test-variant-with-allele-caid",
+        score_set_id=score_set.id,
+        hgvs_nt="NM_000000.1:c.1A>G",
+        hgvs_pro="NP_000000.1:p.Met1Val",
+        data={"hgvs_c": "NM_000000.1:c.1A>G", "hgvs_p": "NP_000000.1:p.Met1Val"},
+    )
+    allele = Allele(
+        vrs_digest="test-allele-vrs-digest",
+        level="genomic",
+        clingen_allele_id=VALID_CAID,
+        post_mapped={"type": "Allele", "expressions": [{"value": "NM_000000.1:c.1A>G", "syntax": "hgvs.c"}]},
+    )
+    session.add_all([variant, allele])
+    session.commit()
+
+    mapping_record = MappingRecord(
+        variant_id=variant.id,
+        assay_level="genomic",
+        mapping_api_version="pytest.0.0",
+    )
+    session.add(mapping_record)
+    session.commit()
+
+    session.add(
+        MappingRecordAllele(
+            mapping_record_id=mapping_record.id,
+            allele_id=allele.id,
+            is_authoritative=True,
+        )
+    )
+    session.commit()
+    return variant, allele
+
+
+@pytest.fixture
+def setup_rt_derived_allele_with_caid(session, setup_sample_alleles_with_caid):
+    """Add a NON-authoritative (RT-derived) allele to the variant's current mapping record, carrying
+    the CAID the mocked gnomAD row matches. The authoritative allele is given a CAID with no gnomAD
+    match, so only the RT-derived allele can link. This isolates the requirement that gnomAD linkage
+    must cover the full allele set (authoritative + RT-derived), not just authoritative links — for
+    protein/coding score sets the genomic allele gnomAD knows is the RT-derived one.
+    """
+    variant, authoritative_allele = setup_sample_alleles_with_caid
+
+    # Authoritative allele's CAID intentionally has no gnomAD match, so it cannot be what links.
+    authoritative_allele.clingen_allele_id = "CA_NO_GNOMAD_MATCH"
+    session.add(authoritative_allele)
+
+    mapping_record = session.scalars(
+        select(MappingRecord).where(MappingRecord.variant_id == variant.id, MappingRecord.current)
+    ).one()
+
+    rt_allele = Allele(
+        vrs_digest="test-rt-derived-allele-vrs-digest",
+        level="genomic",
+        clingen_allele_id=VALID_CAID,
+        post_mapped={"type": "Allele", "expressions": [{"value": "NC_000001.11:g.12345G>A", "syntax": "hgvs.g"}]},
+    )
+    session.add(rt_allele)
+    session.commit()
+
+    session.add(
+        MappingRecordAllele(
+            mapping_record_id=mapping_record.id,
+            allele_id=rt_allele.id,
+            is_authoritative=False,
+        )
+    )
+    session.commit()
+    return variant, authoritative_allele, rt_allele
 
 
 ## Uniprot Job Fixtures ##
@@ -894,198 +1011,6 @@ def with_cleanup_job(session, sample_cleanup_job_run):
     session.commit()
 
 
-## HGVS Population Job Fixtures ##
-
-
-@pytest.fixture
-def populate_hgvs_sample_params(with_populated_domain_data, sample_score_set):
-    """Provide sample parameters for populate_hgvs_for_score_set job."""
-
-    return {
-        "correlation_id": "sample-correlation-id",
-        "score_set_id": sample_score_set.id,
-    }
-
-
-@pytest.fixture
-def sample_populate_hgvs_pipeline():
-    """Create a pipeline instance for populate_hgvs_for_score_set job."""
-
-    return Pipeline(
-        urn="test:populate_hgvs_pipeline",
-        name="Populate HGVS Pipeline",
-    )
-
-
-@pytest.fixture
-def sample_populate_hgvs_run(populate_hgvs_sample_params):
-    """Create a JobRun instance for populate_hgvs_for_score_set job."""
-
-    return JobRun(
-        urn="test:populate_hgvs_for_score_set",
-        job_type="populate_hgvs_for_score_set",
-        job_function="populate_hgvs_for_score_set",
-        max_retries=3,
-        retry_count=0,
-        job_params=populate_hgvs_sample_params,
-    )
-
-
-@pytest.fixture
-def with_populate_hgvs_job(session, sample_populate_hgvs_run):
-    """Add a populate_hgvs_for_score_set job run to the session."""
-
-    session.add(sample_populate_hgvs_run)
-    session.commit()
-
-
-@pytest.fixture
-def with_populate_hgvs_pipeline(session, sample_populate_hgvs_pipeline):
-    """Add a populate_hgvs pipeline to the session."""
-
-    session.add(sample_populate_hgvs_pipeline)
-    session.commit()
-
-
-@pytest.fixture
-def sample_populate_hgvs_run_pipeline(
-    session,
-    with_populate_hgvs_job,
-    with_populate_hgvs_pipeline,
-    sample_populate_hgvs_run,
-    sample_populate_hgvs_pipeline,
-):
-    """Provide a context with a populate_hgvs job run and pipeline."""
-
-    sample_populate_hgvs_run.pipeline_id = sample_populate_hgvs_pipeline.id
-    session.commit()
-    return sample_populate_hgvs_run
-
-
-@pytest.fixture
-def setup_sample_variants_with_caid_for_hgvs(
-    session, with_populated_domain_data, mock_worker_ctx, sample_populate_hgvs_run
-):
-    """Setup variants and mapped variants in the database for HGVS population testing."""
-    score_set = session.get(ScoreSet, sample_populate_hgvs_run.job_params["score_set_id"])
-
-    variant = Variant(
-        urn="urn:variant:test-variant-with-caid-hgvs",
-        score_set_id=score_set.id,
-        hgvs_nt="NM_000000.1:c.1A>G",
-        hgvs_pro="NP_000000.1:p.Met1Val",
-        data={"hgvs_c": "NM_000000.1:c.1A>G", "hgvs_p": "NP_000000.1:p.Met1Val"},
-    )
-    session.add(variant)
-    session.commit()
-    mapped_variant = MappedVariant(
-        variant_id=variant.id,
-        clingen_allele_id=VALID_CAID,
-        current=True,
-        mapped_date="2024-01-01T00:00:00Z",
-        mapping_api_version="1.0.0",
-    )
-    session.add(mapped_variant)
-    session.commit()
-    return variant, mapped_variant
-
-
-# --- Variant Translation Fixtures ---
-
-
-@pytest.fixture
-def populate_variant_translations_sample_params(with_populated_domain_data, sample_score_set):
-    """Provide sample parameters for populate_variant_translations_for_score_set job."""
-
-    return {
-        "correlation_id": "sample-correlation-id",
-        "score_set_id": sample_score_set.id,
-    }
-
-
-@pytest.fixture
-def sample_populate_variant_translations_pipeline():
-    """Create a pipeline instance for populate_variant_translations_for_score_set job."""
-
-    return Pipeline(
-        urn="test:populate_variant_translations_pipeline",
-        name="Populate Variant Translations Pipeline",
-    )
-
-
-@pytest.fixture
-def sample_populate_variant_translations_run(populate_variant_translations_sample_params):
-    """Create a JobRun instance for populate_variant_translations_for_score_set job."""
-
-    return JobRun(
-        urn="test:populate_variant_translations_for_score_set",
-        job_type="populate_variant_translations_for_score_set",
-        job_function="populate_variant_translations_for_score_set",
-        max_retries=3,
-        retry_count=0,
-        job_params=populate_variant_translations_sample_params,
-    )
-
-
-@pytest.fixture
-def with_populate_variant_translations_job(session, sample_populate_variant_translations_run):
-    """Add a populate_variant_translations_for_score_set job run to the session."""
-
-    session.add(sample_populate_variant_translations_run)
-    session.commit()
-
-
-@pytest.fixture
-def with_populate_variant_translations_pipeline(session, sample_populate_variant_translations_pipeline):
-    """Add a populate_variant_translations pipeline to the session."""
-
-    session.add(sample_populate_variant_translations_pipeline)
-    session.commit()
-
-
-@pytest.fixture
-def sample_populate_variant_translations_run_pipeline(
-    session,
-    with_populate_variant_translations_job,
-    with_populate_variant_translations_pipeline,
-    sample_populate_variant_translations_run,
-    sample_populate_variant_translations_pipeline,
-):
-    """Provide a context with a populate_variant_translations job run and pipeline."""
-
-    sample_populate_variant_translations_run.pipeline_id = sample_populate_variant_translations_pipeline.id
-    session.commit()
-    return sample_populate_variant_translations_run
-
-
-@pytest.fixture
-def setup_sample_variants_with_caid_for_translation(
-    session, with_populated_domain_data, mock_worker_ctx, sample_populate_variant_translations_run
-):
-    """Setup variants and mapped variants in the database for variant translation testing."""
-    score_set = session.get(ScoreSet, sample_populate_variant_translations_run.job_params["score_set_id"])
-
-    variant = Variant(
-        urn="urn:variant:test-variant-with-caid-translation",
-        score_set_id=score_set.id,
-        hgvs_nt="NM_000000.1:c.1A>G",
-        hgvs_pro="NP_000000.1:p.Met1Val",
-        data={"hgvs_c": "NM_000000.1:c.1A>G", "hgvs_p": "NP_000000.1:p.Met1Val"},
-    )
-    session.add(variant)
-    session.commit()
-    mapped_variant = MappedVariant(
-        variant_id=variant.id,
-        clingen_allele_id=VALID_CAID,
-        current=True,
-        mapped_date="2024-01-01T00:00:00Z",
-        mapping_api_version="1.0.0",
-    )
-    session.add(mapped_variant)
-    session.commit()
-    return variant, mapped_variant
-
-
 ## ClinGen Cache Warming Job Fixtures ##
 
 
@@ -1223,8 +1148,14 @@ def sample_populate_vep_run_pipeline(
 
 
 @pytest.fixture
-def setup_sample_variants_for_vep(session, with_populated_domain_data, mock_worker_ctx, sample_populate_vep_run):
-    """Setup a variant and mapped variant with hgvs_assay_level for VEP testing."""
+def setup_sample_alleles_for_vep(session, with_populated_domain_data, mock_worker_ctx, sample_populate_vep_run):
+    """Set up new-model rows (Variant + live MappingRecord + authoritative MappingRecordAllele + Allele)
+    for the VEP consequence job. The allele carries an HGVS the job submits to VEP and is the
+    authoritative measurement for the variant, so the bandaid seam writes its per-variant VAS row.
+
+    The HGVS lives on ``Allele.hgvs_c`` (a coding HGVS VEP resolves directly) — the new job reads its
+    submission string from the allele, not from ``MappedVariant.hgvs_assay_level``.
+    """
     score_set = session.get(ScoreSet, sample_populate_vep_run.job_params["score_set_id"])
 
     variant = Variant(
@@ -1234,28 +1165,42 @@ def setup_sample_variants_for_vep(session, with_populated_domain_data, mock_work
         hgvs_pro="NP_009225.1:p.Cys2Tyr",
         data={"hgvs_c": "NM_007294.4:c.5A>G", "hgvs_p": "NP_009225.1:p.Cys2Tyr"},
     )
-    session.add(variant)
-    session.commit()
-    mapped_variant = MappedVariant(
-        variant_id=variant.id,
-        current=True,
-        mapped_date="2024-01-01T00:00:00Z",
-        mapping_api_version="1.0.0",
+    allele = Allele(
+        vrs_digest="test-vep-allele-vrs-digest",
+        level="cdna",
+        hgvs_c="NM_007294.4:c.5A>G",
         post_mapped={"type": "Allele", "expressions": [{"value": "NM_007294.4:c.5A>G", "syntax": "hgvs.c"}]},
-        hgvs_assay_level="NM_007294.4:c.5A>G",
     )
-    session.add(mapped_variant)
+    session.add_all([variant, allele])
     session.commit()
-    return variant, mapped_variant
+
+    mapping_record = MappingRecord(
+        variant_id=variant.id,
+        assay_level="cdna",
+        mapping_api_version="pytest.0.0",
+    )
+    session.add(mapping_record)
+    session.commit()
+
+    session.add(
+        MappingRecordAllele(
+            mapping_record_id=mapping_record.id,
+            allele_id=allele.id,
+            is_authoritative=True,
+        )
+    )
+    session.commit()
+    return variant, allele
 
 
 @pytest.fixture
-def setup_sample_protein_variant_for_vep(session, with_populated_domain_data, mock_worker_ctx, sample_populate_vep_run):
-    """Setup a protein HGVS variant (NP_ accession) that VEP cannot resolve directly.
+def setup_sample_protein_allele_for_vep(session, with_populated_domain_data, mock_worker_ctx, sample_populate_vep_run):
+    """Set up an allele whose only HGVS is a protein HGVS (NP_ accession) that VEP cannot resolve
+    directly.
 
-    VEP's /vep/human/hgvs endpoint does not return results for protein HGVS strings like
-    NP_009225.1:p.Val1696His, so these must be recoded via Variant Recoder first.  This fixture
-    exercises the recoder fallback path end-to-end.
+    VEP's /vep/human/hgvs endpoint returns no consequence for protein HGVS like
+    NP_009225.1:p.Val1696His, so the job must fall back to Variant Recoder. ``hgvs_g``/``hgvs_c`` are
+    left unset so the VEP payload resolves to ``hgvs_p``, exercising the recoder fallback path.
     """
     score_set = session.get(ScoreSet, sample_populate_vep_run.job_params["score_set_id"])
 
@@ -1265,17 +1210,61 @@ def setup_sample_protein_variant_for_vep(session, with_populated_domain_data, mo
         hgvs_pro="NP_009225.1:p.Val1696His",
         data={"hgvs_p": "NP_009225.1:p.Val1696His"},
     )
-    session.add(variant)
+    allele = Allele(
+        vrs_digest="test-vep-protein-allele-vrs-digest",
+        level="protein",
+        hgvs_p="NP_009225.1:p.Val1696His",
+        post_mapped={"type": "Allele", "expressions": [{"value": "NP_009225.1:p.Val1696His", "syntax": "hgvs.p"}]},
+    )
+    session.add_all([variant, allele])
     session.commit()
 
-    mapped_variant = MappedVariant(
+    mapping_record = MappingRecord(
         variant_id=variant.id,
-        current=True,
-        mapped_date="2024-01-01T00:00:00Z",
-        mapping_api_version="1.0.0",
-        post_mapped={"type": "Allele", "expressions": [{"value": "NP_009225.1:p.Val1696His", "syntax": "hgvs.p"}]},
-        hgvs_assay_level="NP_009225.1:p.Val1696His",
+        assay_level="protein",
+        mapping_api_version="pytest.0.0",
     )
-    session.add(mapped_variant)
+    session.add(mapping_record)
     session.commit()
-    return variant, mapped_variant
+
+    session.add(
+        MappingRecordAllele(
+            mapping_record_id=mapping_record.id,
+            allele_id=allele.id,
+            is_authoritative=True,
+        )
+    )
+    session.commit()
+    return variant, allele
+
+
+@pytest.fixture
+def setup_rt_derived_allele_for_vep(session, setup_sample_alleles_for_vep):
+    """Add a NON-authoritative (RT-derived) allele to the variant's current mapping record, carrying a
+    genomic HGVS of its own. Isolates the requirement that VEP linkage covers the full allele set
+    (authoritative + RT-derived), while the per-variant VAS fan-out stays authoritative-only.
+    """
+    variant, authoritative_allele = setup_sample_alleles_for_vep
+
+    mapping_record = session.scalars(
+        select(MappingRecord).where(MappingRecord.variant_id == variant.id, MappingRecord.current)
+    ).one()
+
+    rt_allele = Allele(
+        vrs_digest="test-rt-derived-vep-allele-vrs-digest",
+        level="genomic",
+        hgvs_g="NC_000017.11:g.43124027T>C",
+        post_mapped={"type": "Allele", "expressions": [{"value": "NC_000017.11:g.43124027T>C", "syntax": "hgvs.g"}]},
+    )
+    session.add(rt_allele)
+    session.commit()
+
+    session.add(
+        MappingRecordAllele(
+            mapping_record_id=mapping_record.id,
+            allele_id=rt_allele.id,
+            is_authoritative=False,
+        )
+    )
+    session.commit()
+    return variant, authoritative_allele, rt_allele

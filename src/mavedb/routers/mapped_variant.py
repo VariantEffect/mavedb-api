@@ -1,232 +1,94 @@
 import logging
-from typing import Annotated, Any, Optional
+from typing import Annotated
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Path
-from fastapi.exceptions import HTTPException
+from fastapi import APIRouter, Path, Request
+from fastapi.responses import RedirectResponse
 from ga4gh.core.identifiers import GA4GH_IR_REGEXP
-from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
-from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
-from sqlalchemy import or_, select
-from sqlalchemy.exc import MultipleResultsFound
-from sqlalchemy.orm import Session
 
-from mavedb import deps
-from mavedb.lib.annotation.annotate import (
-    variant_functional_impact_statement,
-    variant_pathogenicity_statement,
-    variant_study_result,
-)
-from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
-from mavedb.lib.authorization import get_current_user, get_principal
+from mavedb.lib.deprecation import MAPPED_VARIANT_SUNSET, deprecation_headers, record_deprecated_usage
 from mavedb.lib.logging import LoggedRoute
-from mavedb.lib.permissions.principal import Principal
-from mavedb.lib.logging.context import (
-    logging_context,
-    save_to_logging_context,
-)
-from mavedb.lib.permissions import Action, assert_permission, has_permission
-from mavedb.lib.types.authentication import UserData
-from mavedb.models.mapped_variant import MappedVariant
-from mavedb.models.variant import Variant
-from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
-from mavedb.view_models import mapped_variant
+from mavedb.routers.shared import ROUTER_BASE_PREFIX
 
-TAG_NAME = "Mapped Variants"
+TAG_NAME = "Variants"
 
 logger = logging.getLogger(__name__)
-
-
-async def fetch_mapped_variant_by_variant_urn(db: Session, user: Optional[UserData], urn: str) -> MappedVariant:
-    """
-    We may combine this function back to show_mapped_variant if none of any new function call it.
-    Fetch one mapped variant by variant URN.
-
-    :param db: An active database session.
-    :param urn: The variant URN.
-    :return: The mapped variant.
-
-    :raises HTTPException: If the mapped variant is not found or if multiple variants are found.
-    """
-    try:
-        item = (
-            db.execute(select(MappedVariant).join(Variant).where(Variant.urn == urn, MappedVariant.current.is_(True)))
-            .scalars()
-            .one_or_none()
-        )
-    except MultipleResultsFound:
-        logger.info(
-            msg="Could not fetch the requested mapped variant; Multiple such variants exist.", extra=logging_context()
-        )
-        raise HTTPException(status_code=500, detail=f"Multiple variants with URN {urn} were found.")
-
-    if not item:
-        logger.info(
-            msg="Could not fetch the requested mapped variant; No such mapped variants exist.", extra=logging_context()
-        )
-
-        raise HTTPException(status_code=404, detail=f"Mapped variant with URN {urn} not found")
-
-    # Base mapped variant read permission on the score set in which it is contained.
-    assert_permission(user, item.variant.score_set, Action.READ)
-    return item
-
 
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/mapped-variants",
     tags=[TAG_NAME],
-    responses={**PUBLIC_ERROR_RESPONSES},
     route_class=LoggedRoute,
 )
 
-metadata = {
-    "name": TAG_NAME,
-    "description": "Retrieve mapped variants and their associated variant annotations.",
-}
+
+def _redirect(request: Request, target: str) -> RedirectResponse:
+    """Redirect to the successor, tagging the response with RFC 8594 deprecation headers.
+
+    The redirect status already moves a well-behaved client, but the headers announce the deprecation to
+    tooling that follows the 301 silently: ``Deprecation``, a ``Link`` naming this exact successor, and a
+    ``Warning`` a human sees in logs. The successor here is a genuine 1:1 replacement, so it is safe to name.
+    """
+    url = f"{target}?{request.url.query}" if request.url.query else target
+    record_deprecated_usage(request.url.path, successor=target)
+    headers = deprecation_headers(
+        successor=target,
+        warning=f"This resource has moved permanently to {target}; update your integration.",
+        sunset=MAPPED_VARIANT_SUNSET,
+    )
+    return RedirectResponse(url=url, status_code=301, headers=headers)
 
 
 @router.get(
     "/{urn}",
-    status_code=200,
-    response_model=mapped_variant.MappedVariantWithMappingDetails,
-    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
-    summary="Fetch mapped variant by URN",
+    status_code=301,
+    deprecated=True,
+    summary="Moved to GET /variants/{urn}",
 )
-async def show_mapped_variant(
-    *, urn: str, db: Session = Depends(deps.get_db), user: Optional[UserData] = Depends(get_current_user)
-) -> Any:
-    """
-    Fetch a single mapped variant by URN.
-    """
-    save_to_logging_context({"requested_resource": urn})
-
-    return await fetch_mapped_variant_by_variant_urn(db, user, urn)
+def redirect_mapped_variant(*, urn: str, request: Request) -> RedirectResponse:
+    """This resource has moved. Use ``GET /variants/{urn}`` instead."""
+    return _redirect(request, f"{ROUTER_BASE_PREFIX}/variants/{quote(urn, safe='')}")
 
 
 @router.get(
     "/{urn}/va/study-result",
-    status_code=200,
-    response_model=ExperimentalVariantFunctionalImpactStudyResult,
-    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
-    summary="Construct a VA-Spec StudyResult from a mapped variant",
+    status_code=301,
+    deprecated=True,
+    summary="Moved to GET /variants/{urn}/va/study-result",
 )
-async def show_mapped_variant_study_result(
-    *, urn: str, db: Session = Depends(deps.get_db), user: Optional[UserData] = Depends(get_current_user)
-) -> ExperimentalVariantFunctionalImpactStudyResult:
-    """
-    Construct a single VA-Spec StudyResult from a mapped variant by URN.
-    """
-    save_to_logging_context({"requested_resource": urn})
-
-    mapped_variant = await fetch_mapped_variant_by_variant_urn(db, user, urn)
-
-    try:
-        return variant_study_result(mapped_variant)
-    except MappingDataDoesntExistException as e:
-        logger.info(
-            msg=f"Could not construct a study result for mapped variant {urn}: {e}",
-            extra=logging_context(),
-        )
-        raise HTTPException(status_code=404, detail=f"No study result exists for mapped variant {urn}: {e}")
+def redirect_mapped_variant_study_result(*, urn: str, request: Request) -> RedirectResponse:
+    """This resource has moved. Use ``GET /variants/{urn}/va/study-result`` instead."""
+    return _redirect(request, f"{ROUTER_BASE_PREFIX}/variants/{quote(urn, safe='')}/va/study-result")
 
 
-# TODO#416: For now, this route supports only one statement per mapped variant. Eventually, we should support the possibility of multiple statements.
 @router.get(
     "/{urn}/va/functional-statement",
-    status_code=200,
-    response_model=Statement,
-    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
-    summary="Construct a VA-Spec Statement from a mapped variant",
+    status_code=301,
+    deprecated=True,
+    summary="Moved to GET /variants/{urn}/va/functional-statement",
 )
-async def show_mapped_variant_functional_impact_statement(
-    *,
-    urn: str,
-    db: Session = Depends(deps.get_db),
-    user: Optional[UserData] = Depends(get_current_user),
-    principal: Principal = Depends(get_principal),
-) -> Statement:
-    """
-    Construct a single VA-Spec Statement from a mapped variant by URN.
-    """
-    save_to_logging_context({"requested_resource": urn})
-
-    mapped_variant = await fetch_mapped_variant_by_variant_urn(db, user, urn)
-
-    try:
-        functional_impact = variant_functional_impact_statement(mapped_variant, principal=principal)
-    except MappingDataDoesntExistException as e:
-        logger.info(
-            msg="Could not construct a functional impact statement for this mapped variant; No mapping data exists for this score set.",
-            extra=logging_context(),
-        )
-        raise HTTPException(
-            status_code=404, detail=f"No functional impact statement exists for mapped variant {urn}: {e}"
-        )
-
-    if not functional_impact:
-        logger.info(
-            msg="Could not construct a functional impact statement for this mapped variant. Variant does not have sufficient evidence to evaluate its functional impact.",
-            extra=logging_context(),
-        )
-        raise HTTPException(
-            status_code=404,
-            detail=f"No functional impact statement exists for mapped variant {urn}. Variant does not have sufficient evidence to evaluate its functional impact.",
-        )
-
-    return functional_impact
+def redirect_mapped_variant_functional_impact_statement(*, urn: str, request: Request) -> RedirectResponse:
+    """This resource has moved. Use ``GET /variants/{urn}/va/functional-statement`` instead."""
+    return _redirect(request, f"{ROUTER_BASE_PREFIX}/variants/{quote(urn, safe='')}/va/functional-statement")
 
 
-# TODO#416: For now, this route supports only one evidence line per mapped variant. Eventually, we should support the possibility of multiple evidence lines.
 @router.get(
     "/{urn}/va/pathogenicity-statement",
-    status_code=200,
-    response_model=VariantPathogenicityStatement,
-    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
-    summary="Construct a VA-Spec EvidenceLine from a mapped variant",
+    status_code=301,
+    deprecated=True,
+    summary="Moved to GET /variants/{urn}/va/pathogenicity-statement",
 )
-async def show_mapped_variant_acmg_evidence_line(
-    *,
-    urn: str,
-    db: Session = Depends(deps.get_db),
-    user: Optional[UserData] = Depends(get_current_user),
-    principal: Principal = Depends(get_principal),
-) -> VariantPathogenicityStatement:
-    """
-    Construct a list of VA-Spec EvidenceLine(s) from a mapped variant by URN.
-    """
-    save_to_logging_context({"requested_resource": urn})
-
-    mapped_variant = await fetch_mapped_variant_by_variant_urn(db, user, urn)
-
-    try:
-        pathogenicity_statement = variant_pathogenicity_statement(mapped_variant, principal=principal)
-    except MappingDataDoesntExistException as e:
-        logger.info(
-            msg="Could not construct a pathogenicity statement for this mapped variant; No mapping data exists for this score set.",
-            extra=logging_context(),
-        )
-        raise HTTPException(status_code=404, detail=f"No pathogenicity statement exists for mapped variant {urn}: {e}")
-
-    if not pathogenicity_statement:
-        logger.info(
-            msg="Could not construct a pathogenicity statement for this mapped variant; Variant does not have sufficient evidence to evaluate its pathogenicity.",
-            extra=logging_context(),
-        )
-        raise HTTPException(
-            status_code=404,
-            detail=f"No pathogenicity statement exists for mapped variant {urn}; Variant does not have sufficient evidence to evaluate its pathogenicity.",
-        )
-
-    return pathogenicity_statement
+def redirect_mapped_variant_acmg_evidence_line(*, urn: str, request: Request) -> RedirectResponse:
+    """This resource has moved. Use ``GET /variants/{urn}/va/pathogenicity-statement`` instead."""
+    return _redirect(request, f"{ROUTER_BASE_PREFIX}/variants/{quote(urn, safe='')}/va/pathogenicity-statement")
 
 
 @router.get(
     "/vrs/{identifier}",
-    status_code=200,
-    response_model=list[mapped_variant.MappedVariant],
-    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
-    summary="Fetch mapped variants by VRS identifier",
+    status_code=301,
+    deprecated=True,
+    summary="Moved to GET /variants/vrs/{identifier}",
 )
-async def show_mapped_variants_by_identifier(
+def redirect_mapped_variants_by_identifier(
     *,
     identifier: Annotated[
         str,
@@ -236,36 +98,12 @@ async def show_mapped_variants_by_identifier(
             regex=GA4GH_IR_REGEXP,
         ),
     ],
-    only_current: bool = True,
-    db: Session = Depends(deps.get_db),
-    user: Optional[UserData] = Depends(get_current_user),
-) -> list[MappedVariant]:
+    request: Request,
+) -> RedirectResponse:
+    """This resource has moved. Use ``GET /variants/vrs/{identifier}`` instead.
+
+    Note that the replacement's ``only_current`` boolean query parameter has been superseded by
+    ``as_of``; a caller relying on ``only_current=false`` should switch to passing an explicit
+    ``as_of`` timestamp rather than expecting it to carry over through this redirect.
     """
-    Fetch a single mapped variant by GA4GH identifier.
-    """
-    query = select(MappedVariant).where(
-        or_(MappedVariant.pre_mapped["id"].astext == identifier, MappedVariant.post_mapped["id"].astext == identifier)
-    )
-
-    if only_current:
-        query = query.where(MappedVariant.current.is_(True))
-
-    items = db.scalars(query).all()
-
-    permitted_items = [item for item in items if has_permission(user, item.variant.score_set, Action.READ).permitted]
-    if not permitted_items:
-        raise HTTPException(status_code=404, detail=f"No mapped variants with identifier {identifier} were found")
-
-    return permitted_items
-
-
-# for testing only
-# @router.post("/map/{urn}", status_code=200, responses={404: {}, 500: {}})
-# async def map_score_set(*, urn: str, worker: ArqRedis = Depends(deps.get_worker)) -> Any:
-#     await worker.lpush(MAPPING_QUEUE_NAME, urn)  # type: ignore
-#     await worker.enqueue_job(
-#         "variant_mapper_manager",
-#         None,
-#         None,
-#         None
-#     )
+    return _redirect(request, f"{ROUTER_BASE_PREFIX}/variants/vrs/{quote(identifier, safe='')}")

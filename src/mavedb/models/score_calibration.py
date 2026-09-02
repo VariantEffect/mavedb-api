@@ -25,7 +25,7 @@ class ScoreCalibration(Base):
     __tablename__ = "score_calibrations"
     # TODO#544: Add a partial unique index to enforce only one primary calibration per score set.
 
-    id = Column(Integer, primary_key=True)
+    id: Mapped[int] = Column(Integer, primary_key=True)
     urn = Column(String(64), nullable=True, default=generate_calibration_urn, unique=True, index=True)
 
     score_set_id = Column(Integer, ForeignKey("scoresets.id"), nullable=False)
@@ -33,7 +33,7 @@ class ScoreCalibration(Base):
 
     title = Column(String, nullable=False)
     research_use_only = Column(Boolean, nullable=False, default=False)
-    primary = Column(Boolean, nullable=False, default=False)
+    primary: Mapped[bool] = Column(Boolean, nullable=False, default=False)
     investigator_provided: Mapped[bool] = Column(Boolean, nullable=False, default=False)
     private = Column(Boolean, nullable=False, default=True)
     notes = Column(String, nullable=True)

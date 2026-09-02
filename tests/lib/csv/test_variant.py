@@ -2,8 +2,12 @@
 
 import csv
 import io
-from datetime import date
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
+
+from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from unittest.mock import patch
 
 import pytest
 
@@ -21,12 +25,17 @@ from mavedb.lib.csv.variant import (
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.models.acmg_classification import ACMGClassification
-from mavedb.models.clinical_control import ClinicalControl
+from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.enums.acmg_criterion import ACMGCriterion
 from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassificationOptions
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.gnomad_variant import GnomADVariant
+from mavedb.models.allele import Allele
+from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
+from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.mapping_record import MappingRecord
+from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_set import ScoreSet
@@ -160,21 +169,89 @@ def _add_second_score_set_with_equivalent_variant(db, first_score_set, clingen_a
     db.commit()
     db.refresh(mapped_variant)
 
+    # Equivalence is resolved on the allele substrate: two measurements are the same variant when their
+    # authoritative alleles carry the same ClinGen allele id.
+    seed_mapping_record(
+        db,
+        variant,
+        assay_level="genomic",
+        alleles=[
+            AlleleSpec(
+                digest=f"equivalent-{variant.id}",
+                level="genomic",
+                is_authoritative=True,
+                clingen_allele_id=clingen_allele_id,
+            )
+        ],
+    )
+    db.refresh(mapped_variant)
+
     return score_set, variant, mapped_variant
 
 
 def _add_clinvar_control(db, mapped_variant, significance, review_status, db_version):
-    mapped_variant.clinical_controls.append(
-        ClinicalControl(
-            db_identifier="183058",
-            gene_symbol="PTEN",
-            clinical_significance=significance,
-            clinical_review_status=review_status,
-            db_name="ClinVar",
-            db_version=db_version,
-        )
+    """Link a control to the variant's authoritative allele, which is where the CSV layer reads it."""
+    control = ClinvarControl(
+        db_identifier="183058",
+        gene_symbol="PTEN",
+        clinical_significance=significance,
+        clinical_review_status=review_status,
+        db_name="ClinVar",
+        db_version=db_version,
     )
-    db.add(mapped_variant)
+    db.add(control)
+    db.commit()
+
+    allele = db.scalars(
+        select(Allele)
+        .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
+        .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
+        .where(MappingRecord.variant_id == mapped_variant.variant_id)
+        .where(MappingRecordAllele.is_authoritative.is_(True))
+    ).first()
+    assert allele is not None, "no authoritative allele to link a ClinVar control to"
+
+    db.add(ClinvarAlleleLink(allele_id=allele.id, clinvar_control_id=control.id))
+    db.commit()
+
+
+def _live_alleles_by_level(db, variant_id):
+    """The live mapping record's alleles, keyed by level — what the CSV actually reads."""
+    alleles = db.scalars(
+        select(Allele)
+        .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
+        .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
+        .where(MappingRecord.variant_id == variant_id)
+        .where(MappingRecord.valid_to.is_(None))
+        .where(MappingRecordAllele.valid_to.is_(None))
+    ).all()
+    return {allele.level: allele for allele in alleles}
+
+
+def _live_mapping_record(db, variant_id):
+    record = db.scalars(
+        select(MappingRecord).where(MappingRecord.variant_id == variant_id).where(MappingRecord.valid_to.is_(None))
+    ).one()
+    return record
+
+
+def _authoritative_allele(db, variant_id):
+    allele = db.scalars(
+        select(Allele)
+        .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
+        .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
+        .where(MappingRecord.variant_id == variant_id)
+        .where(MappingRecord.valid_to.is_(None))
+        .where(MappingRecordAllele.is_authoritative.is_(True))
+    ).first()
+    assert allele is not None, f"variant {variant_id} has no authoritative allele"
+    return allele
+
+
+def _link_gnomad(db, allele, gnomad_variant):
+    db.add(gnomad_variant)
+    db.commit()
+    db.add(GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id))
     db.commit()
 
 
@@ -346,8 +423,7 @@ class TestGetVariantCsv:
 
     def test_equivalent_measurements_share_clingen_allele_id(self, session, setup_lib_db_with_mapped_variant):
         mapped_variant = setup_lib_db_with_mapped_variant
-        mapped_variant.clingen_allele_id = "CA123456"
-        session.add(mapped_variant)
+        _authoritative_allele(session, mapped_variant.variant_id).clingen_allele_id = "CA123456"
         session.commit()
 
         variant = mapped_variant.variant
@@ -367,8 +443,7 @@ class TestGetVariantCsv:
     ):
         """A score from one assay carries no meaning under another assay's thresholds."""
         mapped_variant = setup_lib_db_with_mapped_variant
-        mapped_variant.clingen_allele_id = "CA123456"
-        session.add(mapped_variant)
+        _authoritative_allele(session, mapped_variant.variant_id).clingen_allele_id = "CA123456"
         session.commit()
 
         variant = mapped_variant.variant
@@ -399,8 +474,7 @@ class TestGetVariantCsv:
     def test_calibration_entries_report_their_score_set(self, session, setup_lib_db_with_mapped_variant):
         """A calibration means nothing against another score set's scores, so say which one owns it."""
         mapped_variant = setup_lib_db_with_mapped_variant
-        mapped_variant.clingen_allele_id = "CA123456"
-        session.add(mapped_variant)
+        _authoritative_allele(session, mapped_variant.variant_id).clingen_allele_id = "CA123456"
         session.commit()
 
         variant = mapped_variant.variant
@@ -449,20 +523,21 @@ class TestGetVariantCsv:
 
     def test_mapped_coordinates_and_external_annotations(self, session, setup_lib_db_with_mapped_variant):
         mapped_variant = setup_lib_db_with_mapped_variant
-        mapped_variant.hgvs_g = "NC_000010.11:g.87933147C>T"
-        mapped_variant.hgvs_c = "NM_000314.8:c.100A>G"
-        mapped_variant.hgvs_p = "NP_000305.3:p.Lys34Glu"
-        mapped_variant.post_mapped = TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X
-        mapped_variant.vep_functional_consequence = "missense_variant"
-        mapped_variant.clingen_allele_id = "CA123456"
-        mapped_variant.gnomad_variants.append(GnomADVariant(**TEST_GNOMAD_VARIANT))
-        session.add(mapped_variant)
+        # The triple reconstructs from three different places, not from one row's columns: the measured
+        # slot is the record's assay-level string, the other nucleotide slot is the projection-group
+        # partner's HGVS, and the protein slot is the apex allele's.
+        by_level = _live_alleles_by_level(session, mapped_variant.variant_id)
+        record = _live_mapping_record(session, mapped_variant.variant_id)
+        record.hgvs_assay_level = "NC_000010.11:g.87933147C>T"
+        by_level["cdna"].hgvs_c = "NM_000314.8:c.100A>G"
+        by_level["protein"].hgvs_p = "NP_000305.3:p.Lys34Glu"
+        authoritative = by_level["genomic"]
+        authoritative.vrs_digest = TEST_GA4GH_IDENTIFIER
+        authoritative.clingen_allele_id = "CA123456"
         session.commit()
+        _link_gnomad(session, authoritative, GnomADVariant(**TEST_GNOMAD_VARIANT))
 
-        # Patched where it is used, not where it is defined: `fetch` binds the value with a `from`
-        # import, so patching `mavedb.lib.gnomad` would leave the query filtering on the real version.
-        with patch("mavedb.lib.csv.fetch.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
-            rows = _parse_csv(get_variant_csv(session, mapped_variant.variant.urn))
+        rows = _parse_csv(get_variant_csv(session, mapped_variant.variant.urn))
 
         assert rows[0]["mavedb.post_mapped_hgvs_g"] == "NC_000010.11:g.87933147C>T"
         assert rows[0]["mavedb.post_mapped_hgvs_c"] == "NM_000314.8:c.100A>G"
@@ -473,33 +548,38 @@ class TestGetVariantCsv:
         assert rows[0]["gnomad.gnomad_af"] == str(TEST_GNOMAD_VARIANT["allele_frequency"])
         assert rows[0]["clingen.clingen_allele_id"] == "CA123456"
 
-    def test_post_mapped_vrs_id_is_never_synthesized_from_digest(self, session, setup_lib_db_with_mapped_variant):
-        """A post-mapped object carrying only a ``digest`` reports NA rather than a built-up CURIE.
+    def test_post_mapped_vrs_id_is_the_stored_identifier_verbatim(self, session, setup_lib_db_with_mapped_variant):
+        """The column is reported as-is, never rebuilt from the post-mapped payload.
 
-        The two stored fields are known to disagree on some rows, and only ``id`` is indexed and matched
-        by the VRS lookup, so a digest-derived identifier would resolve to nothing.
+        The old resolver parsed the stored VRS object and could fall back to synthesizing a CURIE from its
+        ``digest`` — which resolved to nothing, because the two fields are known to disagree on some rows
+        and only ``id`` is indexed. The allele substrate removes the fallback entirely: ``Allele.vrs_digest``
+        already holds the full prefixed identifier, so there is nothing to derive and no payload to parse.
         """
         mapped_variant = setup_lib_db_with_mapped_variant
-        mapped_variant.post_mapped = {
+        allele = _authoritative_allele(session, mapped_variant.variant_id)
+        allele.vrs_digest = TEST_GA4GH_IDENTIFIER
+        # A payload disagreeing with the column must not influence the reported identifier.
+        allele.post_mapped = {
             key: value for key, value in TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X.items() if key != "id"
         }
-        session.add(mapped_variant)
         session.commit()
 
         rows = _parse_csv(get_variant_csv(session, mapped_variant.variant.urn))
 
-        assert rows[0]["mavedb.post_mapped_vrs_id"] == "NA"
+        assert rows[0]["mavedb.post_mapped_vrs_id"] == TEST_GA4GH_IDENTIFIER
+        assert rows[0]["mavedb.post_mapped_vrs_id"] != TEST_GA4GH_DIGEST
 
     def test_gnomad_namespace_reports_the_whole_frequency_record(self, session, setup_lib_db_with_mapped_variant):
         """AF alone cannot be linked out from or judged for sampling depth; the namespace carries the record."""
         mapped_variant = setup_lib_db_with_mapped_variant
-        mapped_variant.gnomad_variants.append(GnomADVariant(**TEST_GNOMAD_VARIANT))
-        session.add(mapped_variant)
-        session.commit()
+        _link_gnomad(
+            session,
+            _authoritative_allele(session, mapped_variant.variant_id),
+            GnomADVariant(**TEST_GNOMAD_VARIANT),
+        )
 
-        with patch("mavedb.lib.csv.fetch.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
-            csv_text = get_variant_csv(session, mapped_variant.variant.urn)
-        rows = _parse_csv(csv_text)
+        rows = _parse_csv(get_variant_csv(session, mapped_variant.variant.urn))
 
         assert [column for column in rows[0].keys() if column.startswith("gnomad.")] == [
             "gnomad.gnomad_af",
@@ -522,26 +602,32 @@ class TestGetVariantCsv:
         """A variant with no gnomAD record reports NA across the namespace, never a zero frequency."""
         mapped_variant = setup_lib_db_with_mapped_variant
 
-        with patch("mavedb.lib.csv.fetch.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
-            rows = _parse_csv(get_variant_csv(session, mapped_variant.variant.urn))
+        rows = _parse_csv(get_variant_csv(session, mapped_variant.variant.urn))
 
         gnomad_values = {key: value for key, value in rows[0].items() if key.startswith("gnomad.")}
         assert len(gnomad_values) == 7
         assert set(gnomad_values.values()) == {"NA"}
 
-    def test_gnomad_variant_from_another_version_is_not_reported(self, session, setup_lib_db_with_mapped_variant):
+    def test_a_link_to_an_older_release_is_reported_and_labeled(self, session, setup_lib_db_with_mapped_variant):
+        """The live link decides the release, not the release the deployment currently serves.
+
+        The linker only visits alleles present in the release it ingests, so an allele absent from a newer
+        release keeps its prior-release link live -- indefinitely, not just during re-ingest. Filtering the
+        read on the served-release constant turned every such allele's frequency into a permanent NA. The
+        honest answer is the value we hold, labeled with the release it came from.
+        """
         mapped_variant = setup_lib_db_with_mapped_variant
-        mapped_variant.gnomad_variants.append(GnomADVariant(**TEST_GNOMAD_VARIANT))
-        session.add(mapped_variant)
-        session.commit()
+        _link_gnomad(
+            session,
+            _authoritative_allele(session, mapped_variant.variant_id),
+            GnomADVariant(**{**TEST_GNOMAD_VARIANT, "db_version": "v2.1.1"}),
+        )
 
-        with patch("mavedb.lib.csv.fetch.GNOMAD_DATA_VERSION", "v9.9"):
-            rows = _parse_csv(get_variant_csv(session, mapped_variant.variant.urn))
+        rows = _parse_csv(get_variant_csv(session, mapped_variant.variant.urn))
 
-        # The variant still gets a row: the version predicate is in the join's ON clause, so a gnomAD
-        # record from another version leaves the frequency NA rather than dropping the variant.
         assert len(rows) == 1
-        assert rows[0]["gnomad.gnomad_af"] == "NA"
+        assert rows[0]["gnomad.gnomad_af"] == str(TEST_GNOMAD_VARIANT["allele_frequency"])
+        assert rows[0]["gnomad.gnomad_version"] == "v2.1.1"
 
     def test_latest_clinvar_release_is_reported_and_labeled(self, session, setup_lib_db_with_mapped_variant):
         mapped_variant = setup_lib_db_with_mapped_variant
@@ -560,7 +646,7 @@ class TestGetVariantCsv:
     def test_non_clinvar_control_is_not_reported(self, session, setup_lib_db_with_mapped_variant):
         mapped_variant = setup_lib_db_with_mapped_variant
         mapped_variant.clinical_controls.append(
-            ClinicalControl(
+            ClinvarControl(
                 db_identifier="ABC123",
                 gene_symbol="BRCA1",
                 clinical_significance="benign",
@@ -615,8 +701,15 @@ class TestGetVariantCsv:
         )
         session.add(mapped_sibling)
         session.commit()
-        session.add(MappedVariant(**TEST_MINIMAL_MAPPED_VARIANT, variant_id=mapped_sibling.id))
-        session.commit()
+        # The sibling carries the score set's mapping; the requested variant has none, which is what
+        # makes NA the honest value rather than an absent column.
+        seed_mapping_record(
+            session,
+            mapped_sibling,
+            assay_level="genomic",
+            hgvs_assay_level="NC_000010.11:g.1A>G",
+            alleles=[AlleleSpec(digest="sibling-genomic", level="genomic", is_authoritative=True)],
+        )
 
         rows = _parse_csv(get_variant_csv(session, variant.urn))
 
@@ -635,17 +728,25 @@ class TestGetVariantCsv:
         assert "scores.score" in csv_text.splitlines()[0]
 
     def test_superseded_mapping_is_ignored(self, session, setup_lib_db_with_mapped_variant):
+        """Re-mapping retires the prior record rather than clearing a flag, and only the live one is read."""
         mapped_variant = setup_lib_db_with_mapped_variant
-        mapped_variant.current = False
-        session.add(mapped_variant)
-        session.add(
-            MappedVariant(
-                **{**TEST_MINIMAL_MAPPED_VARIANT, "current": True},
-                variant_id=mapped_variant.variant_id,
-                clingen_allele_id="CA999999",
-            )
-        )
+        _live_mapping_record(session, mapped_variant.variant_id).retire(session)
         session.commit()
+
+        seed_mapping_record(
+            session,
+            mapped_variant.variant,
+            assay_level="genomic",
+            hgvs_assay_level="NC_000010.11:g.2A>G",
+            alleles=[
+                AlleleSpec(
+                    digest="superseding-genomic",
+                    level="genomic",
+                    is_authoritative=True,
+                    clingen_allele_id="CA999999",
+                )
+            ],
+        )
 
         rows = _parse_csv(get_variant_csv(session, mapped_variant.variant.urn))
 
@@ -925,84 +1026,115 @@ class TestComputeAvailableCsvNamespaces:
 # ---------------------------------------------------------------------------
 
 
-class TestAnchorMappingIsDeterministic:
-    """Everything in the CSV follows from which current mapping anchors the request."""
+class TestOneLiveMappingPerVariantIsGuaranteed:
+    """The CSV no longer has to tie-break between mappings claiming to be current.
 
-    def test_repeat_downloads_agree_when_several_mappings_claim_to_be_current(
-        self, session, setup_lib_db_with_mapped_variant
-    ):
-        """Nothing in the schema stops two rows from being current, so the pick must not be arbitrary."""
+    The old substrate could not stop two ``MappedVariant`` rows from both carrying ``current=True``, so
+    the exports pinned a chosen row id to keep repeat downloads agreeing. The allele graph promotes that
+    invariant to the database -- ``uq_mapping_records_current`` is unique on ``variant_id`` where
+    ``valid_to IS NULL`` -- so the ambiguity those tests guarded against is now unrepresentable, and the
+    pinning they justified has been removed. What is worth asserting is the guarantee itself.
+    """
+
+    def test_a_second_live_mapping_record_is_rejected(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
+        # The fixture already seeded one live record for this variant.
+        session.add(MappingRecord(variant_id=variant.id, assay_level="genomic", mapping_api_version="test.0.0"))
 
-        newer = MappedVariant(
-            **{**TEST_MINIMAL_MAPPED_VARIANT, "mapped_date": date(2030, 1, 1), "clingen_allele_id": "CA_NEWER"},
-            variant_id=variant.id,
-        )
-        session.add(newer)
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+    def test_a_superseded_record_does_not_block_a_new_live_one(self, session, setup_lib_db_with_mapped_variant):
+        """Supersession is what makes re-mapping possible: the prior record closes, the new one opens."""
+        variant = setup_lib_db_with_mapped_variant.variant
+        live = session.scalars(
+            select(MappingRecord).where(MappingRecord.variant_id == variant.id).where(MappingRecord.valid_to.is_(None))
+        ).one()
+
+        live.retire(session)
+        session.add(MappingRecord(variant_id=variant.id, assay_level="genomic", mapping_api_version="test.1.0"))
         session.commit()
 
-        first = _parse_csv(get_variant_csv(session, variant.urn, ["clingen"]))
-        second = _parse_csv(get_variant_csv(session, variant.urn, ["clingen"]))
-
-        assert first == second
-        # The requested variant anchors the export and comes first, so this pins which mapping was
-        # picked rather than merely whether the newer one appears anywhere in the output.
-        assert first[0]["clingen.clingen_allele_id"] == "CA_NEWER"
-
-    def test_a_variant_with_two_current_mappings_is_reported_once(self, session, setup_lib_db_with_mapped_variant):
-        """Two current mappings on one variant are the same measurement twice, not two equivalents.
-
-        Emitting both would also break the row ordering downstream, which restores the caller's order from
-        the variant ids alone.
-        """
-        mapped_variant = setup_lib_db_with_mapped_variant
-        mapped_variant.clingen_allele_id = "CA123456"
-        session.add(mapped_variant)
-        session.commit()
-
-        variant = mapped_variant.variant
-        session.add(
-            MappedVariant(
-                **{**TEST_MINIMAL_MAPPED_VARIANT, "mapped_date": date(2020, 1, 1), "clingen_allele_id": "CA123456"},
-                variant_id=variant.id,
-            )
-        )
-        session.commit()
-
-        # A genuine equivalent in another score set, so the widening is doing something to dedupe within.
-        _add_second_score_set_with_equivalent_variant(session, variant.score_set, "CA123456")
-
-        rows = _parse_csv(get_variant_csv(session, variant.urn))
-
-        assert [row["accession"] for row in rows] == [variant.urn, "urn:mavedb:00000001-a-2#1"]
-
-    def test_an_equivalent_variants_extra_current_mapping_is_reported_once(
-        self, session, setup_lib_db_with_mapped_variant
-    ):
-        """The same rule applies to the widened rows, not just to the anchor."""
-        mapped_variant = setup_lib_db_with_mapped_variant
-        mapped_variant.clingen_allele_id = "CA123456"
-        session.add(mapped_variant)
-        session.commit()
-
-        variant = mapped_variant.variant
-        _, other_variant, _ = _add_second_score_set_with_equivalent_variant(session, variant.score_set, "CA123456")
-        session.add(
-            MappedVariant(
-                **{**TEST_MINIMAL_MAPPED_VARIANT, "mapped_date": date(2020, 1, 1), "clingen_allele_id": "CA123456"},
-                variant_id=other_variant.id,
-            )
-        )
-        session.commit()
-
-        rows = _parse_csv(get_variant_csv(session, variant.urn))
-
-        assert [row["accession"] for row in rows] == [variant.urn, other_variant.urn]
+        still_live = session.scalars(
+            select(MappingRecord).where(MappingRecord.variant_id == variant.id).where(MappingRecord.valid_to.is_(None))
+        ).all()
+        assert len(still_live) == 1
+        assert still_live[0].mapping_api_version == "test.1.0"
 
 
 # ---------------------------------------------------------------------------
 # TestScoreSetCsvCalibrationColumns
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+class TestGnomadReleasesCoexistOnTheReadPath:
+    """A score set can hold live links at more than one gnomAD release, and the read path must serve both.
+
+    gnomAD shadows like VEP rather than accumulating like ClinVar: the link is allele-keyed and
+    single-live, so a release bump supersedes an allele's prior link. But ingestion only visits alleles
+    present in the release being ingested, so alleles absent from a newer one keep their older link live.
+    A corpus therefore sits at mixed releases as its steady state, and one export has to carry both.
+    """
+
+    def _variant_at(self, session, score_set, urn_suffix, digest, db_version, allele_frequency):
+        variant = Variant(**{**TEST_MINIMAL_VARIANT, "urn": f"{score_set.urn}#{urn_suffix}"}, score_set_id=score_set.id)
+        session.add(variant)
+        session.commit()
+        seed_mapping_record(
+            session,
+            variant,
+            assay_level="genomic",
+            hgvs_assay_level=f"NC_000010.11:g.{urn_suffix}A>G",
+            alleles=[AlleleSpec(digest=digest, level="genomic", is_authoritative=True)],
+        )
+        _link_gnomad(
+            session,
+            _authoritative_allele(session, variant.id),
+            GnomADVariant(
+                **{
+                    **TEST_GNOMAD_VARIANT,
+                    "db_version": db_version,
+                    "db_identifier": f"10-{urn_suffix}-A-G",
+                    "allele_frequency": allele_frequency,
+                }
+            ),
+        )
+        return variant
+
+    def test_two_releases_are_reported_side_by_side_each_with_its_own_version(self, session, setup_lib_db_with_variant):
+        score_set = setup_lib_db_with_variant.score_set
+        newer = self._variant_at(session, score_set, 2, "gnomad-newer", "v4.1", 0.25)
+        older = self._variant_at(session, score_set, 3, "gnomad-older", "v2.1.1", 0.5)
+
+        rows = _parse_csv(get_score_set_variants_as_csv(session, score_set, ["scores", "gnomad"], namespaced=True))
+
+        by_urn = {row["accession"]: row for row in rows}
+        # Both frequencies are served, each labeled with the release it actually came from.
+        assert by_urn[newer.urn]["gnomad.gnomad_af"] == "0.25"
+        assert by_urn[newer.urn]["gnomad.gnomad_version"] == "v4.1"
+        assert by_urn[older.urn]["gnomad.gnomad_af"] == "0.5"
+        assert by_urn[older.urn]["gnomad.gnomad_version"] == "v2.1.1"
+        # The variant with no gnomAD link at all is still a row, with the namespace NA.
+        assert by_urn[setup_lib_db_with_variant.urn]["gnomad.gnomad_af"] == "NA"
+        assert by_urn[setup_lib_db_with_variant.urn]["gnomad.gnomad_version"] == "NA"
+
+    def test_neither_release_is_dropped_by_the_served_release_constant(self, session, setup_lib_db_with_variant):
+        """Whatever `GNOMAD_DATA_VERSION` the deployment serves, the read path does not consult it.
+
+        Ingestion still needs the constant -- it names the release being ingested and derives the source
+        table -- so this asserts only that reads go off live rows.
+        """
+        score_set = setup_lib_db_with_variant.score_set
+        self._variant_at(session, score_set, 2, "gnomad-a", "v4.1", 0.25)
+        self._variant_at(session, score_set, 3, "gnomad-b", "v2.1.1", 0.5)
+
+        with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", "v99.99"):
+            rows = _parse_csv(get_score_set_variants_as_csv(session, score_set, ["gnomad"], namespaced=True))
+
+        reported = {row["gnomad.gnomad_version"] for row in rows}
+        assert reported == {"v4.1", "v2.1.1", "NA"}
 
 
 class TestScoreSetCsvCalibrationColumns:

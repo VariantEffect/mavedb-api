@@ -9,13 +9,14 @@ from mavedb.db.base import Base
 
 if TYPE_CHECKING:
     from .mapped_variant import MappedVariant
+    from .mapping_record import MappingRecord
     from .score_set import ScoreSet
 
 
 class Variant(Base):
     __tablename__ = "variants"
 
-    id = Column(Integer, primary_key=True)
+    id: Mapped[int] = Column(Integer, primary_key=True)
 
     urn = Column(String(64), index=True, nullable=True, unique=True)
     data = Column(JSONB, nullable=False)
@@ -32,6 +33,10 @@ class Variant(Base):
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
     mapped_variants: Mapped[List["MappedVariant"]] = relationship(
+        back_populates="variant", cascade="all, delete-orphan"
+    )
+
+    mapping_records: Mapped[List["MappingRecord"]] = relationship(
         back_populates="variant", cascade="all, delete-orphan"
     )
 

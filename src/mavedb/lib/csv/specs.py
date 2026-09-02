@@ -8,9 +8,25 @@ from typing import Callable, Optional
 from mavedb.lib.csv.namespaces import CALIBRATION_NS_PATTERN, CLINVAR_NS_PATTERN, CsvNamespace
 from mavedb.lib.mave.constants import REQUIRED_SCORE_COLUMN
 from mavedb.lib.validation.constants.general import hgvs_nt_column, hgvs_pro_column, hgvs_splice_column
-from mavedb.lib.variants import get_hgvs_from_post_mapped, get_id_from_post_mapped, is_hgvs_g, is_hgvs_p
-from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.variant import Variant
+
+
+@dataclass(frozen=True)
+class CsvMappedRow:
+    """The mapping-derived CSV fields for one variant, resolved from its live mapping record's
+    authoritative allele (post-mapped HGVS per level, assay-level HGVS, VRS digest, VEP consequence,
+    ClinGen id). HGVS strings are already resolved to their canonical per-level form by the fetch layer
+    (see ``mavedb.lib.score_set_variants.mapped_hgvs_by_level``) — no raw VRS payload to fall back on
+    parsing here, unlike the pre-allele-graph ``MappedVariant`` substrate."""
+
+    hgvs_g: Optional[str]
+    hgvs_c: Optional[str]
+    hgvs_p: Optional[str]
+    hgvs_assay_level: Optional[str]
+    vrs_digest: Optional[str]
+    vep_functional_consequence: Optional[str]
+    clingen_allele_id: Optional[str]
+
 
 # One entry per namespace, so adding one is a single edit. This previously took three unrelated changes
 # — column plan, row builder, fetch-layer eager loading — with nothing to catch a partial addition.
@@ -110,55 +126,6 @@ class CsvNamespaceSpec:
         return _optional(lambda data: data.get(column_key))
 
 
-def _safe_hgvs_from_post_mapped(mapping: MappedVariant) -> Optional[str]:
-    """``get_hgvs_from_post_mapped`` with its raises absorbed, since a cell cannot afford to raise.
-
-    ``hgvs_from_vrs_allele`` raises on two payload shapes: a VRS 1.x object, which it refuses
-    deliberately, and an allele with no ``expressions`` key. Raised from inside a cell resolver, either
-    would abort the export of every other row in the file. Returning None keeps the refusal — no HGVS is
-    emitted for those payloads — without letting one variant's shape cost the caller the whole download.
-
-    Intentionally scoped to the CSV export layer, where a single problematic variant should not abort the entire export.
-    """
-    if not mapping.post_mapped:
-        return None
-    try:
-        return get_hgvs_from_post_mapped(mapping.post_mapped)
-    except (KeyError, ValueError):
-        return None
-
-
-def _post_mapped_hgvs_g(mapping: Optional[MappedVariant]) -> Optional[str]:
-    """The genomic HGVS expression, falling back to one parsed out of the post-mapped VRS object."""
-    if mapping is None:
-        return None
-    if mapping.hgvs_g:
-        return str(mapping.hgvs_g)
-    fallback = _safe_hgvs_from_post_mapped(mapping)
-    return fallback if fallback is not None and is_hgvs_g(fallback) else None
-
-
-def _post_mapped_hgvs_p(mapping: Optional[MappedVariant]) -> Optional[str]:
-    """The protein HGVS expression, falling back to one parsed out of the post-mapped VRS object."""
-    if mapping is None:
-        return None
-    if mapping.hgvs_p:
-        return str(mapping.hgvs_p)
-    fallback = _safe_hgvs_from_post_mapped(mapping)
-    return fallback if fallback is not None and is_hgvs_p(fallback) else None
-
-
-def _post_mapped_vrs_id(mapping: Optional[MappedVariant]) -> Optional[str]:
-    """The GA4GH identifier of the post-mapped VRS object, or None if there is no post-mapped object.
-
-    The full ``ga4gh:VA.{digest}`` identifier rather than the bare digest, so a value copied out of an
-    export can be pasted straight into the VRS search, which validates against the GA4GH CURIE form.
-    """
-    if mapping is None or not mapping.post_mapped:
-        return None
-    return get_id_from_post_mapped(mapping.post_mapped)
-
-
 def _target_genes(variant: Variant) -> Optional[str]:
     """The target genes of a variant's score set, joined by ``"; "`` or None if there are none."""
     if not variant.score_set:
@@ -193,16 +160,14 @@ _NAMESPACE_SPECS: dict[str, CsvNamespaceSpec] = {
         emit_under=CsvNamespace.SCORES,
     ),
     CsvNamespace.COUNTS: CsvNamespaceSpec(source=RowSource.COUNT_DATA, dataset_columns_key="count_columns"),
-    # TODO(#784): under the allele-centric (RT) substrate these move off MappedVariant onto the Allele.
-    # Both are reached through `mapping`, so each becomes a one-line hop, not a column-contract change.
     CsvNamespace.REFERENCE_HGVS: CsvNamespaceSpec(
         source=RowSource.MAPPING,
         resolvers={
-            "post_mapped_hgvs_g": _post_mapped_hgvs_g,
-            "post_mapped_hgvs_p": _post_mapped_hgvs_p,
-            "post_mapped_hgvs_c": _optional(lambda mapping: mapping.hgvs_c),
-            "post_mapped_hgvs_at_assay_level": _optional(lambda mapping: mapping.hgvs_assay_level),
-            "post_mapped_vrs_id": _post_mapped_vrs_id,
+            "post_mapped_hgvs_g": _optional(attrgetter("hgvs_g")),
+            "post_mapped_hgvs_p": _optional(attrgetter("hgvs_p")),
+            "post_mapped_hgvs_c": _optional(attrgetter("hgvs_c")),
+            "post_mapped_hgvs_at_assay_level": _optional(attrgetter("hgvs_assay_level")),
+            "post_mapped_vrs_id": _optional(attrgetter("vrs_digest")),
         },
         needs_mappings=True,
     ),

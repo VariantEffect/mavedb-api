@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Optional, Sequence
 from pydantic import model_validator
 
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.target_gene_mapping import SavedTargetGeneMapping, TargetGeneMapping
@@ -28,7 +28,7 @@ class MappedVariantBase(BaseModel):
     current: bool
 
     # Per-mapping QC annotations/warnings.
-    alignment_level: Optional[AnnotationLayer] = None
+    alignment_level: Optional[SequenceLevel] = None
     at_mismatched_locus: Optional[bool] = None
     near_gap: Optional[bool] = None
 
@@ -109,22 +109,6 @@ class MappedVariantWithMappingDetails(SavedMappedVariantWithMappingDetails):
 class MappedVariantWithControls(SavedMappedVariantWithControls):
     clinical_controls: Sequence["ClinicalControl"]
     gnomad_variants: Sequence["GnomADVariant"]
-
-
-class MappedVariantForClinicalControl(BaseModel):
-    variant_urn: str
-
-    class Config:
-        from_attributes = True
-
-    @model_validator(mode="before")
-    def generate_score_set_urn_list(cls, data: Any):
-        if not hasattr(data, "variant_urn") and hasattr(data, "variant"):
-            try:
-                data.__setattr__("variant_urn", None if not data.variant else data.variant.urn)
-            except AttributeError as exc:
-                raise ValidationError(f"Unable to create {cls.__name__} without attribute: {exc}.")  # type: ignore
-        return data
 
 
 # ruff: noqa: E402

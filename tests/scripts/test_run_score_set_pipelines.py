@@ -11,8 +11,8 @@ from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
 from mavedb.scripts.run_score_set_pipelines import (
-    CLUSTER_KEY_UNKNOWN,
     _IN_FLIGHT_STATUSES,
+    CLUSTER_KEY_UNKNOWN,
     cluster_cohort,
     cohort_filename,
     effective_pipeline_name,
@@ -311,7 +311,11 @@ class TestResolveJobSubset:
     def test_caid_leaf_resolves_against_map_annotate_score_set(self):
         jobs = PIPELINE_DEFINITIONS["map_annotate_score_set"]["job_definitions"]
         subset = resolve_job_subset(jobs, frozenset({"submit_score_set_mappings_to_car"}))
-        assert {j["key"] for j in subset} == {"map_variants_for_score_set", "submit_score_set_mappings_to_car"}
+        assert {j["key"] for j in subset} == {
+            "reverse_translate_variants_for_score_set",
+            "map_variants_for_score_set",
+            "submit_score_set_mappings_to_car",
+        }
 
     def test_fast_annotate_leaf_resolves_against_map_annotate_score_set(self):
         jobs = PIPELINE_DEFINITIONS["map_annotate_score_set"]["job_definitions"]
@@ -319,33 +323,28 @@ class TestResolveJobSubset:
             {
                 "link_gnomad_variants",
                 "refresh_clinvar_controls",
-                "populate_hgvs_for_score_set",
-                "populate_variant_translations_for_score_set",
                 "submit_uniprot_mapping_jobs_for_score_set",
                 "poll_uniprot_mapping_jobs_for_score_set",
             }
         )
         subset = resolve_job_subset(jobs, leaf)
         assert {j["key"] for j in subset} == {
+            "reverse_translate_variants_for_score_set",
             "map_variants_for_score_set",
             "submit_score_set_mappings_to_car",
             "warm_clingen_cache",
             "link_gnomad_variants",
             "refresh_clinvar_controls",
-            "populate_hgvs_for_score_set",
-            "populate_variant_translations_for_score_set",
             "submit_uniprot_mapping_jobs_for_score_set",
             "poll_uniprot_mapping_jobs_for_score_set",
         }
 
-    # TODO(#772)
-    @pytest.mark.skip(reason="vep currently disabled")
     def test_vep_leaf_resolves_against_map_annotate_score_set(self):
         jobs = PIPELINE_DEFINITIONS["map_annotate_score_set"]["job_definitions"]
         subset = resolve_job_subset(jobs, frozenset({"populate_vep_for_score_set"}))
         assert {j["key"] for j in subset} == {
             "map_variants_for_score_set",
-            "submit_score_set_mappings_to_car",
+            "reverse_translate_variants_for_score_set",
             "populate_vep_for_score_set",
         }
 
@@ -357,14 +356,11 @@ class TestResolveJobSubset:
                 {
                     "link_gnomad_variants",
                     "refresh_clinvar_controls",
-                    "populate_hgvs_for_score_set",
-                    "populate_variant_translations_for_score_set",
                     "submit_uniprot_mapping_jobs_for_score_set",
                     "poll_uniprot_mapping_jobs_for_score_set",
                 }
             ),
-            # TODO(#772)
-            # frozenset({"populate_vep_for_score_set"}),
+            frozenset({"populate_vep_for_score_set"}),
         ],
     )
     def test_presets_against_annotate_score_set_exclude_mapping_job(self, leaf):
@@ -377,8 +373,6 @@ class TestResolveJobSubset:
         with pytest.raises(ValueError):
             resolve_job_subset(jobs, frozenset({"populate_vep_for_score_set"}))
 
-    # TODO(#772)
-    @pytest.mark.skip(reason="vep currently disabled")
     def test_preserves_base_pipeline_order(self):
         jobs = PIPELINE_DEFINITIONS["map_annotate_score_set"]["job_definitions"]
         subset = resolve_job_subset(jobs, frozenset({"populate_vep_for_score_set"}))

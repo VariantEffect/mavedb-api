@@ -16,6 +16,7 @@ pytest.importorskip("psycopg2")
 from ga4gh.core.models import Extension
 from ga4gh.va_spec.base import Contribution
 
+from mavedb import __version__
 from mavedb.lib.annotation.contribution import (
     mavedb_api_contribution,
     mavedb_creator_contribution,
@@ -23,14 +24,17 @@ from mavedb.lib.annotation.contribution import (
     mavedb_score_calibration_contribution,
     mavedb_vrs_contribution,
 )
+from mavedb.lib.vrs import vrs_object_from_mapped_variant
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.user import User
+from tests.helpers.constants import TEST_VALID_POST_MAPPED_VRS_ALLELE
 from tests.helpers.mocks.factories import (
     create_mock_mapped_variant,
     create_mock_resource_with_dates,
     create_mock_score_calibration,
     create_mock_user,
 )
+from tests.lib.annotation.conftest import annotation_context_for
 
 
 @pytest.mark.unit
@@ -56,11 +60,11 @@ class TestMavedbApiContributionUnit:
 
         assert contribution.activityType == "software application programming interface"
 
-    def test_has_current_date(self):
-        """Test that contribution uses current date."""
+    def test_carries_no_date(self):
+        """The software's provenance is its version, carried by the agent; serialization time is not provenance."""
         contribution = mavedb_api_contribution()
 
-        assert contribution.date.date() == datetime.today().date()
+        assert contribution.date is None
 
     def test_has_contributor(self):
         """Test that contribution has a contributor."""
@@ -68,14 +72,20 @@ class TestMavedbApiContributionUnit:
 
         assert contribution.contributor is not None
 
-    def test_consistency(self):
-        """Test that multiple calls produce consistent results."""
-        contribution1 = mavedb_api_contribution()
-        contribution2 = mavedb_api_contribution()
+    def test_contributor_carries_the_api_version(self):
+        """The API version is what this contribution actually asserts."""
+        contribution = mavedb_api_contribution()
 
-        assert contribution1.name == contribution2.name
-        assert contribution1.description == contribution2.description
-        assert contribution1.activityType == contribution2.activityType
+        versions = [e.value for e in contribution.contributor.extensions if e.name == "mavedbApiVersion"]
+        assert versions == [__version__]
+
+    def test_repeated_calls_are_identical(self):
+        """Two calls must serialize to the same bytes.
+
+        This is what makes identical provenance deduplicate in a normalized export, and what makes the
+        public `va.ndjson` reproducible across runs of unchanged data.
+        """
+        assert mavedb_api_contribution() == mavedb_api_contribution()
 
 
 @pytest.mark.unit
@@ -85,14 +95,14 @@ class TestMavedbVrsContributionUnit:
     def test_returns_contribution_object(self):
         """Test that function returns proper Contribution object."""
         mapped_variant = create_mock_mapped_variant()
-        contribution = mavedb_vrs_contribution(mapped_variant)
+        contribution = mavedb_vrs_contribution(annotation_context_for(mapped_variant))
 
         assert isinstance(contribution, Contribution)
 
     def test_has_correct_name_and_description(self):
         """Test that contribution has correct name and description."""
         mapped_variant = create_mock_mapped_variant()
-        contribution = mavedb_vrs_contribution(mapped_variant)
+        contribution = mavedb_vrs_contribution(annotation_context_for(mapped_variant))
 
         assert contribution.name == "MaveDB VRS Mapper"
         assert contribution.description == "Contribution from the MaveDB VRS mapping software"
@@ -100,7 +110,7 @@ class TestMavedbVrsContributionUnit:
     def test_has_correct_activity_type(self):
         """Test that contribution has correct activity type."""
         mapped_variant = create_mock_mapped_variant()
-        contribution = mavedb_vrs_contribution(mapped_variant)
+        contribution = mavedb_vrs_contribution(annotation_context_for(mapped_variant))
 
         assert contribution.activityType == "human genome sequence mapping process"
 
@@ -108,14 +118,14 @@ class TestMavedbVrsContributionUnit:
         """Test that contribution uses mapped variant date."""
         test_date = datetime(2024, 3, 15, 12, 0, 0)
         mapped_variant = create_mock_mapped_variant(mapped_date=test_date)
-        contribution = mavedb_vrs_contribution(mapped_variant)
+        contribution = mavedb_vrs_contribution(annotation_context_for(mapped_variant))
 
         assert contribution.date == test_date
 
     def test_has_contributor(self):
         """Test that contribution has a contributor."""
         mapped_variant = create_mock_mapped_variant()
-        contribution = mavedb_vrs_contribution(mapped_variant)
+        contribution = mavedb_vrs_contribution(annotation_context_for(mapped_variant))
 
         assert contribution.contributor is not None
 
@@ -123,7 +133,7 @@ class TestMavedbVrsContributionUnit:
     def test_various_api_versions(self, api_version):
         """Test function works with various API versions."""
         mapped_variant = create_mock_mapped_variant(mapping_api_version=api_version)
-        contribution = mavedb_vrs_contribution(mapped_variant)
+        contribution = mavedb_vrs_contribution(annotation_context_for(mapped_variant))
 
         assert isinstance(contribution, Contribution)
         assert contribution.name == "MaveDB VRS Mapper"
@@ -316,7 +326,12 @@ class TestContributionIntegration:
     def test_contributions_with_real_db_objects(self, session, setup_lib_db_with_mapped_variant):
         """Test contribution creation from persisted SQLAlchemy objects."""
         mapped_variant = setup_lib_db_with_mapped_variant
-        vrs_contribution = mavedb_vrs_contribution(mapped_variant)
+        # The VRS contribution derives from the record's mapper provenance, not the subject; hand the
+        # context an explicit subject so it doesn't depend on this fixture's minimal post_mapped.
+        context = annotation_context_for(
+            mapped_variant, subject_variant=vrs_object_from_mapped_variant(TEST_VALID_POST_MAPPED_VRS_ALLELE)
+        )
+        vrs_contribution = mavedb_vrs_contribution(context)
 
         creator = session.query(User).first()
         score_set = mapped_variant.variant.score_set
@@ -350,7 +365,7 @@ class TestContributionIntegration:
         api_contrib = mavedb_api_contribution()
 
         mapped_variant = create_mock_mapped_variant()
-        vrs_contrib = mavedb_vrs_contribution(mapped_variant)
+        vrs_contrib = mavedb_vrs_contribution(annotation_context_for(mapped_variant))
 
         calibration = create_mock_score_calibration()
         cal_contrib = mavedb_score_calibration_contribution(calibration)
@@ -368,7 +383,12 @@ class TestContributionIntegration:
             assert contrib.description is not None
             assert contrib.activityType is not None
             assert contrib.contributor is not None
+
+        # A date is carried only where a stored one exists to carry. The API contribution has none:
+        # its provenance is the agent's version, not the moment of serialization.
+        for contrib in [vrs_contrib, cal_contrib, creator_contrib, modifier_contrib]:
             assert contrib.date is not None
+        assert api_contrib.date is None
 
     def test_date_formatting_consistency(self):
         """Test that all functions format dates consistently."""
@@ -376,7 +396,7 @@ class TestContributionIntegration:
 
         # VRS contribution
         mapped_variant = create_mock_mapped_variant(mapped_date=test_date)
-        vrs_contrib = mavedb_vrs_contribution(mapped_variant)
+        vrs_contrib = mavedb_vrs_contribution(annotation_context_for(mapped_variant))
         assert vrs_contrib.date == test_date
 
         # Score calibration contribution
