@@ -6,6 +6,7 @@ from fastapi import APIRouter, Path, Request
 from fastapi.responses import RedirectResponse
 from ga4gh.core.identifiers import GA4GH_IR_REGEXP
 
+from mavedb.lib.deprecation import MAPPED_VARIANT_SUNSET, deprecation_headers, record_deprecated_usage
 from mavedb.lib.logging import LoggedRoute
 from mavedb.routers.shared import ROUTER_BASE_PREFIX
 
@@ -21,8 +22,20 @@ router = APIRouter(
 
 
 def _redirect(request: Request, target: str) -> RedirectResponse:
+    """Redirect to the successor, tagging the response with RFC 8594 deprecation headers.
+
+    The redirect status already moves a well-behaved client, but the headers announce the deprecation to
+    tooling that follows the 301 silently: ``Deprecation``, a ``Link`` naming this exact successor, and a
+    ``Warning`` a human sees in logs. The successor here is a genuine 1:1 replacement, so it is safe to name.
+    """
     url = f"{target}?{request.url.query}" if request.url.query else target
-    return RedirectResponse(url=url, status_code=301)
+    record_deprecated_usage(request.url.path, successor=target)
+    headers = deprecation_headers(
+        successor=target,
+        warning=f"This resource has moved permanently to {target}; update your integration.",
+        sunset=MAPPED_VARIANT_SUNSET,
+    )
+    return RedirectResponse(url=url, status_code=301, headers=headers)
 
 
 @router.get(

@@ -25,6 +25,18 @@ def test_redirect_mapped_variant(client):
     assert response.headers["location"] == f"/api/v1/variants/{quote_plus(TEST_URN)}"
 
 
+def test_redirect_carries_rfc8594_deprecation_headers(client):
+    """A client that follows the 301 silently still learns the resource is deprecated, and where it went."""
+    response = client.get(f"/api/v1/mapped-variants/{quote_plus(TEST_URN)}", follow_redirects=False)
+
+    assert response.headers["Deprecation"] == "true"
+    assert 'rel="successor-version"' in response.headers["Link"]
+    assert f"/api/v1/variants/{quote_plus(TEST_URN)}" in response.headers["Link"]
+    assert response.headers["Warning"].startswith("299 - ")
+    # Sunset stays unset until a removal date is ratified (deprecation.DEFAULT_SUNSET is None).
+    assert "Sunset" not in response.headers
+
+
 @pytest.mark.parametrize(
     "suffix",
     ["va/study-result", "va/functional-statement", "va/pathogenicity-statement"],

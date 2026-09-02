@@ -29,6 +29,7 @@ from mavedb.lib.annotation.annotate import (
     variant_study_result,
 )
 from mavedb.lib.annotation.context import variant_annotation_context
+from mavedb.lib.deprecation import MAPPED_VARIANT_SUNSET, deprecation_headers, record_deprecated_usage
 from mavedb.lib.annotation.exceptions import EXPECTED_ABSENCE_EXCEPTIONS
 from mavedb.lib.authorization import (
     get_current_user,
@@ -1116,11 +1117,17 @@ def get_score_set_mapped_variants_removed(*, urn: str) -> Any:
     record), so the two are not wire-compatible and this route does not redirect. Use
     ``GET /score-sets/{urn}/variant-details`` instead.
     """
+    successor = f"/score-sets/{urn}/variant-details"
+    record_deprecated_usage(f"/score-sets/{urn}/mapped-variants", successor=successor)
+    # No wire-compatible successor (the response shape and cardinality changed), so no rel="successor-version"
+    # Link — the Warning points at the nearest replacement instead.
     raise HTTPException(
         status_code=410,
-        detail=(
-            f"GET /score-sets/{urn}/mapped-variants has been removed. "
-            f"Use GET /score-sets/{urn}/variant-details instead."
+        detail=(f"GET /score-sets/{urn}/mapped-variants has been removed. Use GET {successor} instead."),
+        headers=deprecation_headers(
+            successor=None,
+            warning=f"Removed; use GET {successor} (NDJSON, different field shape).",
+            sunset=MAPPED_VARIANT_SUNSET,
         ),
     )
 
