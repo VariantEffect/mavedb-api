@@ -23,7 +23,10 @@ class PopulatedRawContextMiddleware(RawContextMiddleware):
         ctx: dict[str, Any] = {}
 
         ctx["request_ns"] = time.time_ns()
-        ctx["path"] = request.url.path
+        # The ASGI scope rather than request.url.path, which truncates at a '#'. Starlette builds
+        # request.url by re-parsing, so a variant URN's '#' opens a fragment there and the variant
+        # number and sub-resource are dropped: three /variants routes all logged the same path.
+        ctx["path"] = request.scope["path"]
 
         if isinstance(request, Request):
             ctx["method"] = request.method
