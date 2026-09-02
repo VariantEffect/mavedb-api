@@ -10,6 +10,7 @@ services:
     depends_on:
       - db
       - redis
+      - moto-init
     env_file:
       - settings/.env.dev
     environment:
@@ -54,6 +55,7 @@ services:
     depends_on:
       - db
       - redis
+      - moto-init
 
   dcd-mapping:
     build: ../dcd_mapping
