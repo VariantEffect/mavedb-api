@@ -73,6 +73,10 @@ class TargetGeneMapping(Base):
     # ``modification_date``, which track this row's lifecycle in MaveDB.
     mapped_date = Column(Date, nullable=True)
 
+    # The mapping job (JobRun) that produced this row. Nullable: rows written before this column,
+    # and rows whose job was pruned (ON DELETE SET NULL), carry no run anchor.
+    job_run_id = Column(Integer, ForeignKey("job_runs.id", ondelete="SET NULL"), nullable=True, index=True)
+
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 

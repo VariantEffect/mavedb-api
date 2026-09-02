@@ -298,6 +298,107 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert _non_authoritative_links(session) == []
         assert _cross_level_events(session, sample_score_set.id) == []
 
+    async def test_same_day_remap_without_a_cdna_row_skips_rather_than_binding_a_stale_transcript(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+        map_variants_sample_params,
+    ):
+        """#763: a record binds its transcript to its own run via job_run_id. When a later same-day remap
+        emits no cdna row, reverse translation must resolve no transcript and skip -- not fall back to an
+        earlier same-day run's cdna transcript, which the day-granular key alone could not tell apart."""
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn="variant:1",
+            hgvs_nt="NM_000000.1:c.1A>G",
+            hgvs_pro="NP_000000.1:p.Met1Val",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+
+        # Run 1 (all layers) writes a cdna TargetGeneMapping; its transcript must not leak to run 2.
+        await _map_variants(session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set)
+
+        # Run 2 -- same score set, same calendar day -- emits genomic + protein only, no cdna row. Its
+        # records supersede run 1's and are the current ones reverse translation reads.
+        second_mapping_run = JobRun(
+            urn="test:map_variants_for_score_set:2",
+            job_type="map_variants_for_score_set",
+            job_function="map_variants_for_score_set",
+            max_retries=3,
+            retry_count=0,
+            job_params=map_variants_sample_params,
+        )
+        session.add(second_mapping_run)
+        session.commit()
+        await _map_variants(session, mock_worker_ctx, second_mapping_run, sample_score_set, with_layers={"g", "p"})
+
+        # construct_equivalent_variants is never reached for a skipped variant.
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", fake_construct({})),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", fake_translate({})),
+        ):
+            result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["translated"] == 0
+        assert result.data["skipped"] == 1
+        assert result.data["alleles_created"] == 0
+        assert _non_authoritative_links(session) == []
+        assert len(_cross_level_events(session, sample_score_set.id, reason="transcript_unresolved")) == 1
+
+    async def test_falls_back_to_mapped_date_when_the_record_has_no_job_run_id(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+    ):
+        """A record with no job_run_id (pre-column, or reshaped from legacy) resolves its cdna transcript
+        via the day-granular (target_gene_id, mapped_date) fallback rather than skipping."""
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn="variant:1",
+            hgvs_nt="NM_000000.1:c.1A>G",
+            hgvs_pro="NP_000000.1:p.Met1Val",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        await _map_variants(session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set)
+
+        # Simulate the pre-job_run_id / reshaped state: no TargetGeneMapping carries a run anchor, so
+        # resolution has only the day-granular key to work with.
+        session.query(TargetGeneMapping).filter(
+            TargetGeneMapping.target_gene_id == sample_score_set.target_genes[0].id
+        ).update({TargetGeneMapping.job_run_id: None}, synchronize_session=False)
+        session.commit()
+
+        assay_hgvs = "NM_000000.1:c.1A>G"
+        c_candidate = "NM_000001.1:c.5A>G"
+        g_candidate = "NC_000001.11:g.1000A>G"
+        construct = fake_construct({assay_hgvs: [(c_candidate, g_candidate)]})
+        translate = fake_translate({g_candidate: "ga4gh:VA.genomic", c_candidate: "ga4gh:VA.coding"})
+
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", construct),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", translate),
+        ):
+            result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        # The transcript resolved via the fallback, so the variant translated instead of skipping.
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 2}
+
     async def test_creates_genomic_and_coding_candidate_alleles(
         self,
         session,
@@ -1296,7 +1397,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         sample_independent_reverse_translation_run,
         sample_score_set,
     ):
-        """When a run has more than one cdna TargetGeneMapping for a target (same run date),
+        """When a run has more than one cdna TargetGeneMapping for a target (same job_run_id),
         RT reverse-translates against the newest (highest id), not an arbitrary one."""
         variant = Variant(
             score_set_id=sample_score_set.id,
@@ -1306,7 +1407,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         )
         session.add(variant)
         session.commit()
-        # Mapping emits a cdna TargetGeneMapping (NM_999999.1) stamped with the run date.
+        # Mapping emits a cdna TargetGeneMapping (NM_999999.1) stamped with this run's job_run_id.
         await _map_variants(
             session,
             mock_worker_ctx,
@@ -1316,7 +1417,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         )
         target_gene = sample_score_set.target_genes[0]
         run_date = self._run_mapped_date(session, target_gene.id)
-        # A newer cdna row (higher id) for the same target and same run date.
+        # A newer cdna row (higher id) for the same target, from the same run.
         session.add(
             TargetGeneMapping(
                 target_gene_id=target_gene.id,
@@ -1325,6 +1426,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
                 preferred=False,
                 tool_version="pytest.0.0",
                 mapped_date=run_date,
+                job_run_id=sample_independent_variant_mapping_run.id,
             )
         )
         session.commit()
@@ -1359,10 +1461,10 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         sample_independent_reverse_translation_run,
         sample_score_set,
     ):
-        """A cdna row left behind by a *different* run (different run date) is not used:
-        the current run emitted no cdna row, so the variant is skipped (transcript
-        unresolved) rather than reverse-translated against the stale transcript -- the
-        mapped_date anchor narrows the accumulation edge case (mavedb-api#763)."""
+        """A leftover cdna row that does not belong to the current run is not used: the current run
+        emitted no cdna row, so the variant is skipped (transcript unresolved) rather than
+        reverse-translated against the stale transcript. The record resolves its transcript by its own
+        run's job_run_id, so a row carrying no such anchor never leaks in (mavedb-api#763)."""
         variant = Variant(
             score_set_id=sample_score_set.id,
             urn="variant:1",

@@ -253,6 +253,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                     alignment_metadata=tm.get("alignment_metadata"),
                     vrs_version=tm.get("vrs_version"),
                     mapped_date=mapping_results["mapped_date"],
+                    job_run_id=job_manager.job_id,
                 )
                 job_manager.db.add(target_gene_mapping)
                 target_gene_mapping_by_key[(target_gene_identifier, level_value)] = target_gene_mapping

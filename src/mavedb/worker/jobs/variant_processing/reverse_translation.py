@@ -22,10 +22,11 @@ import functools
 import logging
 from collections import Counter
 from datetime import date
-from typing import Any, NamedTuple, Sequence
+from typing import Any, Callable, NamedTuple, Sequence
 
 from ga4gh.vrs.extras.translator import AlleleTranslator
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 from variant_annotation import __version__ as variant_annotation_version
 from variant_annotation.lib.accessions import looks_like_refseq_protein_accession
 from variant_annotation.lib.translation import construct_equivalent_variants
@@ -114,6 +115,45 @@ def _coding_transcripts_for_proteins(protein_accessions: set[str]) -> dict[str, 
             for pro_ac in sorted(protein_accessions)
             if (transcript := client.transcript_for_protein(pro_ac)) is not None
         }
+
+
+def _cdna_transcript_resolver(db: Session, score_set_id: int) -> Callable[[int | None, int, date | None], str | None]:
+    """Return a resolver from a record's ``(job_run_id, target_gene_id, mapped_date)`` to its cdna transcript.
+
+    A record binds to *its own run's* cdna row via ``job_run_id``. Records with no ``job_run_id`` (pre-column,
+    or reshaped from legacy) fall back to the day-granular ``(target_gene_id, mapped_date)`` key, which cannot
+    separate two runs on one calendar day. Within either key, highest ``TargetGeneMapping.id`` wins. The two
+    lookup tables are built once per score set here and closed over, so per-record resolution is a dict hit.
+    """
+    by_job_run: dict[tuple[int, int], str | None] = {}
+    by_run_date: dict[tuple[int, date | None], str | None] = {}
+    for target_gene_id, mapped_date, job_run_id, reference_accession in (
+        db.execute(
+            select(
+                TargetGeneMapping.target_gene_id,
+                TargetGeneMapping.mapped_date,
+                TargetGeneMapping.job_run_id,
+                TargetGeneMapping.reference_accession,
+            )
+            .join(TargetGene, TargetGene.id == TargetGeneMapping.target_gene_id)
+            .where(TargetGene.score_set_id == score_set_id)
+            .where(TargetGeneMapping.alignment_level == SequenceLevel.cdna)
+            .where(TargetGeneMapping.reference_accession.isnot(None))
+            .order_by(TargetGeneMapping.id)
+        )
+        .tuples()
+        .all()
+    ):
+        if job_run_id is not None:
+            by_job_run[(job_run_id, target_gene_id)] = reference_accession
+        by_run_date[(target_gene_id, mapped_date)] = reference_accession
+
+    def resolve(job_run_id: int | None, target_gene_id: int, mapped_date: date | None) -> str | None:
+        if job_run_id is not None:
+            return by_job_run.get((job_run_id, target_gene_id))
+        return by_run_date.get((target_gene_id, mapped_date))
+
+    return resolve
 
 
 def _build_translation_config(overrides: dict[str, Any] | None) -> TranslationConfig:
@@ -208,41 +248,19 @@ async def reverse_translate_variants_for_score_set(
     job_manager.update_progress(0, 100, "Starting reverse translation job.")
     logger.info(msg="Started reverse translation job.", extra=job_manager.logging_context())
 
-    # Build {(target_gene_id, run date) -> NM_ transcript} from cdna TargetGeneMappings.
-    # TargetGeneMapping rows accumulate across re-maps (retired records still FK them), so we
-    # key by (target_gene_id, mapped_date) to bind each record to its own run's cdna row.
-    # All TargetGeneMappings in one job share a mapped_date; within a key, highest id wins.
-    #
-    # TODO#763: mapped_date is day-granular, so two re-maps on the same calendar day collide.
-    # A later same-day run that emits no cdna row can still bind the earlier run's stale
-    # transcript. Only a versioned run anchor closes this fully.
-    cdna_transcript_by_run: dict[tuple[int, date | None], str | None] = {
-        (target_gene_id, mapped_date): reference_accession
-        for target_gene_id, mapped_date, reference_accession in job_manager.db.execute(
-            select(
-                TargetGeneMapping.target_gene_id,
-                TargetGeneMapping.mapped_date,
-                TargetGeneMapping.reference_accession,
-            )
-            .join(TargetGene, TargetGene.id == TargetGeneMapping.target_gene_id)
-            .where(TargetGene.score_set_id == score_set_id)
-            .where(TargetGeneMapping.alignment_level == SequenceLevel.cdna)
-            .where(TargetGeneMapping.reference_accession.isnot(None))
-            .order_by(TargetGeneMapping.id)
-        )
-        .tuples()
-        .all()
-    }
+    resolve_cdna_transcript = _cdna_transcript_resolver(job_manager.db, score_set_id)
 
-    # Load current authoritative MappingRecords with their Variant and TargetGeneMapping.
-    # mapped_date from the joined (genomic) TargetGeneMapping anchors the cdna transcript lookup.
-    rows: Sequence[tuple[MappingRecord, Variant, int, date | None]] = (
+    # Load current authoritative MappingRecords with their Variant and TargetGeneMapping. The record's own
+    # TargetGeneMapping (its measured alignment) carries the run's job_run_id and mapped_date, which anchor
+    # the cdna transcript lookup below.
+    rows: Sequence[tuple[MappingRecord, Variant, int, date | None, int | None]] = (
         job_manager.db.execute(
             select(
                 MappingRecord,
                 Variant,
                 TargetGeneMapping.target_gene_id,
                 TargetGeneMapping.mapped_date,
+                TargetGeneMapping.job_run_id,
             )
             .join(MappingRecordAllele, MappingRecord.id == MappingRecordAllele.mapping_record_id)
             .join(Variant, MappingRecord.variant_id == Variant.id)
@@ -270,8 +288,8 @@ async def reverse_translate_variants_for_score_set(
     # cdna reference_accession, so collect their NP_ accessions for a batched NP_→NM_ UTA lookup.
     transcript_resolutions: list[_TranscriptResolution] = []
     protein_accessions: set[str] = set()
-    for rec, variant, target_gene_id, mapped_date in rows:
-        coding_accession = cdna_transcript_by_run.get((target_gene_id, mapped_date))
+    for rec, variant, target_gene_id, mapped_date, record_job_run_id in rows:
+        coding_accession = resolve_cdna_transcript(record_job_run_id, target_gene_id, mapped_date)
         protein_accession = None
         if not coding_accession and rec.hgvs_assay_level is not None:
             raw_accession = extract_accession(rec.hgvs_assay_level)
