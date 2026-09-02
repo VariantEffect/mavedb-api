@@ -231,6 +231,21 @@ class TestScoreSetArtifacts:
 
         assert set(artifacts) == {f"csv/{archive_path_base(score_set.urn)}.scores.csv"}
 
+    def test_legacy_mapped_variants_artifact_switches_off(
+        self, session, make_dump_score_set, anonymous_principal, monkeypatch
+    ):
+        """The deprecated legacy artifact drops cleanly at a version boundary via one env flag, without
+        touching the substrate-sourced artifacts that replace it."""
+        score_set = make_dump_score_set(mapped=True, current=True)
+        base = archive_path_base(score_set.urn)
+
+        monkeypatch.setenv("EXPORT_LEGACY_MAPPED_VARIANTS", "0")
+        artifacts = _artifacts(session, score_set, anonymous_principal)
+
+        assert f"mapped/{base}.mapped-variants.json" not in artifacts
+        # The substrate replacement still ships.
+        assert f"vrs/{base}.vrs.ndjson" in artifacts
+
     def test_count_columns_add_the_counts_file(self, session, make_dump_score_set, anonymous_principal):
         score_set = make_dump_score_set(mapped=False, count_columns=("c_0",))
         base = archive_path_base(score_set.urn)

@@ -26,8 +26,13 @@ given archive was generated.
 
 - **`mapped/{urn}.mapped-variants.json`** — superseded by `vrs/{urn}.vrs.ndjson`. It
   is sourced from the pre-allele-graph mapping store, which no longer receives
-  writes, so it now appears only for score sets mapped before that migration. It will
-  be removed in a future version.
+  writes, so it now appears only for score sets mapped before that migration. It is
+  kept for one deprecation window so existing consumers are not broken by a single
+  release, but will be removed in the next major release. The old single-mapping
+  shape encodes one representation per variant, a cardinality the allele graph does
+  not have (one variant maps to many alleles across coordinate levels), so
+  `vrs/{urn}.vrs.ndjson` is a re-shape, not a drop-in rename: migrate to it rather
+  than expecting the old file to keep the old shape.
 
 ### Changed
 

@@ -66,6 +66,16 @@ PUBLIC_DUMP_LICENSE = "CC0"
 """The only license whose data the dump may carry."""
 
 
+def _emit_legacy_mapped_variants_artifact() -> bool:
+    """Whether to emit the deprecated ``mapped/{urn}.mapped-variants.json`` artifact.
+
+    Superseded by ``vrs/{urn}.vrs.ndjson`` and removed with the MappedVariant table drop; kept for a
+    deprecation window until then. Set ``EXPORT_LEGACY_MAPPED_VARIANTS=0`` (or ``false``/``no``/``off``) to
+    stop emitting it before the boundary. Defaults to on.
+    """
+    return os.getenv("EXPORT_LEGACY_MAPPED_VARIANTS", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 def annotation_export_namespaces(db: Session, score_set: ScoreSet, viewer: ScoreCalibrationViewer) -> list[str]:
     """The namespaces the public annotations CSV should carry for this score set.
 
@@ -267,7 +277,7 @@ def score_set_artifacts(db: Session, score_set: ScoreSet, principal: Principal) 
         yield f"vrs/{base}.vrs.ndjson", vrs_ndjson(db, score_set)
         yield f"va/{base}.va.ndjson", va_ndjson(db, score_set, principal)
 
-    if score_set_has_legacy_mapped_variants(db, score_set):
+    if _emit_legacy_mapped_variants_artifact() and score_set_has_legacy_mapped_variants(db, score_set):
         yield f"mapped/{base}.mapped-variants.json", mapped_variants_json(db, score_set)
 
     counts = counts_csv(db, score_set)
