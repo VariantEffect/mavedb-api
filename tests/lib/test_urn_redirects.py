@@ -1,6 +1,16 @@
 """Tests for forwarding URNs that publication has retired."""
 
+# ruff: noqa: E402
+
 import pytest
+
+# The module under test reaches fastapi and starlette directly, and arq, biocommons and cdot through
+# mavedb.deps, all of which live in the `server` extra. Guarding the import keeps the core-dependency
+# CI job skipping this module rather than failing to collect it. The DB fixtures need psycopg2.
+pytest.importorskip("psycopg2")
+pytest.importorskip("fastapi")
+pytest.importorskip("arq")
+pytest.importorskip("cdot")
 
 from mavedb.lib.urn_redirects import forwarded_path, record_urn_redirect
 from mavedb.models.urn_redirect import UrnRedirect
