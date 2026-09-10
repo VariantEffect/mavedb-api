@@ -5,10 +5,11 @@ import hgvs.dataproviders.uta
 from cdot.hgvs.dataproviders import RESTDataProvider
 from fastapi import APIRouter, Depends, HTTPException
 from hgvs import parser, validator
-from hgvs.exceptions import HGVSDataNotAvailableError, HGVSInvalidVariantError
+from hgvs.exceptions import HGVSDataNotAvailableError, HGVSError
 
 from mavedb.deps import hgvs_data_provider
-from mavedb.routers.shared import BASE_400_RESPONSE, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
+from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX, VALIDATION_ERROR_RESPONSES
+from mavedb.view_models.hgvs import HgvsValidationRequest
 
 TAG_NAME = "Transcripts"
 
@@ -44,22 +45,23 @@ def hgvs_fetch(accession: str, hdp: RESTDataProvider = Depends(hgvs_data_provide
     "/validate",
     status_code=200,
     response_model=bool,
-    responses={**BASE_400_RESPONSE},
+    responses={**VALIDATION_ERROR_RESPONSES},
     summary="Validate a provided variant",
 )
-def hgvs_validate(variant: dict[str, str], hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> bool:
+def hgvs_validate(request: HgvsValidationRequest, hdp: RESTDataProvider = Depends(hgvs_data_provider)) -> bool:
     """
     Validate the provided HGVS variant string.
+
+    Parsing and validation failures both stem from caller-supplied input, so any ``HGVSError`` — a syntactic
+    parse failure, an inconsistent variant, an unknown accession — is surfaced as a 400 rather than escaping
+    to the catch-all 500 handler.
     """
     hp = parser.Parser()
-    variant_hgvs = hp.parse(variant["variant"])
-
     try:
-        valid = validator.Validator(hdp=hdp).validate(variant_hgvs, strict=False)
-    except HGVSInvalidVariantError as e:
+        variant_hgvs = hp.parse(request.variant)
+        return validator.Validator(hdp=hdp).validate(variant_hgvs, strict=False)
+    except HGVSError as e:
         raise HTTPException(400, str(e))
-    else:
-        return valid
 
 
 @router.get("/assemblies", status_code=200, response_model=list[str], summary="List stored assemblies")
