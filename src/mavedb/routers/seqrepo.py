@@ -71,7 +71,23 @@ def get_sequence(
             status_code=400, detail=f"Multiple sequences exist for alias '{alias}'. Use an explicit namespace."
         )
 
-    return StreamingResponse(sequence_generator(sr, seq_ids[0], start, end), media_type="text/plain")
+    seq_id = seq_ids[0]
+    seq_len = sr.sequences.fetch_seqinfo(seq_id)["len"]
+
+    # Resolve to concrete half-open bounds so the check and the streamed body agree, even when only
+    # one of start/end is supplied.
+    seq_start = start if start is not None else 0
+    seq_end = end if end is not None else seq_len
+
+    if start is not None or end is not None:
+        if not 0 <= seq_start < seq_len:
+            logger.error(msg="Invalid coordinates: start lies outside the sequence.", extra=logging_context())
+            raise HTTPException(status_code=422, detail=f"Invalid coordinates: must obey 0 <= start < {seq_len}")
+        if not seq_start <= seq_end <= seq_len:
+            logger.error(msg="Invalid coordinates: end lies outside the sequence.", extra=logging_context())
+            raise HTTPException(status_code=422, detail=f"Invalid coordinates: must obey start <= end <= {seq_len}")
+
+    return StreamingResponse(sequence_generator(sr, seq_id, seq_start, seq_end), media_type="text/plain")
 
 
 @router.get("/metadata/{alias}", response_model=SeqRepoMetadata, summary="Get sequence metadata by alias")
