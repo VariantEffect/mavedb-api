@@ -1,10 +1,7 @@
-import csv
-import io
 import logging
-import re
 from collections import Counter, defaultdict
 from operator import attrgetter
-from typing import TYPE_CHECKING, Any, BinaryIO, Iterable, List, Optional, Sequence
+from typing import TYPE_CHECKING, BinaryIO, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -18,7 +15,6 @@ from mavedb.lib.mave.constants import (
     HGVS_NT_COLUMN,
     HGVS_PRO_COLUMN,
     HGVS_SPLICE_COLUMN,
-    REQUIRED_SCORE_COLUMN,
     VARIANT_COUNT_DATA,
     VARIANT_SCORE_DATA,
 )
@@ -27,8 +23,6 @@ from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.score_calibrations import find_superseded_score_calibration_tail
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import null_values_list
-from mavedb.lib.validation.utilities import is_null as validate_is_null
-from mavedb.lib.variants import get_digest_from_post_mapped, get_hgvs_from_post_mapped, is_hgvs_g, is_hgvs_p
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
 from mavedb.models.doi_identifier import DoiIdentifier
@@ -38,9 +32,6 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
-from mavedb.models.clinical_control import ClinicalControl
-from mavedb.models.clinical_control_mapped_variant import mapped_variants_clinical_controls_association_table
-from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.refseq_identifier import RefseqIdentifier
@@ -58,7 +49,7 @@ from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.view_models import score_set
-from mavedb.view_models.search import ScoreSetsSearch, ControlledKeywordFilterOption
+from mavedb.view_models.search import ControlledKeywordFilterOption, ScoreSetsSearch
 
 if TYPE_CHECKING:
     from mavedb.lib.permissions import Action
@@ -66,10 +57,6 @@ if TYPE_CHECKING:
 VariantData = dict[str, Optional[dict[str, dict]]]
 
 logger = logging.getLogger(__name__)
-
-# Pattern for ClinVar-versioned namespaces of the form "clinvar.YEAR_MONTH",
-# e.g. "clinvar.2024_01" for January 2024.
-CLINVAR_NS_PATTERN = re.compile(r"^clinvar\.(\d+)_(0[1-9]|1[0-2])$")
 
 
 class HGVSColumns:

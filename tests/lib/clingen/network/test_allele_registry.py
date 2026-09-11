@@ -54,7 +54,7 @@ class TestGetMatchingRegisteredCaIdsNetwork:
     @pytest.mark.asyncio
     async def test_get_matching_registered_ca_ids_known_no_caids(self):
         # Using a ClinGen PA ID with no registered CA IDs
-        clingen_pa_id = "PA3051398879"  # Example ClinGen PA ID with no registered CA IDs
+        clingen_pa_id = "PA00000000"  # Example ClinGen PA ID with no registered CA IDs
         result = await get_matching_registered_ca_ids(clingen_pa_id)
         assert result == []
 

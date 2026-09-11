@@ -17,8 +17,9 @@ from mavedb.lib.annotation.annotate import (
     variant_study_result,
 )
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
-from mavedb.lib.authorization import get_current_user
+from mavedb.lib.authorization import get_current_user, get_principal
 from mavedb.lib.logging import LoggedRoute
+from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.logging.context import (
     logging_context,
     save_to_logging_context,
@@ -137,7 +138,11 @@ async def show_mapped_variant_study_result(
     summary="Construct a VA-Spec Statement from a mapped variant",
 )
 async def show_mapped_variant_functional_impact_statement(
-    *, urn: str, db: Session = Depends(deps.get_db), user: Optional[UserData] = Depends(get_current_user)
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> Statement:
     """
     Construct a single VA-Spec Statement from a mapped variant by URN.
@@ -147,7 +152,7 @@ async def show_mapped_variant_functional_impact_statement(
     mapped_variant = await fetch_mapped_variant_by_variant_urn(db, user, urn)
 
     try:
-        functional_impact = variant_functional_impact_statement(mapped_variant)
+        functional_impact = variant_functional_impact_statement(mapped_variant, principal=principal)
     except MappingDataDoesntExistException as e:
         logger.info(
             msg="Could not construct a functional impact statement for this mapped variant; No mapping data exists for this score set.",
@@ -179,7 +184,11 @@ async def show_mapped_variant_functional_impact_statement(
     summary="Construct a VA-Spec EvidenceLine from a mapped variant",
 )
 async def show_mapped_variant_acmg_evidence_line(
-    *, urn: str, db: Session = Depends(deps.get_db), user: Optional[UserData] = Depends(get_current_user)
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> VariantPathogenicityStatement:
     """
     Construct a list of VA-Spec EvidenceLine(s) from a mapped variant by URN.
@@ -189,7 +198,7 @@ async def show_mapped_variant_acmg_evidence_line(
     mapped_variant = await fetch_mapped_variant_by_variant_urn(db, user, urn)
 
     try:
-        pathogenicity_statement = variant_pathogenicity_statement(mapped_variant)
+        pathogenicity_statement = variant_pathogenicity_statement(mapped_variant, principal=principal)
     except MappingDataDoesntExistException as e:
         logger.info(
             msg="Could not construct a pathogenicity statement for this mapped variant; No mapping data exists for this score set.",

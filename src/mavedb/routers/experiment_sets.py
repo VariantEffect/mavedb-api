@@ -59,16 +59,21 @@ def fetch_experiment_set(
         # error otherwise.
         logger.debug(msg="The requested resources does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"experiment set with URN {urn} not found")
-    else:
-        item.experiments.sort(key=attrgetter("urn"))
 
     assert_permission(user_data, item, Action.READ)
 
-    # Filter experiment sub-resources to only those experiments readable by the requesting user.
-    item.experiments[:] = [exp for exp in item.experiments if has_permission(user_data, exp, Action.READ).permitted]
-    enriched_experiments = [enrich_experiment_with_num_score_sets(exp, user_data) for exp in item.experiments]
-    enriched_item = experiment_set.ExperimentSet.model_validate(item).copy(
+    # Narrow to the experiments this caller may read, without touching item.experiments.
+    # ExperimentSet.experiments is mapped with cascade="all, delete-orphan": removing members from the ORM
+    # collection marks them as orphans, and the next flush deletes those experiments along with their score
+    # sets and variants. Only autoflush=False and the absence of a commit on this path made that survivable.
+    readable_experiments = sorted(
+        (experiment for experiment in item.experiments if has_permission(user_data, experiment, Action.READ).permitted),
+        key=attrgetter("urn"),
+    )
+    enriched_experiments = [
+        enrich_experiment_with_num_score_sets(experiment, user_data) for experiment in readable_experiments
+    ]
+
+    return experiment_set.ExperimentSet.model_validate(item).copy(
         update={"experiments": enriched_experiments, "num_experiments": len(enriched_experiments)}
     )
-
-    return enriched_item

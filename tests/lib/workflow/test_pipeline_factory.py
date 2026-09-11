@@ -210,6 +210,62 @@ class TestPipelineFactoryUnit:
         # Pipeline record should still exist because the rollback preserved the committed state.
         assert session.scalars(select(Pipeline).where(Pipeline.id == pipeline_id)).first() is not None
 
+    def test_create_pipeline_with_custom_pipeline_creates_only_subset_job_runs(
+        self,
+        session,
+        pipeline_factory,
+        sample_dependent_pipeline_definition,
+        test_user,
+    ):
+        """custom_pipeline lets a caller run an ad-hoc job subset, stored under its own name
+        instead of a PIPELINE_DEFINITIONS key."""
+        job_1 = sample_dependent_pipeline_definition["job_definitions"][0]
+        custom_def = {"description": "custom subset", "job_definitions": [job_1]}
+
+        pipeline, job_run = pipeline_factory.create_pipeline(
+            pipeline_name=None,
+            creating_user=test_user,
+            pipeline_params={"paramA": "valueA"},
+            custom_pipeline=("dependent_pipeline:phase", custom_def),
+        )
+
+        assert pipeline.name == "dependent_pipeline:phase"
+
+        stmt = select(JobRun).where(JobRun.pipeline_id == pipeline.id)
+        job_runs = session.execute(stmt).scalars().all()
+        job_functions = {jr.job_function for jr in job_runs}
+
+        # Only the start_pipeline job plus job_1 — not job_2, which isn't in the subset.
+        assert job_functions == {"start_pipeline", job_1["function"]}
+
+    def test_create_pipeline_requires_exactly_one_of_pipeline_name_or_custom_pipeline(
+        self,
+        session,
+        pipeline_factory,
+        with_test_pipeline_definition_ctx,
+        sample_independent_pipeline_definition,
+        test_user,
+    ):
+        """pipeline_name and custom_pipeline are mutually exclusive: neither given, and both given, both raise."""
+        with pytest.raises(ValueError):
+            pipeline_factory.create_pipeline(
+                pipeline_name=None,
+                creating_user=test_user,
+                pipeline_params={},
+                custom_pipeline=None,
+            )
+
+        with pytest.raises(ValueError):
+            pipeline_factory.create_pipeline(
+                pipeline_name=sample_independent_pipeline_definition["name"],
+                creating_user=test_user,
+                pipeline_params={},
+                custom_pipeline=(
+                    sample_independent_pipeline_definition["name"],
+                    sample_independent_pipeline_definition,
+                ),
+            )
+
 
 @pytest.mark.integration
 class TestPipelineFactoryIntegration:

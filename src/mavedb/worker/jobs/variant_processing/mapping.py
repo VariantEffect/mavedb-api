@@ -173,6 +173,9 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
                 job_manager.save_to_context({"mapped_hgnc_name": target_gene.mapped_hgnc_name})
                 logger.debug("Added mapped HGNC name to target gene.", extra=job_manager.logging_context())
+            else:
+                target_gene.mapped_hgnc_name = None
+                logger.debug("No gene-level info found for target gene.", extra=job_manager.logging_context())
 
             # add annotation layer info
             for annotation_layer in reference_metadata[target_gene_identifier]["layers"]:
@@ -203,6 +206,8 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
             target_gene.pre_mapped_metadata = cast(pre_mapped_metadata, JSONB)
             target_gene.post_mapped_metadata = cast(post_mapped_metadata, JSONB)
+            target_gene.uniprot_id_from_mapped_metadata = None
+
             job_manager.db.add(target_gene)
             logger.debug("Added mapping metadata to target gene.", extra=job_manager.logging_context())
 

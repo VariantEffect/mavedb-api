@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Iterable, Literal, Optional
 
 from ga4gh.core.models import Extension
 from ga4gh.va_spec.base.enums import StrengthOfEvidenceProvided as VaSpecStrengthOfEvidenceProvided
@@ -21,11 +21,16 @@ from mavedb.lib.annotation.classification import (
 )
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.mapping import extract_ids_from_post_mapped_metadata
+from mavedb.lib.permissions.principal import Principal
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.types.annotation import SequenceFeature
 from mavedb.lib.variants import target_for_variant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
+
+CALIBRATION_SCOPE_EXTENSION_NAME = "mavedb_calibration_scope"
+"""Extension naming the principal an annotation was built for. See ``calibration_scope_extension``."""
 
 
 def allele_from_mapped_variant_dictionary_result(allelic_mapping_results: dict) -> Allele:
@@ -230,40 +235,84 @@ def score_calibration_may_be_used_for_annotation(
     return True
 
 
-def _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
+def calibrations_available_for_annotation(
     mapped_variant: MappedVariant,
     annotation_type: Literal["pathogenicity", "functional"],
     allow_research_use_only_calibrations: bool = False,
-) -> bool:
+    principal: Optional[Principal] = None,
+) -> list[ScoreCalibration]:
     """
-    Check if a mapped variant's score set contains any of the required calibrations for annotation.
+    Select the calibrations on a mapped variant's score set that may build the requested annotation.
+
+    Two independent questions decide this, and they are asked by different collaborators.
+      - Eligibility: Does this calibration carry the classifications the annotation type needs, and is
+        its research-use-only standing permitted here. This is ``score_calibration_may_be_used_for_annotation``.
+      - Visibility: May this principal read it at all. This is the viewer's, because a calibration's READ rule
+        is stricter than its score set's.
 
     Args:
-        mapped_variant (MappedVariant): The mapped variant object containing the variant with score set data.
-        annotation_type (Literal["pathogenicity", "functional"]): The type of annotation to check for.
-            Must be either "pathogenicity" or "functional".
-        allow_research_use_only_calibrations (bool, optional): Whether to consider calibrations marked as
-            research use only as valid for annotation. Defaults to False.
+        mapped_variant (MappedVariant): The mapped variant whose score set's calibrations are considered.
+        annotation_type (Literal["pathogenicity", "functional"]): The type of annotation to be built.
+        allow_research_use_only_calibrations (bool, optional): Whether calibrations marked research use
+            only are eligible. Defaults to False.
+        principal (Optional[Principal], optional): The caller being served. Defaults to None, an anonymous
+            caller, so a function that omits it gets public calibrations only.
 
     Returns:
-        bool: True if the variant's score set contains at least one valid calibration with the required
-            classifications for the specified annotation type. False otherwise.
+        list[ScoreCalibration]: The eligible, visible calibrations, in score set order.
     """
-    if mapped_variant.variant.score_set.score_calibrations is None:
-        return False
+    viewer = (principal if principal is not None else Principal()).viewer_for(ScoreCalibrationViewer)
 
-    return any(
-        score_calibration_may_be_used_for_annotation(
+    return [
+        score_calibration
+        for score_calibration in viewer.visible(mapped_variant.variant.score_set.score_calibrations)
+        if score_calibration_may_be_used_for_annotation(
             score_calibration,
             annotation_type,
             allow_research_use_only_calibrations=allow_research_use_only_calibrations,
         )
-        for score_calibration in mapped_variant.variant.score_set.score_calibrations
+    ]
+
+
+def calibration_scope_extension(calibrations: Iterable[ScoreCalibration]) -> Extension:
+    """
+    Describe the principal an annotation was built for, given the calibrations behind it.
+
+    VA-Spec statements carry no stable identifier, so two callers can receive materially different
+    statements from the same URL. Naming the scope on the object itself is what keeps that honest: a
+    consumer holding a record can tell whether it is the one anyone would get, or one widened by the
+    requester's own access.
+
+    Args:
+        calibrations (Iterable[ScoreCalibration]): The calibrations contributing evidence to the annotation.
+
+    Returns:
+        Extension: A ``mavedb_calibration_scope`` extension, ``restricted`` when any contributing
+            calibration is private and ``public`` otherwise.
+    """
+    if any(calibration.private for calibration in calibrations):
+        return Extension(
+            name=CALIBRATION_SCOPE_EXTENSION_NAME,
+            value="restricted",
+            description=(
+                "Built from at least one private score calibration, visible to the requesting viewer. "
+                "Another viewer requesting this variant may receive fewer evidence lines, or none."
+            ),
+        )
+
+    return Extension(
+        name=CALIBRATION_SCOPE_EXTENSION_NAME,
+        value="public",
+        description=(
+            "Built only from public score calibrations. Any viewer requesting this variant receives the same evidence."
+        ),
     )
 
 
 def can_annotate_variant_for_pathogenicity_evidence(
-    mapped_variant: MappedVariant, allow_research_use_only_calibrations=False
+    mapped_variant: MappedVariant,
+    allow_research_use_only_calibrations=False,
+    principal: Optional[Principal] = None,
 ) -> bool:
     """
     Determine if a mapped variant can be annotated for pathogenicity evidence.
@@ -275,6 +324,11 @@ def can_annotate_variant_for_pathogenicity_evidence(
     Args:
         mapped_variant (MappedVariant): The mapped variant object to evaluate
             for pathogenicity evidence annotation eligibility.
+        allow_research_use_only_calibrations (bool, optional): Whether calibrations marked research use
+            only are eligible. Defaults to False.
+        principal (Optional[Principal], optional): The caller being served. Defaults to None, an anonymous
+            caller. Must match the principal the annotation itself will be built for, or this answers a
+            different question than the one the caller is about to act on.
 
     Returns:
         bool: True if the variant can be annotated for pathogenicity evidence,
@@ -290,16 +344,21 @@ def can_annotate_variant_for_pathogenicity_evidence(
     """
     if not _can_annotate_variant_base_assumptions(mapped_variant):
         return False
-    if not _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
-        mapped_variant, "pathogenicity", allow_research_use_only_calibrations=allow_research_use_only_calibrations
-    ):
-        return False
 
-    return True
+    return bool(
+        calibrations_available_for_annotation(
+            mapped_variant,
+            "pathogenicity",
+            allow_research_use_only_calibrations=allow_research_use_only_calibrations,
+            principal=principal,
+        )
+    )
 
 
 def can_annotate_variant_for_functional_statement(
-    mapped_variant: MappedVariant, allow_research_use_only_calibrations=False
+    mapped_variant: MappedVariant,
+    allow_research_use_only_calibrations=False,
+    principal: Optional[Principal] = None,
 ) -> bool:
     """
     Determine if a mapped variant can be annotated for functional statements.
@@ -311,6 +370,11 @@ def can_annotate_variant_for_functional_statement(
     Args:
         mapped_variant (MappedVariant): The variant object to check for annotation
             eligibility, containing mapping information and score data.
+        allow_research_use_only_calibrations (bool, optional): Whether calibrations marked research use
+            only are eligible. Defaults to False.
+        principal (Optional[Principal], optional): The caller being served. Defaults to None, an anonymous
+            caller. Must match the principal the annotation itself will be built for, or this answers a
+            different question than the one the caller is about to act on.
 
     Returns:
         bool: True if the variant can be annotated for functional statements,
@@ -323,12 +387,15 @@ def can_annotate_variant_for_functional_statement(
     """
     if not _can_annotate_variant_base_assumptions(mapped_variant):
         return False
-    if not _variant_score_calibrations_have_required_calibrations_and_ranges_for_annotation(
-        mapped_variant, "functional", allow_research_use_only_calibrations=allow_research_use_only_calibrations
-    ):
-        return False
 
-    return True
+    return bool(
+        calibrations_available_for_annotation(
+            mapped_variant,
+            "functional",
+            allow_research_use_only_calibrations=allow_research_use_only_calibrations,
+            principal=principal,
+        )
+    )
 
 
 def sequence_feature_for_mapped_variant(mapped_variant: MappedVariant) -> SequenceFeature:

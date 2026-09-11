@@ -5,6 +5,7 @@ from fastapi import Depends, HTTPException
 
 from mavedb.lib.authentication import get_current_user
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.types.authentication import UserData
 from mavedb.models.enums.user_role import UserRole
 
@@ -24,6 +25,17 @@ async def require_current_user(
         raise HTTPException(status_code=401, detail="Could not validate credentials")
 
     return user_data
+
+
+async def get_principal(
+    user_data: Optional[UserData] = Depends(get_current_user),
+) -> Principal:
+    """The principal for this request, for handlers that fan out to permission-checked sibling entities.
+
+    Resolved through ``Depends`` rather than constructed in each handler because FastAPI caches a
+    dependency's result for the life of one request.
+    """
+    return Principal(user_data)
 
 
 async def require_current_user_with_email(

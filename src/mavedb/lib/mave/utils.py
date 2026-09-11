@@ -3,6 +3,11 @@ import re
 import pandas as pd
 
 NA_VALUE = "NA"
+"""The MAVE convention for a missing value: written by the CSV exports, recognised by the CSV ingest.
+
+Shared vocabulary rather than an export detail, which is why it stays here while the export-side null
+predicate lives with the exporter in ``lib/csv/columns.py``.
+"""
 
 NULL_VALUES = ("", "na", "nan", "nil", "none", "null", "n/a", "undefined", NA_VALUE)
 

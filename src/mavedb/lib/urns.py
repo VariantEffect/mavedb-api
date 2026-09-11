@@ -1,11 +1,16 @@
 import logging
 import re
 import string
+from typing import Optional
 from uuid import uuid4
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from mavedb.lib.validation.urn_re import (
+    MAVEDB_EXPERIMENT_SET_URN_DIGITS,
+    MAVEDB_URN_NAMESPACE,
+)
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_set import ScoreSet
@@ -175,3 +180,55 @@ def generate_job_run_urn():
     :return: A new job run URN
     """
     return f"urn:mavedb:job-{uuid4()}"
+
+
+# MaveDB URNs do not sort into assignment order as strings: score-set and variant suffixes are unpadded
+# (`-a-10` < `-a-2`, `#10` < `#2`) and experiment suffixes run a..z then aa..az (`aa` < `b`). Only the
+# experiment-set digits are padded, which is why a lexical sort looks right until double digits. The keys
+# below are the read side of the rule `generate_experiment_urn` already applies when assigning.
+
+
+_SCORE_SET_URN_PARTS_RE = re.compile(
+    rf"^(?P<experiment_set>urn:{MAVEDB_URN_NAMESPACE}:\d{{{MAVEDB_EXPERIMENT_SET_URN_DIGITS}}})"
+    r"-(?P<experiment>[a-z]+|0)"
+    r"-(?P<score_set>[1-9]\d*)$"
+)
+
+_VARIANT_URN_PARTS_RE = re.compile(r"^(?P<score_set>.+)#(?P<number>[1-9]\d*)$")
+
+_UNPARSED = 1
+"""Leading element for an undecomposable URN, so it sorts after every well-formed one.
+
+Unpublished records carry ``tmp:<uuid>`` URNs; they still order stably, by the URN itself. Returning a key
+rather than raising keeps a temporary URN from turning into a query error.
+"""
+
+_PARSED = 0
+
+
+def score_set_urn_sort_key(urn: Optional[str]) -> tuple[int, str, int, str, int]:
+    """Sort key ordering score set URNs the way their parts were assigned."""
+    if not urn:
+        return (_UNPARSED, "", 0, "", 0)
+
+    match = _SCORE_SET_URN_PARTS_RE.match(urn)
+    if match is None:
+        return (_UNPARSED, urn, 0, "", 0)
+
+    experiment = match["experiment"]
+    return (_PARSED, match["experiment_set"], len(experiment), experiment, int(match["score_set"]))
+
+
+def variant_urn_sort_key(urn: Optional[str]) -> tuple[int, str, int]:
+    """Sort key ordering variant URNs by score set, then by numeric suffix.
+
+    ``...#10`` is the tenth variant of a score set, not something between ``#1`` and ``#2``.
+    """
+    if not urn:
+        return (_UNPARSED, "", 0)
+
+    match = _VARIANT_URN_PARTS_RE.match(urn)
+    if match is None:
+        return (_UNPARSED, urn, 0)
+
+    return (_PARSED, match["score_set"], int(match["number"]))

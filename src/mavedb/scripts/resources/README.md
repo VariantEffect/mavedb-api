@@ -36,7 +36,7 @@ mavedb-dump.YYYYMMDDHHMMSS.zip
 ├── csv/
 │   ├── {urn}.scores.csv                       # Variant effect scores (all score sets)
 │   ├── {urn}.counts.csv                       # Variant counts (score sets with count data only)
-│   └── {urn}.annotations.csv                  # Variant annotations from VEP, gnomAD, and ClinGen
+│   └── {urn}.annotations.csv                  # Variant annotations from VEP, gnomAD, ClinGen and ClinVar, plus score calibration interpretations
 │                                              #   (score sets that have completed mapping only)
 ├── mapped/
 │   └── {urn}.mapped-variants.json             # Mapped variant data including VRS alleles and HGVS
@@ -77,7 +77,7 @@ identifies which data source a column belongs to and is separated from the colum
 | *(no prefix)* | Core identifiers — `accession`, `hgvs_nt`, `hgvs_pro`, `hgvs_splice` |
 | `scores.` | Score columns defined by the score set author (e.g. `scores.score`) |
 | `counts.` | Count columns defined by the score set author |
-| `mavedb.` | Columns computed by the MaveDB mapping pipeline (post-mapped HGVS, VRS digest) |
+| `mavedb.` | Columns computed by the MaveDB mapping pipeline (post-mapped HGVS, VRS identifier) |
 | `vep.` | Ensembl Variant Effect Predictor annotations |
 | `gnomad.` | gnomAD population frequency data |
 | `clingen.` | ClinGen Allele Registry linkage |
@@ -115,7 +115,9 @@ present for score sets that have count data. The count column names are listed i
 
 Variant annotation data from external databases, joined with post-mapped HGVS and VRS identifiers
 produced by the MaveDB variant mapping pipeline. **Only present for score sets that have completed
-the MaveDB mapping pipeline.** Exact columns:
+the MaveDB mapping pipeline.**
+
+Columns are grouped by a namespace prefix. The groups below always appear:
 
 | Column | Description |
 |--------|-------------|
@@ -127,10 +129,54 @@ the MaveDB mapping pipeline.** Exact columns:
 | `mavedb.post_mapped_hgvs_c` | Post-mapped coding HGVS (c. notation) |
 | `mavedb.post_mapped_hgvs_p` | Post-mapped protein HGVS (p. notation) |
 | `mavedb.post_mapped_hgvs_at_assay_level` | Post-mapped HGVS at the assay reference level (transcript or protein) |
-| `mavedb.post_mapped_vrs_digest` | GA4GH VRS digest identifier for the post-mapped allele |
+| `mavedb.post_mapped_vrs_id` | GA4GH VRS identifier for the post-mapped allele (e.g. `ga4gh:VA.n9ax-9x6gOC0OEt73VMYqCBfqfxG1XUH`) |
 | `vep.vep_functional_consequence` | VEP functional consequence term (e.g. `missense_variant`) |
-| `gnomad.gnomad_af` | gnomAD v4.1 allele frequency |
+| `gnomad.gnomad_af` | gnomAD allele frequency (allele count ÷ allele number) |
+| `gnomad.gnomad_ac` | gnomAD allele count — chromosomes observed carrying the allele |
+| `gnomad.gnomad_an` | gnomAD allele number — total chromosomes sampled |
+| `gnomad.gnomad_faf95_max` | Maximum filtering allele frequency at 95% confidence across genetic ancestry groups |
+| `gnomad.gnomad_faf95_max_ancestry` | Genetic ancestry group attaining `gnomad_faf95_max` |
+| `gnomad.gnomad_id` | gnomAD variant identifier (`chrom-pos-ref-alt`), e.g. `17-43092919-G-A` |
+| `gnomad.gnomad_version` | gnomAD release the frequencies were drawn from (e.g. `v4.1`) |
 | `clingen.clingen_allele_id` | ClinGen Allele Registry CA identifier (e.g. `CA12345`) |
+
+Two further groups vary by score set, because they exist only where MaveDB holds the underlying data.
+Read the header rather than assuming a fixed column set.
+
+**ClinVar** — one pair of columns per ingested release, prefixed `clinvar.YEAR_MONTH`. A score set with
+records from the January 2024 release carries `clinvar.2024_01.clinical_significance` and
+`clinvar.2024_01.clinical_review_status`.
+
+This file carries **every** release MaveDB holds for the score set, not just the most recent one, so a
+change in ClinVar's assessment over time can be read off a single file.
+
+**Score calibrations** — one group per calibration, prefixed `calibration.<calibration urn>`, giving
+that calibration's interpretation of each variant:
+
+| Column suffix | Description |
+|---------------|-------------|
+| `title` | Human-readable name of the calibration |
+| `research_use_only` | `True` if the calibration is not intended for clinical use — see below |
+| `functional_classification` | `normal`, `abnormal`, or `indeterminate` |
+| `acmg_criterion` | ACMG 2015 criterion evaluated, e.g. `PS3` or `BS3` |
+| `acmg_evidence_strength` | Strength the criterion was met at, e.g. `MODERATE`. `NA` when not met |
+| `acmg_evidence_outcome_code` | ACMG evidence outcome code, e.g. `PS3_moderate`, `PS3` (strong), `BS3_not_met` |
+| `pathogenicity_classification` | `PATHOGENIC`, `BENIGN`, or `UNCERTAIN_SIGNIFICANCE` |
+
+Every calibration MaveDB holds for the score set gets a group, including one that defines no score
+ranges. Such a group carries `title` and
+`research_use_only` with `NA` in every interpretation column: the calibration exists and was consulted,
+and it has no classification to give. That is different from a calibration whose ranges simply do not
+contain a particular variant, which reports `UNCERTAIN_SIGNIFICANCE` and `PS3_not_met`.
+
+**Research-use-only calibrations are included in this file**, and are marked by
+`research_use_only` = `True`. These calibrations have not been assessed as suitable for clinical variant
+interpretation. Filter them out on that column if you are assembling clinical evidence. They are currently *not*
+present in `va/{urn}.va.ndjson`.
+
+`acmg_evidence_strength` uses MaveDB's own scale, which includes `MODERATE_PLUS` — an intermediate
+strength that the GA4GH VA-Spec has no equivalent for. The same variant's record in `va/{urn}.va.ndjson`
+therefore reports `moderate` where this file reports `MODERATE_PLUS`.
 
 Variants that could not be mapped, or for which a specific annotation is unavailable, will have
 `NA` in the corresponding column. For multi-allelic variants (haplotypes), `mavedb.*` HGVS columns
@@ -139,8 +185,9 @@ a future release.
 
 ### `mapped/{urn}.mapped-variants.json`
 
-A JSON array of mapped variant records. Each record corresponds to a single variant and contains
-the same fields returned by `GET /api/v1/score-sets/{urn}/mapped-variants`:
+A JSON array of the score set's **current** mapped variant records. The same shape as
+`GET /api/v1/score-sets/{urn}/mapped-variants`, narrowed to `current: true`. Each record
+corresponds to a single variant:
 
 | Field | Description |
 |-------|-------------|
@@ -151,7 +198,7 @@ the same fields returned by `GET /api/v1/score-sets/{urn}/mapped-variants`:
 | `mappingApiVersion` | Version of the dcd_mapping service that produced this result |
 | `mappedDate` | Date the mapping was produced |
 | `modificationDate` | Date this mapping record was last modified |
-| `current` | `true` if this is the active mapping for the variant; `false` for superseded mappings |
+| `current` | Always `true` in this dump — superseded mappings are not included (see Caveats) |
 | `errorMessage` | Diagnostic message if mapping failed; `null` on success |
 | `clingenAlleleId` | ClinGen Allele Registry identifier, if the variant has been registered |
 
@@ -193,8 +240,10 @@ Significance` / `Benign`) integrates **only MaveDB functional evidence** — eve
 for the variant, with the strongest determining the statement-level classification — and not the
 non-functional ACMG criteria (population frequency, segregation, computational predictions) that a
 full clinical determination requires. Treat it as the functional contribution to a classification, to
-be combined with other evidence downstream, not as a standalone clinical verdict. Research-use-only
-calibrations are excluded.
+be combined with other evidence downstream, not as a standalone clinical verdict.
+
+Research-use-only calibrations are excluded from this file, unlike `csv/{urn}.annotations.csv`, which
+includes them under a `research_use_only` flag.
 
 `annotation` is `null` for current mapped variants that have no post-mapped allele (and therefore
 cannot be annotated); the `variant_urn` is still present on those lines. Every current mapped variant
@@ -251,6 +300,9 @@ score_set = next(
   VA-Spec files (`.va.ndjson`) are **only present for score sets that have been processed by the
   MaveDB variant mapping pipeline**. Score sets that have not yet been mapped, or for which mapping
   failed entirely, will not have these files.
+- `annotations.csv` includes **research-use-only** calibrations, flagged by `research_use_only`; the
+  `va/` files exclude them. Filter on that column before using calibration output as clinical evidence,
+  or before comparing the two files.
 - The `va/` files carry only each variant's highest materialized VA-Spec layer (see
   [`va/{urn}.va.ndjson`](#vaurnvandjson)). The pathogenicity layer's classification reflects MaveDB
   functional evidence only, not a full clinical ACMG determination.
@@ -258,10 +310,13 @@ score_set = next(
   pipeline may still contain individual variants with failed mappings. Those variants have `NA` in
   all `mavedb.*`, `vep.*`, `gnomad.*`, and `clingen.*` columns in the annotations CSV, and
   `preMapped: null` / `postMapped: null` in the JSON.
-- The `mapped/` JSON files include **all** mapping records, not only the most recent ones. When a
-  score set is remapped, the previous records are retained with `current: false`. For most use
-  cases, filter to records where `current` is `true`. Annotations are always reported with respect
-  to the current mapping object.
+- This dump is a snapshot of MaveDB's **current** state, not a historical archive. The `mapped/`
+  JSON files include only each variant's current mapping — superseded records from earlier mapping
+  runs are not retained here. (Unlike this per-run dump, `GET /api/v1/score-sets/{urn}/mapped-variants`
+  does return superseded mappings, for callers that need that history directly.) The same applies to
+  `annotations.csv` and the `va/` files: annotations are always reported with respect to the current
+  mapping object. If you need MaveDB's state as of a specific point in time, use a dump from that
+  time (e.g. an earlier Zenodo-archived release) rather than looking for historical rows within one.
 - gnomAD allele frequencies in `annotations.csv` are sourced from **gnomAD v4.1** specifically.
 - `preMapped` VRS objects reference the assay's input sequence (a transcript or protein accession).
   `postMapped` VRS objects are remapped to the **GRCh38** reference genome. Do not compare

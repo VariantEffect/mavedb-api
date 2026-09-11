@@ -244,16 +244,12 @@ class ScoreSetUpdateAllOptional(ScoreSetUpdateBase):
         # Define which fields need special JSON parsing
         json_fields = {
             "contributors": lambda data: [ContributorCreate.model_validate(c) for c in data] if data else None,
-            "primary_publication_identifiers": lambda data: [
-                PublicationIdentifierCreate.model_validate(p) for p in data
-            ]
-            if data
-            else None,
-            "secondary_publication_identifiers": lambda data: [
-                PublicationIdentifierCreate.model_validate(s) for s in data
-            ]
-            if data
-            else None,
+            "primary_publication_identifiers": lambda data: (
+                [PublicationIdentifierCreate.model_validate(p) for p in data] if data else None
+            ),
+            "secondary_publication_identifiers": lambda data: (
+                [PublicationIdentifierCreate.model_validate(s) for s in data] if data else None
+            ),
             "doi_identifiers": lambda data: [DoiIdentifierCreate.model_validate(d) for d in data] if data else None,
             "target_genes": lambda data: [TargetGeneCreate.model_validate(t) for t in data] if data else None,
             "extra_metadata": lambda data: data,
@@ -326,7 +322,10 @@ class ShortScoreSet(BaseModel):
 
 
 class ShorterScoreSet(BaseModel):
+    """A score set's identity: enough to name it in a UI without rooting the display on its URN."""
+
     urn: str
+    title: str
     record_type: str = None  # type: ignore
 
     _record_type_factory = record_type_validator()(set_record_type)

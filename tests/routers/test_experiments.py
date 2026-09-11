@@ -24,6 +24,7 @@ from mavedb.view_models.orcid import OrcidUser
 from tests.helpers.constants import (
     EXTRA_USER,
     TEST_BIORXIV_IDENTIFIER,
+    TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_CROSSREF_IDENTIFIER,
     TEST_EXPERIMENT_WITH_KEYWORD,
     TEST_EXPERIMENT_WITH_KEYWORD_HAS_DUPLICATE_OTHERS_RESPONSE,
@@ -40,8 +41,13 @@ from tests.helpers.constants import (
     TEST_USER2,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
+from tests.helpers.util.common import deepcamelize
 from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.experiment import create_experiment
+from tests.helpers.util.score_calibration import (
+    create_test_score_calibration_in_score_set_via_client,
+    publish_test_score_calibration_via_client,
+)
 from tests.helpers.util.score_set import create_seq_score_set, create_seq_score_set_with_variants, publish_score_set
 from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import mock_worker_variant_insertion
@@ -1568,12 +1574,59 @@ def test_users_get_one_score_set_from_own_experiment_with_a_superseding_score_se
     assert pub_score_set["urn"] not in response_data["scoreSetUrns"]
 
 
-def test_search_experiments(session, client, setup_router_db):
-    experiment = create_experiment(client)
+def _publish_experiment(session, data_provider, client, data_files, update=None):
+    """Publish an experiment, and return it.
+
+    Publishing a score set is the only path that publishes its experiment, so an experiment cannot be
+    published without one.
+    """
+    experiment = create_experiment(client, update)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    return published_score_set["experiment"]
+
+
+def test_search_experiments(session, data_provider, client, setup_router_db, data_files):
+    experiment = _publish_experiment(session, data_provider, client, data_files)
     search_payload = {"text": experiment["shortDescription"]}
     response = client.post("/api/v1/experiments/search", json=search_payload)
     assert response.status_code == 200
     assert response.json()[0]["title"] == experiment["title"]
+
+
+def test_search_experiments_excludes_unpublished(session, data_provider, client, setup_router_db, data_files):
+    """The public search endpoint serves published experiments only.
+
+    Both experiments match the search text, so this fails whether the visibility filter is too permissive
+    or too restrictive. Asserting only that an unpublished experiment is absent would also pass if the
+    search returned nothing at all.
+    """
+    published = _publish_experiment(
+        session, data_provider, client, data_files, update={"title": "Published Experiment"}
+    )
+    unpublished = create_experiment(client, update={"title": "Unpublished Experiment"})
+
+    search_payload = {"text": TEST_MINIMAL_EXPERIMENT["shortDescription"]}
+    response = client.post("/api/v1/experiments/search", json=search_payload)
+
+    assert response.status_code == 200
+    returned_urns = [item["urn"] for item in response.json()]
+    assert published["urn"] in returned_urns
+    assert unpublished["urn"] not in returned_urns
+
+
+def test_search_experiments_rejects_explicit_unpublished_search(session, client, setup_router_db):
+    """Unpublished experiments are reached through /me/experiments/search, never this endpoint."""
+    response = client.post("/api/v1/experiments/search", json={"published": False})
+    assert response.status_code == 422
+    assert (
+        response.json()["detail"]
+        == "Cannot search for private experiments except in the context of the current user's data."
+    )
 
 
 def test_search_my_experiments(session, client, setup_router_db):
@@ -1796,6 +1849,86 @@ def test_non_owner_searches_published_superseding_score_sets_for_experiments(
     assert response.json()[0]["urn"] == published_superseding_score_set["urn"]
 
 
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_experiment_score_sets_withhold_private_calibrations_from_anonymous_users(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides, mock_publication_fetch
+):
+    """A published score set can carry an unpublished calibration.
+
+    This endpoint checks READ on the experiment and on each score set, but a calibration's READ rule is
+    stricter than its score set's, so it needs its own filter. Without it the listing served every private
+    calibration's thresholds to anyone.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    experiment_urn = published["experiment"]["urn"]
+
+    # The owner sees their own private calibration.
+    owner_response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+    assert owner_response.status_code == 200
+    owner_entry = next(ss for ss in owner_response.json() if ss["urn"] == published["urn"])
+    assert len(owner_entry.get("scoreCalibrations") or []) == 1
+
+    with DependencyOverrider(anonymous_app_overrides):
+        anonymous_response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+
+    assert anonymous_response.status_code == 200
+    anonymous_entry = next(ss for ss in anonymous_response.json() if ss["urn"] == published["urn"])
+    assert (anonymous_entry.get("scoreCalibrations") or []) == []
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_experiment_score_sets_serve_published_calibrations_to_anonymous_users(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides, mock_publication_fetch
+):
+    """The filter withholds only what a calibration's own READ rule withholds."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    publish_test_score_calibration_via_client(client, calibration["urn"])
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    experiment_urn = published["experiment"]["urn"]
+
+    with DependencyOverrider(anonymous_app_overrides):
+        anonymous_response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+
+    assert anonymous_response.status_code == 200
+    anonymous_entry = next(ss for ss in anonymous_response.json() if ss["urn"] == published["urn"])
+    assert [c["urn"] for c in (anonymous_entry.get("scoreCalibrations") or [])] == [calibration["urn"]]
+
+
 def test_search_score_sets_for_contributor_experiments(session, client, setup_router_db, data_files, data_provider):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -1848,8 +1981,8 @@ def test_search_score_sets_for_my_experiments(session, client, setup_router_db, 
     )
 
 
-def test_search_their_experiments(session, client, setup_router_db):
-    experiment = create_experiment(client)
+def test_search_their_experiments(session, data_provider, client, setup_router_db, data_files):
+    experiment = _publish_experiment(session, data_provider, client, data_files)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
     change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
     search_payload = {"text": experiment["shortDescription"]}
@@ -1857,6 +1990,22 @@ def test_search_their_experiments(session, client, setup_router_db):
     assert response.status_code == 200
     assert response.json()[0]["createdBy"]["orcidId"] == EXTRA_USER["username"]
     assert response.json()[0]["createdBy"]["firstName"] == EXTRA_USER["first_name"]
+
+
+def test_cannot_search_their_unpublished_experiments(session, client, setup_router_db):
+    """Another user's unpublished experiment is not disclosed by the public search endpoint.
+
+    Regression test: build_search_experiments_query_filter narrows by owner or contributor and receives
+    None from this endpoint, so before the visibility filter was added this returned the experiment along
+    with its owner's name and ORCID iD.
+    """
+    experiment = create_experiment(client)
+    change_ownership(session, experiment["urn"], ExperimentDbModel)
+    change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
+    search_payload = {"text": experiment["shortDescription"]}
+    response = client.post("/api/v1/experiments/search", json=search_payload)
+    assert response.status_code == 200
+    assert experiment["urn"] not in [item["urn"] for item in response.json()]
 
 
 def test_search_not_my_experiments(session, client, setup_router_db):
@@ -1869,13 +2018,27 @@ def test_search_not_my_experiments(session, client, setup_router_db):
     assert len(response.json()) == 0
 
 
-def test_anonymous_search_experiments(session, client, anonymous_app_overrides, setup_router_db):
-    experiment = create_experiment(client)
-    search_payload = {"text": experiment["shortDescription"]}
+def test_anonymous_search_experiments(
+    session, data_provider, client, anonymous_app_overrides, setup_router_db, data_files
+):
+    """An anonymous caller sees published experiments, and only those.
+
+    Both experiments match the search text, so this fails whether the visibility filter is too permissive
+    or too restrictive.
+    """
+    published = _publish_experiment(
+        session, data_provider, client, data_files, update={"title": "Published Experiment"}
+    )
+    unpublished = create_experiment(client, update={"title": "Unpublished Experiment"})
+
+    search_payload = {"text": TEST_MINIMAL_EXPERIMENT["shortDescription"]}
     with DependencyOverrider(anonymous_app_overrides):
         response = client.post("/api/v1/experiments/search", json=search_payload)
+
     assert response.status_code == 200
-    assert response.json()[0]["title"] == experiment["title"]
+    returned_urns = [item["urn"] for item in response.json()]
+    assert published["urn"] in returned_urns
+    assert unpublished["urn"] not in returned_urns
 
 
 def test_anonymous_cannot_search_my_experiments(session, client, anonymous_app_overrides, setup_router_db):
