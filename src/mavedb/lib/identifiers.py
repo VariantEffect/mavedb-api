@@ -216,7 +216,10 @@ async def fetch_biorxiv_article(identifier: str) -> Optional[RxivContentDetail]:
     Fetch an existing bioRxiv article from Rxiv
     """
     fetch = Rxiv("https://api.biorxiv.org", "biorxiv")
-    articles = fetch.content_detail(identifier=identifier)
+    try:
+        articles = fetch.content_detail(identifier=identifier)
+    except Exception:
+        return None
     try:
         return articles[-1]
     except IndexError:
@@ -228,7 +231,10 @@ async def fetch_medrxiv_article(identifier: str) -> Optional[RxivContentDetail]:
     Fetch an existing medRxiv article from Rxiv
     """
     fetch = Rxiv("https://api.biorxiv.org", "medrxiv")
-    articles = fetch.content_detail(identifier=identifier)
+    try:
+        articles = fetch.content_detail(identifier=identifier)
+    except Exception:
+        return None
     try:
         return articles[-1]
     except IndexError:
