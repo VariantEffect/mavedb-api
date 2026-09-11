@@ -2,6 +2,7 @@ import logging
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from mavedb import deps
@@ -29,6 +30,7 @@ from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.constants.general import calibration_class_column_name, calibration_variant_column_name
 from mavedb.lib.validation.dataframe.calibration import validate_and_standardize_calibration_classes_dataframe
 from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.lib.validation.utilities import is_replaces_id_unique_violation
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_set import ScoreSet
@@ -356,10 +358,18 @@ async def create_score_calibration_route(
         created_calibration = await create_score_calibration_in_score_set(
             db, calibration, user_data, variant_classes if classes_file else None
         )
+        db.commit()
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except IntegrityError as e:
+        db.rollback()
+        if is_replaces_id_unique_violation(e):
+            raise HTTPException(
+                status_code=409,
+                detail="The requested score calibration has already been superseded.",
+            )
+        raise
 
-    db.commit()
     db.refresh(created_calibration)
 
     return created_calibration

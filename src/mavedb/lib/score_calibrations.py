@@ -258,7 +258,7 @@ async def _create_score_calibration(
             db.flush()
 
     if calibration_create.superseded_calibration_urn:
-        superseded_calibration = validate_superseded_score_calibration(db, calibration_create, user_data)
+        superseded_calibration = validate_superseded_score_calibration(db, calibration_create, containing_score_set, user_data)
     else:
         superseded_calibration = None
 
@@ -425,7 +425,7 @@ def find_superseded_score_calibration_tail(
         # If we were given a permission to check and the next score calibration in the chain does not have that permission,
         # pretend like we have reached the end of the chain. Otherwise, continue to the next score calibration.
         if action is not None and not has_permission(user_data, next_score_calibration_in_chain, action).permitted:
-            return score_calibration
+            break
 
         score_calibration = next_score_calibration_in_chain
 
@@ -686,7 +686,11 @@ def publish_score_calibration(db: Session, calibration: ScoreCalibration, user: 
 
     db.add(calibration)
 
-    if calibration.superseded_calibration and calibration.superseded_calibration.primary:
+    if (
+            calibration.superseded_calibration
+            and calibration.superseded_calibration.primary
+            and not calibration.research_use_only
+    ):
         promote_score_calibration_to_primary(db, calibration, user, force=True)
 
     return calibration
@@ -828,6 +832,7 @@ def delete_score_calibration(db: Session, calibration: ScoreCalibration) -> None
 def validate_superseded_score_calibration(
     db: Session,
     calibration_create: ScoreCalibrationCreate,
+    containing_score_set: ScoreSet,
     user_data: Optional[UserData],
 ) -> Optional[ScoreCalibration]:
     if not calibration_create.superseded_calibration_urn:
@@ -841,15 +846,10 @@ def validate_superseded_score_calibration(
 
     if superseded_calibration is None:
         raise ValueError("Superseded calibration does not exist.")
-
-    if not has_permission(user_data, superseded_calibration, Action.READ).permitted:
+    if superseded_calibration.score_set_id != containing_score_set.id:
+        raise ValueError("Superseded score calibration is not from the same score set.")
+    if not has_permission(user_data, superseded_calibration, Action.SUPERSEDE_CALIBRATION).permitted:
         raise ValueError("No access right to supersede this calibration.")
-
-    if superseded_calibration.private:
-        raise ValueError("Cannot supersede a private calibration. Please edit it instead.")
-
-    if superseded_calibration.superseding_calibration:
-        raise ValueError("Cannot supersede a superseded calibration. Please edit it instead.")
 
     return superseded_calibration
 

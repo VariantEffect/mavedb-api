@@ -60,7 +60,7 @@ class ScoreCalibration(Base):
 
     calibration_metadata = Column(JSONB(none_as_null=True), nullable=True)
 
-    superseded_calibration_id = Column("replaces_id", Integer, ForeignKey("score_calibrations.id"), index=True, nullable=True)
+    superseded_calibration_id = Column("replaces_id", Integer, ForeignKey("score_calibrations.id"), index=True, nullable=True, unique=True)
     superseded_calibration: Mapped[Optional["ScoreCalibration"]] = relationship(
         "ScoreCalibration",
         uselist=False,

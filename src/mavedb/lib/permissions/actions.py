@@ -14,3 +14,4 @@ class Action(Enum):
     ADD_BADGE = "add_badge"
     CHANGE_RANK = "change_rank"
     ADD_CALIBRATION = "add_calibration"
+    SUPERSEDE_CALIBRATION = "supersede_calibration"
