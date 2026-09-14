@@ -25,13 +25,13 @@ from mavedb.worker.settings.redis import RedisWorkerSettings
 # driver, enabling incremental migration of job functions without touching
 # the FastAPI layer. Once all jobs use async sessions, raise MAX_JOBS to 10+.
 MAX_JOBS = 2
-# ARQ's hard coroutine-kill ceiling. Kept deliberately high (8h) so ARQ is the *last* resort:
+# ARQ's hard coroutine-kill ceiling. Kept deliberately high (24h) so ARQ is the *last* resort:
 # our own DB-driven sweeper (cleanup_stalled_jobs) should detect and recover stalls long before
 # this fires, keeping the JobRun state machine in sync with reality. VEP fan-out over large allele
 # sets can legitimately run for hours, so a low ceiling would kill healthy work.
 # cleanup's RUNNING_TIMEOUT_MINUTES backstop sits ~30 min under this to try and sweep these jobs before
 # ARQ's hard timeout fires.
-JOB_TIMEOUT_SECONDS = 8 * 60 * 60  # 8 hours
+JOB_TIMEOUT_SECONDS = 24 * 60 * 60  # 24 hours
 
 
 class ArqWorkerSettings:

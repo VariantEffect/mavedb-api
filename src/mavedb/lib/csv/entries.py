@@ -6,12 +6,13 @@ asks about one score set, the variant CSV widens across every score set measurin
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Iterable, Optional, Sequence
 
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from mavedb.lib.annotation.util import score_calibration_may_be_used_for_annotation
+from mavedb.lib.annotation.calibration import score_calibration_may_be_used_for_annotation
 from mavedb.lib.csv.namespaces import (
     CLINVAR_DB_NAME,
     STATIC_CSV_NAMESPACE_LABELS,
@@ -22,8 +23,10 @@ from mavedb.lib.csv.namespaces import (
     clinvar_namespace_sort_key,
 )
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
-from mavedb.models.clinical_control import ClinicalControl
-from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.clinical_control import ClinvarControl
+from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
+from mavedb.models.mapping_record import MappingRecord
+from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -142,8 +145,10 @@ def calibration_namespace_entries(calibrations: Iterable[ScoreCalibration]) -> l
     return entries
 
 
-def score_sets_have_current_mappings(db: Session, score_set_ids: Sequence[int]) -> bool:
-    """Whether any variant in these score sets has a current mapping.
+def score_sets_have_current_mappings(
+    db: Session, score_set_ids: Sequence[int], *, as_of: Optional[datetime] = None
+) -> bool:
+    """Whether any variant in these score sets has a live mapping record with an authoritative allele.
 
     Gates the mapping-derived namespaces: any mapping in a score set means the variant CSV
     should offer the namespaces, even if the variant in question is unmapped.
@@ -153,16 +158,25 @@ def score_sets_have_current_mappings(db: Session, score_set_ids: Sequence[int]) 
 
     return (
         db.scalars(
-            select(MappedVariant.id)
-            .join(MappedVariant.variant)
-            .where(and_(Variant.score_set_id.in_(score_set_ids), MappedVariant.current.is_(True)))
+            select(MappingRecordAllele.id)
+            .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
+            .join(Variant, Variant.id == MappingRecord.variant_id)
+            .where(
+                and_(
+                    Variant.score_set_id.in_(score_set_ids),
+                    MappingRecordAllele.is_authoritative.is_(True),
+                    MappingRecordAllele.live_at(as_of),
+                )
+            )
             .limit(1)
         ).first()
         is not None
     )
 
 
-def clinvar_release_namespaces(db: Session, score_set_ids: Sequence[int]) -> list[str]:
+def clinvar_release_namespaces(
+    db: Session, score_set_ids: Sequence[int], *, as_of: Optional[datetime] = None
+) -> list[str]:
     """Every ClinVar release namespace these score sets have data for.
 
     Scoped to the score set, not the measurement, so a variant with no record still gets NA columns —
@@ -173,14 +187,18 @@ def clinvar_release_namespaces(db: Session, score_set_ids: Sequence[int]) -> lis
         return []
 
     db_versions = db.scalars(
-        select(ClinicalControl.db_version)
-        .join(ClinicalControl.mapped_variants.of_type(MappedVariant))
-        .join(MappedVariant.variant)
+        select(ClinvarControl.db_version)
+        .join(ClinvarAlleleLink, ClinvarAlleleLink.clinvar_control_id == ClinvarControl.id)
+        .join(MappingRecordAllele, MappingRecordAllele.allele_id == ClinvarAlleleLink.allele_id)
+        .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
+        .join(Variant, Variant.id == MappingRecord.variant_id)
         .where(
             and_(
                 Variant.score_set_id.in_(score_set_ids),
-                MappedVariant.current.is_(True),
-                ClinicalControl.db_name == CLINVAR_DB_NAME,
+                MappingRecordAllele.is_authoritative.is_(True),
+                MappingRecordAllele.live_at(as_of),
+                ClinvarAlleleLink.live_at(as_of),
+                ClinvarControl.db_name == CLINVAR_DB_NAME,
             )
         )
         .distinct()

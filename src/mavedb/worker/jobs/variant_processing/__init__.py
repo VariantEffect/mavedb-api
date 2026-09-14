@@ -10,8 +10,10 @@ from .creation import create_variants_for_score_set
 from .mapping import (
     map_variants_for_score_set,
 )
+from .reverse_translation import reverse_translate_variants_for_score_set
 
 __all__ = [
     "create_variants_for_score_set",
     "map_variants_for_score_set",
+    "reverse_translate_variants_for_score_set",
 ]

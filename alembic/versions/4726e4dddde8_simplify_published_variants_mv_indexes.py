@@ -8,14 +8,17 @@ Create Date: 2025-03-25 10:46:46.641777
 
 from alembic import op
 
-from mavedb.models.published_variant import signature
-
 
 # revision identifiers, used by Alembic.
 revision = "4726e4dddde8"
 down_revision = "b85bc7b1bec7"
 branch_labels = None
 depends_on = None
+
+# Frozen literal, not imported from the model: this migration replaces the historical
+# mapped_variants-based MV indexes at its point in history. A later migration rebuilds the MV onto
+# the mapping_records substrate and re-indexes it, so the column names below stay the legacy ones.
+signature = "published_variants_materialized_view"
 
 
 def upgrade():

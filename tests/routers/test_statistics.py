@@ -21,7 +21,12 @@ from tests.helpers.constants import (
     TEST_PUBMED_IDENTIFIER,
     VALID_GENE,
 )
-from tests.helpers.util.score_set import publish_score_set, create_acc_score_set, create_seq_score_set
+from tests.helpers.util.score_set import (
+    publish_score_set,
+    create_acc_score_set,
+    create_seq_score_set,
+    seed_annotation_substrate,
+)
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.variant import mock_worker_variant_insertion, create_mapped_variants_for_score_set
 
@@ -65,7 +70,12 @@ def setup_seq_scoreset(setup_router_db, session, data_provider, client, data_fil
     unpublished_score_set = mock_worker_variant_insertion(
         client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
+    # Fully-mapped state: target post_mapped_metadata + mapping_state (read by the target-gene
+    # statistics). MappedVariant rows are seeded here too but are no longer read by the MV.
     create_mapped_variants_for_score_set(session, unpublished_score_set["urn"], TEST_MINIMAL_MAPPED_VARIANT)
+    # The published_variants MV reads the MappingRecord/Allele substrate now (not MappedVariant), so
+    # give each variant a live mapping record for the mapped-variant statistics to count.
+    seed_annotation_substrate(session, unpublished_score_set)
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
         publish_score_set(client, unpublished_score_set["urn"])

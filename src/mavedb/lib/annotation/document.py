@@ -7,8 +7,8 @@ from ga4gh.core.models import iriReference as IRI
 from ga4gh.va_spec.base.core import Document
 
 from mavedb.constants import MAVEDB_FRONTEND_URL
+from mavedb.models.allele import Allele
 from mavedb.models.experiment import Experiment
-from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -128,31 +128,34 @@ def score_calibration_as_document(score_calibration: ScoreCalibration) -> Docume
     )
 
 
-def mapped_variant_as_iri(mapped_variant: MappedVariant) -> Optional[IRI]:
+def measured_allele_as_iri(allele: Allele) -> Optional[IRI]:
     """
-    Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for the provided MaveDB mapped variant. Within
-    the context of VA-Spec, these can be used interchangeably with an equivalent document object for brevity.
+    Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for the
+    measured (authoritative) allele, keyed by its ClinGen allele id. Within the context of VA-Spec, these
+    can be used interchangeably with an equivalent document object for brevity. ``None`` when the allele
+    has no ClinGen allele id.
     """
-    if not mapped_variant.clingen_allele_id:
+    if not allele.clingen_allele_id:
         return None
 
-    return IRI(f"https://mavedb.org/variant/{urllib.parse.quote_plus(mapped_variant.clingen_allele_id)}")
+    return IRI(f"https://mavedb.org/variant/{urllib.parse.quote_plus(allele.clingen_allele_id)}")
 
 
-def mapped_variant_to_document(mapped_variant: MappedVariant) -> Optional[Document]:
+def measured_allele_to_document(allele: Allele) -> Optional[Document]:
     """
     Create a [VA Document](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/document.html#document)
-    object from the provided MaveDB mapped variant.
+    object from the provided MaveDB measured (authoritative) allele, keyed by its ClinGen allele id. ``None``
+    when the allele has no ClinGen allele id.
     """
-    if not mapped_variant.clingen_allele_id:
+    if not allele.clingen_allele_id:
         return None
 
     return Document(
-        id=mapped_variant.variant.urn,
-        name="MaveDB Mapped Variant",
-        documentType="mapped genomic variant description",
-        # We only reach this point if a IRI is guaranteed to exist
-        urls=[mapped_variant_as_iri(mapped_variant).root],  # type: ignore
+        id=allele.clingen_allele_id,
+        name="MaveDB Measured Allele",
+        documentType="measured allele",
+        # The measured allele document is keyed by its ClinGen allele id, so the IRI is guaranteed to exist.
+        urls=[measured_allele_as_iri(allele).root],  # type: ignore
     )
 
 

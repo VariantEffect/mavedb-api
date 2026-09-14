@@ -8,7 +8,7 @@ from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 
 if TYPE_CHECKING:
-    from mavedb.view_models.mapped_variant import MappedVariantCreate, MappedVariantForClinicalControl
+    from mavedb.view_models.mapped_variant import MappedVariantCreate
 
 
 class ClinicalControlBase(BaseModel):
@@ -41,8 +41,17 @@ class SavedClinicalControl(ClinicalControlBase):
         from_attributes = True
 
 
-class SavedClinicalControlWithMappedVariants(SavedClinicalControl):
-    mapped_variants: Sequence["MappedVariantForClinicalControl"]
+class ClinvarVariantLink(BaseModel):
+    """One score-set variant a ClinVar control reaches, tagged with the annotated allele's digest."""
+
+    variant_urn: str
+    # VRS digest of the allele this control annotates. Many controls
+    # may share the same variant_urn, but each will have a different allele_digest.
+    allele_digest: Optional[str] = None
+
+
+class SavedClinicalControlWithClinvarLinks(SavedClinicalControl):
+    clinvar_links: Sequence[ClinvarVariantLink]
 
 
 # Properties to return to non-admin clients
@@ -50,7 +59,7 @@ class ClinicalControl(SavedClinicalControl):
     pass
 
 
-class ClinicalControlWithMappedVariants(SavedClinicalControlWithMappedVariants):
+class ClinicalControlWithClinvarLinks(SavedClinicalControlWithClinvarLinks):
     pass
 
 

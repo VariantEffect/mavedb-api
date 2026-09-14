@@ -1,0 +1,265 @@
+# ruff: noqa: E402
+"""Router tests for the ClinGen-allele measurements endpoint
+(``GET /clingen-alleles/{caid}/measurements``).
+
+Exercise the HTTP surface: the equivalence-class list serializes and validates, the ``as_of``
+content-time is echoed in ``X-As-Of``, an unknown id is an empty list (not a 404), superseded
+measurements are opt-in, a private score set's measurement never leaks, and the response body's
+order reflects the ranked sort (current-then-superseded, direct-then-related, newest-published, urn).
+"""
+
+from datetime import date
+
+import pytest
+
+arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
+
+from sqlalchemy import select
+
+from mavedb.models.allele import Allele
+from mavedb.models.mapping_record import MappingRecord
+from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.models.variant import Variant as VariantDbModel
+from mavedb.view_models.allele_measurement import AlleleMeasurement
+from tests.helpers.dependency_overrider import DependencyOverrider
+from tests.helpers.util.experiment import create_experiment
+from tests.helpers.util.score_set import create_seq_score_set_with_variants
+from tests.helpers.util.user import change_ownership
+
+
+def _seed_cdna_measurement(session, variant_urn, *, clingen_allele_id="CA123", vrs_digest="cdna-digest"):
+    """Give a variant a live coding-measured mapping record whose authoritative allele carries the
+    ClinGen id — the minimal shape for a direct measurement on that CA's page. ``vrs_digest`` is
+    content-unique (DB constraint), so pass a distinct one when seeding more than one per test."""
+    variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == variant_urn))
+    record = MappingRecord(
+        variant_id=variant.id,
+        assay_level="cdna",
+        hgvs_assay_level="NM_000546.6:c.1216G>A",
+        mapping_api_version="test.0.0",
+    )
+    session.add(record)
+    session.commit()
+
+    measured = Allele(vrs_digest=vrs_digest, level="cdna", clingen_allele_id=clingen_allele_id)
+    session.add(measured)
+    session.commit()
+    session.add(MappingRecordAllele(mapping_record_id=record.id, allele_id=measured.id, is_authoritative=True))
+    session.commit()
+
+
+def test_measurements_serialize(client, session, data_provider, data_files, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    urn = f"{score_set['urn']}#1"
+    _seed_cdna_measurement(session, urn)
+
+    response = client.get("/api/v1/clingen-alleles/CA123/measurements")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    AlleleMeasurement.model_validate(body[0])
+    assert body[0]["variantUrn"] == urn
+    assert body[0]["relationship"] == "direct"
+    assert body[0]["assayLevel"] == "cdna"
+    assert body[0]["assayLevelHgvs"] == "NM_000546.6:c.1216G>A"
+    assert body[0]["submittedHgvs"] == "c.1A>T"
+    assert body[0]["scoreSetUrn"] == score_set["urn"]
+    assert body[0]["isCurrent"] is True
+    assert "supersededByScoreSet" not in body[0]  # dropped by exclude_none when current
+    assert response.headers["X-As-Of"] == "current"
+
+
+def test_unknown_clingen_id_returns_empty_list(client, setup_router_db):
+    response = client.get("/api/v1/clingen-alleles/CA000/measurements")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_superseded_measurement_is_opt_in(client, session, data_provider, data_files, setup_router_db):
+    experiment = create_experiment(client)
+    older = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    newer = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    older_db = session.scalar(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == older["urn"]))
+    newer_db = session.scalar(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == newer["urn"]))
+    newer_db.superseded_score_set_id = older_db.id
+    session.commit()
+    _seed_cdna_measurement(session, f"{older['urn']}#1")
+
+    default = client.get("/api/v1/clingen-alleles/CA123/measurements")
+    assert default.status_code == 200
+    assert default.json() == []
+
+    opted = client.get("/api/v1/clingen-alleles/CA123/measurements", params={"include_superseded": True})
+    assert opted.status_code == 200
+    body = opted.json()
+    assert len(body) == 1
+    assert body[0]["isCurrent"] is False
+    assert body[0]["supersededByScoreSet"] == newer["urn"]
+
+
+def test_nucleotide_siblings_shown(client, session, data_provider, data_files, setup_router_db):
+    """A different DNA variant encoding the same protein consequence surfaces on a CA page as a
+    ``nucleotide_encoding``, reached through the shared protein consequence."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    prot = Allele(vrs_digest="prot-digest", level="protein", clingen_allele_id="PA9")
+    session.add(prot)
+    session.commit()
+
+    # Two coding measurements encoding the same protein consequence (PA9), each carrying its own CA.
+    for suffix, caid, digest in ((1, "CA111", "cdna-1"), (2, "CA222", "cdna-2")):
+        variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == f"{score_set['urn']}#{suffix}"))
+        record = MappingRecord(variant_id=variant.id, assay_level="cdna", mapping_api_version="test.0.0")
+        session.add(record)
+        session.commit()
+        nt = Allele(vrs_digest=digest, level="cdna", clingen_allele_id=caid)
+        session.add(nt)
+        session.commit()
+        session.add(MappingRecordAllele(mapping_record_id=record.id, allele_id=nt.id, is_authoritative=True))
+        session.add(MappingRecordAllele(mapping_record_id=record.id, allele_id=prot.id))
+        session.commit()
+
+    response = client.get("/api/v1/clingen-alleles/CA111/measurements")
+    assert response.status_code == 200
+    by_urn = {m["variantUrn"]: m for m in response.json()}
+    assert set(by_urn) == {f"{score_set['urn']}#1", f"{score_set['urn']}#2"}
+    assert by_urn[f"{score_set['urn']}#1"]["relationship"] == "direct"
+    assert by_urn[f"{score_set['urn']}#2"]["relationship"] == "nucleotide_encoding"
+
+
+def test_direct_measurements_sort_before_related(client, session, data_provider, data_files, setup_router_db):
+    """The list is ordered, and direct measurements precede related ones in the body: a CA query returns
+    the directly-assayed change first, then the sibling nucleotide encoding."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    prot = Allele(vrs_digest="prot-digest", level="protein", clingen_allele_id="PA9")
+    session.add(prot)
+    session.commit()
+
+    for suffix, caid, digest in ((1, "CA111", "cdna-1"), (2, "CA222", "cdna-2")):
+        variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == f"{score_set['urn']}#{suffix}"))
+        record = MappingRecord(variant_id=variant.id, assay_level="cdna", mapping_api_version="test.0.0")
+        session.add(record)
+        session.commit()
+        nt = Allele(vrs_digest=digest, level="cdna", clingen_allele_id=caid)
+        session.add(nt)
+        session.commit()
+        session.add(MappingRecordAllele(mapping_record_id=record.id, allele_id=nt.id, is_authoritative=True))
+        session.add(MappingRecordAllele(mapping_record_id=record.id, allele_id=prot.id))
+        session.commit()
+
+    response = client.get("/api/v1/clingen-alleles/CA111/measurements")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [(m["variantUrn"], m["relationship"]) for m in body] == [
+        (f"{score_set['urn']}#1", "direct"),
+        (f"{score_set['urn']}#2", "nucleotide_encoding"),
+    ]
+
+
+def test_current_measurements_sort_before_superseded(client, session, data_provider, data_files, setup_router_db):
+    """With superseded measurements opted in, current ones sort ahead of superseded ones in the body."""
+    experiment = create_experiment(client)
+    older = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    newer = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    older_db = session.scalar(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == older["urn"]))
+    newer_db = session.scalar(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == newer["urn"]))
+    newer_db.superseded_score_set_id = older_db.id
+    session.commit()
+    _seed_cdna_measurement(session, f"{older['urn']}#1", vrs_digest="cdna-older")
+    _seed_cdna_measurement(session, f"{newer['urn']}#1", vrs_digest="cdna-newer")
+
+    response = client.get("/api/v1/clingen-alleles/CA123/measurements", params={"include_superseded": True})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [(m["variantUrn"], m["isCurrent"]) for m in body] == [
+        (f"{newer['urn']}#1", True),
+        (f"{older['urn']}#1", False),
+    ]
+
+
+def test_measurements_sort_newest_published_first(client, session, data_provider, data_files, setup_router_db):
+    """Between two otherwise-equal current, unclassified measurements the newest-published sorts first —
+    published date outranks the urn tiebreak (here the newer set has the later urn, yet still leads)."""
+    experiment = create_experiment(client)
+    first = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    second = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    first_db = session.scalar(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == first["urn"]))
+    second_db = session.scalar(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == second["urn"]))
+    first_db.published_date = date(2024, 1, 1)
+    second_db.published_date = date(2024, 6, 1)  # later-published, and later urn
+    session.commit()
+    _seed_cdna_measurement(session, f"{first['urn']}#1", vrs_digest="cdna-first")
+    _seed_cdna_measurement(session, f"{second['urn']}#1", vrs_digest="cdna-second")
+
+    response = client.get("/api/v1/clingen-alleles/CA123/measurements")
+
+    assert response.status_code == 200
+    assert [m["variantUrn"] for m in response.json()] == [f"{second['urn']}#1", f"{first['urn']}#1"]
+
+
+def test_measurements_tiebreak_on_urn(client, session, data_provider, data_files, setup_router_db):
+    """With every other sort key equal (both current, direct, unclassified, same published date) the urn is
+    the final, stable tiebreak — ascending."""
+    experiment = create_experiment(client)
+    first = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    second = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    for urn in (first["urn"], second["urn"]):
+        score_set = session.scalar(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == urn))
+        score_set.published_date = date(2024, 1, 1)
+    session.commit()
+    _seed_cdna_measurement(session, f"{first['urn']}#1", vrs_digest="cdna-first")
+    _seed_cdna_measurement(session, f"{second['urn']}#1", vrs_digest="cdna-second")
+
+    response = client.get("/api/v1/clingen-alleles/CA123/measurements")
+
+    assert response.status_code == 200
+    returned = [m["variantUrn"] for m in response.json()]
+    assert returned == sorted([f"{first['urn']}#1", f"{second['urn']}#1"])
+
+
+def test_anonymous_cannot_see_private_measurement(
+    client, session, data_provider, data_files, setup_router_db, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    _seed_cdna_measurement(session, f"{score_set['urn']}#1")
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get("/api/v1/clingen-alleles/CA123/measurements")
+
+    # A content-addressed ClinGen id is public, but a private score set's measurement is filtered out.
+    assert response.status_code == 200
+    assert response.json() == []
