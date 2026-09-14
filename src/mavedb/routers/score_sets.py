@@ -67,7 +67,6 @@ from mavedb.lib.score_sets import (
     fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
     get_current_mapped_variants_for_annotation,
-    is_replaces_id_unique_violation,
     refresh_variant_urns,
 )
 from mavedb.lib.score_sets import (
@@ -82,6 +81,7 @@ from mavedb.lib.urns import (
     generate_experiment_urn,
     generate_score_set_urn,
 )
+from mavedb.lib.validation.utilities import is_replaces_id_unique_violation
 from mavedb.lib.workflow.pipeline_factory import PipelineFactory
 from mavedb.models.clinical_control import ClinicalControl
 from mavedb.models.contributor import Contributor
@@ -105,7 +105,7 @@ from mavedb.routers.shared import (
     PUBLIC_ERROR_RESPONSES,
     ROUTER_BASE_PREFIX,
 )
-from mavedb.view_models import clinical_control, gnomad_variant, mapped_variant, score_set
+from mavedb.view_models import clinical_control, gnomad_variant, mapped_variant, score_calibration, score_set
 from mavedb.view_models.contributor import ContributorCreate
 from mavedb.view_models.csv_namespace import AvailableCsvNamespace
 from mavedb.view_models.doi_identifier import DoiIdentifierCreate
@@ -617,6 +617,13 @@ async def fetch_score_set_by_urn(
     # callers -- supersession lookup, publication -- receive the score set as it actually is.
     return item
 
+    visible_calibrations = [sc for sc in item.score_calibrations if has_permission(user, sc, Action.READ).permitted]
+
+    superseded_ids = [sc.superseded_calibration_id for sc in visible_calibrations if sc.superseded_calibration_id is not None]
+
+    available_calibrations = [sc for sc in visible_calibrations if sc.id not in superseded_ids]
+
+    item.score_calibrations = available_calibrations
 
 def _score_set_response(item: ScoreSet, principal: Principal) -> score_set.ScoreSet:
     """
@@ -1712,6 +1719,57 @@ def get_score_set_annotated_variants_functional_study_result(
     )
 
 
+@router.get(
+    "/score-sets/{urn}/score-calibrations",
+    status_code=200,
+    response_model=list[score_calibration.ScoreCalibration],
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Get score calibrations from score set by URN",
+)
+def get_score_set_calibrations(
+    *,
+    urn: str,
+    can_supersede_only: Optional[bool] = None,
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+) -> list[ScoreCalibration]:
+    """
+    Return score calibrations from a score set, identified by URN.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "score-calibrations"})
+
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == urn).first()
+    if not score_set:
+        logger.info(
+            msg="Could not fetch the requested score calibrations; No such score set exist.", extra=logging_context()
+        )
+        raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
+
+    assert_permission(user_data, score_set, Action.READ)
+
+    score_calibrations_query = (
+        db.query(ScoreCalibration)
+        .filter(ScoreSet.urn == urn)
+        .filter(ScoreSet.id == ScoreCalibration.score_set_id)
+        .filter(~ScoreCalibration.superseding_calibration.has())
+    )
+
+    if can_supersede_only:
+        score_calibrations_query = score_calibrations_query.filter(
+            ScoreCalibration.private.is_(False)
+        )
+    score_calibrations: list[ScoreCalibration] = score_calibrations_query.all()
+
+    if not score_calibrations:
+        logger.info(msg="No score calibration is associated with the requested score set.", extra=logging_context())
+        raise HTTPException(
+            status_code=404,
+            detail=f"No score calibration associated with score set URN {urn} was found",
+        )
+
+    return score_calibrations
+
+
 @router.post(
     "/score-sets/",
     response_model=score_set.ScoreSet,
@@ -1920,7 +1978,7 @@ async def create_score_set(
                 )
 
             created_calibration_item = await create_score_calibration(
-                db, calibration_create, user_data.user, variant_classes=None
+                db, calibration_create, user_data, variant_classes=None
             )
             created_calibration_item.investigator_provided = True  # necessarily true on score set creation
             score_calibrations.append(created_calibration_item)

@@ -1,5 +1,6 @@
 import math
 from random import choice
+from sqlalchemy.exc import IntegrityError
 from typing import Optional, SupportsIndex, Union
 
 from mavehgvs.variant import Variant
@@ -31,6 +32,19 @@ def is_null(value):
     else:
         return False
     # return null_values_re.fullmatch(value) or not value
+
+
+def is_replaces_id_unique_violation(exc: IntegrityError) -> bool:
+    """
+    Return True if the IntegrityError was caused by the unique constraint on score_set.replaces_id or
+    score_calibration.replaces_id.
+    """
+    orig = getattr(exc, "orig", None)
+    if orig is None:
+        return False
+
+    diag = getattr(orig, "diag", None)
+    return getattr(diag, "column_name", None) == "replaces_id"
 
 
 def generate_hgvs(prefix: str = "c") -> str:
