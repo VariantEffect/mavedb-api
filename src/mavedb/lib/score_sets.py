@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 from pandas.testing import assert_index_equal
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Query, Session, aliased, contains_eager, joinedload, selectinload
 
 from mavedb.lib.exceptions import ValidationError
