@@ -67,7 +67,6 @@ from mavedb.lib.score_sets import (
     fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
     get_current_mapped_variants_for_annotation,
-    get_score_set_variants_as_csv,
     refresh_variant_urns,
 )
 from mavedb.lib.score_sets import (
