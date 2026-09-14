@@ -257,7 +257,7 @@ async def _create_score_calibration(
             db.add(pub)
             db.flush()
 
-    if calibration_create.superseded_calibration_urn:
+    if calibration_create.superseded_calibration_urn and containing_score_set:
         superseded_calibration = validate_superseded_score_calibration(db, calibration_create, containing_score_set, user_data)
     else:
         superseded_calibration = None
