@@ -353,6 +353,57 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert _non_authoritative_links(session) == []
         assert len(_cross_level_events(session, sample_score_set.id, reason="transcript_unresolved")) == 1
 
+    async def test_cis_phased_assay_hgvs_is_skipped_before_the_engine(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+    ):
+        """A cis-phased multivariant assay HGVS (``g.[a;b]``) cannot be forward-translated -- the
+        engine's parser rejects the allele list at the opening ``[``. The job screens it out up front
+        and records a benign NOT_APPLICABLE / cis_phased_unsupported skip, never handing it to the
+        engine (which would otherwise count it as a failure the drop gate reads as a regression)."""
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn="variant:1",
+            hgvs_nt="NM_000000.1:c.1A>G",
+            hgvs_pro="NP_000000.1:p.Met1Val",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        # Map first so the variant gains a transcript-bearing authoritative record: the skip must fire
+        # on the cis-phased shape even though a transcript resolves, not as a transcript-unresolved skip.
+        await _map_variants(session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set)
+
+        cis_phased = "NC_000016.10:g.[1314031A>T;1320511T>C]"
+        record = _record_for(session, variant.id)
+        record.hgvs_assay_level = cis_phased
+        session.commit()
+
+        def _fail_if_engine_sees_it(inputs, *, transcripts, coordinates, config):
+            assert list(inputs) == [], "a cis-phased input must be screened out before the engine"
+            return [], []
+
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", _fail_if_engine_sees_it),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", fake_translate({})),
+        ):
+            result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0}
+        assert _non_authoritative_links(session) == []
+
+        events = _cross_level_events(session, sample_score_set.id, reason="cis_phased_unsupported")
+        assert len(events) == 1
+        assert events[0].disposition == "not_applicable"
+        assert events[0].event_metadata["hgvs_input"] == cis_phased
+
     async def test_falls_back_to_mapped_date_when_the_record_has_no_job_run_id(
         self,
         session,

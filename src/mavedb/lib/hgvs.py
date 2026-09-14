@@ -117,6 +117,18 @@ def parse_simple_substitution(hgvs: Optional[str]) -> Optional[SequenceBlock]:
     return parse_simple_nucleotide_substitution(hgvs) or parse_simple_protein_substitution(hgvs)
 
 
+def is_cis_phased_hgvs(hgvs_string: str) -> bool:
+    """True for an accession-qualified allele-list expression (``NC_…:g.[123A>G;125T>C]``).
+
+    Keys on the allele-list opener ``.[`` — the bracket immediately after the coordinate prefix —
+    so tandem-repeat brackets (``c.101_102[4]``, bracket after a position) are not misread as an
+    allele list. Reverse translation's forward parser rejects the ``[`` opening the list, so callers
+    skip these inputs rather than send a guaranteed failure to the engine.
+    """
+    _, separator, remainder = hgvs_string.partition(":")
+    return bool(separator) and ".[" in remainder
+
+
 def split_cis_phased_hgvs(hgvs_string: str) -> list[str]:
     """Split a cis-phased multivariant HGVS expression into fully-qualified component strings.
 

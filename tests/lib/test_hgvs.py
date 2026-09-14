@@ -3,6 +3,7 @@ import pytest
 from mavedb.lib.hgvs import (
     SequenceBlock,
     extract_accession,
+    is_cis_phased_hgvs,
     join_cis_phased_hgvs,
     parse_simple_nucleotide_substitution,
     parse_simple_protein_substitution,
@@ -108,6 +109,23 @@ def test_strip_protein_prediction_parens(hgvs, expected):
 )
 def test_extract_accession(hgvs, expected):
     assert extract_accession(hgvs) == expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("hgvs", "expected"),
+    [
+        ("NC_000016.10:g.[1314031A>T;1320511T>C]", True),
+        ("NM_000001.1:c.[1A>G;3T>C]", True),
+        ("NC_000016.10:g.[1314031A>T]", True),  # single-member allele list still fails the forward parser
+        ("NC_000001.11:g.1000A>G", False),
+        ("NM_000546.6:c.1216G>A", False),
+        ("NM_000001.1:c.101_102[4]", False),  # tandem-repeat brackets are not an allele list
+        ("g.[1000A>G;1002T>C]", False),  # accession-less: not the shape RT feeds the engine
+    ],
+)
+def test_is_cis_phased_hgvs(hgvs, expected):
+    assert is_cis_phased_hgvs(hgvs) is expected
 
 
 def test_split_cis_phased_hgvs_passes_through_single_variant():

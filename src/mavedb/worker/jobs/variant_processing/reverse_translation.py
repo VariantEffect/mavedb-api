@@ -38,7 +38,7 @@ from variant_annotation.lib.translation.types import (
 )
 
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
-from mavedb.lib.hgvs import extract_accession, strip_protein_prediction_parens
+from mavedb.lib.hgvs import extract_accession, is_cis_phased_hgvs, strip_protein_prediction_parens
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variant_translations import get_or_create_allele
 from mavedb.lib.vrs_utils import translate_hgvs_to_variation
@@ -319,7 +319,16 @@ async def reverse_translate_variants_for_score_set(
     variant_inputs: list[Any] = []
     variant_input_map: dict[int, tuple[MappingRecord, Variant]] = {}
     skipped_variants: list[_TranscriptResolution] = []
+    cis_phased_variants: list[_TranscriptResolution] = []
     for p in transcript_resolutions:
+        # A cis-phased multivariant HGVS (NC_…:g.[a;b;…]) cannot be forward-translated: the engine's
+        # parser rejects the allele list at the opening "[". These are almost always true multi-mutant
+        # haplotypes, not single-codon components, so they have no meaningful cross-level sibling triple.
+        # Record a benign skip rather than send a guaranteed failure to the engine.
+        if p.rec.hgvs_assay_level and is_cis_phased_hgvs(p.rec.hgvs_assay_level):
+            cis_phased_variants.append(p)
+            continue
+
         transcript = p.gene_transcript or (
             transcript_by_protein.get(p.protein_accession) if p.protein_accession else None
         )
@@ -332,14 +341,24 @@ async def reverse_translate_variants_for_score_set(
         variant_input_map[id(inp)] = (p.rec, p.variant)
 
     total = len(variant_inputs)
-    job_manager.save_to_context({"total_variants": total, "skipped_variants": len(skipped_variants)})
+    job_manager.save_to_context(
+        {
+            "total_variants": total,
+            "skipped_variants": len(skipped_variants),
+            "cis_phased_skipped": len(cis_phased_variants),
+        }
+    )
     job_manager.update_progress(
         10,
         100,
-        f"Prepared {total} variants for reverse translation ({len(skipped_variants)} skipped, no coding transcript).",
+        f"Prepared {total} variants for reverse translation "
+        f"({len(skipped_variants)} no coding transcript, {len(cis_phased_variants)} cis-phased).",
     )
     logger.info(
-        msg=f"Running reverse translation for {total} variants ({len(skipped_variants)} skipped).",
+        msg=(
+            f"Running reverse translation for {total} variants "
+            f"({len(skipped_variants)} skipped no-transcript, {len(cis_phased_variants)} skipped cis-phased)."
+        ),
         extra=job_manager.logging_context(),
     )
 
@@ -563,6 +582,17 @@ async def reverse_translate_variants_for_score_set(
             variant_id=p.variant.id,
             disposition=disposition,
             reason=reason,
+            metadata={"hgvs_input": p.rec.hgvs_assay_level},
+        )
+
+    # add cis-phased multivariant inputs as NOT_APPLICABLE skips
+    annotation_counts["skipped"] += len(cis_phased_variants)
+    for p in cis_phased_variants:
+        _annotate_translation(
+            annotation_manager,
+            variant_id=p.variant.id,
+            disposition=Disposition.NOT_APPLICABLE,
+            reason=EventReason.CIS_PHASED_UNSUPPORTED,
             metadata={"hgvs_input": p.rec.hgvs_assay_level},
         )
 

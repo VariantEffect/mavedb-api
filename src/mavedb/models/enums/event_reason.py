@@ -44,6 +44,9 @@ class EventReason(str, Enum):
     )
     NO_ASSAY_LEVEL_HGVS = "no_assay_level_hgvs"  # no assay-level HGVS to translate (RT)
     NOT_TRANSLATABLE = "not_translatable"  # protein consequence's edit type has no DNA equivalence class (RT)
+    CIS_PHASED_UNSUPPORTED = (
+        "cis_phased_unsupported"  # cis-phased multivariant assay HGVS; forward parser cannot read the allele list (RT)
+    )
 
     # failed — errored
     API_ERROR = "api_error"  # network/timeout/upstream error (ClinVar, VEP, LDH, CAR no-response)
