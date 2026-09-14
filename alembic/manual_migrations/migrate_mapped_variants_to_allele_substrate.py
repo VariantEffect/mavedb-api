@@ -420,6 +420,17 @@ def _authoritative_allele(
         return None
 
     existing = allele_cache.get(digest)
+    if existing is None:
+        # `allele_cache` is seeded by a per-chunk prefetch keyed on the STORED `post_mapped` id, but
+        # alleles deduplicate by their RECOMPUTED digest. Under VRS id drift (stored id != recomputed
+        # digest) an already-persisted allele carrying this true digest is absent from the cache, so a
+        # blind INSERT below would violate `uq_alleles_vrs_digest`, and the failed flush would roll the
+        # whole variant back — dropping its MappingRecord, not just the allele link. Fall back to a
+        # lookup by the recomputed digest (only on a cache miss, i.e. the drifted minority) so a match
+        # deduplicates onto the existing row instead of colliding. See scripts/audit_allele_identifiers.
+        existing = db.scalar(sa.select(Allele).where(Allele.vrs_digest == digest))
+        if existing is not None:
+            allele_cache[digest] = existing
     if existing is not None:
         _fill_missing_allele_fields(existing, mv, level)
         return existing
