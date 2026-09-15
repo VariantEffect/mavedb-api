@@ -3,7 +3,7 @@ import time
 
 import uvicorn
 from eutils._internal.exceptions import EutilsRequestError  # type: ignore
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +37,7 @@ from mavedb.lib.logging.context import (
 from mavedb.lib.middleware import CatchAllErrorMiddleware
 from mavedb.lib.permissions.exceptions import PermissionException
 from mavedb.lib.slack import send_slack_error
+from mavedb.lib.urn_redirects import forward_retired_urns
 from mavedb.models import *  # noqa: F403
 from mavedb.routers import (
     access_keys,
@@ -75,7 +76,9 @@ logger = logging.getLogger(__name__)
 # an instance of the related class has been created.
 configure_mappers()
 
-app = FastAPI()
+# forward_retired_urns is applied to every route, so that one implementation forwards a read of a URN
+# publication has retired wherever that URN points: a record, or any of its sub-resources.
+app = FastAPI(dependencies=[Depends(forward_retired_urns)])
 # `add_middleware` inserts at the head of the stack, so the *first* call here is the innermost layer.
 # CatchAllErrorMiddleware must sit inside both CORSMiddleware and the context middleware: CORS has to
 # decorate the 500 it produces, and the correlation id it returns comes from the context.

@@ -77,6 +77,7 @@ from mavedb.lib.slack import send_slack_error
 from mavedb.lib.target_genes import find_or_create_target_gene_by_accession, find_or_create_target_gene_by_sequence
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.types.authentication import UserData
+from mavedb.lib.urn_redirects import record_urn_redirect
 from mavedb.lib.urns import (
     generate_experiment_set_urn,
     generate_experiment_urn,
@@ -2530,6 +2531,13 @@ async def publish_score_set(
 
     assert_permission(user_data, item, Action.PUBLISH)
 
+    if not item.private:
+        logger.info(
+            msg="Failed to publish score set; The requested score set has already been published.",
+            extra=logging_context(),
+        )
+        raise HTTPException(status_code=409, detail="This score set has already been published.")
+
     if not item.experiment:
         logger.info(
             msg="Failed to publish score set; The requested score set does not belong to an experiment.",
@@ -2563,7 +2571,9 @@ async def publish_score_set(
     published_date = date.today()
 
     if item.experiment.experiment_set.private or not item.experiment.experiment_set.published_date:
+        retired_experiment_set_urn = item.experiment.experiment_set.urn
         item.experiment.experiment_set.urn = generate_experiment_set_urn(db)
+        record_urn_redirect(db, retired_experiment_set_urn, item.experiment.experiment_set.urn)
         item.experiment.experiment_set.private = False
         item.experiment.experiment_set.published_date = published_date
         db.add(item.experiment.experiment_set)
@@ -2571,18 +2581,23 @@ async def publish_score_set(
     save_to_logging_context({"experiment_set": item.experiment.experiment_set.urn})
 
     if item.experiment.private or not item.experiment.published_date:
+        retired_experiment_urn = item.experiment.urn
         item.experiment.urn = generate_experiment_urn(
             db,
             item.experiment.experiment_set,
             experiment_is_meta_analysis=len(item.meta_analyzes_score_sets) > 0,
         )
+        record_urn_redirect(db, retired_experiment_urn, item.experiment.urn)
         item.experiment.private = False
         item.experiment.published_date = published_date
         db.add(item.experiment)
 
     save_to_logging_context({"experiment": item.experiment.urn})
 
+    retired_score_set_urn = item.urn
     item.urn = generate_score_set_urn(db, item.experiment)
+    # Variant URNs are rewritten below from the score set's, so this one redirect forwards them too.
+    record_urn_redirect(db, retired_score_set_urn, item.urn)
     item.private = False
     item.published_date = published_date
     refresh_variant_urns(db, item)
