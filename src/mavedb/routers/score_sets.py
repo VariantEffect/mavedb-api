@@ -2531,6 +2531,13 @@ async def publish_score_set(
 
     assert_permission(user_data, item, Action.PUBLISH)
 
+    if not item.private:
+        logger.info(
+            msg="Failed to publish score set; The requested score set has already been published.",
+            extra=logging_context(),
+        )
+        raise HTTPException(status_code=409, detail="This score set has already been published.")
+
     if not item.experiment:
         logger.info(
             msg="Failed to publish score set; The requested score set does not belong to an experiment.",
