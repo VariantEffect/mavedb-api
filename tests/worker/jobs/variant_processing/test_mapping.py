@@ -4,6 +4,8 @@ import pytest
 
 pytest.importorskip("arq")
 
+import asyncio
+import contextlib
 from asyncio.unix_events import _UnixSelectorEventLoop
 from datetime import date
 from unittest.mock import MagicMock, patch
@@ -21,7 +23,13 @@ from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.target_gene_mapping import TargetGeneMapping
 from mavedb.models.variant import Variant
 from mavedb.models.annotation_event import AnnotationEvent
-from mavedb.worker.jobs.variant_processing.mapping import map_variants_for_score_set
+from mavedb.worker.jobs.variant_processing.mapping import (
+    MAP_BUDGET_BASE_SECONDS,
+    MAP_BUDGET_MAX_SECONDS,
+    _keepalive_progress,
+    _map_budget_seconds,
+    map_variants_for_score_set,
+)
 from mavedb.worker.lib.managers.job_manager import JobManager
 from tests.helpers.constants import TEST_CODING_LAYER, TEST_GENOMIC_LAYER, TEST_PROTEIN_LAYER
 from tests.helpers.util.setup.worker import construct_mock_mapping_output, create_variants_in_score_set
@@ -2050,3 +2058,79 @@ class TestMapVariantsForScoreSetArqContext:
         for job_run in pipeline_run.job_runs:
             if job_run.id != sample_pipeline_variant_mapping_run.id:
                 assert job_run.status == JobStatus.SKIPPED
+
+
+MAP_MODULE = "mavedb.worker.jobs.variant_processing.mapping"
+
+
+@pytest.mark.unit
+def test_map_budget_seconds_floor_scale_and_ceiling():
+    # Floor for an empty/tiny set (overhead only), linear scale in between, clamped at the ceiling.
+    assert _map_budget_seconds(0) == MAP_BUDGET_BASE_SECONDS
+    assert _map_budget_seconds(48_000) == MAP_BUDGET_BASE_SECONDS + 48_000
+    assert _map_budget_seconds(100_000_000) == MAP_BUDGET_MAX_SECONDS
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_keepalive_progress_ticks_and_survives_a_failed_tick():
+    """The liveness heartbeat refreshes progress on its cadence and keeps going if a tick fails."""
+    ticks = 0
+
+    def _update(*args, **kwargs):
+        nonlocal ticks
+        ticks += 1
+        if ticks == 2:  # a transient commit failure must not kill the heartbeat
+            raise RuntimeError("transient progress-commit blip")
+
+    jm = MagicMock()
+    jm.update_progress.side_effect = _update
+    jm.logging_context.return_value = {}
+
+    task = asyncio.create_task(_keepalive_progress(jm, 0.001))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+    assert ticks >= 3  # kept ticking past the failing 2nd tick
+    assert all(call.args[0] == 30 for call in jm.update_progress.call_args_list)  # each tick reasserts 30% liveness
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_map_variants_for_score_set_budget_timeout_fails_the_job(
+    session,
+    with_independent_processing_runs,
+    mock_worker_ctx,
+    sample_independent_variant_mapping_run,
+    sample_score_set,
+):
+    """A map that outlasts its size-aware budget fails the job, bounding a wedged mapper."""
+
+    async def slow_map():
+        await asyncio.sleep(1)
+        return {}
+
+    caught = None
+    result = None
+    with (
+        patch(f"{MAP_MODULE}._map_budget_seconds", return_value=0.05),
+        patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=slow_map()),
+    ):
+        try:
+            result = await map_variants_for_score_set(
+                mock_worker_ctx,
+                sample_independent_variant_mapping_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_mapping_run.id),
+            )
+        except Exception as e:  # noqa: BLE001 - asserted on below
+            caught = e
+
+    assert sample_score_set.mapping_state == MappingState.failed
+    # Budget-exceeded surfaces as a timeout, whether the decorator re-raises or returns a failed outcome.
+    if caught is not None:
+        assert isinstance(caught, TimeoutError)
+        assert "budget" in str(caught)
+    else:
+        assert result.status == JobStatus.FAILED

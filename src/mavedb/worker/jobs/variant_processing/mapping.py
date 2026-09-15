@@ -6,13 +6,14 @@ and coordination with downstream services like ClinGen and UniProt.
 """
 
 import asyncio
+import contextlib
 import functools
 import logging
 from collections import Counter
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import cast, null, select
+from sqlalchemy import cast, func, null, select
 from sqlalchemy.dialects.postgresql import JSONB
 
 from mavedb.data_providers.services import vrs_mapper
@@ -46,6 +47,48 @@ from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_manag
 from mavedb.worker.lib.managers.job_manager import JobManager
 
 logger = logging.getLogger(__name__)
+
+# The score-set map is a single opaque blocking call to dcd-mapping: it cannot refresh the progress
+# heartbeat mid-call, so `cleanup_stalled_jobs` (PROGRESS_STALL_MINUTES = 30) would reap a live worker
+# on any set that maps for longer than that. Two guards bracket the call — a liveness keepalive that
+# refreshes the heartbeat on a fixed cadence, and a size-aware wall-clock budget that bounds a wedged
+# mapper to a sensible window instead of the 23.5h stall backstop. This is an explicit workaround for
+# delegating opaque work; the real fix is for the mapper to report progress (or to chunk the call).
+# See worker/best_practices.md, "Long external delegations". TODO: replace with real mapping progress.
+MAP_PROGRESS_KEEPALIVE_SECONDS = 300  # heartbeat cadence; must stay well under PROGRESS_STALL_MINUTES (30m)
+MAP_BUDGET_BASE_SECONDS = 30 * 60  # floor: overhead + small sets
+MAP_BUDGET_PER_VARIANT_SECONDS = 1.0  # ~3x the observed ~0.3 s/variant map throughput, as slack
+MAP_BUDGET_MAX_SECONDS = 22 * 60 * 60  # ceiling: stay under the 23.5h stall backstop / 24h ARQ ceiling
+
+
+async def _keepalive_progress(job_manager: JobManager, interval_seconds: int) -> None:
+    """Refresh the job's progress heartbeat on a fixed cadence during an opaque, un-checkpointable call.
+
+    Liveness, not progress: the task runs in the worker's event loop, so it dies with a crashed worker
+    and the heartbeat then correctly goes stale — only a *live* worker in a long delegation is kept from
+    being falsely reaped. Best-effort; a failed refresh is logged and the loop continues.
+    """
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            job_manager.update_progress(
+                30,
+                100,
+                f"Mapping variants using VRS mapping service (in progress, {datetime.now(timezone.utc):%H:%M:%SZ}).",
+            )
+        except Exception:  # noqa: BLE001 - the heartbeat is best-effort; a dropped tick is harmless
+            logger.warning("Mapping progress keepalive tick failed; continuing.", extra=job_manager.logging_context())
+
+
+def _map_budget_seconds(variant_count: int) -> int:
+    """Total wall-clock budget for the opaque map call, sized to the score set.
+
+    Bounds a wedged external mapper to a size-appropriate window instead of the 23.5h stall backstop,
+    while leaving enough slack (the per-variant term is ~3x observed throughput) not to fail a slow but
+    healthy map. Clamped to a ceiling below the ARQ job timeout.
+    """
+    budget = MAP_BUDGET_BASE_SECONDS + int(variant_count * MAP_BUDGET_PER_VARIANT_SECONDS)
+    return min(budget, MAP_BUDGET_MAX_SECONDS)
 
 
 @with_pipeline_management
@@ -109,9 +152,26 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
         mapping_results = None
 
+        variant_count = job_manager.db.scalar(
+            select(func.count(Variant.id)).where(Variant.score_set_id == score_set.id)
+        )
+        map_budget = _map_budget_seconds(variant_count or 0)
+
         logger.debug(msg="Mapping variants using VRS mapping service.", extra=job_manager.logging_context())
         job_manager.update_progress(30, 100, "Mapping variants using VRS mapping service.")
-        mapping_results = await loop.run_in_executor(ctx["pool"], blocking)
+        # Keepalive heartbeat + size-aware budget around the opaque map call (see module docstring above).
+        keepalive = asyncio.create_task(_keepalive_progress(job_manager, MAP_PROGRESS_KEEPALIVE_SECONDS))
+        try:
+            mapping_results = await asyncio.wait_for(loop.run_in_executor(ctx["pool"], blocking), timeout=map_budget)
+        except asyncio.TimeoutError as e:
+            raise TimeoutError(
+                f"Mapping for {score_set.urn} exceeded its {map_budget}s budget ({variant_count} variants); "
+                "the mapping service did not return in time."
+            ) from e
+        finally:
+            keepalive.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await keepalive
 
         logger.debug(msg="Done mapping variants.", extra=job_manager.logging_context())
         job_manager.update_progress(80, 100, "Processing mapped variants.")
