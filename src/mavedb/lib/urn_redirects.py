@@ -32,6 +32,8 @@ from starlette.requests import Request
 
 from mavedb.deps import get_db
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.permissions.actions import Action
+from mavedb.lib.permissions.core import has_permission
 from mavedb.lib.validation.urn_re import (
     MAVEDB_EXPERIMENT_SET_URN_RE,
     MAVEDB_EXPERIMENT_URN_RE,
@@ -47,14 +49,6 @@ logger = logging.getLogger(__name__)
 
 # Methods whose requests are forwarded. See forward_retired_urns for why a write is not.
 SAFE_METHODS = frozenset({"GET", "HEAD"})
-
-# The record kinds publication renames, recognized by the shape of the URN it gave them. Matched with
-# fullmatch, under which the three patterns are mutually exclusive.
-FORWARDING_TARGET_MODELS = (
-    (MAVEDB_SCORE_SET_URN_RE, ScoreSet),
-    (MAVEDB_EXPERIMENT_URN_RE, Experiment),
-    (MAVEDB_EXPERIMENT_SET_URN_RE, ExperimentSet),
-)
 
 
 def record_urn_redirect(db: Session, old_urn: Optional[str], new_urn: str) -> None:
@@ -84,22 +78,25 @@ def _target_is_public(db: Session, urn: str) -> bool:
     caller, since forwarding happens before a route checks anything. Publication only ever records a
     redirect onto a record it is making public, and nothing in the application returns a published
     record to private, so a private target should not arise; a row written out of band, or by some
-    later feature, would be enough for one to. Withholding on anything but a confirmed public record
-    keeps that from becoming a disclosure.
+    later feature, would be enough for one to. Deferring to ``Action.READ`` with no user keeps that
+    from becoming a disclosure, and keeps this answer in step with the rules a route would apply.
 
     A target that no longer exists is likewise not public: a deleted record leaves its redirect row
     behind, and forwarding to it would answer a permanent redirect with a 404.
 
     :param db: An active database session.
     :param urn: The URN a redirect points to.
-    :return: True only if a record under this URN exists and is public.
+    :return: True only if a record under this URN exists and an anonymous caller may read it.
     """
-    for urn_re, model in FORWARDING_TARGET_MODELS:
-        if urn_re.fullmatch(urn):
-            private = db.execute(select(model.private).where(model.urn == urn)).scalar_one_or_none()
-            return private is False
+    target: Optional[ScoreSet | Experiment | ExperimentSet] = None
+    if MAVEDB_SCORE_SET_URN_RE.fullmatch(urn):
+        target = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
+    elif MAVEDB_EXPERIMENT_URN_RE.fullmatch(urn):
+        target = db.query(Experiment).filter(Experiment.urn == urn).one_or_none()
+    elif MAVEDB_EXPERIMENT_SET_URN_RE.fullmatch(urn):
+        target = db.query(ExperimentSet).filter(ExperimentSet.urn == urn).one_or_none()
 
-    return False
+    return target is not None and has_permission(None, target, Action.READ).permitted
 
 
 def forwarded_path(db: Session, path: str) -> Optional[str]:
@@ -143,20 +140,8 @@ def forward_retired_urns(request: Request, db: Session = Depends(get_db)) -> Non
     implementation cover every route that takes a URN, sub-resources included: a stale link to a score
     set's scores CSV or mapped variants is forwarded on the same terms as a link to the score set.
 
-    A dependency rather than ASGI middleware, though it sits at the same single point in the request
-    path, because it needs the request's database session. Middleware runs outside dependency
-    resolution, so it would have to open a session of its own, which no ``dependency_overrides`` could
-    redirect and which would therefore reach past the test database.
-
-    ``308`` rather than ``301``: the redirect is permanent, and 308 forbids a client from rewriting the
-    request to a GET on the way, which is what makes the header safe to emit for any method.
-
-    Only reads are forwarded. What the issue asks for is that shared *links* keep working, and a write
-    is a different proposition: the caller addressed a private draft, and the record now under that URN
-    is published, with different rules and a wider audience. ``POST .../publish`` is the sharp case --
-    an owner is permitted to publish a published score set, so forwarding a stale one would rename a
-    live public record. A write to a retired URN keeps getting the 404 it gets today, which tells the
-    client to look the record up again.
+    Only reads are forwarded. A write to a retired URN keeps getting the 404 it gets today, which
+    tells the client to look the record up again.
     """
     if request.scope["method"] not in SAFE_METHODS:
         return
