@@ -48,6 +48,15 @@ def test_redirect_mapped_variant_va_routes(client, suffix):
     assert response.headers["location"] == f"/api/v1/variants/{quote_plus(TEST_URN)}/{suffix}"
 
 
+def test_redirect_carries_a_query_string_alongside_a_fragment_shaped_urn(client):
+    """TEST_URN's '#' would open a fragment if the target were built from request.url instead of the
+    ASGI scope, and a fragment swallows everything after it -- including a real query string."""
+    response = client.get(f"/api/v1/mapped-variants/{quote_plus(TEST_URN)}?start=0&limit=1", follow_redirects=False)
+
+    assert response.status_code == 301
+    assert response.headers["location"] == f"/api/v1/variants/{quote_plus(TEST_URN)}?start=0&limit=1"
+
+
 def test_redirect_mapped_variants_by_identifier(client):
     identifier = "ga4gh:VA.0123456789abcdefghijklmnopqrstuv"
     response = client.get(

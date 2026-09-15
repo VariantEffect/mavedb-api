@@ -21,15 +21,19 @@ router = APIRouter(
 )
 
 
-def _redirect(request: Request, target: str) -> RedirectResponse:
+def _redirect_to_successor(request: Request, target: str) -> RedirectResponse:
     """Redirect to the successor, tagging the response with RFC 8594 deprecation headers.
 
     The redirect status already moves a well-behaved client, but the headers announce the deprecation to
     tooling that follows the 301 silently: ``Deprecation``, a ``Link`` naming this exact successor, and a
     ``Warning`` a human sees in logs. The successor here is a genuine 1:1 replacement, so it is safe to name.
     """
-    url = f"{target}?{request.url.query}" if request.url.query else target
-    record_deprecated_usage(request.url.path, successor=target)
+    # The ASGI scope rather than request.url: a mapped-variant URN's '#' opens a fragment when Starlette
+    # rebuilds request.url by re-parsing the decoded path, which silently drops the query string too.
+    path = request.scope["path"]
+    query = request.scope.get("query_string", b"").decode("ascii")
+    url = f"{target}?{query}" if query else target
+    record_deprecated_usage(path, successor=target)
     headers = deprecation_headers(
         successor=target,
         warning=f"This resource has moved permanently to {target}; update your integration.",
@@ -46,7 +50,7 @@ def _redirect(request: Request, target: str) -> RedirectResponse:
 )
 def redirect_mapped_variant(*, urn: str, request: Request) -> RedirectResponse:
     """This resource has moved. Use ``GET /variants/{urn}`` instead."""
-    return _redirect(request, f"{ROUTER_BASE_PREFIX}/variants/{quote(urn, safe='')}")
+    return _redirect_to_successor(request, f"{ROUTER_BASE_PREFIX}/variants/{quote(urn, safe='')}")
 
 
 @router.get(
@@ -57,7 +61,7 @@ def redirect_mapped_variant(*, urn: str, request: Request) -> RedirectResponse:
 )
 def redirect_mapped_variant_study_result(*, urn: str, request: Request) -> RedirectResponse:
     """This resource has moved. Use ``GET /variants/{urn}/va/study-result`` instead."""
-    return _redirect(request, f"{ROUTER_BASE_PREFIX}/variants/{quote(urn, safe='')}/va/study-result")
+    return _redirect_to_successor(request, f"{ROUTER_BASE_PREFIX}/variants/{quote(urn, safe='')}/va/study-result")
 
 
 @router.get(
@@ -68,7 +72,9 @@ def redirect_mapped_variant_study_result(*, urn: str, request: Request) -> Redir
 )
 def redirect_mapped_variant_functional_impact_statement(*, urn: str, request: Request) -> RedirectResponse:
     """This resource has moved. Use ``GET /variants/{urn}/va/functional-statement`` instead."""
-    return _redirect(request, f"{ROUTER_BASE_PREFIX}/variants/{quote(urn, safe='')}/va/functional-statement")
+    return _redirect_to_successor(
+        request, f"{ROUTER_BASE_PREFIX}/variants/{quote(urn, safe='')}/va/functional-statement"
+    )
 
 
 @router.get(
@@ -79,7 +85,9 @@ def redirect_mapped_variant_functional_impact_statement(*, urn: str, request: Re
 )
 def redirect_mapped_variant_acmg_evidence_line(*, urn: str, request: Request) -> RedirectResponse:
     """This resource has moved. Use ``GET /variants/{urn}/va/pathogenicity-statement`` instead."""
-    return _redirect(request, f"{ROUTER_BASE_PREFIX}/variants/{quote(urn, safe='')}/va/pathogenicity-statement")
+    return _redirect_to_successor(
+        request, f"{ROUTER_BASE_PREFIX}/variants/{quote(urn, safe='')}/va/pathogenicity-statement"
+    )
 
 
 @router.get(
@@ -106,4 +114,4 @@ def redirect_mapped_variants_by_identifier(
     ``as_of``; a caller relying on ``only_current=false`` should switch to passing an explicit
     ``as_of`` timestamp rather than expecting it to carry over through this redirect.
     """
-    return _redirect(request, f"{ROUTER_BASE_PREFIX}/variants/vrs/{quote(identifier, safe='')}")
+    return _redirect_to_successor(request, f"{ROUTER_BASE_PREFIX}/variants/vrs/{quote(identifier, safe='')}")
