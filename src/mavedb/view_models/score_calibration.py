@@ -26,6 +26,10 @@ from mavedb.view_models.acmg_classification import (
     SavedACMGClassification,
 )
 from mavedb.view_models.base.base import BaseModel
+from mavedb.view_models.calibration_control import (
+    CalibrationControlCreate,
+    SavedCalibrationControl,
+)
 from mavedb.view_models.publication_identifier import (
     PublicationIdentifier,
     PublicationIdentifierBase,
@@ -282,6 +286,9 @@ class ScoreCalibrationBase(BaseModel):
     baseline_score_description: Optional[str] = None
     notes: Optional[str] = None
 
+    disease: Optional[str] = None
+    controls_not_phi: Optional[bool] = None
+
     functional_classifications: Optional[Sequence[FunctionalClassificationBase]] = None
     threshold_sources: Sequence[PublicationIdentifierBase]
     evidence_sources: Sequence[PublicationIdentifierBase]
@@ -432,6 +439,8 @@ class ScoreCalibrationModify(ScoreCalibrationBase):
     score_set_urn: Optional[str] = None
 
     functional_classifications: Optional[Sequence[FunctionalClassificationModify]] = None
+    # None means "no change" on modify; an empty list clears all controls.
+    controls: Optional[Sequence[CalibrationControlCreate]] = None
     threshold_sources: Sequence[PublicationIdentifierCreate]
     evidence_sources: Sequence[PublicationIdentifierCreate]
     method_sources: Sequence[PublicationIdentifierCreate]
@@ -498,6 +507,7 @@ class SavedScoreCalibration(ScoreCalibrationBase):
     private: bool = True
 
     functional_classifications: Optional[Sequence[SavedFunctionalClassification]] = None
+    controls: Sequence[SavedCalibrationControl] = []
     threshold_sources: Sequence[SavedPublicationIdentifier]
     evidence_sources: Sequence[SavedPublicationIdentifier]
     method_sources: Sequence[SavedPublicationIdentifier]

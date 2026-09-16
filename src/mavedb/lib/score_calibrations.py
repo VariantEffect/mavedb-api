@@ -181,6 +181,7 @@ async def _create_score_calibration(
             by_alias=False,
             exclude={
                 "functional_classifications",
+                "controls",
                 "threshold_sources",
                 "evidence_sources",
                 "method_sources",
@@ -459,6 +460,7 @@ async def modify_score_calibration(
     for attr, value in calibration_update.model_dump().items():
         if attr not in {
             "functional_classifications",
+            "controls",
             "threshold_sources",
             "evidence_sources",
             "method_sources",
