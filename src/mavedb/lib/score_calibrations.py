@@ -567,6 +567,9 @@ async def modify_score_calibration(
         if attr not in {
             "functional_classifications",
             "controls",
+            # controls_not_phi carries re-acknowledgment semantics; set it explicitly so an
+            # unrelated edit cannot silently wipe a prior affirmation.
+            "controls_not_phi",
             "threshold_sources",
             "evidence_sources",
             "method_sources",
@@ -591,8 +594,7 @@ async def modify_score_calibration(
         calibration.functional_classifications.append(persisted_functional_range)
 
     # Replace semantics: a provided controls list (even empty) replaces all existing controls, while
-    # None leaves them untouched. TODO#752: reset controls_not_phi here once the re-acknowledgment
-    # behavior is settled against PUT semantics and the editor's same-request affirmation.
+    # None leaves them untouched.
     submitted_controls = getattr(calibration_update, "controls", None)
     if submitted_controls is not None:
         for control in list(calibration.controls):
@@ -600,6 +602,13 @@ async def modify_score_calibration(
         calibration.controls.clear()
         db.flush()
         calibration.controls = build_calibration_controls(db, containing_score_set, submitted_controls, user)
+
+    # Re-acknowledgment: an explicit controls_not_phi in the request always wins; otherwise, replacing the
+    # controls invalidates any prior affirmation, while leaving the controls untouched preserves it.
+    if "controls_not_phi" in calibration_update.model_fields_set:
+        calibration.controls_not_phi = calibration_update.controls_not_phi
+    elif submitted_controls is not None:
+        calibration.controls_not_phi = None
 
     db.add(calibration)
     return calibration
