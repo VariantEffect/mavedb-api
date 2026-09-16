@@ -35,6 +35,7 @@ __all__ = [
     "taxonomy",
     "uniprot_identifier",
     "uniprot_offset",
+    "urn_redirect",
     "user",
     "variant_annotation_status",
     "variant",

@@ -1748,6 +1748,28 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
     assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_variants])
 
 
+def test_cannot_publish_an_already_published_score_set(session, data_provider, client, setup_router_db, data_files):
+    """Publishing assigns a fresh URN unconditionally, so a second publish would rename a public record."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        response = client.post(f"/api/v1/score-sets/{published_score_set['urn']}/publish")
+        worker_queue.assert_not_called()
+
+    assert response.status_code == 409
+    assert "already been published" in response.json()["detail"]
+
+    # The URN the caller already shared still resolves to this record.
+    unchanged = client.get(f"/api/v1/score-sets/{published_score_set['urn']}")
+    assert unchanged.status_code == 200
+    assert unchanged.json()["urn"] == published_score_set["urn"]
+
+
 def test_publish_score_set_discards_pipeline_when_entrypoint_enqueue_fails(
     session, data_provider, client, setup_router_db, data_files
 ):
