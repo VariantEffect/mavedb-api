@@ -1,7 +1,8 @@
 """Utilities for building and mutating score calibration ORM objects."""
 
 import math
-from typing import Optional, Union
+from collections import Counter
+from typing import Optional, Sequence, Union
 
 import pandas as pd
 from sqlalchemy import Float, and_, select
@@ -16,6 +17,7 @@ from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
     hgvs_pro_column,
 )
+from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import inf_or_float
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
 from mavedb.models.score_calibration import ScoreCalibration
@@ -25,6 +27,55 @@ from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.view_models import score_calibration
+
+
+def validate_calibration_controls_in_score_set(
+    db: Session,
+    score_set: ScoreSet,
+    controls: Optional[Sequence[score_calibration.CalibrationControlCreate]],
+) -> None:
+    """Ensure every calibration control references a variant in the calibration's score set.
+
+    A control earns its role as calibration evidence from a variant the assay actually scored,
+    so each control must reference a variant belonging to the calibration's own score set. A
+    single scoped query resolves all submitted URNs at once; any URN it does not return either
+    does not exist in MaveDB or belongs to a different score set, and both are rejected together.
+
+    Duplicate variant URNs within one submission are caught here with a readable message rather
+    than deferred to the ``UNIQUE(calibration_id, variant_id)`` database constraint.
+
+    Args:
+        db: Database session used for the lookup.
+        score_set: The score set the calibration belongs to.
+        controls: Controls submitted on create or modify. ``None`` or empty is a no-op.
+
+    Raises:
+        ValidationError: If any control URN is duplicated within the submission, absent from
+            MaveDB, or belongs to a different score set.
+    """
+    if not controls:
+        return
+
+    submitted_urns = [control.variant_urn for control in controls]
+
+    counts = Counter(submitted_urns)
+    duplicate_urns = {urn for urn, count in counts.items() if count > 1}
+    if duplicate_urns:
+        raise ValidationError(
+            f"Duplicate control variant URNs detected within the submission: {', '.join(sorted(duplicate_urns))}."
+        )
+
+    existing_urns = set(
+        db.scalars(
+            select(Variant.urn).where(Variant.score_set_id == score_set.id, Variant.urn.in_(submitted_urns))
+        ).all()
+    )
+    missing_urns = set(counts) - existing_urns
+    if missing_urns:
+        raise ValidationError(
+            "The following control variants do not belong to the calibration's score set: "
+            f"{', '.join(sorted(missing_urns))}."
+        )
 
 
 def create_functional_classification(
