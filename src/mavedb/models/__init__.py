@@ -1,6 +1,7 @@
 __all__ = [
     "access_key",
     "acmg_classification",
+    "calibration_control",
     "collection",
     "clinical_control",
     "controlled_keyword",

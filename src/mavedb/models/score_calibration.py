@@ -16,6 +16,7 @@ from mavedb.models.score_calibration_functional_classification import ScoreCalib
 from mavedb.models.score_calibration_publication_identifier import ScoreCalibrationPublicationIdentifierAssociation
 
 if TYPE_CHECKING:
+    from mavedb.models.calibration_control import CalibrationControl
     from mavedb.models.publication_identifier import PublicationIdentifier
     from mavedb.models.score_set import ScoreSet
     from mavedb.models.user import User
@@ -41,8 +42,27 @@ class ScoreCalibration(Base):
     baseline_score = Column(Float, nullable=True)
     baseline_score_description = Column(String, nullable=True)
 
+    # Optional free-text disease/disorder context for the controls, at the calibration level. Deliberately not a
+    # controlled vocabulary and never recorded per-control: a per-control disease label could let a phenotype be
+    # inferred for an individual variant, which risks PHI.
+    disease = Column(String, nullable=True)
+
+    # Submitter's affirmation that the control data contains no PHI. Tristate on purpose: # None = not yet addressed,
+    # False = explicitly declined, True = affirmed. Publishing a calibration that has controls is gated on this being
+    # True (see #752).
+    controls_not_phi = Column(Boolean, nullable=True)
+
     functional_classifications: Mapped[list["ScoreCalibrationFunctionalClassification"]] = relationship(
         "ScoreCalibrationFunctionalClassification",
+        back_populates="calibration",
+        cascade="all, delete-orphan",
+    )
+
+    # Ground-truth controls anchoring this calibration's thresholds. Separate from the per-bin ``variants`` on each
+    # functional classification, which record score-range membership rather than known clinical significance
+    # (see ``CalibrationControl``).
+    controls: Mapped[list["CalibrationControl"]] = relationship(
+        "CalibrationControl",
         back_populates="calibration",
         cascade="all, delete-orphan",
     )
