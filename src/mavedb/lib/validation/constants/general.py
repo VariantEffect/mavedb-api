@@ -46,6 +46,7 @@ required_score_column = "score"
 
 calibration_variant_column_name = "variant_urn"
 calibration_class_column_name = "class_name"
+calibration_control_status_column_name = "clinical_status"
 
 valid_dataset_columns = [score_columns, count_columns]
 valid_variant_columns = [variant_score_data, variant_count_data]

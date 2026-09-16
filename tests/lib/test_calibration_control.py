@@ -4,9 +4,17 @@ import pytest
 
 pytest.importorskip("psycopg2")
 
+import pandas as pd
 from sqlalchemy.exc import IntegrityError
 
 from mavedb.lib.score_calibrations import build_calibration_controls, validate_calibration_controls_in_score_set
+from mavedb.lib.validation.constants.general import (
+    calibration_control_status_column_name,
+    calibration_variant_column_name,
+    hgvs_nt_column,
+    hgvs_pro_column,
+)
+from mavedb.lib.validation.dataframe.calibration import validate_and_standardize_calibration_controls_dataframe
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.calibration_control import CalibrationControl
 from mavedb.models.enums.calibration_control_status import CalibrationControlStatus
@@ -220,3 +228,102 @@ def test_build_calibration_controls_propagates_validation_error(session, setup_l
 
     with pytest.raises(ValidationError, match="do not belong to the calibration's score set"):
         build_calibration_controls(session, variant.score_set, controls, user)
+
+
+##############################################################################
+# validate_and_standardize_calibration_controls_dataframe (#753 CSV path)
+##############################################################################
+
+
+def _controls_df(variant_values, statuses):
+    return pd.DataFrame(
+        {calibration_variant_column_name: variant_values, calibration_control_status_column_name: statuses}
+    )
+
+
+def test_controls_csv_validates_and_converts_to_create_rows(session, setup_lib_db_with_variant):
+    variant = setup_lib_db_with_variant
+    # Status is case-insensitive.
+    df = _controls_df([variant.urn], ["Pathogenic"])
+
+    controls = validate_and_standardize_calibration_controls_dataframe(session, variant.score_set, df)
+
+    assert len(controls) == 1
+    assert controls[0].variant_urn == variant.urn
+    assert controls[0].clinical_status is CalibrationControlStatus.pathogenic
+
+
+def test_controls_csv_rejects_invalid_status(session, setup_lib_db_with_variant):
+    variant = setup_lib_db_with_variant
+    df = _controls_df([variant.urn], ["likely_pathogenic"])
+
+    with pytest.raises(ValidationError, match="Invalid clinical status"):
+        validate_and_standardize_calibration_controls_dataframe(session, variant.score_set, df)
+
+
+def test_controls_csv_rejects_variant_not_in_score_set(session, setup_lib_db_with_variant):
+    variant = setup_lib_db_with_variant
+    df = _controls_df(["urn:mavedb:99999999-x-9#1"], ["benign"])
+
+    with pytest.raises(ValidationError, match="do not exist in the score set"):
+        validate_and_standardize_calibration_controls_dataframe(session, variant.score_set, df)
+
+
+def test_controls_csv_rejects_missing_status_column(session, setup_lib_db_with_variant):
+    variant = setup_lib_db_with_variant
+    df = pd.DataFrame({calibration_variant_column_name: [variant.urn]})
+
+    with pytest.raises(ValidationError, match=calibration_control_status_column_name):
+        validate_and_standardize_calibration_controls_dataframe(session, variant.score_set, df)
+
+
+def test_controls_csv_accepts_hgvs_nt_index(session, setup_lib_db_with_variant):
+    variant = setup_lib_db_with_variant
+    # hgvs_nt is unique within the score set, so it resolves 1:1 to the variant URN.
+    df = pd.DataFrame({hgvs_nt_column: [variant.hgvs_nt], calibration_control_status_column_name: ["benign"]})
+
+    controls = validate_and_standardize_calibration_controls_dataframe(session, variant.score_set, df)
+
+    assert len(controls) == 1
+    assert controls[0].variant_urn == variant.urn
+    assert controls[0].clinical_status is CalibrationControlStatus.benign
+
+
+@pytest.mark.parametrize(
+    "index_column, shared_value, distinct_values",
+    [
+        # hgvs_pro collision: two nucleotide variants collapsing to the same protein consequence
+        # (the expected case in a nucleotide-indexed score set).
+        (hgvs_pro_column, "p.Met1Val", ("c.1A>G", "c.3G>T")),
+        # hgvs_nt collision: not expected in practice, but the detection must still fire.
+        (hgvs_nt_column, "c.99A>G", ("p.Lys33Arg", "p.Lys33Gln")),
+    ],
+)
+def test_controls_csv_rejects_ambiguous_hgvs_index(
+    session, setup_lib_db_with_variant, index_column, shared_value, distinct_values
+):
+    variant = setup_lib_db_with_variant
+    score_set = variant.score_set
+
+    # Two variants that share the submitted index value but differ on the other HGVS field, so the
+    # index resolves to more than one variant in the score set.
+    for suffix, distinct_value in enumerate(distinct_values, start=2):
+        hgvs_nt = shared_value if index_column == hgvs_nt_column else distinct_value
+        hgvs_pro = shared_value if index_column == hgvs_pro_column else distinct_value
+        session.add(
+            Variant(
+                data=TEST_MINIMAL_VARIANT["data"],
+                hgvs_nt=hgvs_nt,
+                hgvs_pro=hgvs_pro,
+                creation_date=TEST_MINIMAL_VARIANT["creation_date"],
+                modification_date=TEST_MINIMAL_VARIANT["modification_date"],
+                urn=f"{score_set.urn}#{suffix}",
+                score_set_id=score_set.id,
+            )
+        )
+    session.commit()
+
+    df = pd.DataFrame({index_column: [shared_value], calibration_control_status_column_name: ["pathogenic"]})
+
+    with pytest.raises(ValidationError, match="match more than one variant"):
+        validate_and_standardize_calibration_controls_dataframe(session, score_set, df)
