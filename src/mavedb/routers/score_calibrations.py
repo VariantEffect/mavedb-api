@@ -569,7 +569,11 @@ async def promote_score_calibration_to_primary_route(
     Promote a score calibration to be the primary calibration for its associated score set.
     """
     save_to_logging_context(
-        {"requested_resource": urn, "resource_property": "primary", "demote_existing_primary": demote_existing_primary}
+        {
+            "requested_resource": urn,
+            "resource_property": "primary",
+            "demote_existing_primary": demote_existing_primary,
+        }
     )
 
     item = (
@@ -691,6 +695,19 @@ def publish_score_calibration_route(
         logger.debug("The requested score calibration is already public", extra=logging_context())
         return item
 
+    # Control data must be affirmed free of PHI before it can be made public. The affirmation is only
+    # meaningful when controls exist, so zero-control calibrations publish regardless. controls_not_phi
+    # is tristate: only True clears the gate — None (unaddressed) and False (declined) both block.
+    if item.controls and item.controls_not_phi is not True:
+        logger.debug("Calibration controls have not been affirmed free of PHI", extra=logging_context())
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "This calibration has controls that have not been affirmed to be free of protected health "
+                "information (PHI). Set controls_not_phi to true before publishing."
+            ),
+        )
+
     # XXX: desired?
     # if item.score_set.private:
     #     logger.debug(
@@ -729,7 +746,11 @@ def get_functional_classification_variants(
     a `variant_count` summary for performance.
     """
     save_to_logging_context(
-        {"requested_resource": urn, "requested_classification": classification_id, "resource_property": "variants"}
+        {
+            "requested_resource": urn,
+            "requested_classification": classification_id,
+            "resource_property": "variants",
+        }
     )
 
     calibration = (
