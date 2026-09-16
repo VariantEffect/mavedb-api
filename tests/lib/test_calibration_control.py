@@ -6,7 +6,7 @@ pytest.importorskip("psycopg2")
 
 from sqlalchemy.exc import IntegrityError
 
-from mavedb.lib.score_calibrations import validate_calibration_controls_in_score_set
+from mavedb.lib.score_calibrations import build_calibration_controls, validate_calibration_controls_in_score_set
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.calibration_control import CalibrationControl
 from mavedb.models.enums.calibration_control_status import CalibrationControlStatus
@@ -144,15 +144,16 @@ def _variant_in_other_score_set(session, reference_score_set, user) -> Variant:
 @pytest.mark.parametrize("controls", [None, []])
 def test_validate_controls_is_a_no_op_when_absent(session, setup_lib_db_with_variant, controls):
     variant = setup_lib_db_with_variant
-    # Must not raise for None or an empty list.
-    validate_calibration_controls_in_score_set(session, variant.score_set, controls)
+    # Must not raise for None or an empty list, and returns no URNs.
+    assert validate_calibration_controls_in_score_set(session, variant.score_set, controls) == []
 
 
 def test_validate_controls_accepts_variant_in_score_set(session, setup_lib_db_with_variant):
     variant = setup_lib_db_with_variant
     controls = [CalibrationControlCreate(variant_urn=variant.urn, clinical_status="pathogenic")]
 
-    validate_calibration_controls_in_score_set(session, variant.score_set, controls)
+    # Returns the validated URNs so persistence can reuse them without rebuilding the list.
+    assert validate_calibration_controls_in_score_set(session, variant.score_set, controls) == [variant.urn]
 
 
 def test_validate_controls_rejects_nonexistent_variant(session, setup_lib_db_with_variant):
@@ -183,3 +184,39 @@ def test_validate_controls_rejects_duplicate_variant_urns(session, setup_lib_db_
 
     with pytest.raises(ValidationError, match="Duplicate control variant URNs detected"):
         validate_calibration_controls_in_score_set(session, variant.score_set, controls)
+
+
+##############################################################################
+# build_calibration_controls (#753 lib persistence)
+##############################################################################
+
+
+@pytest.mark.parametrize("controls", [None, []])
+def test_build_calibration_controls_empty_for_absent_input(session, setup_lib_db_with_variant, controls):
+    variant = setup_lib_db_with_variant
+    user = session.query(User).filter(User.username == TEST_USER["username"]).first()
+
+    assert build_calibration_controls(session, variant.score_set, controls, user) == []
+
+
+def test_build_calibration_controls_constructs_rows(session, setup_lib_db_with_variant):
+    variant = setup_lib_db_with_variant
+    user = session.query(User).filter(User.username == TEST_USER["username"]).first()
+    controls = [CalibrationControlCreate(variant_urn=variant.urn, clinical_status="benign")]
+
+    built = build_calibration_controls(session, variant.score_set, controls, user)
+
+    assert len(built) == 1
+    assert built[0].variant is variant
+    assert built[0].clinical_status is CalibrationControlStatus.benign
+    assert built[0].created_by is user
+    assert built[0].modified_by is user
+
+
+def test_build_calibration_controls_propagates_validation_error(session, setup_lib_db_with_variant):
+    variant = setup_lib_db_with_variant
+    user = session.query(User).filter(User.username == TEST_USER["username"]).first()
+    controls = [CalibrationControlCreate(variant_urn="urn:mavedb:99999999-x-9#1", clinical_status="benign")]
+
+    with pytest.raises(ValidationError, match="do not belong to the calibration's score set"):
+        build_calibration_controls(session, variant.score_set, controls, user)

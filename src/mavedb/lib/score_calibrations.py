@@ -19,6 +19,7 @@ from mavedb.lib.validation.constants.general import (
 )
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import inf_or_float
+from mavedb.models.calibration_control import CalibrationControl
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
@@ -33,8 +34,8 @@ def validate_calibration_controls_in_score_set(
     db: Session,
     score_set: ScoreSet,
     controls: Optional[Sequence[score_calibration.CalibrationControlCreate]],
-) -> None:
-    """Ensure every calibration control references a variant in the calibration's score set.
+) -> list[str]:
+    """Validate calibration controls against a score set and return their variant URNs.
 
     A control earns its role as calibration evidence from a variant the assay actually scored,
     so each control must reference a variant belonging to the calibration's own score set. A
@@ -44,17 +45,23 @@ def validate_calibration_controls_in_score_set(
     Duplicate variant URNs within one submission are caught here with a readable message rather
     than deferred to the ``UNIQUE(calibration_id, variant_id)`` database constraint.
 
+    The validated URNs are returned so a caller that goes on to persist the controls can reuse
+    them (see :func:`build_calibration_controls`).
+
     Args:
         db: Database session used for the lookup.
         score_set: The score set the calibration belongs to.
-        controls: Controls submitted on create or modify. ``None`` or empty is a no-op.
+        controls: Controls submitted on create or modify. ``None`` or empty returns ``[]``.
+
+    Returns:
+        The submitted and validated variant URNs, in order; empty for ``None``/empty input.
 
     Raises:
         ValidationError: If any control URN is duplicated within the submission, absent from
             MaveDB, or belongs to a different score set.
     """
     if not controls:
-        return
+        return []
 
     submitted_urns = [control.variant_urn for control in controls]
 
@@ -76,6 +83,50 @@ def validate_calibration_controls_in_score_set(
             "The following control variants do not belong to the calibration's score set: "
             f"{', '.join(sorted(missing_urns))}."
         )
+
+    return submitted_urns
+
+
+def build_calibration_controls(
+    db: Session,
+    score_set: ScoreSet,
+    controls: Optional[Sequence[score_calibration.CalibrationControlCreate]],
+    user: User,
+) -> list[CalibrationControl]:
+    """Validate and construct transient ``CalibrationControl`` rows for a calibration.
+
+    Validation (see :func:`validate_calibration_controls_in_score_set`) returns the validated
+    variant URNs, which this function resolves to their ``Variant`` rows in one query and turns
+    into unattached ``CalibrationControl`` rows with audit fields set. The caller assigns them to
+    the calibration's ``controls`` collection and commits. Returns an empty list for ``None`` or
+    empty input.
+
+    Args:
+        db: Database session.
+        score_set: The score set the calibration belongs to; controls resolve within it.
+        controls: Submitted controls, or ``None``/empty for none.
+        user: The acting user, recorded on each control's audit fields.
+    """
+    submitted_urns = validate_calibration_controls_in_score_set(db, score_set, controls)
+    if not controls:
+        return []
+
+    variants_by_urn = {
+        variant.urn: variant
+        for variant in db.scalars(
+            select(Variant).where(Variant.score_set_id == score_set.id, Variant.urn.in_(submitted_urns))
+        ).all()
+    }
+
+    return [
+        CalibrationControl(
+            variant=variants_by_urn[control.variant_urn],
+            clinical_status=control.clinical_status,
+            created_by=user,
+            modified_by=user,
+        )
+        for control in controls
+    ]
 
 
 def create_functional_classification(
@@ -313,6 +364,10 @@ async def create_score_calibration_in_score_set(
     else:
         calibration.investigator_provided = False
 
+    calibration.controls = build_calibration_controls(
+        db, containing_score_set, getattr(calibration_create, "controls", None), user
+    )
+
     db.add(calibration)
     return calibration
 
@@ -534,6 +589,17 @@ async def modify_score_calibration(
         )
         db.add(persisted_functional_range)
         calibration.functional_classifications.append(persisted_functional_range)
+
+    # Replace semantics: a provided controls list (even empty) replaces all existing controls, while
+    # None leaves them untouched. TODO#752: reset controls_not_phi here once the re-acknowledgment
+    # behavior is settled against PUT semantics and the editor's same-request affirmation.
+    submitted_controls = getattr(calibration_update, "controls", None)
+    if submitted_controls is not None:
+        for control in list(calibration.controls):
+            db.delete(control)
+        calibration.controls.clear()
+        db.flush()
+        calibration.controls = build_calibration_controls(db, containing_score_set, submitted_controls, user)
 
     db.add(calibration)
     return calibration
