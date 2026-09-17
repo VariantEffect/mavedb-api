@@ -599,6 +599,22 @@ async def modify_score_calibration_route(
         db, item, calibration_update, user_data.user, variant_classes if classes_file else None
     )
 
+    # A public calibration may not carry unacknowledged controls, on this route the same as at
+    # publish time. controls_not_phi is tristate: only True clears the gate — None (unaddressed) and
+    # False (declined) both block. Only meaningful when controls exist.
+    if (
+        not updated_calibration.private
+        and updated_calibration.controls
+        and updated_calibration.controls_not_phi is not True
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "This calibration has controls that have not been affirmed to be free of protected health "
+                "information (PHI). Set controls_not_phi to true."
+            ),
+        )
+
     db.commit()
     db.refresh(updated_calibration)
 
