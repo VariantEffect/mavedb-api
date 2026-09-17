@@ -1652,6 +1652,17 @@ TEST_MINIMAL_CALIBRATION = {
 }
 
 
+SAVED_GENERIC_DISEASE_CONCEPT = {
+    "conceptType": "Disease",
+    "name": "disease or disorder",
+    "primaryCoding": {
+        "system": "https://purl.obolibrary.org/obo/mondo.owl",
+        "code": "MONDO:0000001",
+        "iris": ["https://purl.obolibrary.org/obo/MONDO_0000001"],
+    },
+}
+
+
 TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED = {
     "title": "Test BRNICH Score Calibration",
     "research_use_only": False,
@@ -1694,6 +1705,7 @@ TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED = {
     "scoreSetId": 1,
     "controls": [],
     "controlsCount": 0,
+    "disease": SAVED_GENERIC_DISEASE_CONCEPT,
     "createdBy": {
         "recordType": "User",
         "firstName": TEST_USER["first_name"],
@@ -1764,6 +1776,7 @@ TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION = {
     "private": False,
     "urn": VALID_CALIBRATION_URN,
     "scoreSetId": 1,
+    "disease": SAVED_GENERIC_DISEASE_CONCEPT,
     "createdBy": {
         "recordType": "User",
         "firstName": TEST_USER["first_name"],

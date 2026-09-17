@@ -7,8 +7,10 @@ associated publication/odds path references used by the API layer.
 from datetime import date
 from typing import TYPE_CHECKING, Any, Collection, Optional, Sequence, Union
 
+from ga4gh.core.models import MappableConcept
 from pydantic import Field, field_validator, model_validator
 
+from mavedb.lib.mondo import generic_disease_mappable_concept, mondo_term_to_mappable_concept
 from mavedb.lib.oddspaths import oddspaths_evidence_strength_equivalent
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.transform import (
@@ -286,7 +288,6 @@ class ScoreCalibrationBase(BaseModel):
     baseline_score_description: Optional[str] = None
     notes: Optional[str] = None
 
-    disease: Optional[str] = None
     controls_not_phi: Optional[bool] = None
 
     functional_classifications: Optional[Sequence[FunctionalClassificationBase]] = None
@@ -441,6 +442,13 @@ class ScoreCalibrationModify(ScoreCalibrationBase):
     functional_classifications: Optional[Sequence[FunctionalClassificationModify]] = None
     # None means "no change" on modify; an empty list clears all controls.
     controls: Optional[Sequence[CalibrationControlCreate]] = None
+    disease: Optional[str] = Field(
+        None,
+        description=(
+            'The MONDO code (e.g. "MONDO:0015263") for this calibration\'s disease context; validated '
+            'against OLS. Omitted or null resolves to the generic "disease or disorder" term.'
+        ),
+    )
     threshold_sources: Sequence[PublicationIdentifierCreate]
     evidence_sources: Sequence[PublicationIdentifierCreate]
     method_sources: Sequence[PublicationIdentifierCreate]
@@ -510,6 +518,9 @@ class SavedScoreCalibration(ScoreCalibrationBase):
     # The full controls list lives on the detail models; the base (and any list/collection response)
     # carries only the count to keep those payloads small. See ScoreCalibrationDetailWithScoreSetUrn.
     controls_count: int = 0
+    # The FK is non-nullable, so this is always populated by ``generate_disease_concept`` when building
+    # from an ORM object; an unspecified disease resolves to the generic "disease or disorder" concept.
+    disease: MappableConcept
     threshold_sources: Sequence[SavedPublicationIdentifier]
     evidence_sources: Sequence[SavedPublicationIdentifier]
     method_sources: Sequence[SavedPublicationIdentifier]
@@ -572,6 +583,21 @@ class SavedScoreCalibration(ScoreCalibrationBase):
                 raise ValidationError(
                     f"Unable to coerce publication associations for {cls.__name__}: {exc}."  # type: ignore
                 )
+        return data
+
+    @model_validator(mode="before")
+    def generate_disease_concept(cls, data: Any):
+        """Serialize the stored MONDO term as a ``disease`` MappableConcept when building from an ORM object.
+
+        Falls back to the generic concept if the relationship is unexpectedly empty, so the non-nullable
+        field is always satisfied.
+        """
+        if hasattr(data, "disease_term"):
+            term = data.disease_term
+            data.__setattr__(
+                "disease",
+                mondo_term_to_mappable_concept(term) if term is not None else generic_disease_mappable_concept(),
+            )
         return data
 
 

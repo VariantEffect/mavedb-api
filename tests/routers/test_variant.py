@@ -176,6 +176,7 @@ class TestPrivateCalibrationsAreNotServedOverHttp:
     """
 
     def _private_calibration(self, session, score_set_urn):
+        from mavedb.lib.mondo import get_generic_disease_term
         from mavedb.models.score_calibration import ScoreCalibration
 
         score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
@@ -188,6 +189,7 @@ class TestPrivateCalibrationsAreNotServedOverHttp:
             primary=False,
             private=True,
             calibration_metadata={},
+            disease_term=get_generic_disease_term(session),
             created_by_id=score_set.created_by_id,
             modified_by_id=score_set.modified_by_id,
         )

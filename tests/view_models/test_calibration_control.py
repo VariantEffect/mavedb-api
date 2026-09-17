@@ -4,6 +4,7 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
+from mavedb.lib.mondo import MONDO_SYSTEM
 from mavedb.models.enums.calibration_control_status import CalibrationControlStatus
 from mavedb.view_models.calibration_control import (
     CalibrationControlCreate,
@@ -97,7 +98,7 @@ def test_saved_calibration_control_synthesizes_variant_urn_from_orm():
 
 def test_score_calibration_create_accepts_controls_disease_and_phi():
     payload = deepcopy(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
-    payload["disease"] = "Brugada syndrome"
+    payload["disease"] = "MONDO:0015263"
     payload["controls_not_phi"] = True
     payload["controls"] = [
         {"variant_urn": TEST_CONTROL_VARIANT_URN, "clinical_status": "pathogenic"},
@@ -106,16 +107,18 @@ def test_score_calibration_create_accepts_controls_disease_and_phi():
 
     calibration = ScoreCalibrationCreate.model_validate(payload)
 
-    assert calibration.disease == "Brugada syndrome"
+    assert calibration.disease == "MONDO:0015263"
     assert calibration.controls_not_phi is True
     assert len(calibration.controls) == 2
     assert calibration.controls[0].clinical_status is CalibrationControlStatus.pathogenic
     assert calibration.controls[1].clinical_status is CalibrationControlStatus.benign
 
 
-def test_saved_score_calibration_includes_controls():
+def test_saved_score_calibration_includes_controls_and_disease_concept():
     saved = deepcopy(TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
-    saved["disease"] = "Brugada syndrome"
+    saved["disease_term"] = dummy_attributed_object_from_dict(
+        {"code": "MONDO:0015263", "system": MONDO_SYSTEM, "system_version": None, "label": "Brugada syndrome"}
+    )
     saved["controlsNotPhi"] = True
     saved["controls"] = [
         {
@@ -131,7 +134,9 @@ def test_saved_score_calibration_includes_controls():
 
     calibration = ScoreCalibration.model_validate(dummy_attributed_object_from_dict(saved))
 
-    assert calibration.disease == "Brugada syndrome"
+    assert calibration.disease.conceptType == "Disease"
+    assert calibration.disease.primaryCoding.code.root == "MONDO:0015263"
+    assert calibration.disease.name == "Brugada syndrome"
     assert calibration.controls_not_phi is True
     assert len(calibration.controls) == 1
     assert calibration.controls[0].variant_urn == TEST_CONTROL_VARIANT_URN

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from mavedb.lib.acmg import find_or_create_acmg_classification
 from mavedb.lib.identifiers import find_or_create_publication_identifier
+from mavedb.lib.mondo import resolve_disease_term
 from mavedb.lib.types.score_calibrations import ClassificationDict
 from mavedb.lib.validation.constants.general import (
     calibration_class_column_name,
@@ -284,6 +285,7 @@ async def _create_score_calibration(
             exclude={
                 "functional_classifications",
                 "controls",
+                "disease",
                 "threshold_sources",
                 "evidence_sources",
                 "method_sources",
@@ -295,6 +297,8 @@ async def _create_score_calibration(
         created_by=user,
         modified_by=user,
     )  # type: ignore[call-arg]
+
+    calibration.disease_term = await resolve_disease_term(db, getattr(calibration_create, "disease", None))
 
     if containing_score_set:
         calibration.score_set = containing_score_set
@@ -567,6 +571,7 @@ async def modify_score_calibration(
         if attr not in {
             "functional_classifications",
             "controls",
+            "disease",
             # controls_not_phi carries re-acknowledgment semantics; set it explicitly so an
             # unrelated edit cannot silently wipe a prior affirmation.
             "controls_not_phi",
@@ -580,6 +585,8 @@ async def modify_score_calibration(
             "score_set_urn",
         }:
             setattr(calibration, attr, value)
+
+    calibration.disease_term = await resolve_disease_term(db, getattr(calibration_update, "disease", None))
 
     calibration.score_set = containing_score_set
     calibration.score_set_id = containing_score_set.id

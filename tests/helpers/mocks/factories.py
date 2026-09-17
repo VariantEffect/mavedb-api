@@ -8,6 +8,7 @@ used across different test modules, reducing duplication and ensuring consistenc
 from datetime import date, datetime
 from unittest.mock import MagicMock
 
+from mavedb.lib.mondo import MONDO_GENERIC_CODE, MONDO_GENERIC_LABEL, MONDO_SYSTEM
 from mavedb.models.enums.acmg_criterion import ACMGCriterion
 from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassificationOptions
 from mavedb.models.enums.strength_of_evidence import StrengthOfEvidenceProvided
@@ -169,11 +170,19 @@ def create_mock_score_set(
     )
 
 
+def create_mock_mondo_term(
+    code=MONDO_GENERIC_CODE, label=MONDO_GENERIC_LABEL, system=MONDO_SYSTEM, system_version=None
+):
+    """Create a mock MondoTerm, defaulting to the generic "disease or disorder" term."""
+    return create_sealed_mock(code=code, label=label, system=system, system_version=system_version)
+
+
 def create_mock_score_calibration(functional_classifications=None, primary=True, **kwargs):
     """Create a mock ScoreCalibration for both Pydantic validation and direct attribute access.
 
     When ``functional_classifications`` is not provided a minimal default list is
-    created (single not_specified classification with no ACMG).
+    created (single not_specified classification with no ACMG). ``disease_term`` defaults to
+    the generic MONDO term (calibrations always carry a non-null disease FK).
     """
     user = kwargs.get("created_by") or create_mock_user()
 
@@ -207,6 +216,7 @@ def create_mock_score_calibration(functional_classifications=None, primary=True,
         "primary": primary,
         "private": kwargs.get("private", not primary),
         "researchUseOnly": kwargs.get("research_use_only", False),
+        "diseaseTerm": kwargs.get("disease_term", create_mock_mondo_term()),
         "thresholdSources": kwargs.get("threshold_sources", []),
         "classificationSources": kwargs.get("classification_sources", []),
         "methodSources": kwargs.get("method_sources", []),

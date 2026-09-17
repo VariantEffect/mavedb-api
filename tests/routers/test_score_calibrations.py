@@ -14,6 +14,7 @@ from unittest.mock import patch
 from arq import ArqRedis
 from sqlalchemy import select
 
+from mavedb.models.mondo_term import MondoTerm as MondoTermDbModel
 from mavedb.models.score_calibration import ScoreCalibration as CalibrationDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from tests.helpers.constants import (
@@ -146,6 +147,72 @@ def test_creating_user_can_get_score_calibration_when_private(
     calibration_response = response.json()
     assert calibration_response["urn"] == calibration["urn"]
     assert calibration_response["private"] is True
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_create_score_calibration_without_disease_defaults_to_generic(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    disease = client.get(f"/api/v1/score-calibrations/{calibration['urn']}").json()["disease"]
+    assert disease["conceptType"] == "Disease"
+    assert disease["primaryCoding"]["code"] == "MONDO:0000001"
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_create_score_calibration_with_disease_resolves_mondo_concept(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, monkeypatch
+):
+    async def fake_fetch(code):
+        return {
+            "code": code,
+            "label": "Brugada syndrome",
+            "iri": f"https://purl.obolibrary.org/obo/{code.replace(':', '_')}",
+        }
+
+    monkeypatch.setattr("mavedb.lib.mondo.fetch_mondo_term", fake_fetch)
+
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    payload = {
+        **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        "disease": "MONDO:0015263",
+    }
+    calibration = create_test_score_calibration_in_score_set_via_client(client, score_set["urn"], payload)
+
+    disease = client.get(f"/api/v1/score-calibrations/{calibration['urn']}").json()["disease"]
+    assert disease["primaryCoding"]["code"] == "MONDO:0015263"
+    assert disease["name"] == "Brugada syndrome"
+
+    stored = session.query(MondoTermDbModel).filter(MondoTermDbModel.code == "MONDO:0015263").one()
+    assert stored.label == "Brugada syndrome"
 
 
 @pytest.mark.parametrize(

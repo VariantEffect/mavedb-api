@@ -18,6 +18,7 @@ from mavedb.lib.validation.dataframe.calibration import validate_and_standardize
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.calibration_control import CalibrationControl
 from mavedb.models.enums.calibration_control_status import CalibrationControlStatus
+from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
@@ -31,6 +32,7 @@ def _make_calibration(session, score_set_id: int, user: User) -> ScoreCalibratio
     calibration = ScoreCalibration(
         title="Calibration with controls",
         score_set_id=score_set_id,
+        disease_term=get_generic_disease_term(session),
         created_by=user,
         modified_by=user,
     )

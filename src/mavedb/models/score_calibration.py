@@ -17,6 +17,7 @@ from mavedb.models.score_calibration_functional_classification import ScoreCalib
 from mavedb.models.score_calibration_publication_identifier import ScoreCalibrationPublicationIdentifierAssociation
 
 if TYPE_CHECKING:
+    from mavedb.models.mondo_term import MondoTerm
     from mavedb.models.publication_identifier import PublicationIdentifier
     from mavedb.models.score_set import ScoreSet
     from mavedb.models.user import User
@@ -42,10 +43,10 @@ class ScoreCalibration(Base):
     baseline_score = Column(Float, nullable=True)
     baseline_score_description = Column(String, nullable=True)
 
-    # Optional free-text disease/disorder context for the controls, at the calibration level. Deliberately not a
-    # controlled vocabulary and never recorded per-control: a per-control disease label could let a phenotype be
-    # inferred for an individual variant, which risks PHI.
-    disease = Column(String, nullable=True)
+    # MONDO-coded disease/disorder context. Non-nullable and defaulted to the generic "disease or disorder" term,
+    # so every calibration carries a concept and consumers never branch on null.
+    disease_term_id = Column(Integer, ForeignKey("mondo_terms.id"), nullable=False, index=True)
+    disease_term: Mapped["MondoTerm"] = relationship("MondoTerm")
 
     # Submitter's affirmation that the control data contains no PHI. Tristate on purpose: # None = not yet addressed,
     # False = explicitly declined, True = affirmed. Publishing a calibration that has controls is gated on this being

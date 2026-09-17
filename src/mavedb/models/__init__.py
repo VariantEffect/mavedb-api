@@ -17,6 +17,7 @@ __all__ = [
     "legacy_keyword",
     "license",
     "mapped_variant",
+    "mondo_term",
     "pipeline",
     "publication_identifier",
     "published_variant",
