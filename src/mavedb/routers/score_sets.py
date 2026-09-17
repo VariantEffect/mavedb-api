@@ -1919,6 +1919,17 @@ async def create_score_set(
                     detail="Class-based calibrations are not supported on score set creation. Please create class-based calibrations after creating the score set.",
                 )
 
+            # TODO#592: Support for controls on score set creation
+            if calibration_create.controls:
+                logger.info(
+                    msg="Failed to create score set; Calibration controls are not supported on score set creation.",
+                    extra=logging_context(),
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail="Calibration controls are not supported on score set creation. Please add controls after creating the score set.",
+                )
+
             created_calibration_item = await create_score_calibration(
                 db, calibration_create, user_data.user, variant_classes=None
             )

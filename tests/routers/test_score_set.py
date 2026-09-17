@@ -65,6 +65,7 @@ from tests.helpers.constants import (
     TEST_SAVED_TAXONOMY,
     TEST_USER,
     VALID_CLINGEN_CA_ID,
+    VALID_VARIANT_URN,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.mocks.factories import create_mock_mapped_variant
@@ -284,6 +285,33 @@ def test_cannot_create_score_set_with_class_based_calibration(client, mock_publi
     assert response.status_code == 409
     response_data = response.json()
     assert "Class-based calibrations are not supported on score set creation" in response_data["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        (
+            [
+                {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+                {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+            ]
+        )
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_score_set_with_calibration_controls(client, mock_publication_fetch, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    calibration = deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    # Controls reference variants that don't exist until the scores file is processed after creation.
+    calibration["controls"] = [{"variantUrn": VALID_VARIANT_URN, "clinicalStatus": "pathogenic"}]
+    score_set.update({"scoreCalibrations": [calibration]})
+
+    response = client.post("/api/v1/score-sets/", json=score_set)
+    assert response.status_code == 409
+    response_data = response.json()
+    assert "Calibration controls are not supported on score set creation" in response_data["detail"]
 
 
 @pytest.mark.parametrize(
