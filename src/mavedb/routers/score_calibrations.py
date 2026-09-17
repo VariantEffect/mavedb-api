@@ -87,7 +87,7 @@ def list_my_calibrations(
 
 @router.get(
     "/{urn}",
-    response_model=score_calibration.ScoreCalibrationWithScoreSetUrn,
+    response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}},
 )
 def get_score_calibration(
@@ -157,7 +157,7 @@ async def get_score_calibrations_for_score_set(
 
 @router.get(
     "/score-set/{score_set_urn}/primary",
-    response_model=score_calibration.ScoreCalibrationWithScoreSetUrn,
+    response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}},
 )
 async def get_primary_score_calibrations_for_score_set(
@@ -211,7 +211,7 @@ async def get_primary_score_calibrations_for_score_set(
 
 @router.post(
     "/",
-    response_model=score_calibration.ScoreCalibrationWithScoreSetUrn,
+    response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}, 422: {"description": "Validation Error"}},
     openapi_extra={
         "requestBody": {
@@ -397,7 +397,7 @@ async def create_score_calibration_route(
 
 @router.put(
     "/{urn}",
-    response_model=score_calibration.ScoreCalibrationWithScoreSetUrn,
+    response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}, 422: {"description": "Validation Error"}},
     openapi_extra={
         "requestBody": {
@@ -642,7 +642,7 @@ async def delete_score_calibration_route(
 
 @router.post(
     "/{urn}/promote-to-primary",
-    response_model=score_calibration.ScoreCalibrationWithScoreSetUrn,
+    response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}},
 )
 async def promote_score_calibration_to_primary_route(
@@ -715,7 +715,7 @@ async def promote_score_calibration_to_primary_route(
 
 @router.post(
     "/{urn}/demote-from-primary",
-    response_model=score_calibration.ScoreCalibrationWithScoreSetUrn,
+    response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}},
 )
 def demote_score_calibration_from_primary_route(
@@ -754,7 +754,7 @@ def demote_score_calibration_from_primary_route(
 
 @router.post(
     "/{urn}/publish",
-    response_model=score_calibration.ScoreCalibrationWithScoreSetUrn,
+    response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}},
 )
 def publish_score_calibration_route(

@@ -232,6 +232,29 @@ def test_get_calibration_returns_controls(
 
 
 @pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
+def test_list_endpoint_reports_controls_count_without_full_controls(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    score_set, variant_urns = _score_set_with_variant_urns(client, session, data_provider, data_files)
+    _create_with_controls(
+        client,
+        score_set["urn"],
+        [
+            {"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"},
+            {"variantUrn": variant_urns[1], "clinicalStatus": "benign"},
+        ],
+    )
+
+    response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+
+    assert response.status_code == 200, response.text
+    item = response.json()[0]
+    # List responses carry the count, not the full controls list.
+    assert item["controlsCount"] == 2
+    assert "controls" not in item
+
+
+@pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
 def test_modify_replaces_controls(client, setup_router_db, mock_publication_fetch, session, data_provider, data_files):
     score_set, variant_urns = _score_set_with_variant_urns(client, session, data_provider, data_files)
     calibration = _create_with_controls(

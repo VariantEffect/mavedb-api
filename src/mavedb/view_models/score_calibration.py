@@ -507,7 +507,9 @@ class SavedScoreCalibration(ScoreCalibrationBase):
     private: bool = True
 
     functional_classifications: Optional[Sequence[SavedFunctionalClassification]] = None
-    controls: Sequence[SavedCalibrationControl] = []
+    # The full controls list lives on the detail models; the base (and any list/collection response)
+    # carries only the count to keep those payloads small. See ScoreCalibrationDetailWithScoreSetUrn.
+    controls_count: int = 0
     threshold_sources: Sequence[SavedPublicationIdentifier]
     evidence_sources: Sequence[SavedPublicationIdentifier]
     method_sources: Sequence[SavedPublicationIdentifier]
@@ -577,6 +579,7 @@ class ScoreCalibration(SavedScoreCalibration):
     """Complete score calibration model returned by the API."""
 
     functional_classifications: Optional[Sequence[FunctionalClassification]] = None
+    controls: Sequence[SavedCalibrationControl] = []
     threshold_sources: Sequence[PublicationIdentifier]
     evidence_sources: Sequence[PublicationIdentifier]
     method_sources: Sequence[PublicationIdentifier]
@@ -585,7 +588,11 @@ class ScoreCalibration(SavedScoreCalibration):
 
 
 class ScoreCalibrationWithScoreSetUrn(SavedScoreCalibration):
-    """Complete score calibration model returned by the API, with score_set_urn."""
+    """Score calibration model with score_set_urn, used for list/collection responses.
+
+    Carries ``controls_count`` (from the base) but not the full controls list — see
+    ``ScoreCalibrationDetailWithScoreSetUrn`` for the single-item detail representation.
+    """
 
     score_set_urn: str
 
@@ -599,3 +606,9 @@ class ScoreCalibrationWithScoreSetUrn(SavedScoreCalibration):
                     f"Unable to coerce score set urn for {cls.__name__}: {exc}."  # type: ignore
                 )
         return data
+
+
+class ScoreCalibrationDetailWithScoreSetUrn(ScoreCalibrationWithScoreSetUrn):
+    """Single-calibration detail response: adds the full controls list to the list model."""
+
+    controls: Sequence[SavedCalibrationControl] = []

@@ -5,18 +5,18 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Column, Date, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, Date, Float, ForeignKey, Integer, String, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
-from sqlalchemy.orm import Mapped, relationship
+from sqlalchemy.orm import Mapped, column_property, relationship
 
 from mavedb.db.base import Base
 from mavedb.lib.urns import generate_calibration_urn
+from mavedb.models.calibration_control import CalibrationControl
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_calibration_publication_identifier import ScoreCalibrationPublicationIdentifierAssociation
 
 if TYPE_CHECKING:
-    from mavedb.models.calibration_control import CalibrationControl
     from mavedb.models.publication_identifier import PublicationIdentifier
     from mavedb.models.score_set import ScoreSet
     from mavedb.models.user import User
@@ -65,6 +65,16 @@ class ScoreCalibration(Base):
         "CalibrationControl",
         back_populates="calibration",
         cascade="all, delete-orphan",
+    )
+
+    # Efficient count via correlated subquery — lets list/collection responses report how many
+    # controls a calibration has without loading the control rows. Mirrors
+    # ``ScoreCalibrationFunctionalClassification.variant_count``.
+    controls_count: Mapped[int] = column_property(
+        select(func.count(CalibrationControl.id))
+        .where(CalibrationControl.calibration_id == id)
+        .correlate_except(CalibrationControl)
+        .scalar_subquery()
     )
 
     publication_identifier_associations: Mapped[list[ScoreCalibrationPublicationIdentifierAssociation]] = relationship(

@@ -1692,6 +1692,8 @@ TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED = {
     "primary": True,
     "private": False,
     "scoreSetId": 1,
+    "controls": [],
+    "controlsCount": 0,
     "createdBy": {
         "recordType": "User",
         "firstName": TEST_USER["first_name"],
