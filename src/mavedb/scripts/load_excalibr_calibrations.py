@@ -49,6 +49,7 @@ import click
 from sqlalchemy.orm import Session
 
 from mavedb.lib.score_calibrations import create_score_calibration_in_score_set
+from mavedb.lib.types.authentication import UserData
 from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassificationOptions
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
@@ -238,8 +239,9 @@ def main(db: Session, csv_path: str, dataset_map: str, overwrite: bool, remove: 
                     method_sources=[EXCALIBR_CALIBRATION_CITATION],
                 )
 
+                system_user_data = UserData(system_user, system_user.roles)
                 new_calibration_object = asyncio.run(
-                    create_score_calibration_in_score_set(db, score_calibration_create, system_user)
+                    create_score_calibration_in_score_set(db, score_calibration_create, system_user_data)
                 )
                 new_calibration_object.primary = False
                 new_calibration_object.private = False
