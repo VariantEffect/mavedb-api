@@ -25,8 +25,17 @@ from mavedb.lib.score_calibrations import (
 )
 from mavedb.lib.score_sets import csv_data_to_df
 from mavedb.lib.types.authentication import UserData
-from mavedb.lib.validation.constants.general import calibration_class_column_name, calibration_variant_column_name
-from mavedb.lib.validation.dataframe.calibration import validate_and_standardize_calibration_classes_dataframe
+from mavedb.lib.validation.constants.general import (
+    calibration_class_column_name,
+    calibration_control_status_column_name,
+    calibration_variant_column_name,
+    hgvs_nt_column,
+    hgvs_pro_column,
+)
+from mavedb.lib.validation.dataframe.calibration import (
+    validate_and_standardize_calibration_classes_dataframe,
+    validate_and_standardize_calibration_controls_dataframe,
+)
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
@@ -78,7 +87,7 @@ def list_my_calibrations(
 
 @router.get(
     "/{urn}",
-    response_model=score_calibration.ScoreCalibrationWithScoreSetUrn,
+    response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}},
 )
 def get_score_calibration(
@@ -148,7 +157,7 @@ async def get_score_calibrations_for_score_set(
 
 @router.get(
     "/score-set/{score_set_urn}/primary",
-    response_model=score_calibration.ScoreCalibrationWithScoreSetUrn,
+    response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}},
 )
 async def get_primary_score_calibrations_for_score_set(
@@ -202,7 +211,7 @@ async def get_primary_score_calibrations_for_score_set(
 
 @router.post(
     "/",
-    response_model=score_calibration.ScoreCalibrationWithScoreSetUrn,
+    response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}, 422: {"description": "Validation Error"}},
     openapi_extra={
         "requestBody": {
@@ -224,6 +233,11 @@ async def get_primary_score_calibrations_for_score_set(
                                 "format": "binary",
                                 "description": "CSV file containing variant classifications",
                             },
+                            "controls_file": {
+                                "type": "string",
+                                "format": "binary",
+                                "description": "CSV file containing calibration controls",
+                            },
                         },
                     }
                 },
@@ -238,6 +252,10 @@ async def create_score_calibration_route(
     classes_file: Optional[UploadFile] = File(
         None,
         description=f"CSV file containing variant classifications. This file must contain two columns: '{calibration_variant_column_name}' and '{calibration_class_column_name}'.",
+    ),
+    controls_file: Optional[UploadFile] = File(
+        None,
+        description=f"CSV file containing calibration controls. This file must contain a variant column (one of '{calibration_variant_column_name}', '{hgvs_nt_column}', '{hgvs_pro_column}') and a '{calibration_control_status_column_name}' column.",
     ),
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
@@ -272,6 +290,7 @@ async def create_score_calibration_route(
     **Form Fields**:
     - `calibration_json` (string, required): JSON string containing the calibration data
     - `classes_file` (file, optional): CSV file containing variant classifications
+    - `controls_file` (file, optional): CSV file containing calibration controls
 
     **Example**:
     ```bash
@@ -287,10 +306,15 @@ async def create_score_calibration_route(
     - If uploading a classes_file, it must be a valid CSV with variant classification data
     - User must have ADD_CALIBRATION permission on the score set (any authenticated user for
       published sets; contributors/owners/admins for private sets)
-      
+
     ## File Upload Details
     The `classes_file` parameter accepts CSV files containing variant classification data.
     The file should have appropriate headers and contain columns for variant urns and class names.
+
+    The `controls_file` parameter accepts a CSV of calibration controls with a variant column
+    (one of `variant_urn`, `hgvs_nt`, `hgvs_pro`) and a `clinical_status` column (`pathogenic` or
+    `benign`, case-insensitive). Controls may be supplied either via this file or inline in
+    `calibration_json`, but not both.
 
     ## Response
     Returns the created score calibration with its generated URN and associated score set information.
@@ -338,6 +362,29 @@ async def create_score_calibration_route(
                 detail=[{"loc": [e.custom_loc or "classesFile"], "msg": str(e), "type": "value_error"}],
             )
 
+    # Controls may be supplied inline in the JSON payload or as a CSV, but not both.
+    if calibration.controls is not None and controls_file:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide calibration controls either inline or via controls_file, not both.",
+        )
+
+    if controls_file:
+        try:
+            controls_df = csv_data_to_df(controls_file.file, induce_hgvs_cols=False)
+        except UnicodeDecodeError as e:
+            raise HTTPException(
+                status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values."
+            )
+
+        try:
+            calibration.controls = validate_and_standardize_calibration_controls_dataframe(db, score_set, controls_df)
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=422,
+                detail=[{"loc": [e.custom_loc or "controlsFile"], "msg": str(e), "type": "value_error"}],
+            )
+
     created_calibration = await create_score_calibration_in_score_set(
         db, calibration, user_data.user, variant_classes if classes_file else None
     )
@@ -350,7 +397,7 @@ async def create_score_calibration_route(
 
 @router.put(
     "/{urn}",
-    response_model=score_calibration.ScoreCalibrationWithScoreSetUrn,
+    response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}, 422: {"description": "Validation Error"}},
     openapi_extra={
         "requestBody": {
@@ -372,6 +419,11 @@ async def create_score_calibration_route(
                                 "format": "binary",
                                 "description": "CSV file containing updated variant classifications",
                             },
+                            "controls_file": {
+                                "type": "string",
+                                "format": "binary",
+                                "description": "CSV file containing updated calibration controls (replaces existing)",
+                            },
                         },
                     }
                 },
@@ -387,6 +439,10 @@ async def modify_score_calibration_route(
     classes_file: Optional[UploadFile] = File(
         None,
         description=f"CSV file containing variant classifications. This file must contain two columns: '{calibration_variant_column_name}' and '{calibration_class_column_name}'.",
+    ),
+    controls_file: Optional[UploadFile] = File(
+        None,
+        description=f"CSV file containing calibration controls. This file must contain a variant column (one of '{calibration_variant_column_name}', '{hgvs_nt_column}', '{hgvs_pro_column}') and a '{calibration_control_status_column_name}' column. Replaces existing controls.",
     ),
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
@@ -421,6 +477,7 @@ async def modify_score_calibration_route(
     **Form Fields**:
     - `calibration_json` (string, required): JSON string containing the calibration update data
     - `classes_file` (file, optional): CSV file containing updated variant classifications
+    - `controls_file` (file, optional): CSV file containing calibration controls (replaces existing)
 
     **Example**:
     ```bash
@@ -441,6 +498,12 @@ async def modify_score_calibration_route(
     If provided, this will replace the existing classification data for the calibration.
     The file should have appropriate headers and follow the expected format for variant
     classifications within the associated score set.
+
+    The `controls_file` parameter accepts a CSV of calibration controls with a variant column
+    (one of `variant_urn`, `hgvs_nt`, `hgvs_pro`) and a `clinical_status` column (`pathogenic` or
+    `benign`, case-insensitive). If provided, it replaces the calibration's existing controls.
+    Controls may be supplied either via this file or inline in `calibration_json`, but not both;
+    omitting both leaves existing controls unchanged.
 
     ## Response
     Returns the updated score calibration with all modifications applied and any new
@@ -506,9 +569,51 @@ async def modify_score_calibration_route(
                 detail=[{"loc": [e.custom_loc or "classesFile"], "msg": str(e), "type": "value_error"}],
             )
 
+    # Controls may be supplied inline in the JSON payload or as a CSV, but not both. A controls_file
+    # replaces existing controls; omitting both leaves them unchanged (see modify replace semantics).
+    if calibration_update.controls is not None and controls_file:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide calibration controls either inline or via controls_file, not both.",
+        )
+
+    if controls_file:
+        try:
+            controls_df = csv_data_to_df(controls_file.file, induce_hgvs_cols=False)
+        except UnicodeDecodeError as e:
+            raise HTTPException(
+                status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values."
+            )
+
+        try:
+            calibration_update.controls = validate_and_standardize_calibration_controls_dataframe(
+                db, score_set, controls_df
+            )
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=422,
+                detail=[{"loc": [e.custom_loc or "controlsFile"], "msg": str(e), "type": "value_error"}],
+            )
+
     updated_calibration = await modify_score_calibration(
         db, item, calibration_update, user_data.user, variant_classes if classes_file else None
     )
+
+    # A public calibration may not carry unacknowledged controls, on this route the same as at
+    # publish time. controls_not_phi is tristate: only True clears the gate — None (unaddressed) and
+    # False (declined) both block. Only meaningful when controls exist.
+    if (
+        not updated_calibration.private
+        and updated_calibration.controls
+        and updated_calibration.controls_not_phi is not True
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "This calibration has controls that have not been affirmed to be free of protected health "
+                "information (PHI). Set controls_not_phi to true."
+            ),
+        )
 
     db.commit()
     db.refresh(updated_calibration)
@@ -553,7 +658,7 @@ async def delete_score_calibration_route(
 
 @router.post(
     "/{urn}/promote-to-primary",
-    response_model=score_calibration.ScoreCalibrationWithScoreSetUrn,
+    response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}},
 )
 async def promote_score_calibration_to_primary_route(
@@ -569,7 +674,11 @@ async def promote_score_calibration_to_primary_route(
     Promote a score calibration to be the primary calibration for its associated score set.
     """
     save_to_logging_context(
-        {"requested_resource": urn, "resource_property": "primary", "demote_existing_primary": demote_existing_primary}
+        {
+            "requested_resource": urn,
+            "resource_property": "primary",
+            "demote_existing_primary": demote_existing_primary,
+        }
     )
 
     item = (
@@ -622,7 +731,7 @@ async def promote_score_calibration_to_primary_route(
 
 @router.post(
     "/{urn}/demote-from-primary",
-    response_model=score_calibration.ScoreCalibrationWithScoreSetUrn,
+    response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}},
 )
 def demote_score_calibration_from_primary_route(
@@ -661,7 +770,7 @@ def demote_score_calibration_from_primary_route(
 
 @router.post(
     "/{urn}/publish",
-    response_model=score_calibration.ScoreCalibrationWithScoreSetUrn,
+    response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}},
 )
 def publish_score_calibration_route(
@@ -690,6 +799,19 @@ def publish_score_calibration_route(
     if not item.private:
         logger.debug("The requested score calibration is already public", extra=logging_context())
         return item
+
+    # Control data must be affirmed free of PHI before it can be made public. The affirmation is only
+    # meaningful when controls exist, so zero-control calibrations publish regardless. controls_not_phi
+    # is tristate: only True clears the gate — None (unaddressed) and False (declined) both block.
+    if item.controls and item.controls_not_phi is not True:
+        logger.debug("Calibration controls have not been affirmed free of PHI", extra=logging_context())
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "This calibration has controls that have not been affirmed to be free of protected health "
+                "information (PHI). Set controls_not_phi to true before publishing."
+            ),
+        )
 
     # XXX: desired?
     # if item.score_set.private:
@@ -729,7 +851,11 @@ def get_functional_classification_variants(
     a `variant_count` summary for performance.
     """
     save_to_logging_context(
-        {"requested_resource": urn, "requested_classification": classification_id, "resource_property": "variants"}
+        {
+            "requested_resource": urn,
+            "requested_classification": classification_id,
+            "resource_property": "variants",
+        }
     )
 
     calibration = (

@@ -65,6 +65,7 @@ from tests.helpers.constants import (
     TEST_SAVED_TAXONOMY,
     TEST_USER,
     VALID_CLINGEN_CA_ID,
+    VALID_VARIANT_URN,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.mocks.factories import create_mock_mapped_variant
@@ -284,6 +285,33 @@ def test_cannot_create_score_set_with_class_based_calibration(client, mock_publi
     assert response.status_code == 409
     response_data = response.json()
     assert "Class-based calibrations are not supported on score set creation" in response_data["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        (
+            [
+                {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+                {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+            ]
+        )
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_score_set_with_calibration_controls(client, mock_publication_fetch, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    calibration = deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    # Controls reference variants that don't exist until the scores file is processed after creation.
+    calibration["controls"] = [{"variantUrn": VALID_VARIANT_URN, "clinicalStatus": "pathogenic"}]
+    score_set.update({"scoreCalibrations": [calibration]})
+
+    response = client.post("/api/v1/score-sets/", json=score_set)
+    assert response.status_code == 409
+    response_data = response.json()
+    assert "Calibration controls are not supported on score set creation" in response_data["detail"]
 
 
 @pytest.mark.parametrize(
@@ -1192,6 +1220,73 @@ def test_add_score_set_variants_scores_only_endpoint(client, setup_router_db, da
     # fact that it would have succeeded.
     score_set.update({"processingState": "processing"})
     assert score_set == response_data
+
+
+def test_add_score_set_variants_is_refused_on_a_published_score_set(
+    session, data_provider, client, setup_router_db, data_files, mock_s3_client
+):
+    """Publishing freezes a score set's scores; the upload endpoint must refuse them afterwards.
+
+    The UI only offers score editing while a score set is private, but that is not a guarantee: the
+    endpoint is reachable directly, and a re-upload would replace variants other records already
+    point at.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    scores_csv_path = data_files / "scores.csv"
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{published['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+        # The refusal must land before any work is queued or uploaded.
+        queue.assert_not_called()
+
+    assert response.status_code == 403
+
+
+def test_patch_published_score_set_with_scores_file_is_refused_without_applying_the_update(
+    session, data_provider, client, setup_router_db, data_files, mock_s3_client
+):
+    """A refused score upload must not leave the request's metadata half committed.
+
+    The combined endpoint commits metadata before it reaches the enqueue step, so the SET_SCORES
+    check has to run before the update is applied rather than only before the job is queued.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    scores_csv_path = data_files / "scores.csv"
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.patch(
+            f"/api/v1/score-sets-with-variants/{published['urn']}",
+            data={"title": "Retitled after publication"},
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+        queue.assert_not_called()
+
+    assert response.status_code == 403
+
+    # The title edit rode along with the refused upload, so it must not have been applied either.
+    refreshed = client.get(f"/api/v1/score-sets/{published['urn']}").json()
+    assert refreshed["title"] == published["title"]
 
 
 def test_add_score_set_variants_scores_and_counts_endpoint(
