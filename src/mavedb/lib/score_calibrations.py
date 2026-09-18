@@ -1,8 +1,10 @@
 """Utilities for building and mutating score calibration ORM objects."""
 
+import logging
 import math
 from collections import Counter
-from typing import Optional, Sequence, Union
+from datetime import date
+from typing import Optional, Sequence, Union, cast
 
 import pandas as pd
 from sqlalchemy import Float, and_, select
@@ -11,7 +13,13 @@ from sqlalchemy.orm import Session
 from mavedb.lib.acmg import find_or_create_acmg_classification
 from mavedb.lib.identifiers import find_or_create_publication_identifier
 from mavedb.lib.mondo import resolve_disease_term
-from mavedb.lib.types.score_calibrations import ClassificationDict
+from mavedb.lib.types.score_calibrations import (
+    CalibrationControlSnapshot,
+    CalibrationVariantLinkSnapshot,
+    CalibrationVariantRelinkReport,
+    ClassificationDict,
+    VariantIdentity,
+)
 from mavedb.lib.validation.constants.general import (
     calibration_class_column_name,
     calibration_variant_column_name,
@@ -24,11 +32,70 @@ from mavedb.models.calibration_control import CalibrationControl
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
+from mavedb.models.score_calibration_functional_classification_variant_association import (
+    score_calibration_functional_classification_variants_association_table,
+)
 from mavedb.models.score_calibration_publication_identifier import ScoreCalibrationPublicationIdentifierAssociation
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.view_models import score_calibration
+
+logger = logging.getLogger(__name__)
+
+
+def _fetch_control_variants_by_urn(
+    db: Session,
+    score_set: ScoreSet,
+    controls: Sequence[score_calibration.CalibrationControlCreate],
+) -> dict[str, Variant]:
+    """Fetch the ``Variant`` rows for a submission's control URNs, scoped to the score set, keyed by URN.
+
+    A single scoped query serves both membership validation (a URN absent from the result does not
+    belong to the score set) and row construction, so validating and building a submission share one
+    lookup rather than each issuing its own.
+    """
+    submitted_urns = [control.variant_urn for control in controls]
+    return {
+        variant.urn: variant
+        for variant in db.scalars(
+            select(Variant).where(Variant.score_set_id == score_set.id, Variant.urn.in_(submitted_urns))
+        ).all()
+        # Every returned row matched an IN over the submitted (non-null) URNs, so its urn is non-null;
+        # the guard both states that and narrows the key type from Optional[str].
+        if variant.urn is not None
+    }
+
+
+def _validate_control_submission(
+    controls: Sequence[score_calibration.CalibrationControlCreate],
+    variants_by_urn: dict[str, Variant],
+) -> None:
+    """Duplicate and score-set-membership checks for a control submission, given its resolved variants.
+
+    A control earns its role as calibration evidence from a variant the assay actually scored, so each
+    must reference a variant belonging to the calibration's own score set. Duplicate URNs within one
+    submission are caught here with a readable message rather than deferred to the
+    ``UNIQUE(calibration_id, variant_id)`` database constraint.
+
+    Raises:
+        ValidationError: If any control URN is duplicated within the submission, absent from MaveDB,
+            or belongs to a different score set.
+    """
+    counts = Counter(control.variant_urn for control in controls)
+
+    duplicate_urns = {urn for urn, count in counts.items() if count > 1}
+    if duplicate_urns:
+        raise ValidationError(
+            f"Duplicate control variant URNs detected within the submission: {', '.join(sorted(duplicate_urns))}."
+        )
+
+    missing_urns = counts.keys() - variants_by_urn.keys()
+    if missing_urns:
+        raise ValidationError(
+            "The following control variants do not belong to the calibration's score set: "
+            f"{', '.join(sorted(missing_urns))}."
+        )
 
 
 def validate_calibration_controls_in_score_set(
@@ -38,16 +105,9 @@ def validate_calibration_controls_in_score_set(
 ) -> list[str]:
     """Validate calibration controls against a score set and return their variant URNs.
 
-    A control earns its role as calibration evidence from a variant the assay actually scored,
-    so each control must reference a variant belonging to the calibration's own score set. A
-    single scoped query resolves all submitted URNs at once; any URN it does not return either
-    does not exist in MaveDB or belongs to a different score set, and both are rejected together.
-
-    Duplicate variant URNs within one submission are caught here with a readable message rather
-    than deferred to the ``UNIQUE(calibration_id, variant_id)`` database constraint.
-
-    The validated URNs are returned so a caller that goes on to persist the controls can reuse
-    them (see :func:`build_calibration_controls`).
+    A thin wrapper over :func:`_fetch_control_variants_by_urn` and :func:`_validate_control_submission`
+    for callers that only need the validated URNs; :func:`build_calibration_controls` shares the same
+    two steps to avoid re-fetching the variants.
 
     Args:
         db: Database session used for the lookup.
@@ -64,28 +124,9 @@ def validate_calibration_controls_in_score_set(
     if not controls:
         return []
 
-    submitted_urns = [control.variant_urn for control in controls]
-
-    counts = Counter(submitted_urns)
-    duplicate_urns = {urn for urn, count in counts.items() if count > 1}
-    if duplicate_urns:
-        raise ValidationError(
-            f"Duplicate control variant URNs detected within the submission: {', '.join(sorted(duplicate_urns))}."
-        )
-
-    existing_urns = set(
-        db.scalars(
-            select(Variant.urn).where(Variant.score_set_id == score_set.id, Variant.urn.in_(submitted_urns))
-        ).all()
-    )
-    missing_urns = set(counts) - existing_urns
-    if missing_urns:
-        raise ValidationError(
-            "The following control variants do not belong to the calibration's score set: "
-            f"{', '.join(sorted(missing_urns))}."
-        )
-
-    return submitted_urns
+    variants_by_urn = _fetch_control_variants_by_urn(db, score_set, controls)
+    _validate_control_submission(controls, variants_by_urn)
+    return [control.variant_urn for control in controls]
 
 
 def build_calibration_controls(
@@ -96,11 +137,12 @@ def build_calibration_controls(
 ) -> list[CalibrationControl]:
     """Validate and construct transient ``CalibrationControl`` rows for a calibration.
 
-    Validation (see :func:`validate_calibration_controls_in_score_set`) returns the validated
-    variant URNs, which this function resolves to their ``Variant`` rows in one query and turns
-    into unattached ``CalibrationControl`` rows with audit fields set. The caller assigns them to
-    the calibration's ``controls`` collection and commits. Returns an empty list for ``None`` or
-    empty input.
+    Fetches the submission's ``Variant`` rows once, validates them (duplicates + score-set membership,
+    see :func:`_validate_control_submission`), then turns each control into an unattached
+    ``CalibrationControl`` with audit fields set. The single fetch is reused for validation and
+    construction, so this issues one variant query rather than one to validate and another to build.
+    The caller assigns the returned rows to the calibration's ``controls`` collection and commits.
+    Returns an empty list for ``None`` or empty input.
 
     Args:
         db: Database session.
@@ -108,16 +150,11 @@ def build_calibration_controls(
         controls: Submitted controls, or ``None``/empty for none.
         user: The acting user, recorded on each control's audit fields.
     """
-    submitted_urns = validate_calibration_controls_in_score_set(db, score_set, controls)
     if not controls:
         return []
 
-    variants_by_urn = {
-        variant.urn: variant
-        for variant in db.scalars(
-            select(Variant).where(Variant.score_set_id == score_set.id, Variant.urn.in_(submitted_urns))
-        ).all()
-    }
+    variants_by_urn = _fetch_control_variants_by_urn(db, score_set, controls)
+    _validate_control_submission(controls, variants_by_urn)
 
     return [
         CalibrationControl(
@@ -964,3 +1001,240 @@ def variant_classification_df_to_dict(
         classifications[functional_class].add(index_element)
 
     return {"indexed_by": index_column, "classifications": classifications}
+
+
+def snapshot_calibration_variant_links(db: Session, score_set: ScoreSet) -> list[CalibrationVariantLinkSnapshot]:
+    """Record the calibration variant references a re-upload cannot reconstruct on its own.
+
+    Re-uploading a score set's data deletes and recreates all of its ``Variant`` rows, which breaks
+    the foreign keys calibrations hold into them: ``calibration_controls.variant_id`` and the
+    functional-classification membership association. Neither carries an ``ON DELETE`` action, on
+    purpose — the resulting ``RESTRICT`` protects hand-entered controls from being destroyed by an
+    unrelated delete. Capturing the irreproducible references as :data:`VariantIdentity` tuples before
+    the delete lets :func:`restore_calibration_variant_links` re-point the survivors afterwards.
+    Variant URNs cannot serve as the key because they are renumbered on every upload.
+
+    The rule for what to capture is whether the depositor asserted the reference or MaveDB derived it:
+
+    * **Controls** carry clinical significance sourced from outside MaveDB, submitted inline or as a
+      ``controls_file``. Nothing in a score upload can regenerate them, so they are remembered.
+    * **Class-based bin membership** comes from the ``classes_file`` required of a class-based
+      calibration. That file is not part of a score upload either, so it too survives only by identity.
+    * **Range-based bin membership** is derived — purely a function of the variants' scores. It is
+      left out and recomputed from the new upload instead, which avoids holding an entry per variant
+      in memory and keeps membership honest when a re-upload moves a score across a threshold.
+
+    The queries scope to variants in ``score_set``, which keeps the snapshot aligned with exactly the
+    rows the caller deletes. Every reference is already so scoped — controls are validated against the
+    calibration's own score set and bin membership is only ever populated from it — so the condition
+    holds the two halves together rather than filtering anything out. Were they to diverge, restore
+    would re-create a row whose original was never deleted and trip the unique constraint on
+    ``(calibration_id, variant_id)``.
+
+    This function only reads. The caller performs the deletes.
+
+    Args:
+        db: Database session.
+        score_set: The score set whose variants are about to be replaced.
+
+    Returns:
+        One snapshot per calibration holding at least one irreproducible reference; empty when no
+        calibration has one. A score set whose calibrations use only range-based bins yields an empty
+        list and still needs :func:`restore_calibration_variant_links` called to re-bin them.
+    """
+    calibration_ids = [calibration.id for calibration in score_set.score_calibrations]
+    if not calibration_ids:
+        return []
+
+    snapshots: dict[int, CalibrationVariantLinkSnapshot] = {}
+
+    control_rows = db.execute(
+        select(
+            CalibrationControl.calibration_id,
+            CalibrationControl.clinical_status,
+            CalibrationControl.created_by_id,
+            CalibrationControl.creation_date,
+            Variant.hgvs_nt,
+            Variant.hgvs_pro,
+            Variant.hgvs_splice,
+        )
+        .join(Variant, Variant.id == CalibrationControl.variant_id)
+        .where(CalibrationControl.calibration_id.in_(calibration_ids), Variant.score_set_id == score_set.id)
+    ).all()
+
+    for calibration_id, clinical_status, created_by_id, creation_date, hgvs_nt, hgvs_pro, hgvs_splice in control_rows:
+        snapshot = snapshots.setdefault(calibration_id, CalibrationVariantLinkSnapshot(calibration_id=calibration_id))
+        snapshot.controls.append(
+            CalibrationControlSnapshot(
+                identity=(hgvs_nt, hgvs_pro, hgvs_splice),
+                clinical_status=clinical_status,
+                created_by_id=created_by_id,
+                creation_date=creation_date,
+            )
+        )
+
+    association = score_calibration_functional_classification_variants_association_table
+    membership_rows = db.execute(
+        select(
+            ScoreCalibrationFunctionalClassification.calibration_id,
+            ScoreCalibrationFunctionalClassification.id,
+            Variant.hgvs_nt,
+            Variant.hgvs_pro,
+            Variant.hgvs_splice,
+        )
+        .join(association, association.c.functional_classification_id == ScoreCalibrationFunctionalClassification.id)
+        .join(Variant, Variant.id == association.c.variant_id)
+        .where(
+            ScoreCalibrationFunctionalClassification.calibration_id.in_(calibration_ids),
+            ScoreCalibrationFunctionalClassification.class_.is_not(None),
+            Variant.score_set_id == score_set.id,
+        )
+    ).all()
+
+    for calibration_id, classification_id, hgvs_nt, hgvs_pro, hgvs_splice in membership_rows:
+        snapshot = snapshots.setdefault(calibration_id, CalibrationVariantLinkSnapshot(calibration_id=calibration_id))
+        snapshot.classification_members.setdefault(classification_id, []).append((hgvs_nt, hgvs_pro, hgvs_splice))
+
+    return list(snapshots.values())
+
+
+def restore_calibration_variant_links(
+    db: Session,
+    score_set: ScoreSet,
+    snapshots: Sequence[CalibrationVariantLinkSnapshot],
+    updater: User,
+) -> CalibrationVariantRelinkReport:
+    """Re-establish a score set's calibration variant references after its variants are recreated.
+
+    Each calibration is handled by the two mechanisms its references call for:
+
+    * **Controls and class-based bin membership** are carried across by
+      :data:`VariantIdentity`. A reference whose identity is absent from the new upload describes a
+      variant the assay no longer scores, so it is dropped rather than guessed at; an identity
+      matching more than one new variant is ambiguous and dropped for the same reason. Dropping
+      rather than failing is deliberate: a re-upload that aborted on a vanished control would leave
+      depositors unable to correct their own data.
+    * **Range-based bin membership** is recomputed from the new scores via
+      :func:`variants_for_functional_classification`, the same helper that populated it originally.
+      Carrying the old membership across might leave a variant filed under a range its new score no
+      longer falls in, so the recorded membership would simply be wrong.
+
+    A classification always has exactly one of ``range`` or ``class_`` set (enforced by the view
+    models), so every classification falls squarely into one branch or the other.
+
+    Dropping a control changes the control set the submitter affirmed as free of protected health
+    information, so ``controls_not_phi`` is reset to ``None`` on that calibration — the same
+    re-acknowledgment rule applied when controls are replaced through the API (see
+    :func:`modify_score_calibration`). A calibration whose controls all relink keeps its affirmation.
+    Re-binning does not reset it: bin membership carries no clinical annotation and so no PHI.
+
+    Changes are staged on the session; the caller commits.
+
+    Args:
+        db: Database session.
+        score_set: The score set whose variants have just been recreated.
+        snapshots: Output of :func:`snapshot_calibration_variant_links`, taken before the delete. May
+            be empty while calibrations still need re-binning.
+        updater: The user who triggered the re-upload, recorded on the rows this relink touches.
+
+    Returns:
+        Counts of relinked, dropped and re-binned references, for the caller's job log.
+    """
+    report = CalibrationVariantRelinkReport()
+    if not score_set.score_calibrations:
+        return report
+
+    # Only controls and class-based bin membership are re-resolved by identity; range-based bins are
+    # recomputed from the new scores below and never touch this map. Building it materializes every
+    # variant of the score set, so skip that entirely when nothing needs identity resolution — the
+    # common case of a re-upload whose calibrations use only range-based bins.
+    variants_by_identity: dict[VariantIdentity, Optional[Variant]] = {}
+    if any(snapshot.controls or snapshot.classification_members for snapshot in snapshots):
+        for new_variant in db.scalars(select(Variant).where(Variant.score_set_id == score_set.id)).all():
+            identity = (new_variant.hgvs_nt, new_variant.hgvs_pro, new_variant.hgvs_splice)
+            # Upstream validation rejects duplicate variants, but a collision here would otherwise bind
+            # every reference to whichever row happened to be seen first. Mark it unresolvable instead.
+            variants_by_identity[identity] = None if identity in variants_by_identity else new_variant
+
+    snapshots_by_calibration_id = {snapshot.calibration_id: snapshot for snapshot in snapshots}
+
+    for calibration in score_set.score_calibrations:
+        calibration_id = cast(int, calibration.id)
+        snapshot = snapshots_by_calibration_id.get(
+            calibration_id, CalibrationVariantLinkSnapshot(calibration_id=calibration_id)
+        )
+
+        # The linkage rows were removed with Core deletes, which leave any loaded collections holding
+        # rows that no longer exist. Expire them so the ORM rebuilds from the post-delete state rather
+        # than issuing deletes for rows that are already gone.
+        db.expire(calibration, ["controls"])
+
+        dropped_controls = 0
+        relinked_controls: list[CalibrationControl] = []
+        for control in snapshot.controls:
+            control_variant = variants_by_identity.get(control.identity)
+            if control_variant is None:
+                dropped_controls += 1
+                continue
+
+            relinked_controls.append(
+                CalibrationControl(
+                    calibration_id=calibration.id,
+                    variant_id=control_variant.id,
+                    clinical_status=control.clinical_status,
+                    created_by_id=control.created_by_id,
+                    creation_date=control.creation_date,
+                    modified_by_id=updater.id,
+                    modification_date=date.today(),
+                )
+            )
+
+        db.add_all(relinked_controls)
+        report.controls_relinked += len(relinked_controls)
+        report.controls_dropped += dropped_controls
+
+        dropped_members = 0
+        for classification in calibration.functional_classifications:
+            db.expire(classification, ["variants"])
+
+            if classification.class_ is not None:
+                members: list[Variant] = []
+                for identity in snapshot.classification_members.get(cast(int, classification.id), []):
+                    member_variant = variants_by_identity.get(identity)
+                    if member_variant is None:
+                        dropped_members += 1
+                        continue
+
+                    members.append(member_variant)
+
+                report.classification_members_relinked += len(members)
+            else:
+                members = variants_for_functional_classification(db, classification, use_sql=True)
+                report.classifications_rebinned += 1
+                report.classification_members_rebinned += len(members)
+
+            classification.variants = members
+            db.add(classification)
+
+        report.classification_members_dropped += dropped_members
+
+        if dropped_controls:
+            calibration.controls_not_phi = None
+            report.calibrations_pending_phi_reaffirmation.append(calibration_id)
+
+        # Re-binning is the expected mechanical consequence of new scores, so it does not count as an
+        # edit. Losing a hand-entered reference does.
+        if dropped_controls or dropped_members:
+            calibration.modified_by = updater
+            db.add(calibration)
+
+    if report.controls_dropped or report.classification_members_dropped:
+        logger.warning(
+            "Dropped %s calibration control(s) and %s class-based bin membership(s) from score set %s: their "
+            "variants are absent from the new upload.",
+            report.controls_dropped,
+            report.classification_members_dropped,
+            score_set.urn,
+        )
+
+    return report
