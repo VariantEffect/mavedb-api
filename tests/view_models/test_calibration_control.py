@@ -141,6 +141,8 @@ def test_saved_score_calibration_includes_controls_and_disease_concept():
     assert len(calibration.controls) == 1
     assert calibration.controls[0].variant_urn == TEST_CONTROL_VARIANT_URN
     assert calibration.controls[0].clinical_status is CalibrationControlStatus.pathogenic
+    # Placement is a computed column_property; an in-memory object never carries it, so it stays unset.
+    assert calibration.controls[0].functional_classification_id is None
 
 
 def test_saved_score_calibration_controls_default_to_empty_list():

@@ -10,13 +10,18 @@ for interpretation.
 from __future__ import annotations
 
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Column, Date, Enum, ForeignKey, Integer, UniqueConstraint
-from sqlalchemy.orm import Mapped, relationship
+from sqlalchemy import Column, Date, Enum, ForeignKey, Integer, UniqueConstraint, case, select
+from sqlalchemy.orm import Mapped, column_property, relationship
 
 from mavedb.db.base import Base
 from mavedb.models.enums.calibration_control_status import CalibrationControlStatus
+from mavedb.models.enums.functional_classification import FunctionalClassification
+from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
+from mavedb.models.score_calibration_functional_classification_variant_association import (
+    score_calibration_functional_classification_variants_association_table,
+)
 
 if TYPE_CHECKING:
     from mavedb.models.score_calibration import ScoreCalibration
@@ -57,6 +62,41 @@ class CalibrationControl(Base):
 
     variant_id = Column(Integer, ForeignKey("variants.id"), nullable=False, index=True)
     variant: Mapped["Variant"] = relationship("Variant")
+
+    # Which of the calibration's own functional classifications contains this control's variant by bin
+    # membership, or NULL when it lands under none. Computed live from the membership association rather
+    # than stored, so it can never drift from the clinical bin assignments it reports. Mirrors the
+    # ``variant_count`` correlated-subquery pattern on ScoreCalibrationFunctionalClassification. Ranges may
+    # overlap when one is 'not_specified' (see ScoreCalibrationBase.ranges_do_not_overlap), so a variant can
+    # fall in several bins. Classified bins never overlap each other, so at most one applies; it is
+    # preferred over a 'not_specified' bin (which asserts no classification), then the lowest id breaks
+    # any remaining tie, for a deterministic result.
+    functional_classification_id: Mapped[Optional[int]] = column_property(
+        select(ScoreCalibrationFunctionalClassification.id)
+        .where(
+            ScoreCalibrationFunctionalClassification.calibration_id == calibration_id,
+            score_calibration_functional_classification_variants_association_table.c.functional_classification_id
+            == ScoreCalibrationFunctionalClassification.id,
+            score_calibration_functional_classification_variants_association_table.c.variant_id == variant_id,
+        )
+        .order_by(
+            case(
+                (
+                    ScoreCalibrationFunctionalClassification.functional_classification
+                    == FunctionalClassification.not_specified,
+                    1,
+                ),
+                else_=0,
+            ),
+            ScoreCalibrationFunctionalClassification.id,
+        )
+        .limit(1)
+        .correlate_except(
+            ScoreCalibrationFunctionalClassification,
+            score_calibration_functional_classification_variants_association_table,
+        )
+        .scalar_subquery()
+    )
 
     clinical_status = Column(
         Enum(CalibrationControlStatus, native_enum=False, validate_strings=True, length=32),

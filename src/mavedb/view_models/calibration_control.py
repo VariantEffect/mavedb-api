@@ -7,7 +7,7 @@ created, updated, and served through the calibration endpoints.
 """
 
 from datetime import date
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import model_validator
 
@@ -54,6 +54,9 @@ class SavedCalibrationControl(CalibrationControlBase):
     _record_type_factory = record_type_validator()(set_record_type)
 
     id: int
+    # The calibration's own functional classification (range or class) which contains this control's
+    # variant, or None when the variant lands under none of them.
+    functional_classification_id: Optional[int] = None
     creation_date: date
     modification_date: date
     created_by: SavedUser

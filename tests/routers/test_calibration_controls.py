@@ -8,7 +8,7 @@ fastapi = pytest.importorskip("fastapi")
 
 import json
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from mavedb.lib.validation.constants.general import (
     calibration_control_status_column_name,
@@ -17,6 +17,9 @@ from mavedb.lib.validation.constants.general import (
 from mavedb.models.calibration_control import CalibrationControl
 from mavedb.models.enums.calibration_control_status import CalibrationControlStatus
 from mavedb.models.score_calibration import ScoreCalibration as CalibrationDbModel
+from mavedb.models.score_calibration_functional_classification_variant_association import (
+    score_calibration_functional_classification_variants_association_table,
+)
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant
 from tests.helpers.constants import (
@@ -520,3 +523,116 @@ def test_can_update_published_calibration_leaving_affirmed_controls_untouched_as
     assert response.status_code == 200, response.text
     assert response.json()["controlsNotPhi"] is True
     assert len(response.json()["controls"]) == 1
+
+
+###########################################################
+# Control placement (functional_classification_id) — Option A
+###########################################################
+
+
+def _add_control_on_variant(session, calibration, variant, status=CalibrationControlStatus.pathogenic):
+    """Attach one control to ``calibration`` on a chosen ``variant`` at the ORM level."""
+    session.add(
+        CalibrationControl(
+            calibration=calibration,
+            variant=variant,
+            clinical_status=status,
+            created_by=calibration.created_by,
+            modified_by=calibration.created_by,
+        )
+    )
+    session.commit()
+
+
+def _placement_by_variant_id(calibration):
+    """Ground-truth ``{variant_id: functional_classification_id}`` from stored bin membership."""
+    placement = {}
+    for classification in calibration.functional_classifications:
+        for variant in classification.variants:
+            placement[variant.id] = classification.id
+    return placement
+
+
+@pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
+def test_get_calibration_populates_control_placement(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    """A control whose variant a range files reports that range's id as its placement."""
+    calibration = _create_private_calibration(client, session, data_provider, data_files)
+    calibration_orm = session.query(CalibrationDbModel).where(CalibrationDbModel.urn == calibration["urn"]).one()
+
+    placement = _placement_by_variant_id(calibration_orm)
+    assert placement, "fixture calibration should file at least one variant into a range"
+
+    variant_id, expected_classification_id = next(iter(placement.items()))
+    variant = session.get(Variant, variant_id)
+    _add_control_on_variant(session, calibration_orm, variant)
+
+    response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
+    assert response.status_code == 200, response.text
+
+    control = next(c for c in response.json()["controls"] if c["variantUrn"] == variant.urn)
+    assert control["functionalClassificationId"] == expected_classification_id
+
+
+@pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
+def test_control_placement_is_none_when_variant_has_no_bin(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    """A control whose variant is filed under none of the calibration's ranges reports null placement."""
+    calibration = _create_private_calibration(client, session, data_provider, data_files)
+    calibration_orm = session.query(CalibrationDbModel).where(CalibrationDbModel.urn == calibration["urn"]).one()
+
+    variant = session.scalars(select(Variant).where(Variant.score_set_id == calibration_orm.score_set_id)).first()
+    _add_control_on_variant(session, calibration_orm, variant)
+
+    # Strip any bin membership for this variant so its placement must resolve to None.
+    association = score_calibration_functional_classification_variants_association_table
+    session.execute(delete(association).where(association.c.variant_id == variant.id))
+    session.commit()
+
+    response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
+    assert response.status_code == 200, response.text
+
+    control = next(c for c in response.json()["controls"] if c["variantUrn"] == variant.urn)
+    assert control["functionalClassificationId"] is None
+
+
+@pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
+def test_control_placement_scoped_to_own_calibration(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    """Placement reflects the control's own calibration, not another that happens to bin the variant."""
+    calibration = _create_private_calibration(client, session, data_provider, data_files)
+    calibration_orm = session.query(CalibrationDbModel).where(CalibrationDbModel.urn == calibration["urn"]).one()
+
+    # Capture plain ids/urns up front; creating the second calibration commits and expires ORM objects.
+    score_set_urn = calibration_orm.score_set.urn
+    placement = _placement_by_variant_id(calibration_orm)
+    assert placement
+    binned_variant_id = next(iter(placement))
+    binned_variant_urn = session.get(Variant, binned_variant_id).urn
+
+    # A second calibration on the same score set bins the same variant identically; clear only the
+    # second's membership for it, so the first calibration's binning must not leak into the second's
+    # placement.
+    second = create_test_score_calibration_in_score_set_via_client(
+        client, score_set_urn, deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    second_orm = session.query(CalibrationDbModel).where(CalibrationDbModel.urn == second["urn"]).one()
+
+    association = score_calibration_functional_classification_variants_association_table
+    second_classification_ids = [fc.id for fc in second_orm.functional_classifications]
+    session.execute(
+        delete(association).where(
+            association.c.variant_id == binned_variant_id,
+            association.c.functional_classification_id.in_(second_classification_ids),
+        )
+    )
+    _add_control_on_variant(session, second_orm, session.get(Variant, binned_variant_id))
+
+    response = client.get(f"/api/v1/score-calibrations/{second['urn']}")
+    assert response.status_code == 200, response.text
+
+    control = next(c for c in response.json()["controls"] if c["variantUrn"] == binned_variant_urn)
+    assert control["functionalClassificationId"] is None

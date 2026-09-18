@@ -18,8 +18,10 @@ from mavedb.lib.validation.dataframe.calibration import validate_and_standardize
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.calibration_control import CalibrationControl
 from mavedb.models.enums.calibration_control_status import CalibrationControlStatus
+from mavedb.models.enums.functional_classification import FunctionalClassification
 from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.models.score_calibration import ScoreCalibration
+from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
@@ -121,6 +123,119 @@ def test_deleting_calibration_cascades_to_controls(session, setup_lib_db_with_va
     session.commit()
 
     assert session.get(CalibrationControl, control_id) is None
+
+
+##############################################################################
+# functional_classification_id placement (computed column_property)
+##############################################################################
+
+
+def _classification(calibration, label, functional_classification, score_range):
+    return ScoreCalibrationFunctionalClassification(
+        calibration=calibration,
+        label=label,
+        functional_classification=functional_classification,
+        range=score_range,
+        inclusive_lower_bound=True,
+        inclusive_upper_bound=False,
+    )
+
+
+def test_control_placement_prefers_classified_bin_over_not_specified(session, setup_lib_db_with_variant):
+    """A control in a not_specified-vs-classified overlap resolves to the classified bin.
+
+    Overlapping ranges are only possible when one bin is 'not_specified' (see
+    ScoreCalibrationBase.ranges_do_not_overlap), and membership is built per-range, so the control's
+    variant lands in both bins. The placement must surface the clinically meaningful classified bin even
+    when the not_specified bin has the lower id — the tiebreak a plain id ordering would wrongly pick.
+    """
+    variant = setup_lib_db_with_variant
+    user = session.query(User).filter(User.username == TEST_USER["username"]).first()
+    calibration = _make_calibration(session, variant.score_set_id, user)
+
+    # Create the not_specified bin first so it takes the lower id: this is the value a plain
+    # ``ORDER BY id`` would select, so asserting against the classified bin proves classified wins.
+    not_specified_bin = _classification(
+        calibration, "unclassified", FunctionalClassification.not_specified, [-2.0, 2.0]
+    )
+    session.add(not_specified_bin)
+    session.commit()
+
+    classified_bin = _classification(calibration, "abnormal", FunctionalClassification.abnormal, [0.0, 1.0])
+    session.add(classified_bin)
+    session.commit()
+
+    assert not_specified_bin.id < classified_bin.id
+
+    # The variant sits in the overlap [0.0, 1.0], so it is a member of both bins.
+    not_specified_bin.variants = [variant]
+    classified_bin.variants = [variant]
+    session.commit()
+
+    control = CalibrationControl(
+        calibration=calibration,
+        variant=variant,
+        clinical_status=CalibrationControlStatus.pathogenic,
+        created_by=user,
+        modified_by=user,
+    )
+    session.add(control)
+    session.commit()
+    session.refresh(control)
+
+    assert control.functional_classification_id == classified_bin.id
+
+
+def test_control_placement_falls_back_to_not_specified_when_no_classified_bin(session, setup_lib_db_with_variant):
+    """With no classified bin containing the variant, placement honestly reports the not_specified bin."""
+    variant = setup_lib_db_with_variant
+    user = session.query(User).filter(User.username == TEST_USER["username"]).first()
+    calibration = _make_calibration(session, variant.score_set_id, user)
+
+    not_specified_bin = _classification(
+        calibration, "unclassified", FunctionalClassification.not_specified, [-2.0, 2.0]
+    )
+    session.add(not_specified_bin)
+    session.commit()
+    not_specified_bin.variants = [variant]
+    session.commit()
+
+    control = CalibrationControl(
+        calibration=calibration,
+        variant=variant,
+        clinical_status=CalibrationControlStatus.benign,
+        created_by=user,
+        modified_by=user,
+    )
+    session.add(control)
+    session.commit()
+    session.refresh(control)
+
+    assert control.functional_classification_id == not_specified_bin.id
+
+
+def test_control_placement_is_null_when_variant_in_no_bin(session, setup_lib_db_with_variant):
+    """A control whose variant falls under none of the calibration's classifications has no placement."""
+    variant = setup_lib_db_with_variant
+    user = session.query(User).filter(User.username == TEST_USER["username"]).first()
+    calibration = _make_calibration(session, variant.score_set_id, user)
+
+    classified_bin = _classification(calibration, "abnormal", FunctionalClassification.abnormal, [0.0, 1.0])
+    session.add(classified_bin)
+    session.commit()  # bin exists but the variant is never added to its membership
+
+    control = CalibrationControl(
+        calibration=calibration,
+        variant=variant,
+        clinical_status=CalibrationControlStatus.pathogenic,
+        created_by=user,
+        modified_by=user,
+    )
+    session.add(control)
+    session.commit()
+    session.refresh(control)
+
+    assert control.functional_classification_id is None
 
 
 ##############################################################################
