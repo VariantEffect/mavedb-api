@@ -4872,14 +4872,14 @@ test = ["aiohttp (>=3.10.5)", "flake8 (>=6.1,<7.0)", "mypy (>=0.800)", "psutil",
 
 [[package]]
 name = "variant-annotation"
-version = "0.1.0"
+version = "0.1.0-dev.1"
 description = "Genetic variant mapping and annotation pipeline"
 optional = true
 python-versions = ">=3.11"
 groups = ["main"]
 markers = "extra == \"server\""
 files = []
-develop = true
+develop = false
 
 [package.dependencies]
 biopython = "*"
@@ -4900,8 +4900,10 @@ publish = ["build", "twine"]
 tests = ["pytest"]
 
 [package.source]
-type = "directory"
-url = "../variant-annotation"
+type = "git"
+url = "https://github.com/bbi-lab/variant-annotation.git"
+reference = "v0.1.0-dev.1"
+resolved_reference = "199e1a0d78050aaea8798744352065190aeed617"
 
 [[package]]
 name = "variant-translation"
@@ -5233,4 +5235,4 @@ server = ["aiocache", "alembic", "alembic-utils", "arq", "authlib", "biocommons"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "186d92c69885b37db17b63bba4e2e56a87224bd52a6468bb68b4e40061bebb44"
+content-hash = "5644e132fe7ac94a34e5ad512912b6dda1374ebe5f2ff802e2117acfdea9b5f2"

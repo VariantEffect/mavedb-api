@@ -80,7 +80,7 @@ RUN curl -sSL https://install.python-poetry.org | python3 -
 COPY poetry.lock pyproject.toml ./
 
 # installs runtime dependencies to $VIRTUAL_ENV
-RUN poetry install --no-root --extras server --no-directory
+RUN poetry install --no-root --extras server
 COPY alembic /code/alembic
 COPY alembic.ini /code/alembic.ini
 COPY src /code/src
