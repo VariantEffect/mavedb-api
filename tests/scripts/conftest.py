@@ -3,15 +3,21 @@
 from datetime import date
 
 import pytest
+from sqlalchemy import select
 
 from mavedb.models.acmg_classification import ACMGClassification
-from mavedb.models.clinical_control import ClinicalControl
+from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.collection import Collection
 from mavedb.models.collection_score_set_association import CollectionScoreSetAssociation
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.license import License
+from mavedb.models.allele import Allele
+from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.mapping_record import MappingRecord
+from mavedb.models.mapping_record_allele import MappingRecordAllele
+from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
@@ -280,14 +286,17 @@ def make_dump_score_set(session, sample_user, dump_experiment, dump_licenses, du
     Args:
         variant_scores: one score_data dict per variant. Keys become the score columns.
         count_columns: count column names; each variant gets a count_data value for every one.
-        mapped: attach a mapped variant to each variant.
+        mapped: give each variant a mapping — a live ``MappingRecord`` with an authoritative allele on
+            the allele substrate, plus a row in the frozen ``MappedVariant`` table, since the dump still
+            sources ``mapped-variants.json`` from the latter.
         current: whether those mappings are current. False models a fully superseded score set,
             which the dump must treat as having no annotations at all.
-        post_mapped: whether each mapping carries a post-mapped VRS allele. False leaves it NULL, which
-            is how a variant the mapper could not place is stored, and which the README documents as
-            yielding a null `annotation`. Note that the shared `TEST_MINIMAL_MAPPED_VARIANT` uses an
-            empty dict here, a shape production never stores and the annotation layer cannot parse.
-        published: sets published_date, which the dump's selection query requires.
+        placeable: whether the mapper placed each variant. False gives it a `MappingRecord` with no
+            allele link at all, which is how an unplaceable variant is stored — an `Allele`'s identity
+            is its post-mapped VRS id, so one cannot exist without a post-mapped representation. Do not
+            reintroduce a "linked allele with a NULL `post_mapped`" shape; no write path produces it.
+        published: publishes the score set — stamps `published_date`, which the dump's selection query
+            requires, and clears `private`, which permission checks read. Publishing sets both.
         cc0: whether the score set carries the CC0 license the dump requires.
     """
     counter = {"n": 0}
@@ -298,7 +307,7 @@ def make_dump_score_set(session, sample_user, dump_experiment, dump_licenses, du
         count_columns=(),
         mapped=True,
         current=True,
-        post_mapped=False,
+        placeable=True,
         published=True,
         cc0=True,
     ):
@@ -318,6 +327,11 @@ def make_dump_score_set(session, sample_user, dump_experiment, dump_licenses, du
             modified_by=sample_user,
             licence_id=CC0_LICENSE_ID if cc0 else OTHER_LICENSE_ID,
             published_date=date(2024, 1, 1) if published else None,
+            # `ScoreSet.private` defaults to True, and publishing clears it alongside stamping
+            # `published_date` (see the publish route). Setting only the date would build a score set that
+            # is published *and* private — a state production never creates, and one that reads as
+            # unreadable to any permission check while still satisfying the dump's selection query.
+            private=not published,
             dataset_columns={"score_columns": score_columns, "count_columns": list(count_columns)},
             target_genes=[
                 TargetGene(
@@ -356,13 +370,37 @@ def make_dump_score_set(session, sample_user, dump_experiment, dump_licenses, du
                         **{
                             **TEST_MINIMAL_MAPPED_VARIANT,
                             "current": current,
-                            "post_mapped": TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X if post_mapped else None,
+                            "post_mapped": TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X if placeable else None,
                         },
                         variant_id=variant.id,
                         clingen_allele_id=f"CA{counter['n']}{index}",
                     )
                 )
                 session.commit()
+
+                # The annotation and CSV artifacts read the allele substrate, not the row above. An
+                # unplaceable variant gets the record and no allele, matching the `if post_mapped_allele:`
+                # guard in `worker/jobs/variant_processing/mapping.py`.
+                record = seed_mapping_record(
+                    session,
+                    variant,
+                    assay_level="genomic",
+                    alleles=[
+                        AlleleSpec(
+                            digest=f"dump-allele-{counter['n']}-{index}",
+                            level="genomic",
+                            is_authoritative=True,
+                            clingen_allele_id=f"CA{counter['n']}{index}",
+                            post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
+                        )
+                    ]
+                    if placeable
+                    else [],
+                )
+                if not current:
+                    # A fully superseded score set: the record is in history, but nothing is live.
+                    record.retire(session)
+                    session.commit()
 
         session.refresh(score_set)
         return score_set
@@ -372,20 +410,30 @@ def make_dump_score_set(session, sample_user, dump_experiment, dump_licenses, du
 
 @pytest.fixture
 def add_clinvar_control(session):
-    """Attach a ClinVar clinical control to a mapped variant, for a given `MM_YYYY` release."""
+    """Attach a ClinVar clinical control to a variant's authoritative allele, for an `MM_YYYY` release."""
 
-    def _add(mapped_variant, *, db_version, significance="Pathogenic", review_status="criteria provided"):
-        mapped_variant.clinical_controls.append(
-            ClinicalControl(
-                db_identifier="183058",
-                gene_symbol="PTEN",
-                clinical_significance=significance,
-                clinical_review_status=review_status,
-                db_name="ClinVar",
-                db_version=db_version,
-            )
+    def _add(variant, *, db_version, significance="Pathogenic", review_status="criteria provided"):
+        """Link a control to *variant*'s authoritative allele, which is where the CSV layer reads it."""
+        allele = session.scalars(
+            select(Allele)
+            .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
+            .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
+            .where(MappingRecord.variant_id == variant.id)
+            .where(MappingRecordAllele.is_authoritative.is_(True))
+        ).first()
+        assert allele is not None, f"variant {variant.urn} has no authoritative allele to link a control to"
+
+        control = ClinvarControl(
+            db_identifier="183058",
+            gene_symbol="PTEN",
+            clinical_significance=significance,
+            clinical_review_status=review_status,
+            db_name="ClinVar",
+            db_version=db_version,
         )
-        session.add(mapped_variant)
+        session.add(control)
+        session.commit()
+        session.add(ClinvarAlleleLink(allele_id=allele.id, clinvar_control_id=control.id))
         session.commit()
 
     return _add

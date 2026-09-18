@@ -1,6 +1,6 @@
 from unittest.mock import Mock
 
-from mavedb.lib.annotation.util import CALIBRATION_SCOPE_EXTENSION_NAME
+from mavedb.lib.annotation.calibration import CALIBRATION_SCOPE_EXTENSION_NAME
 from mavedb.lib.permissions.principal import Principal
 from mavedb.models.enums.user_role import UserRole
 from tests.helpers.constants import PRIVATE_CALIBRATION_OWNER_ID

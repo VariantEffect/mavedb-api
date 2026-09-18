@@ -132,6 +132,7 @@ class TestResponseHeaders:
 
         assert resolved.response_headers == {
             "Deprecation": "true",
+            "Link": '<https://mavedb.org/docs/mavedb/changelog.html>; rel="deprecation"',
             "Warning": '299 - "drop_na_columns is deprecated, use drop_unused_hgvs_columns"',
         }
 

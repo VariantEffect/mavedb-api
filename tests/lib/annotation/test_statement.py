@@ -3,7 +3,7 @@
 """
 Tests for mavedb.lib.annotation.statement module.
 
-This module tests statement creation functions for mapped variants,
+This module tests statement creation functions for variants,
 focusing on functional impact statements and their classification.
 """
 
@@ -18,15 +18,13 @@ from ga4gh.va_spec.base.core import Direction, Statement
 from mavedb.lib.annotation.annotate import variant_study_result
 from mavedb.lib.annotation.classification import ExperimentalVariantFunctionalImpactClassification
 from mavedb.lib.annotation.evidence_line import functional_evidence_line
-from mavedb.lib.annotation.proposition import mapped_variant_to_experimental_variant_functional_impact_proposition
-from mavedb.lib.annotation.statement import (
-    mapped_variant_to_functional_statement,
-)
+from mavedb.lib.annotation.proposition import variant_functional_impact_proposition
+from mavedb.lib.annotation.statement import functional_statement
 
 
 @pytest.mark.unit
-class TestMappedVariantFunctionalStatement:
-    """Unit tests for mapped variant functional statement creation."""
+class TestFunctionalStatement:
+    """Unit tests for functional statement creation."""
 
     @pytest.mark.parametrize(
         "classification, expected_direction",
@@ -36,30 +34,26 @@ class TestMappedVariantFunctionalStatement:
             (ExperimentalVariantFunctionalImpactClassification.INDETERMINATE, Direction.NEUTRAL),
         ],
     )
-    def test_mapped_variant_to_functional_statement(
+    def test_functional_statement(
         self,
-        mock_mapped_variant_with_functional_calibration_score_set,
+        mock_annotation_context_with_functional_calibration_score_set,
         classification,
         expected_direction,
     ):
         """Test functional statement creation with different classifications."""
-        mapped_variant = mock_mapped_variant_with_functional_calibration_score_set
-        score_calibration = mapped_variant.variant.score_set.score_calibrations[0]
+        context = mock_annotation_context_with_functional_calibration_score_set
+        score_calibration = context.variant.score_set.score_calibrations[0]
 
         with patch(
             "mavedb.lib.annotation.evidence_line.functional_classification_of_variant",
             return_value=(MagicMock(label="Test Range"), classification),
         ):
-            proposition = mapped_variant_to_experimental_variant_functional_impact_proposition(mapped_variant)
-            evidence = functional_evidence_line(
-                mapped_variant, score_calibration, [variant_study_result(mapped_variant)]
-            )
-            result = mapped_variant_to_functional_statement(
-                mapped_variant, proposition, [evidence], score_calibration, classification
-            )
+            proposition = variant_functional_impact_proposition(context)
+            evidence = functional_evidence_line(context, score_calibration, [variant_study_result(context)])
+            result = functional_statement(context, proposition, [evidence], score_calibration, classification)
 
         assert isinstance(result, Statement)
-        assert result.description == f"Variant functional impact statement for {mapped_variant.variant.urn}."
+        assert result.description == f"Variant functional impact statement for {context.variant.urn}."
         assert result.specifiedBy
         assert result.contributions
         assert len(result.contributions) == 3  # API, VRS, and score calibration contributions
@@ -75,24 +69,22 @@ class TestMappedVariantFunctionalStatement:
 
     def test_no_calibrations_raises_value_error(
         self,
-        mock_mapped_variant_with_functional_calibration_score_set,
+        mock_annotation_context_with_functional_calibration_score_set,
     ):
         """Test that missing score calibrations raises ValueError in evidence line creation."""
-        mapped_variant = mock_mapped_variant_with_functional_calibration_score_set
-        score_calibration = mapped_variant.variant.score_set.score_calibrations[0]
+        context = mock_annotation_context_with_functional_calibration_score_set
+        score_calibration = context.variant.score_set.score_calibrations[0]
 
         # Set calibrations to None to trigger the error
-        mapped_variant.variant.score_set.score_calibrations = None
+        context.variant.score_set.score_calibrations = None
 
-        proposition = mapped_variant_to_experimental_variant_functional_impact_proposition(mapped_variant)
+        proposition = variant_functional_impact_proposition(context)
 
         with pytest.raises(ValueError, match="does not have a score set with score calibrations"):
             # Use a dummy score calibration for evidence line creation, but it should not be reached due to the error
-            evidence = functional_evidence_line(
-                mapped_variant, score_calibration, [variant_study_result(mapped_variant)]
-            )
-            mapped_variant_to_functional_statement(
-                mapped_variant,
+            evidence = functional_evidence_line(context, score_calibration, [variant_study_result(context)])
+            functional_statement(
+                context,
                 proposition,
                 [evidence],
                 score_calibration,
@@ -101,8 +93,8 @@ class TestMappedVariantFunctionalStatement:
 
 
 @pytest.mark.unit
-class TestMappedVariantPathogenicityStatement:
-    """Unit tests for mapped variant pathogenicity statement ACMG classification mapping."""
+class TestPathogenicityStatement:
+    """Unit tests for pathogenicity statement ACMG classification mapping."""
 
     def test_pathogenic_criterion_maps_to_pathogenic(self, mock_mapped_variant):
         """Test that pathogenic ACMG criterion (PS3) maps to PATHOGENIC classification."""

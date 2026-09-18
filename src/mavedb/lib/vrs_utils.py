@@ -1,0 +1,281 @@
+"""VRS allele identification helpers.
+
+Centralizes the digest-correctness invariant for GA4GH VRS alleles: the
+``ga4gh_identify`` Merkle tree caches sub-object digests on the object after
+first identification, so any subsequent mutation (refgetAccession swap,
+normalization, state coercion) leaves a stale id unless the cached digests
+are cleared first. All allele identification in dcd_mapping must route
+through :func:`identify_allele` so the digest is always recomputed from
+current content.
+"""
+
+import logging
+from collections.abc import Mapping
+from itertools import cycle
+from typing import Any
+
+from ga4gh.core import ga4gh_identify
+from ga4gh.vrs.extras.translator import AlleleTranslator
+from ga4gh.vrs.models import (
+    Allele,
+    CisPhasedBlock,
+    Expression,
+    LiteralSequenceExpression,
+    ReferenceLengthExpression,
+    SequenceLocation,
+    SequenceReference,
+    Syntax,
+)
+from ga4gh.vrs.normalize import normalize
+
+from mavedb.lib.hgvs import split_cis_phased_hgvs
+from mavedb.lib.logging.context import logging_context
+from mavedb.lib.vrs import vrs_object_from_mapped_variant
+
+logger = logging.getLogger(__name__)
+
+# HGVS type letter (``accession:g.``) → VRS Expression syntax.
+_HGVS_SYNTAX_BY_TYPE = {
+    "g": Syntax.HGVS_G,
+    "c": Syntax.HGVS_C,
+    "p": Syntax.HGVS_P,
+    "n": Syntax.HGVS_N,
+    "m": Syntax.HGVS_M,
+    "r": Syntax.HGVS_R,
+}
+
+
+def _hgvs_syntax(hgvs: str) -> Syntax:
+    """Map an HGVS string to its VRS Expression syntax via the type letter after the accession."""
+    _, _, rest = hgvs.partition(":")
+    try:
+        return _HGVS_SYNTAX_BY_TYPE[rest[:1]]
+    except KeyError:
+        raise ValueError(f"Cannot determine HGVS syntax for {hgvs!r}")
+
+
+def translate_hgvs_to_vrs(hgvs: str, translator: AlleleTranslator) -> Allele:
+    """Convert HGVS variation description to VRS object.
+
+    The AlleleTranslator is supplied by the caller and reused across calls. ga4gh's
+    AlleleTranslator opens a UTA connection lazily on first translate (via HgvsTools)
+    and holds it for its lifetime, so constructing one per call opens — and leaks — a
+    UTA connection per variant, exhausting the server's slot budget. Build one per
+    job/worker and pass it in.
+
+    :param hgvs: MAVE-HGVS variation string
+    :param translator: caller-owned AlleleTranslator backed by a sequence/refget proxy
+    :return: Corresponding VRS allele as a Pydantic class
+    """
+    # coerce tmp HGVS string into formally correct term
+    if hgvs.startswith("NC_") and ":c." in hgvs:
+        hgvs = hgvs.replace(":c.", ":g.")
+
+    allele: Allele = translator.translate_from(hgvs, "hgvs", do_normalize=False)
+
+    if (
+        not isinstance(allele.location, SequenceLocation)
+        or not isinstance(allele.location.start, int)
+        or not isinstance(allele.location.end, int)
+        or not isinstance(allele.state, LiteralSequenceExpression)
+    ):
+        raise ValueError
+
+    return allele
+
+
+def translate_hgvs_to_variation(hgvs: str, translator: AlleleTranslator) -> Allele | CisPhasedBlock:
+    """Translate an HGVS expression — possibly a cis-phased multivariant — into a VRS object.
+
+    Mirrors dcd_mapping's ``vrs_map._construct_vrs_allele``: each component HGVS is translated
+    to an Allele independently; a single component returns a bare Allele, while two or more are
+    wrapped in a CisPhasedBlock. The reverse-translation job emits bracketed genomic forms
+    (``g.[a;b]``) for non-adjacent codon components that ga4gh's AlleleTranslator cannot
+    translate directly, so splitting and recombining is the only way to represent them.
+
+    The block's GA4GH digest is order-independent, so the same biological cis-phased set always
+    identifies to one ``ga4gh:CPB.`` digest and dedups to a single row regardless of component
+    ordering.
+
+    Every component is normalized and re-identified through :func:`normalize_and_identify`
+    before use. ``translate_from`` is called with ``do_normalize=False`` and stamps ``id`` via
+    plain ``ga4gh_identify`` on the reused translator, so without this step a component carries a
+    non-canonical digest computed from the unnormalized object and from the Merkle tree's cached
+    sub-object digests — distinct biological variants can then collide onto one ``vrs_digest`` and
+    be merged by the digest-keyed ``get_or_create_allele``. Normalizing here also keeps RT digests
+    consistent with the mapper's, which is what lets the same allele dedup across sources.
+
+    :param hgvs: a single- or cis-phased-multivariant HGVS string
+    :param translator: caller-owned AlleleTranslator reused across calls
+    :return: an Allele for a single variant, or a CisPhasedBlock for a cis-phased set
+    """
+    members = []
+    for component in split_cis_phased_hgvs(hgvs):
+        allele = normalize_and_identify(translate_hgvs_to_vrs(component, translator), translator.data_proxy)
+        # Stamp the source HGVS as the allele's expression so post_mapped is self-describing.
+        # Mirrors the mapper's authoritative alleles.
+        allele.expressions = [Expression(syntax=_hgvs_syntax(component), value=component)]
+        members.append(allele)
+
+    if len(members) == 1:
+        return members[0]
+
+    block = CisPhasedBlock(members=members)  # type: ignore[call-arg]
+    block.id = identify_variation(block)
+    return block
+
+
+def identify_allele(allele: Allele) -> str:
+    """Clear cached digests and return a fresh GA4GH identifier for *allele*.
+
+    ``ga4gh_identify`` is a Merkle-tree: it calls ``get_or_create_digest`` on
+    sub-objects, returning any cached value without recomputing. Clearing both
+    the location digest and the allele digest first ensures the id is always
+    derived from the current object content — not from a value set before a
+    refgetAccession mutation or normalization.
+
+    ``id`` is recomputed as well: ``ga4gh_identify`` returns a non-empty ``id`` as-is
+    (its default ``in_place`` only fills an *empty* id), so an allele that already
+    carries one — e.g. stamped by an ``identify=True`` ``AlleleTranslator`` — would
+    otherwise keep its stale id even with the digests cleared. Use in_place="always"
+    to force it to be recomputed from the content-derived digest.
+
+    The location needs identifying in its own right. ``ga4gh_identify`` writes only the
+    ``id`` of the object it is handed; for sub-objects it calls ``get_or_create_digest``
+    and never ``get_or_create_ga4gh_identifier``. Clearing the location digest therefore
+    fixes what the *allele* id is derived from while leaving ``location.id`` holding
+    whatever was stamped before normalization — the allele id comes out correct and the
+    location it points at claims a digest belonging to the un-normalized span. Mirrors
+    ``dcd_mapping:vrs_utils.py::identify_allele``; both writers populate
+    ``alleles.post_mapped`` and have to agree byte-for-byte.
+    """
+    if isinstance(allele.location, SequenceLocation):
+        allele.location.digest = None
+        allele.location.id = None
+        ga4gh_identify(allele.location, in_place="always")
+
+    allele.digest = None
+    digest = ga4gh_identify(allele, in_place="always")
+    if digest is None:
+        raise ValueError("Failed to compute GA4GH identifier for allele")  # noqa: EM101
+
+    return digest
+
+
+def identify_variation(variation: Allele | CisPhasedBlock) -> str:
+    """Clear cached digests and return a fresh GA4GH id for an Allele or CisPhasedBlock.
+
+    Generalizes :func:`identify_allele` to cis-phased blocks. A block's Merkle digest is
+    derived from its members' digests, so a stale member digest would silently propagate into
+    the block id. Re-identifying every member through :func:`identify_allele` clears the member
+    and its location and restamps both, so a block never embeds a member whose ``id`` disagrees
+    with its own coordinates.
+    """
+    if isinstance(variation, Allele):
+        return identify_allele(variation)
+
+    for member in variation.members:
+        if isinstance(member, Allele):
+            member.id = identify_allele(member)
+
+    variation.digest = None
+    digest = ga4gh_identify(variation, in_place="always")
+    if digest is None:
+        raise ValueError("Failed to compute GA4GH identifier for variation")  # noqa: EM101
+
+    return digest
+
+
+def normalize_and_identify(allele: Allele, data_proxy: Any) -> Allele:
+    """Normalize *allele* and stamp it with a freshly computed GA4GH digest.
+
+    Pairs the finalize steps every VRS allele construction path needs.
+    Routing identification through :func:`identify_allele` (rather than
+    ``ga4gh_identify`` directly) is the invariant that protects against the
+    Merkle-tree's stale-digest behavior after mutation -- so any allele
+    construction site that bypasses this helper risks reintroducing the
+    stale-digest bug.
+
+    Normalization can leave an indel as a ``ReferenceLengthExpression``; this coerces
+    it to a ``LiteralSequenceExpression`` so the result matches dcd_mapping's
+    authoritative alleles (``vrs_map._rle_to_lse``), which always store LSE. Without
+    the coercion the same biological indel hashes to two digests -- RLE here, LSE from
+    the mapper -- so reverse translation's regenerated genomic form fails to dedup
+    against the authoritative row and a duplicate allele is linked.
+    """
+    allele = normalize(allele, data_proxy=data_proxy)
+    if isinstance(allele.state, ReferenceLengthExpression):
+        # Normalization yields an inlined SequenceLocation here, never an IRI reference.
+        assert isinstance(allele.location, SequenceLocation)
+        allele.state = _rle_to_lse(allele.state, allele.location, data_proxy)
+
+    allele.id = identify_allele(allele)
+    return allele
+
+
+def _rle_to_lse(
+    rle: ReferenceLengthExpression, location: SequenceLocation, data_proxy: Any
+) -> LiteralSequenceExpression:
+    """Coerce a ReferenceLengthExpression to an equivalent LiteralSequenceExpression.
+
+    Mirrors ``dcd_mapping:vrs_map.py::_rle_to_lse`` byte-for-byte so an allele built here
+    hashes identically to the mapper's authoritative allele for the same variant. Derives
+    the literal sequence by tiling the repeat subunit out to ``rle.length``.
+    """
+    # A normalized indel location has an inlined SequenceReference and integer bounds;
+    # the IRI-reference and Range branches of these unions should never reach this helper.
+    assert isinstance(location.sequenceReference, SequenceReference)
+    assert isinstance(location.start, int)
+    assert isinstance(rle.length, int)
+
+    sequence_id = location.sequenceReference.refgetAccession
+    start = location.start
+    end = start + rle.repeatSubunitLength
+    subsequence = data_proxy.get_sequence(f"ga4gh:{sequence_id}", start, end)
+    c = cycle(subsequence)
+    derived_sequence = "".join(next(c) for _ in range(rle.length))
+    return LiteralSequenceExpression(sequence=derived_sequence)
+
+
+def canonical_variation_document(document: Mapping[str, Any], *, subject: str) -> tuple[dict[str, Any], str]:
+    """Re-derive identity and canonical serialization for a variation arriving from outside.
+
+    An identifier computed elsewhere is an *assertion*, not an identity: it may have been minted by a
+    different ``ga4gh.vrs`` version, or — the case that actually bit us — before a normalization step
+    this process does not control. ``AlleleTranslator`` stamps ``id`` at translation time by default
+    (``identify=True``), and ``ga4gh_identify``'s default ``in_place`` returns a non-empty ``id``
+    unchanged, so a subsequent normalize-then-identify silently preserves the pre-normalization id.
+    Deletions and duplications are the variant classes whose normalized span differs, so they are the
+    ones that drift; a substitution normalizes to itself and its minted id stays correct by luck.
+
+    Recomputing here makes the stored ``id`` a fact about the stored content rather than a claim
+    inherited from the producer, and returns one canonical serialization regardless of which writer
+    (or which library version) produced the input — so the same object stored twice is byte-identical.
+
+    A disagreement is logged rather than raised: the incoming document is still usable, and refusing
+    the variant would lose a mapping over a repairable identifier. Silence is not an option either,
+    because a corrected identifier changes what the row deduplicates against. A disagreement in identifier
+    implies an upstream issue and should be investigated.
+
+    :param document: the producer's serialized VRS Allele or CisPhasedBlock
+    :param subject: what this variation belongs to, for the warning message
+    :return: the canonical document and its GA4GH identifier
+    """
+    variation = vrs_object_from_mapped_variant(dict(document)).root
+    if not isinstance(variation, Allele | CisPhasedBlock):
+        raise ValueError(f"Expected Allele or CisPhasedBlock for {subject}, got {type(variation).__name__}")
+
+    identifier = identify_variation(variation)
+
+    incoming = document.get("id")
+    if incoming and incoming != identifier:
+        logger.warning(
+            msg=(
+                f"VRS identifier mismatch for {subject}: producer supplied {incoming!r}, but the "
+                f"document's own content identifies as {identifier!r}. Storing the recomputed "
+                "identifier. This usually means the id was minted before normalization."
+            ),
+            extra=logging_context(),
+        )
+
+    return variation.model_dump(mode="json", exclude_none=True), identifier

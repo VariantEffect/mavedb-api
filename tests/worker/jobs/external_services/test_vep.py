@@ -4,29 +4,76 @@ import pytest
 
 pytest.importorskip("arq")
 
+from datetime import date, timedelta
 from unittest.mock import patch
 
 from sqlalchemy import select
 
+from variant_annotation.lib.vep import (
+    NO_CHANGE_TERM,
+    RESOLVER_VERSION,
+    ConsequenceOutcome,
+    ConsequenceResolution,
+    ConsequenceSource,
+    VepInput,
+)
+
 from mavedb.lib.types.workflow import JobExecutionOutcome
-from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus, JobStatus
-from mavedb.models.mapped_variant import MappedVariant
-from mavedb.models.score_set import ScoreSet
-from mavedb.models.variant import Variant
-from mavedb.models.variant_annotation_status import VariantAnnotationStatus
+from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
+from mavedb.models.enums.vep import VepConsequenceSource
+from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 from mavedb.worker.jobs.external_services.vep import populate_vep_for_score_set
 from mavedb.worker.lib.managers.job_manager import JobManager
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
+# resolve_consequences lives in mavedb.lib.vep; the worker imports it, so we patch the worker's binding.
+# The orchestration itself is unit-tested in tests/lib/test_vep.py::TestResolveConsequences.
+_RESOLVE = "mavedb.worker.jobs.external_services.vep.resolve_consequences"
+_RELEASE = "mavedb.worker.jobs.external_services.vep.get_ensembl_release"
+_ENSEMBL_RELEASE = "116"
+
+
+def _resolved(hgvs: str, term: str) -> ConsequenceResolution:
+    """A RESOLVED resolution keyed by hgvs — the shape resolve_consequences returns per input."""
+    return ConsequenceResolution(
+        input=VepInput(hgvs=hgvs),
+        outcome=ConsequenceOutcome.RESOLVED,
+        consequence_terms=[term],
+        most_severe_consequence=term,
+        source=ConsequenceSource.TRANSCRIPT,
+    )
+
+
+def _errored(hgvs: str) -> ConsequenceResolution:
+    """An ERRORED resolution — the request failed, result unknown (must be retried, never linked)."""
+    return ConsequenceResolution(input=VepInput(hgvs=hgvs), outcome=ConsequenceOutcome.ERRORED, error="boom")
+
+
+@pytest.fixture(autouse=True)
+def mock_ensembl_release():
+    """Stamp every job run with a fixed Ensembl release so tests version-key deterministically without
+    hitting /info/software. Tests exercising a release-fetch failure override this with an inner patch."""
+    with patch(_RELEASE, return_value=_ENSEMBL_RELEASE):
+        yield
+
+
+def _live_consequences_for(session, allele_id):
+    return session.scalars(
+        select(VepAlleleConsequence).where(
+            VepAlleleConsequence.allele_id == allele_id,
+            VepAlleleConsequence.current,
+        )
+    ).all()
+
 
 @pytest.mark.asyncio
 @pytest.mark.unit
 class TestPopulateVepForScoreSetUnit:
-    """Unit tests for populate_vep_for_score_set."""
+    """Unit tests for the populate_vep_for_score_set job."""
 
-    async def test_no_mapped_variants(
+    async def test_no_alleles_with_hgvs(
         self,
         session,
         with_populated_domain_data,
@@ -34,7 +81,7 @@ class TestPopulateVepForScoreSetUnit:
         mock_worker_ctx,
         sample_populate_vep_run,
     ):
-        """Job succeeds with zero counts when no mapped variants exist."""
+        """No alleles with HGVS -> the job succeeds with nothing to do."""
         result = await populate_vep_for_score_set(
             mock_worker_ctx,
             1,
@@ -43,405 +90,594 @@ class TestPopulateVepForScoreSetUnit:
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data["variants_processed"] == 0
-        assert result.data["variants_with_consequences"] == 0
-        assert result.data["variants_recoder_failed"] == 0
+        assert result.data["created_allele_count"] == 0
+        assert result.data["preexisting_allele_count"] == 0
+        assert result.data["absent_allele_count"] == 0
+        assert result.data["errored_allele_count"] == 0
 
-    async def test_variant_without_hgvs_assay_level_skipped(
+    async def test_propagates_exceptions(
         self,
         session,
         with_populated_domain_data,
         with_populate_vep_job,
         mock_worker_ctx,
         sample_populate_vep_run,
-        setup_sample_variants_for_vep,
+        setup_sample_alleles_for_vep,
     ):
-        """A mapped variant with no hgvs_assay_level gets a SKIPPED annotation."""
-        _, mapped_variant = setup_sample_variants_for_vep
-        mapped_variant.hgvs_assay_level = None
-        session.commit()
+        """Exceptions raised while resolving consequences are propagated."""
+        with patch(_RESOLVE, side_effect=Exception("Test exception")):
+            with pytest.raises(Exception) as exc_info:
+                await populate_vep_for_score_set(
+                    mock_worker_ctx,
+                    1,
+                    JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
+                )
 
-        result = await populate_vep_for_score_set(
-            mock_worker_ctx,
-            1,
-            JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
-        )
+        assert str(exc_info.value) == "Test exception"
 
-        assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
-        assert result.data["variants_processed"] == 0
-
-        annotation = session.scalars(
-            select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.variant_id == mapped_variant.variant_id,
-                VariantAnnotationStatus.annotation_type == AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
-            )
-        ).one()
-        assert annotation.status == AnnotationStatus.SKIPPED
-        assert annotation.failure_category == AnnotationFailureCategory.MISSING_IDENTIFIER
-
-    async def test_vep_api_success_sets_consequence_and_annotation(
+    async def test_aborts_when_release_unavailable(
         self,
         session,
         with_populated_domain_data,
         with_populate_vep_job,
         mock_worker_ctx,
         sample_populate_vep_run,
-        setup_sample_variants_for_vep,
+        setup_sample_alleles_for_vep,
     ):
-        """VEP returns a consequence: mapped variant and SUCCESS annotation are updated."""
-        _, mapped_variant = setup_sample_variants_for_vep
-        hgvs = mapped_variant.hgvs_assay_level
-
-        with patch(
-            "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
-            return_value={hgvs: "missense_variant"},
-        ):
-            result = await populate_vep_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
-            )
-
-        assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
-        assert result.data["variants_processed"] == 1
-        assert result.data["variants_with_consequences"] == 1
-        assert result.data["variants_recoder_failed"] == 0
-
-        session.refresh(mapped_variant)
-        assert mapped_variant.vep_functional_consequence == "missense_variant"
-        assert mapped_variant.vep_access_date is not None
-
-        annotation = session.scalars(
-            select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.variant_id == mapped_variant.variant_id,
-                VariantAnnotationStatus.annotation_type == AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
-            )
-        ).one()
-        assert annotation.status == AnnotationStatus.SUCCESS
-
-    async def test_vep_missing_triggers_variant_recoder_fallback(
-        self,
-        session,
-        with_populated_domain_data,
-        with_populate_vep_job,
-        mock_worker_ctx,
-        sample_populate_vep_run,
-        setup_sample_variants_for_vep,
-    ):
-        """When VEP misses a variant, Variant Recoder is called and its result fed back to VEP."""
-        _, mapped_variant = setup_sample_variants_for_vep
-        hgvs = mapped_variant.hgvs_assay_level
-        genomic_hgvs = "NC_000017.11:g.43094692C>T"
-
+        """If the Ensembl release cannot be fetched the job aborts rather than mis-versioning its writes
+        — the version is load-bearing for the skip, so a failure must propagate, not be swallowed."""
         with (
-            patch(
-                "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
-                side_effect=[
-                    {},  # initial VEP pass returns nothing
-                    {genomic_hgvs: "missense_variant"},  # second VEP pass on recoded HGVS
-                ],
-            ),
-            patch(
-                "mavedb.worker.jobs.external_services.vep.run_variant_recoder",
-                return_value={hgvs: [genomic_hgvs]},
-            ),
+            patch(_RELEASE, side_effect=Exception("info/software unavailable")),
+            patch(_RESOLVE) as mock_resolve,
         ):
-            result = await populate_vep_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
-            )
+            with pytest.raises(Exception) as exc_info:
+                await populate_vep_for_score_set(
+                    mock_worker_ctx,
+                    1,
+                    JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
+                )
 
-        assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
-        assert result.data["variants_with_consequences"] == 1
-        assert result.data["variants_recoder_failed"] == 0
-
-        session.refresh(mapped_variant)
-        assert mapped_variant.vep_functional_consequence == "missense_variant"
-
-    async def test_variant_recoder_failure_annotated_as_failed(
-        self,
-        session,
-        with_populated_domain_data,
-        with_populate_vep_job,
-        mock_worker_ctx,
-        sample_populate_vep_run,
-        setup_sample_variants_for_vep,
-    ):
-        """Variant Recoder returning no result for an HGVS produces a FAILED annotation."""
-        _, mapped_variant = setup_sample_variants_for_vep
-
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
-                return_value={},
-            ),
-            patch(
-                "mavedb.worker.jobs.external_services.vep.run_variant_recoder",
-                return_value={},  # recoder has no result
-            ),
-        ):
-            result = await populate_vep_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
-            )
-
-        assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
-        assert result.data["variants_without_consequences"] == 0
-        assert result.data["variants_recoder_failed"] == 1
-
-        annotation = session.scalars(
-            select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.variant_id == mapped_variant.variant_id,
-                VariantAnnotationStatus.annotation_type == AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
-            )
-        ).one()
-        assert annotation.status == AnnotationStatus.FAILED
-        assert annotation.failure_category == AnnotationFailureCategory.EXTERNAL_REFERENCE_NOT_FOUND
-
-    async def test_vep_failure_after_recoder_annotated_as_failed(
-        self,
-        session,
-        with_populated_domain_data,
-        with_populate_vep_job,
-        mock_worker_ctx,
-        sample_populate_vep_run,
-        setup_sample_variants_for_vep,
-    ):
-        """VEP returning no consequence even after Variant Recoder produces a FAILED annotation."""
-        _, mapped_variant = setup_sample_variants_for_vep
-        hgvs = mapped_variant.hgvs_assay_level
-        genomic_hgvs = "NC_000017.11:g.43094692C>T"
-
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
-                return_value={},  # VEP returns nothing in both passes
-            ),
-            patch(
-                "mavedb.worker.jobs.external_services.vep.run_variant_recoder",
-                return_value={hgvs: [genomic_hgvs]},
-            ),
-        ):
-            result = await populate_vep_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
-            )
-
-        assert isinstance(result, JobExecutionOutcome)
-        assert result.status == JobStatus.SUCCEEDED
-        assert result.data["variants_without_consequences"] == 1
-        assert result.data["variants_recoder_failed"] == 0
-
-        annotation = session.scalars(
-            select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.variant_id == mapped_variant.variant_id,
-                VariantAnnotationStatus.annotation_type == AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
-            )
-        ).one()
-        assert annotation.status == AnnotationStatus.FAILED
-        assert annotation.failure_category == AnnotationFailureCategory.EXTERNAL_REFERENCE_NOT_FOUND
-
-    async def test_vep_none_consequence_routes_to_recoder(
-        self,
-        session,
-        with_populated_domain_data,
-        with_populate_vep_job,
-        mock_worker_ctx,
-        sample_populate_vep_run,
-        setup_sample_variants_for_vep,
-    ):
-        """A None consequence from VEP Phase 1 is treated as a miss and routed through Recoder.
-
-        VEP can return an entry with most_severe_consequence=None when it recognises a variant
-        but cannot classify it.  This should not silently fall into the UNKNOWN outcome branch —
-        instead it should be treated identically to an absent entry and sent to Recoder.
-        """
-        _, mapped_variant = setup_sample_variants_for_vep
-        hgvs = mapped_variant.hgvs_assay_level
-        genomic_hgvs = "NC_000017.11:g.43094692C>T"
-
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
-                side_effect=[
-                    {hgvs: None},  # VEP knows the variant but returns no consequence
-                    {genomic_hgvs: "missense_variant"},  # Phase 3 on recoded genomic string
-                ],
-            ),
-            patch(
-                "mavedb.worker.jobs.external_services.vep.run_variant_recoder",
-                return_value={hgvs: [genomic_hgvs]},
-            ),
-        ):
-            result = await populate_vep_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
-            )
-
-        assert result.status == JobStatus.SUCCEEDED
-        assert result.data["variants_with_consequences"] == 1
-
-        session.refresh(mapped_variant)
-        assert mapped_variant.vep_functional_consequence == "missense_variant"
-
-    async def test_most_severe_consequence_selected_from_multiple_genomic_hgvs(
-        self,
-        session,
-        with_populated_domain_data,
-        with_populate_vep_job,
-        mock_worker_ctx,
-        sample_populate_vep_run,
-        setup_sample_variants_for_vep,
-    ):
-        """When Recoder returns multiple genomic strings with different consequences, the most severe wins."""
-        _, mapped_variant = setup_sample_variants_for_vep
-        hgvs = mapped_variant.hgvs_assay_level
-        genomic_less_severe = "NC_000017.11:g.43094692C>T"  # → missense_variant
-        genomic_more_severe = "NC_000017.11:g.43094692C>A"  # → stop_gained
-
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
-                side_effect=[
-                    {},  # Phase 1: VEP misses
-                    {
-                        genomic_less_severe: "missense_variant",
-                        genomic_more_severe: "stop_gained",
-                    },  # Phase 3: two different consequences
-                ],
-            ),
-            patch(
-                "mavedb.worker.jobs.external_services.vep.run_variant_recoder",
-                return_value={hgvs: [genomic_less_severe, genomic_more_severe]},
-            ),
-        ):
-            result = await populate_vep_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
-            )
-
-        assert result.data["variants_with_consequences"] == 1
-
-        session.refresh(mapped_variant)
-        assert mapped_variant.vep_functional_consequence == "stop_gained"
-
-    async def test_multiple_variants_sharing_hgvs_all_get_consequence(
-        self,
-        session,
-        with_populated_domain_data,
-        with_populate_vep_job,
-        mock_worker_ctx,
-        sample_populate_vep_run,
-        setup_sample_variants_for_vep,
-    ):
-        """All mapped variants that share an HGVS string each receive the consequence."""
-        _, mapped_variant_1 = setup_sample_variants_for_vep
-        hgvs = mapped_variant_1.hgvs_assay_level
-
-        score_set = session.get(ScoreSet, sample_populate_vep_run.job_params["score_set_id"])
-        variant_2 = Variant(
-            urn="urn:variant:test-variant-for-vep-2",
-            score_set_id=score_set.id,
-            hgvs_nt=hgvs,
-            data={"hgvs_c": hgvs},
-        )
-        session.add(variant_2)
-        session.commit()
-        mapped_variant_2 = MappedVariant(
-            variant_id=variant_2.id,
-            current=True,
-            mapped_date="2024-01-01T00:00:00Z",
-            mapping_api_version="1.0.0",
-            post_mapped={"type": "Allele", "expressions": [{"value": hgvs, "syntax": "hgvs.c"}]},
-            hgvs_assay_level=hgvs,
-        )
-        session.add(mapped_variant_2)
-        session.commit()
-
-        with patch(
-            "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
-            return_value={hgvs: "missense_variant"},
-        ):
-            result = await populate_vep_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
-            )
-
-        assert result.data["variants_processed"] == 2
-        assert result.data["variants_with_consequences"] == 2
-
-        session.refresh(mapped_variant_1)
-        session.refresh(mapped_variant_2)
-        assert mapped_variant_1.vep_functional_consequence == "missense_variant"
-        assert mapped_variant_2.vep_functional_consequence == "missense_variant"
-
-    async def test_vep_batch_api_exception_raises(
-        self,
-        session,
-        with_populated_domain_data,
-        with_populate_vep_job,
-        mock_worker_ctx,
-        sample_populate_vep_run,
-        setup_sample_variants_for_vep,
-    ):
-        """An unexpected exception from the VEP API propagates to the job management decorator."""
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
-                side_effect=RuntimeError("VEP API unreachable"),
-            ),
-            pytest.raises(RuntimeError, match="VEP API unreachable"),
-        ):
-            await populate_vep_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
-            )
-
-    async def test_variant_recoder_api_exception_raises(
-        self,
-        session,
-        with_populated_domain_data,
-        with_populate_vep_job,
-        mock_worker_ctx,
-        sample_populate_vep_run,
-        setup_sample_variants_for_vep,
-    ):
-        """An unexpected exception from the Variant Recoder API propagates to the job management decorator."""
-        with (
-            patch(
-                "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
-                return_value={},
-            ),
-            patch(
-                "mavedb.worker.jobs.external_services.vep.run_variant_recoder",
-                side_effect=RuntimeError("Recoder API unreachable"),
-            ),
-            pytest.raises(RuntimeError, match="Recoder API unreachable"),
-        ):
-            await populate_vep_for_score_set(
-                mock_worker_ctx,
-                1,
-                JobManager(session, mock_worker_ctx["redis"], sample_populate_vep_run.id),
-            )
+        assert str(exc_info.value) == "info/software unavailable"
+        mock_resolve.assert_not_called()  # never queried VEP without a version to stamp
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 class TestPopulateVepForScoreSetIntegration:
-    """Integration tests for populate_vep_for_score_set run through an ARQ worker context."""
+    """Integration tests for the populate_vep_for_score_set job."""
 
-    async def test_populate_vep_with_arq_context(
+    async def test_no_alleles_with_hgvs(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+    ):
+        """End-to-end: no alleles -> no consequence rows, no annotations, job succeeds."""
+        result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.SUCCEEDED
+
+        assert len(session.scalars(select(VepAlleleConsequence)).all()) == 0
+        assert len(session.scalars(select(AnnotationEvent)).all()) == 0
+
+        session.refresh(sample_populate_vep_run)
+        assert sample_populate_vep_run.status == JobStatus.SUCCEEDED
+
+    async def test_no_consequence_resolved(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+    ):
+        """A genuine empty (VEP queried successfully, found nothing) writes no consequence row and an
+        ABSENT/no_record event — a trustworthy negative, distinct from a failed request."""
+        _, allele = setup_sample_alleles_for_vep
+
+        with patch(_RESOLVE, return_value={}):
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["absent_allele_count"] == 1
+        assert len(_live_consequences_for(session, allele.id)) == 0
+
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 1
+        assert events[0].disposition == "absent"
+        assert events[0].reason == "no_record"
+        assert events[0].annotation_type == "vep_functional_consequence"
+        assert events[0].allele_id == allele.id and events[0].variant_id is None
+
+    async def test_skips_protein_level_allele(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_protein_allele_for_vep,
+    ):
+        """A protein-level allele is never submitted to VEP (#772 routing) — its consequence is carried
+        by the coding alleles reverse translation enumerates. With only a protein allele present the job
+        has nothing eligible to do: no external query, and no consequence row or event for it."""
+        _, allele = setup_sample_protein_allele_for_vep
+
+        with patch(_RESOLVE) as mock_resolve:
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        assert result.status == JobStatus.SUCCEEDED
+        mock_resolve.assert_not_called()  # protein allele routed out before any query
+        assert len(_live_consequences_for(session, allele.id)) == 0
+        assert session.scalars(select(AnnotationEvent).where(AnnotationEvent.allele_id == allele.id)).all() == []
+
+    async def test_request_failure_recorded_as_errored(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+    ):
+        """An allele whose VEP/Recoder request *failed* is FAILED/api_error — distinct from a genuine
+        empty — so a transient outage is never mistaken for a confirmed absence."""
+        _, allele = setup_sample_alleles_for_vep
+
+        # Resolver reports the allele's HGVS as errored (request failed), not as a hit or an empty.
+        with patch(_RESOLVE, return_value={allele.hgvs_c: _errored(allele.hgvs_c)}):
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["errored_allele_count"] == 1
+        assert result.data["absent_allele_count"] == 0
+        assert len(_live_consequences_for(session, allele.id)) == 0
+
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 1
+        assert events[0].disposition == "failed"
+        assert events[0].reason == "api_error"
+        assert events[0].annotation_type == "vep_functional_consequence"
+        assert events[0].allele_id == allele.id and events[0].variant_id is None
+
+    async def test_successful_linking_independent(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+    ):
+        """A resolved consequence creates a single live VepAlleleConsequence and a SUCCESS VAS row."""
+        _, allele = setup_sample_alleles_for_vep
+
+        with patch(_RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}):
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["created_allele_count"] == 1
+
+        live = _live_consequences_for(session, allele.id)
+        assert len(live) == 1
+        assert live[0].functional_consequence == "missense_variant"
+        assert live[0].source_version == _ENSEMBL_RELEASE
+        assert live[0].access_date == date.today()
+
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 1
+        assert events[0].disposition == "present"
+        assert events[0].reason == "created"
+        assert events[0].annotation_type == "vep_functional_consequence"
+        assert events[0].allele_id == allele.id and events[0].variant_id is None
+
+    async def test_links_and_annotates_rt_derived_allele(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_rt_derived_allele_for_vep,
+    ):
+        """VEP linkage covers the full allele set, not just authoritative links: the RT-derived allele's
+        genomic HGVS resolves and gets a consequence row. Events are allele-keyed, so each allele in the
+        score set gets its own event — present for the resolved RT allele, absent/no_record for the
+        authoritative allele VEP queried but found nothing (a genuine empty, distinct from a request
+        failure). The per-variant bandaid's limitation (dropping the RT-derived allele's status) is lifted."""
+        variant, authoritative_allele, rt_allele = setup_rt_derived_allele_for_vep
+
+        # VEP resolves only the RT-derived allele's genomic HGVS; the authoritative allele's coding
+        # HGVS is queried successfully but yields no consequence this run (a genuine empty, not errored).
+        with patch(_RESOLVE, return_value={rt_allele.hgvs_g: _resolved(rt_allele.hgvs_g, "missense_variant")}):
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        assert result.status == JobStatus.SUCCEEDED
+
+        # The RT-derived (non-authoritative) allele IS linked — the core fix.
+        rt_live = _live_consequences_for(session, rt_allele.id)
+        assert len(rt_live) == 1
+        assert rt_live[0].functional_consequence == "missense_variant"
+        # The authoritative allele's HGVS had no consequence, so it gets no row.
+        assert len(_live_consequences_for(session, authoritative_allele.id)) == 0
+
+        # One allele-keyed event per allele (never per-variant): the resolved RT allele is present, the
+        # unclassifiable authoritative allele is absent/no_record (queried, genuinely empty).
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert all(e.annotation_type == "vep_functional_consequence" for e in events)
+        assert all(e.variant_id is None for e in events)
+        by_allele = {e.allele_id: e for e in events}
+        assert by_allele[rt_allele.id].disposition == "present"
+        assert by_allele[authoritative_allele.id].disposition == "absent"
+        assert by_allele[authoritative_allele.id].reason == "no_record"
+
+    async def test_reference_identical_control_is_labelled(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+    ):
+        """A wild-type control describes no sequence change, so VEP cannot resolve it. When the reference
+        port settles it as reference-identical, it is stored as a live consequence labelled
+        ``reference_identical`` (headline term ``no_change``) rather than dropped to ABSENT — so a control
+        can be told apart from an unannotated allele. The event is present/created: a result was reached."""
+        _, allele = setup_sample_alleles_for_vep
+        hgvs = allele.hgvs_c or allele.hgvs_g
+
+        reference_identical = ConsequenceResolution(
+            input=VepInput(hgvs=hgvs),
+            outcome=ConsequenceOutcome.RESOLVED,
+            consequence_terms=[NO_CHANGE_TERM],
+            most_severe_consequence=NO_CHANGE_TERM,
+            source=ConsequenceSource.REFERENCE_IDENTICAL,
+        )
+        with patch(_RESOLVE, return_value={hgvs: reference_identical}):
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["created_allele_count"] == 1
+
+        live = _live_consequences_for(session, allele.id)
+        assert len(live) == 1
+        assert live[0].functional_consequence == NO_CHANGE_TERM
+        assert live[0].consequence_source == VepConsequenceSource.reference_identical
+        assert live[0].matched_transcript is None
+
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 1
+        assert events[0].disposition == "present"
+        assert events[0].reason == "created"
+        assert events[0].allele_id == allele.id and events[0].variant_id is None
+
+    async def test_resolves_in_chunks_and_merges_results(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_rt_derived_allele_for_vep,
+    ):
+        """Inputs are resolved in chunks (so progress can be reported between them), and the results from
+        every chunk are merged — not just the last chunk's. With the chunk size forced to one, each of the
+        two alleles resolves in its own call and both are still linked; a chunk whose result was dropped
+        would leave one allele unlinked."""
+        _, authoritative_allele, rt_allele = setup_rt_derived_allele_for_vep
+
+        def _resolve_each(inputs, **kwargs):
+            # One input per chunk here; each chunk returns only its own input's resolution, so a chunk
+            # whose result the job failed to merge would drop that allele's link.
+            return {inp.hgvs: _resolved(inp.hgvs, "missense_variant") for inp in inputs}
+
+        with (
+            patch("mavedb.worker.jobs.external_services.vep._RESOLUTION_CHUNK_SIZE", 1),
+            patch(_RESOLVE, side_effect=_resolve_each) as mock_resolve,
+        ):
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        assert result.status == JobStatus.SUCCEEDED
+        # Two unique HGVS at chunk size one -> two resolution calls, each a single-input chunk.
+        assert mock_resolve.call_count == 2
+        assert all(len(call.args[0]) == 1 for call in mock_resolve.call_args_list)
+        # Both alleles linked -> results from both chunks were merged, not overwritten by the last.
+        assert len(_live_consequences_for(session, authoritative_allele.id)) == 1
+        assert len(_live_consequences_for(session, rt_allele.id)) == 1
+
+    async def test_skips_allele_already_at_current_release(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+    ):
+        """An allele with a live consequence already at the current Ensembl release *and* resolver
+        version is skipped: no VEP query, the status reports SUCCESS/preexisting, and the row is not
+        churned."""
+        _, allele = setup_sample_alleles_for_vep
+
+        # Simulate a prior run at the current release and resolver version (current on both axes).
+        session.add(
+            VepAlleleConsequence(
+                allele_id=allele.id,
+                functional_consequence="missense_variant",
+                source_version=_ENSEMBL_RELEASE,
+                resolver_version=RESOLVER_VERSION,
+                access_date=date.today(),
+            )
+        )
+        session.commit()
+
+        with patch(_RESOLVE) as mock_resolve:
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        mock_resolve.assert_not_called()  # version-keyed skip avoided the external query entirely
+        assert result.data["preexisting_allele_count"] == 1
+        assert result.data["created_allele_count"] == 0
+
+        # Row not churned: still exactly one, still live.
+        rows = session.scalars(select(VepAlleleConsequence).where(VepAlleleConsequence.allele_id == allele.id)).all()
+        assert len(rows) == 1
+        assert rows[0].valid_to is None
+
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 1
+        assert events[0].disposition == "present"
+        assert events[0].reason == "preexisting"
+
+    async def test_stale_resolver_version_is_requeried(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+    ):
+        """An allele live at the *current* Ensembl release but resolved under an older resolver version is
+        NOT skipped — a resolution-rule fix (RESOLVER_VERSION bump) must re-query without waiting for an
+        Ensembl release bump. Re-resolving the same term reports preexisting and advances the resolver
+        version on the live row in place (no churn)."""
+        _, allele = setup_sample_alleles_for_vep
+
+        # Current Ensembl release but a stale resolver version -> only the resolver axis is out of date.
+        session.add(
+            VepAlleleConsequence(
+                allele_id=allele.id,
+                functional_consequence="missense_variant",
+                source_version=_ENSEMBL_RELEASE,
+                resolver_version=f"{RESOLVER_VERSION}-stale",
+                access_date=date.today() - timedelta(days=1),
+            )
+        )
+        session.commit()
+
+        with patch(
+            _RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}
+        ) as mock_resolve:
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        mock_resolve.assert_called_once()  # stale resolver version -> re-queried despite the current release
+        assert result.data["preexisting_allele_count"] == 1
+        assert result.data["created_allele_count"] == 0
+
+        # The live row is refreshed to the current resolver version (advanced in place, still one live row).
+        live = _live_consequences_for(session, allele.id)
+        assert len(live) == 1
+        assert live[0].resolver_version == RESOLVER_VERSION
+
+    async def test_new_release_same_consequence_bumps_in_place(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+    ):
+        """An allele live at an *older* release is not skipped: the job re-queries it and reports it
+        preexisting (the unchanged consequence advances in place). The row-level in-place-bump semantics
+        are the linker's, covered by test_link_vep_unchanged_bumps_version_and_fills_provenance_in_place."""
+        _, allele = setup_sample_alleles_for_vep
+
+        session.add(
+            VepAlleleConsequence(
+                allele_id=allele.id,
+                functional_consequence="missense_variant",
+                source_version="115",
+                access_date=date.today() - timedelta(days=90),
+            )
+        )
+        session.commit()
+
+        with patch(
+            _RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}
+        ) as mock_resolve:
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        mock_resolve.assert_called_once()  # older release -> not skipped, re-queried
+        assert result.data["preexisting_allele_count"] == 1
+        assert result.data["created_allele_count"] == 0
+
+    async def test_force_requeries_unchanged_without_churn(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+    ):
+        """force bypasses the current-release skip: an allele already at the current release, which would
+        normally be skipped, is re-queried instead. The no-churn-on-unchanged-value guarantee is the
+        linker's, covered by test_link_vep_unchanged_bumps_version_and_fills_provenance_in_place."""
+        _, allele = setup_sample_alleles_for_vep
+
+        # Prior live consequence already current on both axes (would be skipped without force).
+        session.add(
+            VepAlleleConsequence(
+                allele_id=allele.id,
+                functional_consequence="missense_variant",
+                source_version=_ENSEMBL_RELEASE,
+                resolver_version=RESOLVER_VERSION,
+                access_date=date.today() - timedelta(days=1),
+            )
+        )
+        session.commit()
+
+        sample_populate_vep_run.job_params = {**sample_populate_vep_run.job_params, "force": True}
+        session.commit()
+
+        with patch(
+            _RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}
+        ) as mock_resolve:
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        mock_resolve.assert_called_once()  # force bypassed the current-release skip
+        assert result.data["preexisting_allele_count"] == 1
+        assert result.data["created_allele_count"] == 0
+
+    async def test_new_release_changed_consequence_supersedes(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+    ):
+        """An allele live at an *older* release is not skipped: the job re-queries it and a changed
+        result is reported created. The supersede/retire row semantics are the linker's, covered by
+        test_link_vep_changed_consequence_supersedes."""
+        _, allele = setup_sample_alleles_for_vep
+
+        # Prior live consequence at an older release -> not skipped, eligible for re-query.
+        session.add(
+            VepAlleleConsequence(
+                allele_id=allele.id,
+                functional_consequence="synonymous_variant",
+                source_version="115",
+                access_date=date.today() - timedelta(days=90),
+            )
+        )
+        session.commit()
+
+        with patch(
+            _RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}
+        ) as mock_resolve:
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        mock_resolve.assert_called_once()  # older release -> not skipped, re-queried
+        assert result.data["created_allele_count"] == 1
+
+    async def test_retained_on_absence_surfaced_in_outcome(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+    ):
+        """An allele that had a consequence at an older release but for which VEP now returns nothing
+        keeps its prior value (not superseded) and is counted in ``retained_on_absence_count`` — the
+        job-metadata signal for a possible genuine disappearance."""
+        _, allele = setup_sample_alleles_for_vep
+
+        # Prior live consequence at an older release -> re-queried, but VEP returns nothing this run.
+        session.add(
+            VepAlleleConsequence(
+                allele_id=allele.id,
+                functional_consequence="missense_variant",
+                source_version="115",
+                access_date=date.today() - timedelta(days=90),
+            )
+        )
+        session.commit()
+
+        with patch(_RESOLVE, return_value={}):
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        assert result.status == JobStatus.SUCCEEDED
+        # Surfaced in the outcome metadata, and counted as preexisting (the allele still has a value).
+        assert result.data["retained_on_absence_count"] == 1
+        assert result.data["preexisting_allele_count"] == 1
+        assert result.data["absent_allele_count"] == 0
+
+        # The prior consequence was held in place, not superseded or dropped.
+        live = _live_consequences_for(session, allele.id)
+        assert len(live) == 1
+        assert live[0].functional_consequence == "missense_variant"
+        assert live[0].source_version == "115"
+
+    async def test_successful_linking_pipeline(
+        self,
+        session,
+        with_populated_domain_data,
+        mock_worker_ctx,
+        sample_populate_vep_run_pipeline,
+        sample_populate_vep_pipeline,
+        setup_sample_alleles_for_vep,
+    ):
+        """End-to-end successful linking within a pipeline updates both job and pipeline status."""
+        _, allele = setup_sample_alleles_for_vep
+
+        with patch(_RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}):
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run_pipeline.id)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert len(session.scalars(select(VepAlleleConsequence).where(VepAlleleConsequence.current)).all()) == 1
+
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 1
+        assert events[0].disposition == "present"
+        assert events[0].reason == "created"
+        assert events[0].annotation_type == "vep_functional_consequence"
+        assert events[0].allele_id is not None and events[0].variant_id is None
+
+        session.refresh(sample_populate_vep_run_pipeline)
+        assert sample_populate_vep_run_pipeline.status == JobStatus.SUCCEEDED
+        session.refresh(sample_populate_vep_pipeline)
+        assert sample_populate_vep_pipeline.status == PipelineStatus.SUCCEEDED
+
+    async def test_exceptions_handled_by_decorators(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+    ):
+        """Exceptions during resolution are handled by the job decorators (Slack alert, ERRORED)."""
+        with (
+            patch(_RESOLVE, side_effect=Exception("Test exception")),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
+        ):
+            result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        mock_send_slack_job_error.assert_called_once()
+        assert isinstance(result, JobExecutionOutcome)
+        assert result.status == JobStatus.ERRORED
+        assert isinstance(result.exception, Exception)
+
+        session.refresh(sample_populate_vep_run)
+        assert sample_populate_vep_run.status == JobStatus.ERRORED
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+class TestPopulateVepForScoreSetArqContext:
+    """Tests for the populate_vep_for_score_set job using the ARQ context fixture."""
+
+    async def test_populate_vep_with_arq_context_independent(
         self,
         arq_redis,
         arq_worker,
@@ -449,35 +685,29 @@ class TestPopulateVepForScoreSetIntegration:
         with_populated_domain_data,
         with_populate_vep_job,
         sample_populate_vep_run,
-        setup_sample_variants_for_vep,
+        setup_sample_alleles_for_vep,
     ):
-        """Job completes successfully within an ARQ worker context."""
-        _, mapped_variant = setup_sample_variants_for_vep
-        hgvs = mapped_variant.hgvs_assay_level
+        """The VEP job links a consequence and records a SUCCESS annotation through the ARQ worker."""
+        _, allele = setup_sample_alleles_for_vep
 
-        with patch(
-            "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
-            return_value={hgvs: "missense_variant"},
-        ):
+        with patch(_RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}):
             await arq_redis.enqueue_job("populate_vep_for_score_set", sample_populate_vep_run.id)
             await arq_worker.async_run()
             await arq_worker.run_check()
 
+        assert len(session.scalars(select(VepAlleleConsequence).where(VepAlleleConsequence.current)).all()) == 1
+
+        events = session.scalars(select(AnnotationEvent)).all()
+        assert len(events) == 1
+        assert events[0].disposition == "present"
+        assert events[0].reason == "created"
+        assert events[0].annotation_type == "vep_functional_consequence"
+        assert events[0].allele_id is not None and events[0].variant_id is None
+
         session.refresh(sample_populate_vep_run)
         assert sample_populate_vep_run.status == JobStatus.SUCCEEDED
 
-        session.refresh(mapped_variant)
-        assert mapped_variant.vep_functional_consequence == "missense_variant"
-
-        annotation = session.scalars(
-            select(VariantAnnotationStatus).where(
-                VariantAnnotationStatus.variant_id == mapped_variant.variant_id,
-                VariantAnnotationStatus.annotation_type == AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
-            )
-        ).one()
-        assert annotation.status == AnnotationStatus.SUCCESS
-
-    async def test_populate_vep_in_pipeline_context(
+    async def test_populate_vep_with_arq_context_pipeline(
         self,
         arq_redis,
         arq_worker,
@@ -485,24 +715,73 @@ class TestPopulateVepForScoreSetIntegration:
         with_populated_domain_data,
         sample_populate_vep_run_pipeline,
         sample_populate_vep_pipeline,
-        setup_sample_variants_for_vep,
+        setup_sample_alleles_for_vep,
     ):
-        """Job completes and advances the pipeline when run in a pipeline context."""
-        from mavedb.models.enums.job_pipeline import PipelineStatus
+        """The VEP job completes and advances the pipeline through the ARQ worker."""
+        _, allele = setup_sample_alleles_for_vep
 
-        _, mapped_variant = setup_sample_variants_for_vep
-        hgvs = mapped_variant.hgvs_assay_level
+        with patch(_RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}):
+            await arq_redis.enqueue_job("populate_vep_for_score_set", sample_populate_vep_run_pipeline.id)
+            await arq_worker.async_run()
+            await arq_worker.run_check()
 
-        with patch(
-            "mavedb.worker.jobs.external_services.vep.get_functional_consequence",
-            return_value={hgvs: "synonymous_variant"},
+        assert len(session.scalars(select(VepAlleleConsequence).where(VepAlleleConsequence.current)).all()) == 1
+
+        session.refresh(sample_populate_vep_run_pipeline)
+        assert sample_populate_vep_run_pipeline.status == JobStatus.SUCCEEDED
+        session.refresh(sample_populate_vep_pipeline)
+        assert sample_populate_vep_pipeline.status == PipelineStatus.SUCCEEDED
+
+    async def test_populate_vep_with_arq_context_exception_handling_independent(
+        self,
+        arq_redis,
+        arq_worker,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+    ):
+        """Exceptions in the VEP job are handled with the ARQ context fixture."""
+        with (
+            patch(_RESOLVE, side_effect=Exception("Test exception")),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
+        ):
+            await arq_redis.enqueue_job("populate_vep_for_score_set", sample_populate_vep_run.id)
+            await arq_worker.async_run()
+            await arq_worker.run_check()
+
+        mock_send_slack_job_error.assert_called_once()
+        assert len(session.scalars(select(VepAlleleConsequence)).all()) == 0
+        assert len(session.scalars(select(AnnotationEvent)).all()) == 0
+
+        session.refresh(sample_populate_vep_run)
+        assert sample_populate_vep_run.status == JobStatus.ERRORED
+
+    async def test_populate_vep_with_arq_context_exception_handling_pipeline(
+        self,
+        arq_redis,
+        arq_worker,
+        session,
+        with_populated_domain_data,
+        sample_populate_vep_pipeline,
+        sample_populate_vep_run_pipeline,
+        setup_sample_alleles_for_vep,
+    ):
+        """Exceptions in the VEP job fail the pipeline with the ARQ context fixture."""
+        with (
+            patch(_RESOLVE, side_effect=Exception("Test exception")),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
         ):
             await arq_redis.enqueue_job("populate_vep_for_score_set", sample_populate_vep_run_pipeline.id)
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        session.refresh(sample_populate_vep_run_pipeline)
-        assert sample_populate_vep_run_pipeline.status == JobStatus.SUCCEEDED
+        mock_send_slack_job_error.assert_called_once()
+        assert len(session.scalars(select(VepAlleleConsequence)).all()) == 0
+        assert len(session.scalars(select(AnnotationEvent)).all()) == 0
 
+        session.refresh(sample_populate_vep_run_pipeline)
+        assert sample_populate_vep_run_pipeline.status == JobStatus.ERRORED
         session.refresh(sample_populate_vep_pipeline)
-        assert sample_populate_vep_pipeline.status == PipelineStatus.SUCCEEDED
+        assert sample_populate_vep_pipeline.status == PipelineStatus.FAILED
