@@ -15,6 +15,12 @@ the in-flight window up to --concurrency, prints campaign status, and exits. Re-
 it (by hand, cron, or /loop) to keep driving progress; the heavy pipeline work happens
 entirely in the worker, with the Pipeline/JobRun tables as durable state.
 
+Cohort order (gene cluster, then URN) is fixed across invocations, so a score set whose
+latest run failed keeps its same spot on every re-run. Slots therefore always go to
+untried score sets first; a failed one is only retried with whatever slots are left
+over, so a handful of chronic failures can't camp on the concurrency window and starve
+score sets that have never been attempted (see plan_enqueue).
+
 Usage:
     # Preview what would be enqueued, without enqueuing anything.
     poetry run python -m mavedb.scripts.run_score_set_pipelines map_annotate_score_set \\
@@ -251,6 +257,7 @@ def plan_enqueue(
     *,
     in_flight_score_set_ids: set[int],
     current_score_set_ids: set[int],
+    failed_score_set_ids: frozenset[int] = frozenset(),
     slots: int,
     limit: Optional[int],
 ) -> list[tuple[ScoreSet, str, EnqueueDecision]]:
@@ -259,29 +266,46 @@ def plan_enqueue(
     Slots are spent in cohort order, which cluster_cohort has already grouped by gene:
     a window therefore stays on one gene until that gene is exhausted, rather than
     splitting its concurrency across two genes where half the running pipelines warm a
-    ClinGen cache the other half never reads.
+    ClinGen cache the other half never reads. That ordering is fixed across invocations,
+    so a score set whose latest run failed sits at the same spot on every re-run. Filling
+    slots in a single pass over that order would let a handful of chronically-failing
+    score sets early in cluster/URN order camp on the window forever, since a FAILED
+    entry looks exactly like a never-run one to a single scan and keeps winning the same
+    slots run after run — starving entries later in the order that have never been
+    attempted. Untried entries are therefore filled first, in cohort order; only leftover
+    slots go to failed entries, also in cohort order (preserving cache-coherent
+    within-cluster fill for the retry pass too).
 
     Skip-current/skip-in-flight decisions never consume a slot; only "enqueue" does.
     """
-    plan: list[tuple[ScoreSet, str, EnqueueDecision]] = []
+    decisions: dict[Optional[int], EnqueueDecision] = {}
     remaining_slots = slots
     enqueued_count = 0
 
+    def fill(entries: list[CohortEntry]) -> None:
+        nonlocal remaining_slots, enqueued_count
+        for entry in entries:
+            if remaining_slots <= 0 or (limit is not None and enqueued_count >= limit):
+                decisions[entry.score_set.id] = "skip_cap"
+            else:
+                decisions[entry.score_set.id] = "enqueue"
+                remaining_slots -= 1
+                enqueued_count += 1
+
+    eligible: list[CohortEntry] = []
     for entry in ordered_cohort:
-        score_set = entry.score_set
-
-        if score_set.id in current_score_set_ids:
-            plan.append((score_set, entry.cluster_key, "skip_current"))
-        elif score_set.id in in_flight_score_set_ids:
-            plan.append((score_set, entry.cluster_key, "skip_in_flight"))
-        elif remaining_slots <= 0 or (limit is not None and enqueued_count >= limit):
-            plan.append((score_set, entry.cluster_key, "skip_cap"))
+        score_set_id = entry.score_set.id
+        if score_set_id in current_score_set_ids:
+            decisions[score_set_id] = "skip_current"
+        elif score_set_id in in_flight_score_set_ids:
+            decisions[score_set_id] = "skip_in_flight"
         else:
-            plan.append((score_set, entry.cluster_key, "enqueue"))
-            remaining_slots -= 1
-            enqueued_count += 1
+            eligible.append(entry)
 
-    return plan
+    fill([entry for entry in eligible if entry.score_set.id not in failed_score_set_ids])
+    fill([entry for entry in eligible if entry.score_set.id in failed_score_set_ids])
+
+    return [(entry.score_set, entry.cluster_key, decisions[entry.score_set.id]) for entry in ordered_cohort]
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +405,17 @@ def pipelines_by_score_set(
         result.setdefault(ss_id, []).append(pipeline)
 
     return result
+
+
+def latest_pipeline_by_score_set(db: Session, *, tracked_name: str, score_set_ids: list[int]) -> dict[int, Pipeline]:
+    """The most recently created tracked_name pipeline for each score set that has one.
+
+    Shared by enqueue planning (was this score set's last attempt a failure?) and
+    reporting (what's its current status?), so a large cohort pays for this join once
+    per invocation instead of once per use.
+    """
+    by_score_set = pipelines_by_score_set(db, tracked_name=tracked_name, score_set_ids=score_set_ids)
+    return {ss_id: max(pipelines, key=lambda p: p.created_at) for ss_id, pipelines in by_score_set.items()}
 
 
 def representative_error(db: Session, pipeline_id: int) -> Optional[str]:
@@ -563,6 +598,7 @@ def render_report(
     *,
     tracked_name: str,
     ordered_cohort: Sequence[CohortEntry],
+    latest_by_score_set: dict[int, Pipeline],
     in_flight_rows: list[tuple[Pipeline, Optional[int]]],
     current_since: Optional[datetime.date],
 ) -> tuple[str, list[str]]:
@@ -573,20 +609,16 @@ def render_report(
     lines: list[str] = []
     failed_urns: list[str] = []
 
-    score_set_ids: list[int] = [entry.score_set.id for entry in ordered_cohort]  # type: ignore[misc]
-    latest_by_score_set = pipelines_by_score_set(db, tracked_name=tracked_name, score_set_ids=score_set_ids)
-
     lines.append(f"Cohort report for '{tracked_name}' ({len(ordered_cohort)} score sets):")
     lines.append(f"{'URN':<40} {'CLUSTER':<20} {'STATUS':<12} ERROR")
     for entry in ordered_cohort:
         score_set = entry.score_set
         cluster = entry.cluster_key or "-"
-        pipelines = latest_by_score_set.get(entry.score_set.id, [])  # type: ignore[arg-type]
-        if not pipelines:
+        latest = latest_by_score_set.get(entry.score_set.id)  # type: ignore[arg-type]
+        if latest is None:
             lines.append(f"{score_set.urn:<40} {cluster:<20} {'no run':<12}")
             continue
 
-        latest = max(pipelines, key=lambda p: p.created_at)
         error = ""
         if is_failure(latest.status):
             failed_urns.append(score_set.urn)  # type: ignore[arg-type]
@@ -796,18 +828,26 @@ async def main(
         run_pipeline_name = None
 
     current_since_date = current_since.date() if current_since else None
+    cohort_score_set_ids: list[int] = [entry.score_set.id for entry in ordered_cohort]  # type: ignore[misc]
 
     current_score_set_ids: set[int] = set()
     if current_since_date is not None:
         succeeded = pipelines_by_score_set(
             db,
             tracked_name=effective_name,
-            score_set_ids=[entry.score_set.id for entry in ordered_cohort],  # type: ignore[misc]
+            score_set_ids=cohort_score_set_ids,
             statuses=[PipelineStatus.SUCCEEDED],
         )
         for ss_id, pipelines in succeeded.items():
             if any(is_current(p.status, p.finished_at, current_since_date) for p in pipelines):
                 current_score_set_ids.add(ss_id)
+
+    latest_by_score_set = latest_pipeline_by_score_set(
+        db, tracked_name=effective_name, score_set_ids=cohort_score_set_ids
+    )
+    failed_score_set_ids = frozenset(
+        ss_id for ss_id, pipeline in latest_by_score_set.items() if is_failure(pipeline.status)
+    )
 
     in_flight_rows = in_flight_pipelines(db, tracked_name=effective_name)
     in_flight_score_set_ids = {ss_id for _p, ss_id in in_flight_rows if ss_id is not None}
@@ -817,6 +857,7 @@ async def main(
         ordered_cohort,
         in_flight_score_set_ids=in_flight_score_set_ids,
         current_score_set_ids=current_score_set_ids,
+        failed_score_set_ids=failed_score_set_ids,
         slots=slots,
         limit=limit,
     )
@@ -862,6 +903,7 @@ async def main(
         db,
         tracked_name=effective_name,
         ordered_cohort=ordered_cohort,
+        latest_by_score_set=latest_by_score_set,
         in_flight_rows=in_flight_rows,
         current_since=current_since_date,
     )
