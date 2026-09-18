@@ -1222,6 +1222,73 @@ def test_add_score_set_variants_scores_only_endpoint(client, setup_router_db, da
     assert score_set == response_data
 
 
+def test_add_score_set_variants_is_refused_on_a_published_score_set(
+    session, data_provider, client, setup_router_db, data_files, mock_s3_client
+):
+    """Publishing freezes a score set's scores; the upload endpoint must refuse them afterwards.
+
+    The UI only offers score editing while a score set is private, but that is not a guarantee: the
+    endpoint is reachable directly, and a re-upload would replace variants other records already
+    point at.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    scores_csv_path = data_files / "scores.csv"
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{published['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+        # The refusal must land before any work is queued or uploaded.
+        queue.assert_not_called()
+
+    assert response.status_code == 403
+
+
+def test_patch_published_score_set_with_scores_file_is_refused_without_applying_the_update(
+    session, data_provider, client, setup_router_db, data_files, mock_s3_client
+):
+    """A refused score upload must not leave the request's metadata half committed.
+
+    The combined endpoint commits metadata before it reaches the enqueue step, so the SET_SCORES
+    check has to run before the update is applied rather than only before the job is queued.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    scores_csv_path = data_files / "scores.csv"
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.patch(
+            f"/api/v1/score-sets-with-variants/{published['urn']}",
+            data={"title": "Retitled after publication"},
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+        queue.assert_not_called()
+
+    assert response.status_code == 403
+
+    # The title edit rode along with the refused upload, so it must not have been applied either.
+    refreshed = client.get(f"/api/v1/score-sets/{published['urn']}").json()
+    assert refreshed["title"] == published["title"]
+
+
 def test_add_score_set_variants_scores_and_counts_endpoint(
     session, client, setup_router_db, data_files, mock_s3_client
 ):

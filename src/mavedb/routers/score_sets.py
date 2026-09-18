@@ -2318,6 +2318,27 @@ async def update_score_set_with_variants(
         logger.info(msg="Failed to update score set; The requested score set does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
+    existing_score_columns_metadata = (existing_item.dataset_columns or {}).get("score_columns_metadata", {})
+    existing_count_columns_metadata = (existing_item.dataset_columns or {}).get("count_columns_metadata", {})
+
+    did_score_columns_metadata_change = (
+        dataset_column_metadata.get("score_columns_metadata", {}) != existing_score_columns_metadata
+    )
+    did_count_columns_metadata_change = (
+        dataset_column_metadata.get("count_columns_metadata", {}) != existing_count_columns_metadata
+    )
+    request_sets_scores = (
+        did_score_columns_metadata_change
+        or did_count_columns_metadata_change
+        or any([val is not None for val in score_set_variants_data.values()])
+    )
+
+    # Checked before the update is applied, not just before the job is enqueued: score_set_update
+    # commits the metadata half of this request, so refusing afterwards would leave a caller who may
+    # not set scores with a half-applied update and no way to tell which half landed.
+    if request_sets_scores:
+        assert_permission(user_data, existing_item, Action.SET_SCORES)
+
     itemUpdateResult = await score_set_update(
         db=db,
         urn=urn,
@@ -2329,24 +2350,9 @@ async def update_score_set_with_variants(
     updatedItem = itemUpdateResult["item"]
     should_create_variants = itemUpdateResult.get("should_create_variants", False)
 
-    existing_score_columns_metadata = (existing_item.dataset_columns or {}).get("score_columns_metadata", {})
-    existing_count_columns_metadata = (existing_item.dataset_columns or {}).get("count_columns_metadata", {})
-
-    did_score_columns_metadata_change = (
-        dataset_column_metadata.get("score_columns_metadata", {}) != existing_score_columns_metadata
-    )
-    did_count_columns_metadata_change = (
-        dataset_column_metadata.get("count_columns_metadata", {}) != existing_count_columns_metadata
-    )
-
     # run variant creation job only if targets have changed (indicated by "should_create_variants"), new score
     # or count files were uploaded, or dataset column metadata has changed
-    if (
-        should_create_variants
-        or did_score_columns_metadata_change
-        or did_count_columns_metadata_change
-        or any([val is not None for val in score_set_variants_data.values()])
-    ):
+    if should_create_variants or request_sets_scores:
         assert_permission(user_data, updatedItem, Action.SET_SCORES)
 
         updatedItem.processing_state = ProcessingState.processing
@@ -2431,6 +2437,11 @@ async def update_score_set(
     should_create_variants = itemUpdateResult["should_create_variants"]
 
     if should_create_variants:
+        # Structurally unreachable for a published score set, since score_set_update only sets this
+        # flag while the score set is private. Asserted anyway so every path that recreates variants
+        # states the same requirement, and a future change to that flag cannot open a hole here.
+        assert_permission(user_data, updatedItem, Action.SET_SCORES)
+
         # Although this is also updated within the variant creation job, update it here
         # as well so that we can display the proper UI components (queue invocation delay
         # races the score set GET request).
