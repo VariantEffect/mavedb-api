@@ -161,6 +161,22 @@ class TestFindOrCreateMondoTerm:
         assert again.id == term.id
         assert session.query(MondoTerm).filter(MondoTerm.code == "MONDO:0015263").count() == 1
 
+    async def test_non_canonical_code_reuses_existing_canonical_row(self, session, monkeypatch):
+        # OLS normalizes both spellings to the same canonical code; the lookup must key on the resolved
+        # code so a second submission reuses the row instead of tripping UNIQUE(system, code).
+        async def fake_fetch(code):
+            return {"code": "MONDO:0015263", "label": "Brugada syndrome", "iri": mondo_iri("MONDO:0015263")}
+
+        monkeypatch.setattr("mavedb.lib.mondo.fetch_mondo_term", fake_fetch)
+
+        canonical = await find_or_create_mondo_term(session, "MONDO:0015263")
+        # A differently-spelled submission (here lowercase) resolves to the same canonical term.
+        aliased = await find_or_create_mondo_term(session, "mondo:0015263")
+
+        assert aliased.id == canonical.id
+        assert aliased.code == "MONDO:0015263"
+        assert session.query(MondoTerm).filter(MondoTerm.code == "MONDO:0015263").count() == 1
+
     async def test_generic_code_resolves_without_ols(self, session, monkeypatch):
         async def fail_fetch(code):
             raise AssertionError("OLS should not be consulted for the generic term")

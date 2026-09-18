@@ -183,7 +183,16 @@ async def find_or_create_mondo_term(db: Session, code: str) -> MondoTerm:
     if resolved is None:
         raise ValidationError(f"'{code}' is not a valid MONDO disease term.", custom_loc=["body", "disease"])
 
-    term = MondoTerm(code=resolved["code"], system=MONDO_SYSTEM, label=resolved["label"])  # type: ignore[call-arg]
+    # OLS may normalize the submitted code (case, or an alias/obsolete id) to a different canonical code,
+    # so re-check existence by the resolved code before inserting: keying the lookup on the same value we
+    # insert under keeps this idempotent and avoids a UNIQUE(system, code) violation when the canonical
+    # row already exists under a different submitted spelling.
+    canonical_code = resolved["code"]
+    term = db.query(MondoTerm).filter(MondoTerm.system == MONDO_SYSTEM, MondoTerm.code == canonical_code).one_or_none()
+    if term is not None:
+        return term
+
+    term = MondoTerm(code=canonical_code, system=MONDO_SYSTEM, label=resolved["label"])  # type: ignore[call-arg]
     db.add(term)
     db.flush()
 
