@@ -183,37 +183,47 @@ def get_sequence(
         )
 
     seq_id = seq_ids[0]
-    seqinfo = sr.sequences.fetch_seqinfo(seq_id)
+    seq_len = sr.sequences.fetch_seqinfo(seq_id)["len"]
 
-    if start is not None and end is not None:
-        if start >= seqinfo["len"]:
+    # Resolve to concrete half-open bounds up front so validation, Content-Length, and the streamed
+    # body all agree, even when only one of start/end is supplied.
+    seq_start = start if start is not None else 0
+    seq_end = end if end is not None else seq_len
+
+    if start is not None or end is not None:
+        if seq_start >= seq_len:
             raise HTTPException(
                 status_code=416,
                 detail="Invalid coordinates: start > sequence length",
-                headers={"Content-Range": f"bytes */{seqinfo['len']}"},
+                headers={"Content-Range": f"bytes */{seq_len}"},
             )
-        if end > seqinfo["len"]:
+        if seq_end > seq_len:
             raise HTTPException(
                 status_code=416,
                 detail="Invalid coordinates: end > sequence length",
-                headers={"Content-Range": f"bytes */{seqinfo['len']}"},
+                headers={"Content-Range": f"bytes */{seq_len}"},
             )
-        if not (0 <= start <= end <= seqinfo["len"]):
+        if not (0 <= seq_start <= seq_end <= seq_len):
             raise HTTPException(
                 status_code=416,
                 detail="Invalid coordinates: must obey 0 <= start <= end <= sequence_length",
-                headers={"Content-Range": f"bytes */{seqinfo['len']}"},
+                headers={"Content-Range": f"bytes */{seq_len}"},
             )
 
-    headers = {"Content-Length": str(seqinfo["len"])}
-    if start is not None and end is not None and range_header:
+    # Content-Length must match bytes actually streamed. Overstating it aborts the response mid-stream
+    # once the ASGI server has already committed the status line.
+    headers = {"Content-Length": str(seq_end - seq_start)}
+    if range_header:
         status = 206
-        headers["Content-Range"] = f"bytes {start}-{end - 1}/{seqinfo['len']}"
+        headers["Content-Range"] = f"bytes {seq_start}-{seq_end - 1}/{seq_len}"
         headers["Accept-Ranges"] = "bytes"
     else:
         status = 200
         headers["Accept-Ranges"] = "none"
 
     return StreamingResponse(
-        sequence_generator(sr, seq_ids[0], start, end), media_type="text/plain", status_code=status, headers=headers
+        sequence_generator(sr, seq_id, seq_start, seq_end),
+        media_type="text/plain",
+        status_code=status,
+        headers=headers,
     )
