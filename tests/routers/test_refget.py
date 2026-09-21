@@ -128,23 +128,21 @@ def test_get_sequence_range_header_and_query_params_conflict(client):
 
 def test_get_sequence_invalid_query_range_only_start_negative(client):
     resp = client.get(f"/api/v1/refget/sequence/{VALID_ENSEMBL_IDENTIFIER}", params={"start": -1})
-    assert resp.status_code == 416
+    assert resp.status_code == 400
     assert "Invalid coordinates" in resp.text
-    assert "Content-Range" in resp.headers
 
 
 def test_get_sequence_invalid_query_range_only_start_too_large(client):
     resp = client.get(f"/api/v1/refget/sequence/{VALID_ENSEMBL_IDENTIFIER}", params={"start": 7})
-    assert resp.status_code == 416
+    assert resp.status_code == 400
     assert "Invalid coordinates" in resp.text
-    assert "Content-Range" in resp.headers
 
 
-def test_get_sequence_invalid_query_range_only_end_too_large(client):
+def test_get_sequence_only_end_too_large_clamps(client):
+    # Unlike start, an over-long lone end is clamped rather than rejected.
     resp = client.get(f"/api/v1/refget/sequence/{VALID_ENSEMBL_IDENTIFIER}", params={"end": 10})
-    assert resp.status_code == 416
-    assert "Invalid coordinates" in resp.text
-    assert "Content-Range" in resp.headers
+    assert resp.status_code == 200
+    assert resp.text == "GGGG"
 
 
 @pytest.mark.parametrize(
@@ -238,3 +236,16 @@ def test_get_sequence_range_header_invalid(client):
     resp = client.get(f"/api/v1/refget/sequence/{VALID_ENSEMBL_IDENTIFIER}", headers=headers)
     assert resp.status_code == 400
     assert "Invalid range header format" in resp.text
+
+
+def test_get_sequence_range_header_invalid_inverted_by_one(client):
+    resp = client.get(f"/api/v1/refget/sequence/{VALID_ENSEMBL_IDENTIFIER}", headers={"Range": "bytes=5-4"})
+    assert resp.status_code == 400
+    assert "Invalid range header format" in resp.text
+
+
+def test_get_sequence_range_header_single_byte(client):
+    # Boundary case adjacent to the inverted range above: first-byte-pos == last-byte-pos is valid.
+    resp = client.get(f"/api/v1/refget/sequence/{VALID_ENSEMBL_IDENTIFIER}", headers={"Range": "bytes=1-1"})
+    assert resp.status_code == 206
+    assert resp.text == "G"

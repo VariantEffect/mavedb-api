@@ -79,13 +79,21 @@ def get_sequence(
     seq_start = start if start is not None else 0
     seq_end = end if end is not None else seq_len
 
-    if start is not None or end is not None:
-        if not 0 <= seq_start < seq_len:
+    # Mirrors refget.py's two-sided rule: start == seq_len (an empty tail slice) is legal.
+    if start is not None and end is not None:
+        if not 0 <= seq_start <= seq_end <= seq_len:
+            logger.error(msg="Invalid coordinates: range lies outside the sequence.", extra=logging_context())
+            raise HTTPException(
+                status_code=422, detail=f"Invalid coordinates: must obey 0 <= start <= end <= {seq_len}"
+            )
+    # Mirrors refget.py: a start beyond the sequence length is rejected.
+    elif start is not None:
+        if not 0 <= seq_start <= seq_len:
             logger.error(msg="Invalid coordinates: start lies outside the sequence.", extra=logging_context())
-            raise HTTPException(status_code=422, detail=f"Invalid coordinates: must obey 0 <= start < {seq_len}")
-        if not seq_start <= seq_end <= seq_len:
-            logger.error(msg="Invalid coordinates: end lies outside the sequence.", extra=logging_context())
-            raise HTTPException(status_code=422, detail=f"Invalid coordinates: must obey start <= end <= {seq_len}")
+            raise HTTPException(status_code=422, detail=f"Invalid coordinates: must obey 0 <= start <= {seq_len}")
+    # Mirrors refget.py: an over-long end is clamped rather than rejected.
+    elif end is not None:
+        seq_end = max(0, min(seq_end, seq_len))
 
     return StreamingResponse(sequence_generator(sr, seq_id, seq_start, seq_end), media_type="text/plain")
 

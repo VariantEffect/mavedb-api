@@ -158,7 +158,12 @@ def get_sequence(
             logger.error(msg="Invalid range header format", extra=logging_context())
             raise HTTPException(status_code=400, detail="Invalid range header format")
 
+        # Rejects "bytes=5-4"-style headers (RFC 9110 S14.1.1): after conversion to a half-open
+        # bound, start == end here would otherwise silently pass as a valid empty range.
         start, end = int(m.group(1)), int(m.group(2)) + 1
+        if start >= end:
+            logger.error(msg="Invalid range header format", extra=logging_context())
+            raise HTTPException(status_code=400, detail="Invalid range header format")
 
     save_to_logging_context({"requested_refget_start": start, "requested_refget_end": end})
     if start is not None and end is not None:
@@ -190,8 +195,9 @@ def get_sequence(
     seq_start = start if start is not None else 0
     seq_end = end if end is not None else seq_len
 
-    if start is not None or end is not None:
-        if seq_start >= seq_len:
+    # Refget spec: only a start "larger than" the sequence length is invalid (strict inequality).
+    if start is not None and end is not None:
+        if seq_start > seq_len:
             raise HTTPException(
                 status_code=416,
                 detail="Invalid coordinates: start > sequence length",
@@ -209,6 +215,17 @@ def get_sequence(
                 detail="Invalid coordinates: must obey 0 <= start <= end <= sequence_length",
                 headers={"Content-Range": f"bytes */{seq_len}"},
             )
+    # The refget spec only requires rejecting a start beyond the sequence length; there's no
+    # equivalent rule for a lone end (see below).
+    elif start is not None:
+        if not 0 <= seq_start <= seq_len:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid coordinates: start must satisfy 0 <= start <= {seq_len}",
+            )
+    # Clamp the end coordinate to the valid range [0, seq_len].
+    elif end is not None:
+        seq_end = max(0, min(seq_end, seq_len))
 
     # Content-Length must match bytes actually streamed. Overstating it aborts the response mid-stream
     # once the ASGI server has already committed the status line.

@@ -81,7 +81,6 @@ def test_get_sequence_invalid_coords(client):
         "start=10&end=12",
         "start=1&end=12",
         "start=10",
-        "end=12",
         "start=-1&end=2",
     ],
 )
@@ -89,6 +88,13 @@ def test_get_sequence_coords_outside_sequence(client, query):
     resp = client.get(f"/api/v1/seqrepo/sequence/{VALID_ENSEMBL_IDENTIFIER}?{query}")
     assert resp.status_code == 422
     assert "Invalid coordinates" in resp.text
+
+
+def test_get_sequence_only_end_too_large_clamps(client):
+    # Mirrors refget.py: an over-long lone end is clamped rather than rejected.
+    resp = client.get(f"/api/v1/seqrepo/sequence/{VALID_ENSEMBL_IDENTIFIER}?end=12")
+    assert resp.status_code == 200
+    assert resp.text == "GGGG"
 
 
 @pytest.mark.parametrize("entry", TEST_SEQREPO_INITIAL_STATE)
