@@ -10,14 +10,25 @@ from unittest.mock import Mock
 
 import pytest
 
-from mavedb.lib.annotation.context import VariantAnnotationContext
-from mavedb.lib.vrs import vrs_object_from_mapped_variant
 from tests.helpers.constants import PRIVATE_CALIBRATION_OWNER_ID
 from tests.helpers.mocks.factories import (
     create_mock_mapped_variant,
     create_mock_mapped_variant_with_functional_calibration_score_set,
     create_mock_mapped_variant_with_pathogenicity_calibration_score_set,
 )
+
+# VariantAnnotationContext (via mavedb.lib.cat_vrs) needs logging.context, which pulls in fastapi, an
+# optional "server" extra. Every test module in this directory that uses the fixtures built from it
+# already requires psycopg2 (also a "server" extra) for its DB session fixture, so this costs nothing
+# under "core dependencies" CI beyond what those tests already needed — but without the fallback, a
+# missing fastapi crashes collection for the whole directory, including files like test_flatten.py that
+# need neither.
+try:
+    from mavedb.lib.annotation.context import VariantAnnotationContext
+    from mavedb.lib.vrs import vrs_object_from_mapped_variant
+except ImportError:
+    VariantAnnotationContext = None
+    vrs_object_from_mapped_variant = None
 
 # Permission related helpers coupled to logging context.
 try:

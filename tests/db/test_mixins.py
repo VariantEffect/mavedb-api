@@ -10,9 +10,13 @@ otherwise distinguish a deliberate shared timestamp from the coincidental same-t
 the gap bug relied on, so the explicit ``at`` is what actually proves the timestamp is threaded.
 """
 
+# ruff: noqa: E402
 from datetime import datetime, timedelta, timezone
 
 import pytest
+
+pytest.importorskip("psycopg2")
+
 from sqlalchemy import Column, ForeignKey, Index, Integer, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased, declarative_base, relationship

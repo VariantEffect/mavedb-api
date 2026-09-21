@@ -3,6 +3,10 @@
 
 import pytest
 
+# mavedb.lib.deprecation imports logging.context for record_deprecated_usage, which pulls in
+# fastapi (an optional "server" extra) even though the functions tested here don't need it.
+pytest.importorskip("fastapi")
+
 from mavedb.lib import deprecation
 from mavedb.lib.deprecation import deprecation_headers
 

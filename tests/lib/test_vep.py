@@ -7,10 +7,17 @@ only what the api owns: that ``resolve_consequences`` delegates to the library o
 and re-keys the result by input HGVS, the release lookup, and the DB linker (run against the DB).
 """
 
+# ruff: noqa: E402
+
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+pytest.importorskip("variant_annotation")
+pytest.importorskip("psycopg2")
+pytest.importorskip("fastapi")
+
 from sqlalchemy import select
 
 from variant_annotation.lib.vep import (

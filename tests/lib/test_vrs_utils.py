@@ -7,6 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 pytest.importorskip("ga4gh.vrs")
+# mavedb.lib.vrs_utils imports ga4gh.vrs.extras.translator.AlleleTranslator, which needs hgvs (an
+# optional "server" extra) even though ga4gh.vrs itself does not.
+pytest.importorskip("hgvs")
 
 from ga4gh.core.models import iriReference
 from ga4gh.vrs.models import (
