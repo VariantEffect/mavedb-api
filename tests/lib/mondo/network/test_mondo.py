@@ -9,10 +9,11 @@ default suite.
 
 import pytest
 
-# starlette is required for logging context functionality pulled in by mavedb.lib.mondo.
+# starlette is required for logging context functionality pulled in by mavedb.lib.mondo_ols.
 pytest.importorskip("starlette")
 
-from mavedb.lib.mondo import MONDO_GENERIC_CODE, fetch_mondo_term, search_mondo
+from mavedb.lib.mondo import MONDO_GENERIC_CODE
+from mavedb.lib.mondo_ols import fetch_mondo_term, search_mondo
 
 # Brugada syndrome: a stable, long-established MONDO disease term used as a known-good fixture.
 BRUGADA_CODE = "MONDO:0015263"

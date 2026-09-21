@@ -195,7 +195,7 @@ def test_create_score_calibration_with_disease_resolves_mondo_concept(
             "iri": f"https://purl.obolibrary.org/obo/{code.replace(':', '_')}",
         }
 
-    monkeypatch.setattr("mavedb.lib.mondo.fetch_mondo_term", fake_fetch)
+    monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)
 
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(

@@ -5,7 +5,8 @@ from ga4gh.core.models import MappableConcept
 
 from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.logging.logged_route import LoggedRoute
-from mavedb.lib.mondo import DEFAULT_SEARCH_LIMIT, mondo_suggestion_to_mappable_concept, search_mondo
+from mavedb.lib.mondo import mondo_suggestion_to_mappable_concept
+from mavedb.lib.mondo_ols import DEFAULT_SEARCH_LIMIT, search_mondo
 from mavedb.routers.shared import GATEWAY_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 
 TAG_NAME = "Diseases"

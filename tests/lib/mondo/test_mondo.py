@@ -1,4 +1,5 @@
-"""Tests for mavedb.lib.mondo: MONDO term resolution, search, and MappableConcept serialization."""
+"""Tests for mavedb.lib.mondo and mavedb.lib.mondo_ols: MONDO term resolution, search, and
+MappableConcept serialization."""
 
 # ruff: noqa: E402
 
@@ -13,15 +14,13 @@ from mavedb.lib.mondo import (
     MONDO_GENERIC_CODE,
     MONDO_GENERIC_LABEL,
     MONDO_SYSTEM,
-    fetch_mondo_term,
-    find_or_create_mondo_term,
     generic_disease_mappable_concept,
     get_generic_disease_term,
     mondo_iri,
     mondo_suggestion_to_mappable_concept,
     mondo_term_to_mappable_concept,
-    search_mondo,
 )
+from mavedb.lib.mondo_ols import fetch_mondo_term, find_or_create_mondo_term, search_mondo
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.mondo_term import MondoTerm
 
@@ -149,7 +148,7 @@ class TestFindOrCreateMondoTerm:
         async def fake_fetch(code):
             return {"code": code, "label": "Brugada syndrome", "iri": mondo_iri(code)}
 
-        monkeypatch.setattr("mavedb.lib.mondo.fetch_mondo_term", fake_fetch)
+        monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)
 
         term = await find_or_create_mondo_term(session, "MONDO:0015263")
         assert term.code == "MONDO:0015263"
@@ -167,7 +166,7 @@ class TestFindOrCreateMondoTerm:
         async def fake_fetch(code):
             return {"code": "MONDO:0015263", "label": "Brugada syndrome", "iri": mondo_iri("MONDO:0015263")}
 
-        monkeypatch.setattr("mavedb.lib.mondo.fetch_mondo_term", fake_fetch)
+        monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)
 
         canonical = await find_or_create_mondo_term(session, "MONDO:0015263")
         # A differently-spelled submission (here lowercase) resolves to the same canonical term.
@@ -181,7 +180,7 @@ class TestFindOrCreateMondoTerm:
         async def fail_fetch(code):
             raise AssertionError("OLS should not be consulted for the generic term")
 
-        monkeypatch.setattr("mavedb.lib.mondo.fetch_mondo_term", fail_fetch)
+        monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fail_fetch)
         term = await find_or_create_mondo_term(session, MONDO_GENERIC_CODE)
         assert term.code == MONDO_GENERIC_CODE
         assert term.label == MONDO_GENERIC_LABEL
@@ -190,7 +189,7 @@ class TestFindOrCreateMondoTerm:
         async def fake_fetch(code):
             return None
 
-        monkeypatch.setattr("mavedb.lib.mondo.fetch_mondo_term", fake_fetch)
+        monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)
         with pytest.raises(ValidationError):
             await find_or_create_mondo_term(session, "MONDO:9999999")
 
@@ -199,7 +198,7 @@ class TestFindOrCreateMondoTerm:
         async def fake_fetch(code):
             raise MondoServiceError("ols down")
 
-        monkeypatch.setattr("mavedb.lib.mondo.fetch_mondo_term", fake_fetch)
+        monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)
         with pytest.raises(MondoServiceError):
             await find_or_create_mondo_term(session, "MONDO:0015263")
 

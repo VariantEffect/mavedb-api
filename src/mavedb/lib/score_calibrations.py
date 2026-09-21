@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from mavedb.lib.acmg import find_or_create_acmg_classification
 from mavedb.lib.identifiers import find_or_create_publication_identifier
-from mavedb.lib.mondo import resolve_disease_term
+from mavedb.lib.mondo_ols import resolve_disease_term
 from mavedb.lib.types.score_calibrations import (
     CalibrationControlSnapshot,
     CalibrationVariantLinkSnapshot,
