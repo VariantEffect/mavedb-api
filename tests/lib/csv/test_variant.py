@@ -18,6 +18,7 @@ from mavedb.lib.csv.variant import (
     available_variant_csv_namespaces,
     get_variant_csv,
 )
+from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.models.acmg_classification import ACMGClassification
@@ -63,6 +64,7 @@ def _add_pathogenicity_calibration(db, score_set, variants_in_abnormal_range, ur
         primary=True,
         private=False,
         calibration_metadata={},
+        disease_term=get_generic_disease_term(db),
         created_by_id=score_set.created_by_id,
         modified_by_id=score_set.modified_by_id,
     )
@@ -120,6 +122,7 @@ def _add_rangeless_calibration(db, score_set, urn, title):
         primary=True,
         private=False,
         calibration_metadata={},
+        disease_term=get_generic_disease_term(db),
         created_by_id=score_set.created_by_id,
         modified_by_id=score_set.modified_by_id,
     )

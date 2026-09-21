@@ -23,6 +23,7 @@ from mavedb.lib.annotation.contribution import (
     mavedb_score_calibration_contribution,
     mavedb_vrs_contribution,
 )
+from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.user import User
 from tests.helpers.mocks.factories import (
@@ -326,6 +327,7 @@ class TestContributionIntegration:
             primary=True,
             investigator_provided=True,
             private=False,
+            disease_term=get_generic_disease_term(session),
             created_by_id=creator.id,
             modified_by_id=creator.id,
         )
