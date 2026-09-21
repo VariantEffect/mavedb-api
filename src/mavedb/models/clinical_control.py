@@ -2,7 +2,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Column, Date, Integer, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mavedb.db.base import Base
 from mavedb.models.clinical_control_mapped_variant import mapped_variants_clinical_controls_association_table
@@ -33,7 +33,7 @@ class ClinvarControl(Base):
     db_version: Mapped[str] = Column(String, nullable=False, index=True)
 
     # ClinVar Variation ID (variation level link).
-    clinvar_variation_id: Mapped[Optional[str]] = Column(String, nullable=True)
+    clinvar_variation_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)

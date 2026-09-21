@@ -2,7 +2,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Column, Date, Float, Integer, String
-from sqlalchemy.orm import Mapped, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mavedb.db.base import Base
 from mavedb.models.gnomad_variant_mapped_variant import gnomad_variants_mapped_variants_association_table
@@ -23,10 +23,10 @@ class GnomADVariant(Base):
 
     allele_count: Mapped[int] = Column(Integer, nullable=False)
     allele_number: Mapped[int] = Column(Integer, nullable=False)
-    allele_frequency: Mapped[float] = Column(Float, nullable=False)
+    allele_frequency: Mapped[float] = mapped_column(Float, nullable=False)
 
-    faf95_max: Mapped[Optional[float]] = Column(Float, nullable=True)
-    faf95_max_ancestry: Mapped[Optional[str]] = Column(String, nullable=True)
+    faf95_max: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    faf95_max_ancestry: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)

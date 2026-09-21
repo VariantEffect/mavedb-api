@@ -41,7 +41,8 @@ from collections import Counter
 from typing import Any, Optional
 
 from ga4gh.core import ga4gh_identify
-from ga4gh.vrs.models import SequenceLocation
+from ga4gh.vrs.models import Allele as VrsAllele
+from ga4gh.vrs.models import CisPhasedBlock, SequenceLocation
 
 import asyncclick as click
 from sqlalchemy import select
@@ -65,7 +66,13 @@ def recomputed_identifier(post_mapped: dict[str, Any]) -> Optional[str]:
     the shim's tolerance costs nothing here.
     """
     try:
-        return identify_variation(vrs_object_from_mapped_variant(dict(post_mapped)).root)
+        variation = vrs_object_from_mapped_variant(dict(post_mapped)).root
+        # vrs_object_from_mapped_variant only ever produces one of these two (its own contract), but its
+        # declared return type is the full VRS MolecularVariation union, wider than identify_variation
+        # accepts.
+        if not isinstance(variation, (VrsAllele, CisPhasedBlock)):
+            return None
+        return identify_variation(variation)
     except Exception:
         logger.debug("Could not hydrate an allele for identification", exc_info=True)
         return None
@@ -88,6 +95,8 @@ def audit(db: Session, limit: Optional[int], repair: bool) -> None:
 
     for allele in db.scalars(query):
         counts["examined"] += 1
+        # post_mapped is nullable on the model, but the query above only selects rows where it isn't.
+        assert allele.post_mapped is not None
         computed = recomputed_identifier(allele.post_mapped)
 
         if computed is None:
@@ -158,6 +167,8 @@ def audit_pre_mapped(db: Session, limit: Optional[int]) -> None:
 
     for record in db.scalars(query):
         counts["examined"] += 1
+        # pre_mapped is nullable on the model, but the query above only selects rows where it isn't.
+        assert record.pre_mapped is not None
         computed = recomputed_identifier(record.pre_mapped)
 
         if computed is None:

@@ -271,6 +271,10 @@ def link_gnomad_variants_to_alleles(
                 func.regexp_replace(Allele.clingen_allele_id, _CAID_LEADING_ZERO_RE, r"\1\2").in_(target_caids)
             )
         ).all():
+            # clingen_allele_id is nullable on the model, but the WHERE above only matches rows where
+            # regexp_replace(clingen_allele_id, ...) is non-null (SQL NULL fails .in_()), so every row
+            # returned here has one.
+            assert allele.clingen_allele_id is not None
             alleles_by_caid[normalize_caid(allele.clingen_allele_id)].append(allele)
 
     verdicts: dict[int, GnomadLinkVerdict] = {}
