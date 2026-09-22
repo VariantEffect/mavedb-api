@@ -28,6 +28,10 @@ class Variant(Base):
     hgvs_pro = Column(String, nullable=True)
     hgvs_splice = Column(String, nullable=True)
 
+    pre_mapped_vrs = Column(JSONB, nullable=True)
+    pre_mapped_vrs_digest = Column(String, index=True, nullable=True)
+    pre_mapped_vrs_version = Column(String, nullable=True)
+
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
