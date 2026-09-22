@@ -61,6 +61,7 @@ def has_permission(user_data: Optional[UserData], entity: ScoreCalibration, acti
         Action.DELETE: _handle_delete_action,
         Action.PUBLISH: _handle_publish_action,
         Action.CHANGE_RANK: _handle_change_rank_action,
+        Action.SUPERSEDE_CALIBRATION: _handle_supersede_action
     }
 
     if action not in handlers:
@@ -293,3 +294,50 @@ def _handle_change_rank_action(
 
     user_may_view_private = user_is_owner or (entity.investigator_provided and user_is_contributor_to_score_set)
     return deny_action_for_entity(entity, private, user_data, user_may_view_private, "score calibration")
+
+
+def _handle_supersede_action(
+    user_data: Optional[UserData],
+    entity: ScoreCalibration,
+    user_is_owner: bool,
+    user_is_contributor_to_score_set: bool,
+    private: bool,
+    active_roles: list[UserRole],
+) -> PermissionResponse:
+    """
+    Handle SUPERSEDE action permission check for ScoreCalibration entities.
+
+    Only public score calibrations are allowed to be superseded.
+    Only superseding the calibration from the same score set.
+    Admin, owner, or investigator-provided plus a contributor to the score set can be the users who have permissions to
+    supersede a calibration.
+
+    Args:
+        user_data: The user's authentication data.
+        entity: The ScoreCalibration entity being accessed.
+        user_is_owner: Whether the user created the ScoreCalibration.
+        user_is_contributor_to_score_set: Whether the user is a contributor to the associated ScoreSet.
+        private: Whether the ScoreCalibration is private.
+        active_roles: List of the user's active roles.
+
+    Returns:
+        PermissionResponse: Permission result with appropriate HTTP status.
+    """
+    ## Allow read access under the following conditions:
+    # Only public score calibrations are allowed to be superseded.
+    if private:
+        return PermissionResponse(False)
+    # Owners of the ScoreCalibration may supersede it.
+    if user_is_owner:
+        return PermissionResponse(True)
+    # System admins may supersede any ScoreCalibration.
+    if roles_permitted(active_roles, [UserRole.admin]):
+        return PermissionResponse(True)
+    # If the calibration is investigator provided, contributors to the ScoreCalibration may supersede it.
+    if entity.investigator_provided and user_is_contributor_to_score_set:
+        return PermissionResponse(True)
+    # Only non superseded calibration can be superseded.
+    if entity.superseding_calibration:
+        return PermissionResponse(False)
+
+    return deny_action_for_entity(entity, private, user_data, False, "score calibration")
