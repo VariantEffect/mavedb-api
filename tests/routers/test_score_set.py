@@ -1142,9 +1142,15 @@ def test_extra_user_can_only_view_published_score_calibrations_in_score_set(
     ],
     indirect=["mock_publication_fetch"],
 )
-def test_creating_user_can_view_all_score_calibrations_in_score_set(client, setup_router_db, mock_publication_fetch):
+def test_creating_user_can_view_all_score_calibrations_in_score_set(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+
     private_calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -4416,6 +4422,8 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -4505,6 +4513,8 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_vari
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -4547,6 +4557,8 @@ def test_get_annotated_functional_impact_statement_for_score_set(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -4638,6 +4650,8 @@ def test_get_annotated_functional_impact_statement_for_score_set_when_some_varia
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )

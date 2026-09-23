@@ -1914,10 +1914,10 @@ def test_experiment_score_sets_serve_published_calibrations_to_anonymous_users(
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
-    publish_test_score_calibration_via_client(client, calibration["urn"])
-
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
         published = publish_score_set(client, score_set["urn"])
+
+    publish_test_score_calibration_via_client(client, calibration["urn"])
 
     experiment_urn = published["experiment"]["urn"]
 
