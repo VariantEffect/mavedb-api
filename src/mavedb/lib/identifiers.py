@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from typing import Mapping, Optional, Union
@@ -327,7 +328,7 @@ async def find_generic_article(
             if not existing_publication:
                 try:
                     external_publication = await db_specific_fetches[publication_db](identifier)
-                except Exception:
+                except json.JSONDecodeError:
                     logger.warning(
                         "Failed to fetch identifier %r from %s while fanning out over candidate databases.",
                         identifier,
