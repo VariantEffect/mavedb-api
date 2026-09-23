@@ -565,12 +565,4 @@ class Rxiv:
 
         response.raise_for_status()
 
-        if return_format == "json":
-            if not response.text or not response.text.strip():
-                return []
-            try:
-                return json.loads(response.text)
-            except json.JSONDecodeError:
-                return []
-
-        return response.text
+        return json.loads(response.text) if return_format == "json" else response.text
