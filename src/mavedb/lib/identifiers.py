@@ -1,3 +1,5 @@
+import json
+import logging
 import os
 from typing import Mapping, Optional, Union
 
@@ -22,6 +24,8 @@ from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
+
+logger = logging.getLogger(__name__)
 
 # XXX these classes all have an "identifier" attribute but there's no superclass
 # to unify them ...
@@ -322,7 +326,17 @@ async def find_generic_article(
             ).scalar_one_or_none()
 
             if not existing_publication:
-                external_publication = await db_specific_fetches[publication_db](identifier)
+                try:
+                    external_publication = await db_specific_fetches[publication_db](identifier)
+                except json.JSONDecodeError:
+                    logger.warning(
+                        "Failed to fetch identifier %r from %s while fanning out over candidate databases.",
+                        identifier,
+                        publication_db,
+                        exc_info=True,
+                    )
+                    external_publication = None
+
                 found_articles[publication_db] = (
                     ExternalPublication(identifier, publication_db, external_publication)
                     if external_publication
