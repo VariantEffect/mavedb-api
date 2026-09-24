@@ -17,7 +17,7 @@ import os
 from collections.abc import Generator
 from typing import Any
 
-from variant_annotation.lib.clients.uta import UtaClient, connect_uta
+from variant_annotation.lib.clients.uta import UtaClient
 
 
 @contextlib.contextmanager
@@ -25,14 +25,15 @@ def uta_transcript_source() -> Generator[UtaClient]:
     """Yield a UTA-backed TranscriptSource over a connection scoped to the block.
 
     Backs both the NP_→NM_ association lookup and the WT-codon read used by
-    WtCodonMode.ALL (TranscriptSource.codon_at). The connection is closed on exit,
-    so callers must use the client within the ``with`` block.
+    WtCodonMode.ALL (TranscriptSource.codon_at). The client reconnects when UTA drops
+    the connection and closes it on exit, so callers must use the client within the
+    ``with`` block.
     """
     uta_db_url = (os.environ.get("UTA_DB_URL") or "").strip()
     if not uta_db_url:
         raise RuntimeError("UTA_DB_URL must be set to resolve transcript facts (NP_→NM_ associations and WT codons).")
-    with contextlib.closing(connect_uta(uta_db_url)) as conn:
-        yield UtaClient(conn)
+    with UtaClient.from_url(uta_db_url) as client:
+        yield client
 
 
 class WorkerCoordinateTranslator:

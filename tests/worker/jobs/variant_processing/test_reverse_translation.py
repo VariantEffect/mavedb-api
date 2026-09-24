@@ -66,6 +66,7 @@ def fake_construct(
     results_by_hgvs: dict,
     errors_by_hgvs: dict | None = None,
     not_translatable_by_hgvs: dict | None = None,
+    upstream_unavailable_by_hgvs: dict | None = None,
 ):
     """Build a stand-in for ``construct_equivalent_variants``.
 
@@ -85,10 +86,12 @@ def fake_construct(
 
     ``errors_by_hgvs`` maps an assay HGVS to a genuine-failure message (reason ``FAILED``);
     ``not_translatable_by_hgvs`` maps one to a benign non-translatable message (reason
-    ``NOT_TRANSLATABLE``), standing in for an edit type the library screens out up front.
+    ``NOT_TRANSLATABLE``), standing in for an edit type the library screens out up front;
+    ``upstream_unavailable_by_hgvs`` maps one to a UTA outage message (reason ``UPSTREAM_UNAVAILABLE``).
     """
     errors_by_hgvs = errors_by_hgvs or {}
     not_translatable_by_hgvs = not_translatable_by_hgvs or {}
+    upstream_unavailable_by_hgvs = upstream_unavailable_by_hgvs or {}
 
     def _construct(inputs, *, transcripts, coordinates, config):
         results, errors = [], []
@@ -99,6 +102,14 @@ def fake_construct(
                         input=inp,
                         error=not_translatable_by_hgvs[inp.hgvs],
                         reason=TranslationErrorReason.NOT_TRANSLATABLE,
+                    )
+                )
+            elif inp.hgvs in upstream_unavailable_by_hgvs:
+                errors.append(
+                    TranslationError(
+                        input=inp,
+                        error=upstream_unavailable_by_hgvs[inp.hgvs],
+                        reason=TranslationErrorReason.UPSTREAM_UNAVAILABLE,
                     )
                 )
             elif inp.hgvs in errors_by_hgvs:
@@ -1234,6 +1245,46 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         skipped = _cross_level_events(session, sample_score_set.id, reason="not_translatable")
         assert len(skipped) == 1
         assert skipped[0].disposition == "not_applicable"
+
+    async def test_upstream_outage_is_failed_as_api_error_not_translation_error(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+    ):
+        """A UTA outage that outlasts the library's retries is FAILED with reason api_error, so it
+        stays distinguishable from a genuine translation_error when auditing coverage gaps."""
+        variant_ok = Variant(score_set_id=sample_score_set.id, urn="variant:1", hgvs_nt="NM_000000.1:c.1A>G", data={})
+        variant_down = Variant(score_set_id=sample_score_set.id, urn="variant:2", hgvs_nt="NM_000000.1:c.2G>T", data={})
+        session.add_all([variant_ok, variant_down])
+        session.commit()
+        await _map_variants(session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set)
+
+        c_candidate = "NM_000001.1:c.5A>G"
+        outage = "reverse-translate-variants failed: server closed the connection unexpectedly"
+        construct = fake_construct(
+            {"NM_000000.1:c.1A>G": [(c_candidate, None)]},
+            upstream_unavailable_by_hgvs={"NM_000000.1:c.2G>T": outage},
+        )
+
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", construct),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", fake_translate({c_candidate: "ga4gh:VA.coding"})),
+        ):
+            result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data == {"translated": 1, "failed": 1, "skipped": 0, "alleles_created": 1}
+
+        failed = _cross_level_events(session, sample_score_set.id, disposition="failed")
+        assert len(failed) == 1
+        assert failed[0].reason == "api_error"
+        assert failed[0].event_metadata["error_message"] == outage
+        assert _cross_level_events(session, sample_score_set.id, reason="translation_error") == []
 
     async def test_partial_candidate_translation_failure_keeps_success_with_metadata(
         self,

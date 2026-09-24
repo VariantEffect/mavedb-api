@@ -49,7 +49,7 @@ class EventReason(str, Enum):
     )
 
     # failed — errored
-    API_ERROR = "api_error"  # network/timeout/upstream error (ClinVar, VEP, LDH, CAR no-response)
+    API_ERROR = "api_error"  # network/timeout/upstream error (ClinVar, VEP, LDH, CAR no-response, RT UTA outage)
     SERVICE_REJECTED = "service_rejected"  # external service refused the input (CAR)
     MALFORMED_RESPONSE = "malformed_response"  # unparseable/contractless response (CAR)
     CAID_CONFLICT = "caid_conflict"  # returned identifier conflicts with the stored one (CAR)

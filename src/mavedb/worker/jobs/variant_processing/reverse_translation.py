@@ -544,9 +544,10 @@ async def reverse_translate_variants_for_score_set(
     )
 
     # The library types each error's reason: NOT_TRANSLATABLE is a benign structural gap (the
-    # protein consequence's edit type — del/ins/delins/fs/ext/stop-loss — has no DNA equivalence
-    # class to construct), everything else is a genuine failure. Split on that typed reason rather
-    # than pattern-matching the engine's error text.
+    # protein consequence's edit type — ins/delins/dup/fs/ext/stop-loss — has no DNA equivalence
+    # class to construct), UPSTREAM_UNAVAILABLE is a UTA outage that outlasted the library's
+    # retries, and FAILED is a genuine translation error. Split on that typed reason rather than
+    # pattern-matching the engine's error text.
     for error in errors:
         _rec, variant = variant_input_map[id(error.input)]
         if error.reason is TranslationErrorReason.NOT_TRANSLATABLE:
@@ -567,7 +568,12 @@ async def reverse_translate_variants_for_score_set(
             annotation_manager,
             variant_id=variant.id,
             disposition=Disposition.FAILED,
-            reason=EventReason.TRANSLATION_ERROR,
+            # An upstream outage says nothing about the variant, so keep it out of translation_error.
+            reason=(
+                EventReason.API_ERROR
+                if error.reason is TranslationErrorReason.UPSTREAM_UNAVAILABLE
+                else EventReason.TRANSLATION_ERROR
+            ),
             metadata={"hgvs_input": error.input.hgvs, "error_message": error.error},
         )
 
