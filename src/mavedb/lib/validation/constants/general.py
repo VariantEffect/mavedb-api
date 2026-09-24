@@ -44,6 +44,7 @@ variant_score_data = "score_data"
 variant_count_data = "count_data"
 required_score_column = "score"
 
+multi_value_keys = ["molecular mechanism assessed"]
 calibration_variant_column_name = "variant_urn"
 calibration_class_column_name = "class_name"
 
