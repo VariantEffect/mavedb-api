@@ -40,6 +40,7 @@ from mavedb.scripts.export_public_data import (
     score_set_has_current_mappings,
     scores_csv,
     va_ndjson,
+    vrs_ndjson,
     write_public_dump,
 )
 from mavedb.view_models.experiment_set import ExperimentSetPublicDump
@@ -51,6 +52,10 @@ def _parse_csv(csv_text):
 
 def _header(csv_text):
     return next(csv.reader(io.StringIO(csv_text)))
+
+
+def _variants_of(session, score_set):
+    return session.query(Variant).filter(Variant.score_set_id == score_set.id).order_by(Variant.id).all()
 
 
 def _mapped_variants_of(session, score_set):
@@ -214,6 +219,7 @@ class TestScoreSetArtifacts:
         assert set(artifacts) == {
             f"csv/{base}.scores.csv",
             f"csv/{base}.annotations.csv",
+            f"vrs/{base}.vrs.ndjson",
             f"mapped/{base}.mapped-variants.json",
             f"va/{base}.va.ndjson",
         }
@@ -225,6 +231,21 @@ class TestScoreSetArtifacts:
 
         assert set(artifacts) == {f"csv/{archive_path_base(score_set.urn)}.scores.csv"}
 
+    def test_legacy_mapped_variants_artifact_switches_off(
+        self, session, make_dump_score_set, anonymous_principal, monkeypatch
+    ):
+        """The deprecated legacy artifact drops cleanly at a version boundary via one env flag, without
+        touching the substrate-sourced artifacts that replace it."""
+        score_set = make_dump_score_set(mapped=True, current=True)
+        base = archive_path_base(score_set.urn)
+
+        monkeypatch.setenv("EXPORT_LEGACY_MAPPED_VARIANTS", "0")
+        artifacts = _artifacts(session, score_set, anonymous_principal)
+
+        assert f"mapped/{base}.mapped-variants.json" not in artifacts
+        # The substrate replacement still ships.
+        assert f"vrs/{base}.vrs.ndjson" in artifacts
+
     def test_count_columns_add_the_counts_file(self, session, make_dump_score_set, anonymous_principal):
         score_set = make_dump_score_set(mapped=False, count_columns=("c_0",))
         base = archive_path_base(score_set.urn)
@@ -234,12 +255,12 @@ class TestScoreSetArtifacts:
         assert set(artifacts) == {f"csv/{base}.scores.csv", f"csv/{base}.counts.csv"}
 
     def test_every_path_sits_in_a_documented_directory(self, session, make_dump_score_set, anonymous_principal):
-        """README `Archive Structure` lists exactly these three directories."""
+        """README `Archive Structure` lists exactly these directories."""
         score_set = make_dump_score_set(count_columns=("c_0",))
 
         artifacts = _artifacts(session, score_set, anonymous_principal)
 
-        assert {path.split("/")[0] for path in artifacts} == {"csv", "mapped", "va"}
+        assert {path.split("/")[0] for path in artifacts} == {"csv", "vrs", "mapped", "va"}
 
     def test_every_artifact_carries_a_row_per_variant(self, session, make_dump_score_set, anonymous_principal):
         """Truthiness alone would accept a header with no rows, which is the failure worth catching."""
@@ -256,7 +277,7 @@ class TestScoreSetArtifacts:
                 assert len(json.loads(content)) == 2, path
 
     def test_yields_each_artifact_without_holding_the_others(self, session, make_dump_score_set, anonymous_principal):
-        """A generator, so the caller writes and releases each payload rather than accumulating four.
+        """A generator, so the caller writes and releases each payload rather than accumulating them all.
 
         One score set's `va.ndjson` runs to tens of kilobytes per variant, so returning them together
         made peak memory the sum of a score set's artifacts instead of its largest one.
@@ -268,7 +289,7 @@ class TestScoreSetArtifacts:
         first_path, first_content = next(artifacts)
         assert first_path == f"csv/{archive_path_base(score_set.urn)}.scores.csv"
         assert first_content
-        assert sum(1 for _ in artifacts) == 4  # annotations, mapped, va, counts still unevaluated
+        assert sum(1 for _ in artifacts) == 5  # annotations, vrs, mapped, va, counts still unevaluated
 
 
 ####################################################################################################
@@ -339,7 +360,7 @@ class TestAnnotationExportNamespaces:
         Both are legitimate changes to make. Neither should be possible without editing this list.
         """
         score_set = make_dump_score_set(variant_scores=({"score": 1.0, "se": 0.25},), count_columns=("c_0",))
-        add_clinvar_control(_mapped_variants_of(session, score_set)[0], db_version="01_2024")
+        add_clinvar_control(_variants_of(session, score_set)[0], db_version="01_2024")
         calibration = make_dump_calibration(score_set)
 
         namespaces = annotation_export_namespaces(session, score_set, anonymous_viewer)
@@ -358,9 +379,9 @@ class TestAnnotationExportNamespaces:
     ):
         """README: this file carries every release MaveDB holds, not just the most recent."""
         score_set = make_dump_score_set()
-        mapped_variant = _mapped_variants_of(session, score_set)[0]
-        add_clinvar_control(mapped_variant, db_version="01_2024")
-        add_clinvar_control(mapped_variant, db_version="06_2025")
+        variant = _variants_of(session, score_set)[0]
+        add_clinvar_control(variant, db_version="01_2024")
+        add_clinvar_control(variant, db_version="06_2025")
 
         namespaces = annotation_export_namespaces(session, score_set, anonymous_viewer)
 
@@ -421,7 +442,7 @@ class TestAnnotationsCsv:
         self, session, make_dump_score_set, add_clinvar_control, anonymous_viewer
     ):
         score_set = make_dump_score_set()
-        add_clinvar_control(_mapped_variants_of(session, score_set)[0], db_version="01_2024")
+        add_clinvar_control(_variants_of(session, score_set)[0], db_version="01_2024")
 
         header = _header(annotations_csv(session, score_set, anonymous_viewer))
 
@@ -535,6 +556,52 @@ class TestMappedVariantsJson:
 ####################################################################################################
 
 
+def _vrs_records(session, score_set):
+    return [json.loads(line) for line in vrs_ndjson(session, score_set).splitlines()]
+
+
+@pytest.mark.integration
+class TestVrsNdjson:
+    """The GA4GH molecular objects, in one artifact rather than scattered across the archive."""
+
+    def test_emits_one_line_per_mapped_variant(self, session, make_dump_score_set):
+        score_set = make_dump_score_set(variant_scores=({"score": 1.0}, {"score": 2.0}, {"score": 3.0}))
+
+        content = vrs_ndjson(session, score_set)
+
+        assert len(content.splitlines()) == 3
+
+    def test_every_line_is_newline_terminated(self, session, make_dump_score_set):
+        """A line-based consumer should need no special case for the last record."""
+        content = vrs_ndjson(session, make_dump_score_set())
+
+        assert content.endswith("\n")
+
+    def test_carries_the_vrs_pair_and_the_categorical_variant(self, session, make_dump_score_set):
+        record = _vrs_records(session, make_dump_score_set())[0]
+
+        assert set(record) == {"variant_urn", "pre_mapped", "post_mapped", "categorical_variant"}
+        assert record["post_mapped"]["type"] == "Allele"
+        assert record["categorical_variant"]["type"] == "CategoricalVariant"
+
+    def test_an_unplaceable_variant_is_omitted(self, session, make_dump_score_set):
+        """An unplaceable variant has a `MappingRecord` but no allele, and every field here is
+        allele-derived, so it contributes no line rather than a line of nulls."""
+        assert vrs_ndjson(session, make_dump_score_set(placeable=False)) == ""
+
+    def test_a_score_set_with_no_mappings_yields_nothing(self, session, make_dump_score_set):
+        assert vrs_ndjson(session, make_dump_score_set(mapped=False)) == ""
+
+    def test_is_not_withheld_for_a_private_calibration(self, session, make_dump_score_set, make_dump_calibration):
+        """None of this is calibration-derived, so calibration visibility must not gate it."""
+        score_set = make_dump_score_set()
+        make_dump_calibration(score_set, private=True)
+
+        record = _vrs_records(session, score_set)[0]
+
+        assert record["post_mapped"] is not None
+
+
 def _va_records(session, score_set, principal):
     return [json.loads(line) for line in va_ndjson(session, score_set, principal).splitlines()]
 
@@ -559,28 +626,23 @@ class TestVaNdjson:
         assert "\n\n" not in content
 
     def test_every_line_is_an_envelope_with_both_fields(self, session, make_dump_score_set, anonymous_principal):
-        score_set = make_dump_score_set(post_mapped=True, variant_scores=({"score": 1.0}, {"score": 2.0}))
+        score_set = make_dump_score_set(variant_scores=({"score": 1.0}, {"score": 2.0}))
 
         records = _va_records(session, score_set, anonymous_principal)
 
         assert all(set(record) == {"variant_urn", "annotation"} for record in records)
 
-    def test_an_unannotatable_variant_still_gets_its_urn(self, session, make_dump_score_set, anonymous_principal):
-        """README: `annotation` is null for a current mapping with no post-mapped allele."""
-        score_set = make_dump_score_set(post_mapped=False)
-
-        records = _va_records(session, score_set, anonymous_principal)
-
-        assert records
-        assert all(record["variant_urn"] for record in records)
-        assert all(record["annotation"] is None for record in records)
+    def test_an_unplaceable_variant_is_omitted(self, session, make_dump_score_set, anonymous_principal):
+        """An unplaceable variant carries no allele, so it is not an annotatable variant and
+        contributes no line."""
+        assert va_ndjson(session, make_dump_score_set(placeable=False), anonymous_principal) == ""
 
     def test_is_empty_for_a_score_set_with_no_current_mappings(self, session, make_dump_score_set, anonymous_principal):
         assert va_ndjson(session, make_dump_score_set(mapped=False), anonymous_principal) == ""
 
     def test_a_post_mapped_variant_carries_an_annotation(self, session, make_dump_score_set, anonymous_principal):
         """The counterpart to the null case: a post-mapped allele is what makes a variant annotatable."""
-        score_set = make_dump_score_set(post_mapped=True)
+        score_set = make_dump_score_set()
 
         records = _va_records(session, score_set, anonymous_principal)
 
@@ -591,7 +653,7 @@ class TestVaNdjson:
         self, session, make_dump_score_set, make_dump_calibration, anonymous_principal
     ):
         """README `va/{urn}.va.ndjson`: the highest materialized layer, which a calibration supplies."""
-        score_set = make_dump_score_set(post_mapped=True, variant_scores=({"score": -2.0},))
+        score_set = make_dump_score_set(variant_scores=({"score": -2.0},))
         make_dump_calibration(score_set, research_use_only=False)
 
         annotation = _va_records(session, score_set, anonymous_principal)[0]["annotation"]
@@ -607,7 +669,7 @@ class TestVaNdjson:
         The record falls back to the functional-impact layer rather than disappearing, so the variant is
         still reported — just without a pathogenicity statement built on evidence not cleared for it.
         """
-        score_set = make_dump_score_set(post_mapped=True, variant_scores=({"score": -2.0},))
+        score_set = make_dump_score_set(variant_scores=({"score": -2.0},))
         make_dump_calibration(score_set, research_use_only=True)
 
         annotation = _va_records(session, score_set, anonymous_principal)[0]["annotation"]
@@ -618,7 +680,7 @@ class TestVaNdjson:
         self, session, make_dump_score_set, make_dump_calibration, anonymous_principal
     ):
         """A private calibration is withheld from every artifact, this one included."""
-        score_set = make_dump_score_set(post_mapped=True, variant_scores=({"score": -2.0},))
+        score_set = make_dump_score_set(variant_scores=({"score": -2.0},))
         make_dump_calibration(score_set, private=True)
 
         annotation = _va_records(session, score_set, anonymous_principal)[0]["annotation"]
@@ -648,7 +710,7 @@ class TestPublicExperimentSet:
         session.refresh(score_set)
         view = ExperimentSetPublicDump.model_validate(session.query(ExperimentSet).one())
 
-        narrowed = public_experiment_set(view, {calibration.id})
+        narrowed = public_experiment_set(view, {calibration.id}, set())
 
         kept = narrowed.experiments[0].score_sets[0].score_calibrations
         assert [c.id for c in kept] == [calibration.id]
@@ -659,7 +721,7 @@ class TestPublicExperimentSet:
         session.refresh(score_set)
         view = ExperimentSetPublicDump.model_validate(session.query(ExperimentSet).one())
 
-        narrowed = public_experiment_set(view, set())
+        narrowed = public_experiment_set(view, set(), set())
 
         assert narrowed.experiments[0].score_sets[0].score_calibrations == []
 
@@ -673,7 +735,49 @@ class TestPublicExperimentSet:
             }
         )
 
-        assert public_experiment_set(emptied, set()) is None
+        assert public_experiment_set(emptied, set(), set()) is None
+
+    def _superseded_view(self, session, score_set, successor, readable_superseding_urns):
+        score_set.superseding_score_set = successor
+        session.commit()
+        session.refresh(score_set)
+        view = ExperimentSetPublicDump.model_validate(session.query(ExperimentSet).first())
+
+        narrowed = public_experiment_set(view, set(), readable_superseding_urns)
+        return next(ss for e in narrowed.experiments for ss in e.score_sets if ss.urn == str(score_set.urn))
+
+    def test_blanks_a_supersession_the_caller_may_not_read(self, session, make_dump_score_set):
+        """A published score set is usually superseded by a private in-progress replacement.
+
+        `superseding_score_set` is inherited from `SavedScoreSet` and hydrated from the ORM relationship
+        during validation, so without narrowing it the archive names an unreleased score set's URN and
+        title in `main.json` — published to Zenodo, where it cannot be recalled.
+        """
+        superseded = self._superseded_view(session, make_dump_score_set(), make_dump_score_set(published=False), set())
+
+        assert superseded.superseding_score_set is None
+
+    def test_keeps_a_supersession_the_caller_may_read(self, session, make_dump_score_set):
+        """The blank withholds only what the caller cannot already see."""
+        successor = make_dump_score_set()
+        superseded = self._superseded_view(session, make_dump_score_set(), successor, {str(successor.urn)})
+
+        assert superseded.superseding_score_set is not None
+        assert superseded.superseding_score_set.urn == str(successor.urn)
+
+    def test_keeps_a_readable_supersession_whose_data_the_archive_does_not_carry(self, session, make_dump_score_set):
+        """Gated on READ, not on archive membership.
+
+        A published successor under a non-CC0 license is public knowledge; its data living outside this
+        archive is no reason to hide that the score set it replaced is superseded. Suppressing the pointer
+        would leave a consumer treating a superseded score set as current, which is the worse failure. The
+        successor is deliberately absent from the archive here, and must still be named.
+        """
+        successor = make_dump_score_set(cc0=False)
+        superseded = self._superseded_view(session, make_dump_score_set(), successor, {str(successor.urn)})
+
+        assert superseded.superseding_score_set is not None
+        assert superseded.superseding_score_set.urn == str(successor.urn)
 
     def test_does_not_mutate_the_orm_graph(self, session, make_dump_score_set, make_dump_calibration):
         """`ScoreSet.score_calibrations` cascades delete-orphan, so narrowing the ORM collection instead
@@ -685,7 +789,7 @@ class TestPublicExperimentSet:
         session.refresh(score_set)
         view = ExperimentSetPublicDump.model_validate(session.query(ExperimentSet).one())
 
-        public_experiment_set(view, set())
+        public_experiment_set(view, set(), set())
         session.commit()
 
         assert session.query(ScoreCalibration).filter(ScoreCalibration.id == calibration.id).one_or_none()
@@ -754,6 +858,16 @@ class TestPublishedExperimentSets:
 ####################################################################################################
 
 
+def _metadata_supersessions(metadata):
+    """Every score set's reported superseding URN, keyed by its own URN."""
+    return {
+        score_set.urn: (score_set.superseding_score_set.urn if score_set.superseding_score_set else None)
+        for experiment_set in metadata["experimentSets"]
+        for experiment in experiment_set.experiments
+        for score_set in experiment.score_sets
+    }
+
+
 def _metadata_calibration_ids(metadata):
     return {
         calibration.id
@@ -816,6 +930,45 @@ class TestPublicDumpMetadata:
         metadata, _ = public_dump_metadata(session, anonymous_principal)
 
         assert _metadata_calibration_ids(metadata) == {calibration_id}
+
+    @pytest.mark.parametrize(
+        "successor_published,successor_cc0,expect_named",
+        [
+            (True, True, True),  # a successor the archive also carries
+            (True, False, False),  # published, but its data is not in the archive
+            (False, True, False),  # an in-progress replacement
+            (False, False, False),
+        ],
+    )
+    def test_supersession_is_named_only_when_the_archive_carries_the_successor(
+        self, session, make_dump_score_set, anonymous_principal, successor_published, successor_cc0, expect_named
+    ):
+        """What `main.json` says about supersession, and why.
+
+        `published_experiment_sets` loads members through `lazyload(...).and_(published + CC0)`, and that
+        criteria propagates to the self-referential `superseding_score_set` relationship. So a successor
+        hydrates exactly when it satisfies the member filter itself — the relationship is fine, an
+        unfiltered query finds every one of these.
+
+        Two consequences worth pinning:
+
+        - A private, in-progress successor is never named, so the narrowing in `public_experiment_set` is
+          defence in depth against this path rather than a live gate.
+        - A *published* successor whose license keeps its data out of the archive is not named either. That
+          one is a real gap: the score set is public knowledge, and a consumer is left reading a superseded
+          score set as current. Closing it needs the successor fetched by a separate unfiltered query and
+          injected into the view, not merely left un-blanked.
+        """
+        superseded = make_dump_score_set()
+        successor = make_dump_score_set(published=successor_published, cc0=successor_cc0)
+        superseded.superseding_score_set = successor
+        session.commit()
+        urn, successor_urn = superseded.urn, successor.urn
+        session.expunge_all()
+
+        metadata, _ = public_dump_metadata(session, anonymous_principal)
+
+        assert _metadata_supersessions(metadata)[urn] == (successor_urn if expect_named else None)
 
     def test_reports_the_urns_whose_artifacts_the_archive_carries(
         self, session, make_dump_score_set, anonymous_principal

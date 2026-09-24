@@ -1,31 +1,38 @@
-import itertools
 import logging
-import re
-from typing import Any, List, Optional
+from datetime import datetime
+from typing import Annotated, Any, List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query, Response
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
+from ga4gh.core.identifiers import GA4GH_IR_REGEXP
+from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
+from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
 from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy.sql import or_
+from sqlalchemy.orm import Session
 
 from mavedb import deps
+from mavedb.lib.alleles import find_variants_by_vrs_identifier
+from mavedb.lib.annotation.annotate import (
+    variant_functional_impact_statement,
+    variant_pathogenicity_statement,
+    variant_study_result,
+)
+from mavedb.lib.annotation.context import variant_annotation_context
+from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import get_principal
 from mavedb.lib.csv.namespaces import CSV_NAMESPACES_PARAM_DESCRIPTION, CsvNamespaceStr
+from mavedb.lib.csv.variant import available_variant_csv_namespaces, get_variant_csv
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
-from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.types.authentication import UserData
-from mavedb.lib.csv.variant import available_variant_csv_namespaces, get_variant_csv
-from mavedb.models.mapped_variant import MappedVariant
-from mavedb.models.score_set import ScoreSet
+from mavedb.lib.variant_detail import get_variant_detail
 from mavedb.models.variant import Variant
-from mavedb.models.variant_translation import VariantTranslation
 from mavedb.routers.shared import (
     ACCESS_CONTROL_ERROR_RESPONSES,
     BASE_400_RESPONSE,
@@ -33,11 +40,8 @@ from mavedb.routers.shared import (
     ROUTER_BASE_PREFIX,
 )
 from mavedb.view_models.csv_namespace import AvailableCsvNamespace
-from mavedb.view_models.variant import (
-    ClingenAlleleIdVariantLookupResponse,
-    ClingenAlleleIdVariantLookupsRequest,
-    VariantEffectMeasurementWithScoreSet,
-)
+from mavedb.view_models.variant import VariantVrsMatch
+from mavedb.view_models.variant_detail import VariantDetail
 
 TAG_NAME = "Variants"
 
@@ -56,408 +60,14 @@ metadata = {
 }
 
 
-@router.post(
-    "/variants/clingen-allele-id-lookups",
-    status_code=200,
-    response_model=list[ClingenAlleleIdVariantLookupResponse],
-    responses={
-        **BASE_400_RESPONSE,
-        **ACCESS_CONTROL_ERROR_RESPONSES,
-    },
-    summary="Lookup variants by ClinGen Allele IDs",
-)
-def lookup_variants(
-    *,
-    request: ClingenAlleleIdVariantLookupsRequest,
-    db: Session = Depends(deps.get_db),
-    user_data: UserData = Depends(get_current_user),
-):
+def _fetch_readable_variant(db: Session, user_data: Optional[UserData], urn: str) -> Variant:
+    """Fetch a single variant by URN and assert the caller may read its score set.
+
+    Raises 404 when no such variant exists, 500 when the URN is not unique (an invariant break), and the
+    standard 403 (via ``assert_permission``) when the score set is not readable.
     """
-    Lookup variants by ClinGen Allele IDs.
-    """
-    save_to_logging_context({"requested_resource": "clingen-allele-id-lookups"})
-    save_to_logging_context({"clingen_allele_ids_to_lookup": request.clingen_allele_ids})
-    logger.debug(msg="Looking up variants by Clingen Allele IDs", extra=logging_context())
-
-    # sort multi-variant components lexicographically, as they are in the database
-    request.clingen_allele_ids = [",".join(sorted(allele_id.split(","))) for allele_id in request.clingen_allele_ids]
-    exact_match_variants = db.execute(
-        select(Variant, MappedVariant.clingen_allele_id)
-        .join(MappedVariant)
-        .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
-        .where(MappedVariant.clingen_allele_id.in_(request.clingen_allele_ids))
-        .where(MappedVariant.current == True)  # noqa: E712
-    ).all()
-
-    save_to_logging_context({"num_variants_matching_clingen_allele_ids": len(exact_match_variants)})
-    logger.debug(msg="Found variants with exactly matching ClinGen Allele IDs", extra=logging_context())
-
-    num_variants_matching_clingen_allele_ids_and_permitted = 0
-
-    variants_by_allele_id: dict[str, dict] = {
-        allele_id: {
-            "clingen_allele_id": allele_id,
-            "exact_match": {"clingen_allele_id": allele_id, "variant_effect_measurements": []},
-            "equivalent_nt": [],
-            "equivalent_aa": [],
-        }
-        for allele_id in request.clingen_allele_ids
-    }
-    for variant, allele_id in exact_match_variants:
-        if has_permission(user_data, variant.score_set, Action.READ).permitted:
-            num_variants_matching_clingen_allele_ids_and_permitted += 1
-            variants_by_allele_id[allele_id]["exact_match"]["variant_effect_measurements"].append(variant)
-
-    save_to_logging_context(
-        {"clingen_allele_ids_with_permitted_variants": num_variants_matching_clingen_allele_ids_and_permitted}
-    )
-
-    for allele_id in request.clingen_allele_ids:
-        if not variants_by_allele_id[allele_id]["exact_match"]["variant_effect_measurements"]:
-            variants_by_allele_id[allele_id]["exact_match"] = None
-
-    for allele_id in request.clingen_allele_ids:
-        # validate and determine whether multi-variant
-        # NOTE: assuming we never have more than 2 components in a multi-variant
-        single_clingen_allele_id_re = r"^[CP]A\d+$"
-        multi_clingen_allele_id_re = r"^[CP]A\d+,[CP]A\d+$"
-        single_or_multi_clingen_allele_id_re = r"^[CP]A\d+(,[CP]A\d+)?$"
-
-        if re.fullmatch(single_or_multi_clingen_allele_id_re, allele_id) is None:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid Clingen Allele ID '{allele_id}'",
-            )
-
-        if re.fullmatch(single_clingen_allele_id_re, allele_id):
-            if allele_id.startswith("PA"):
-                subquery = (
-                    db.execute(
-                        select(VariantTranslation.nt_clingen_id).where(VariantTranslation.aa_clingen_id == allele_id)
-                    )
-                    .scalars()
-                    .all()
-                )
-                related_clingen_ids = (
-                    db.execute(
-                        select(VariantTranslation).where(
-                            or_(
-                                VariantTranslation.aa_clingen_id == allele_id,
-                                VariantTranslation.nt_clingen_id.in_(subquery),
-                            )
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
-                # exclude requested clingen allele id from "related_clingen_ids" to avoid duplicates
-                related_aa_clingen_ids = [
-                    var_translation.aa_clingen_id
-                    for var_translation in related_clingen_ids
-                    if var_translation.aa_clingen_id != allele_id
-                ]
-                related_aa_variants = db.execute(
-                    select(Variant, MappedVariant.clingen_allele_id)
-                    .join(MappedVariant)
-                    .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
-                    .where(MappedVariant.clingen_allele_id.in_(related_aa_clingen_ids))
-                    .where(MappedVariant.current == True)  # noqa: E712
-                ).all()
-                related_nt_clingen_ids = [var_translation.nt_clingen_id for var_translation in related_clingen_ids]
-                related_nt_variants = db.execute(
-                    select(Variant, MappedVariant.clingen_allele_id)
-                    .join(MappedVariant)
-                    .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
-                    .where(MappedVariant.clingen_allele_id.in_(related_nt_clingen_ids))
-                    .where(MappedVariant.current == True)  # noqa: E712
-                ).all()
-            elif allele_id.startswith("CA"):
-                subquery = (
-                    db.execute(
-                        select(VariantTranslation.aa_clingen_id).where(VariantTranslation.nt_clingen_id == allele_id)
-                    )
-                    .scalars()
-                    .all()
-                )
-                related_clingen_ids = (
-                    db.execute(
-                        select(VariantTranslation).where(
-                            or_(
-                                VariantTranslation.nt_clingen_id == allele_id,
-                                VariantTranslation.aa_clingen_id.in_(subquery),
-                            )
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
-                related_aa_clingen_ids = [var_translation.aa_clingen_id for var_translation in related_clingen_ids]
-                related_aa_variants = db.execute(
-                    select(Variant, MappedVariant.clingen_allele_id)
-                    .join(MappedVariant)
-                    .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
-                    .where(MappedVariant.clingen_allele_id.in_(related_aa_clingen_ids))
-                    .where(MappedVariant.current == True)  # noqa: E712
-                ).all()
-                # exclude requested clingen allele id from "related_clingen_ids" to avoid duplicates
-                related_nt_clingen_ids = [
-                    var_translation.nt_clingen_id
-                    for var_translation in related_clingen_ids
-                    if var_translation.nt_clingen_id != allele_id
-                ]
-                related_nt_variants = db.execute(
-                    select(Variant, MappedVariant.clingen_allele_id)
-                    .join(MappedVariant)
-                    .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
-                    .where(MappedVariant.clingen_allele_id.in_(related_nt_clingen_ids))
-                    .where(MappedVariant.current == True)  # noqa: E712
-                ).all()
-
-            num_variants_matching_clingen_allele_ids_and_permitted = 0
-            equivalent_aa_variants = {}
-            for variant, related_allele_id in related_aa_variants:
-                if has_permission(user_data, variant.score_set, Action.READ).permitted:
-                    if related_allele_id not in equivalent_aa_variants:
-                        equivalent_aa_variants[related_allele_id] = {
-                            "clingen_allele_id": related_allele_id,
-                            "variant_effect_measurements": [],
-                        }
-                    equivalent_aa_variants[related_allele_id]["variant_effect_measurements"].append(variant)
-
-            variants_by_allele_id[allele_id]["equivalent_aa"] = [
-                equivalent_aa_variants[related_allele_id] for related_allele_id in equivalent_aa_variants
-            ]
-
-            equivalent_nt_variants = {}
-            for variant, related_allele_id in related_nt_variants:
-                if has_permission(user_data, variant.score_set, Action.READ).permitted:
-                    if related_allele_id not in equivalent_nt_variants:
-                        equivalent_nt_variants[related_allele_id] = {
-                            "clingen_allele_id": related_allele_id,
-                            "variant_effect_measurements": [],
-                        }
-                    equivalent_nt_variants[related_allele_id]["variant_effect_measurements"].append(variant)
-
-            variants_by_allele_id[allele_id]["equivalent_nt"] = [
-                equivalent_nt_variants[related_allele_id] for related_allele_id in equivalent_nt_variants
-            ]
-
-        elif re.fullmatch(multi_clingen_allele_id_re, allele_id):
-            # validate each component allele id - already done via re
-            # allow more than 2 components?
-            # full matches are determined the same exact way as single variant (done above already)
-            # equivalent aa/nt: if all components of variant are represented by equivalent or exact match, but not all exact matches because those are already represented above
-            # so basically go through variant translations table and create every possible combo of components except for full exact match,
-            # then search the db for those combos
-
-            allele_id_components = allele_id.split(",")
-            if all(component.startswith("PA") for component in allele_id_components):
-                related_clingen_id_components = []  # list of lists, one list for each component
-                for component in allele_id_components:
-                    subquery = (
-                        db.execute(
-                            select(VariantTranslation.nt_clingen_id).where(
-                                VariantTranslation.aa_clingen_id == component
-                            )
-                        )
-                        .scalars()
-                        .all()
-                    )
-                    related_clingen_id_components.append(
-                        db.execute(
-                            select(VariantTranslation).where(
-                                or_(
-                                    VariantTranslation.aa_clingen_id == component,
-                                    VariantTranslation.nt_clingen_id.in_(subquery),
-                                )
-                            )
-                        )
-                        .scalars()
-                        .all()
-                    )
-                # create every possible combination of those two, including the original components, except for the version with both original components
-                # assuming that aa variants should always be paired with aa variants, and nt variants with nt variants,
-                # create lists of just the aa variants, and lists of just the nt variants.
-                # assuming only 2 components for any multivariant in db.
-                aa_clingen_id_first_allele = [
-                    translation.aa_clingen_id for translation in related_clingen_id_components[0]
-                ]
-                # original component should also be included, even if it is not in the variant translations table
-                aa_clingen_id_first_allele.append(allele_id_components[0])
-                aa_clingen_id_second_allele = [
-                    translation.aa_clingen_id for translation in related_clingen_id_components[1]
-                ]
-                # original component should also be included, even if it is not in the variant translations table
-                aa_clingen_id_first_allele.append(allele_id_components[1])
-                related_aa_clingen_id_combinations = list(
-                    itertools.product(aa_clingen_id_first_allele, aa_clingen_id_second_allele)
-                )
-                # turn each inner list into a single string and sort each pair lexicographically, since this is how they are stored in the db
-                joined_related_aa_clingen_id_combinations = [
-                    ",".join(sorted(list(combination)))  # type: ignore
-                    for combination in related_aa_clingen_id_combinations
-                ]
-                related_nt_clingen_id_first_allele = [
-                    translation.nt_clingen_id for translation in related_clingen_id_components[0]
-                ]
-                related_nt_clingen_id_second_allele = [
-                    translation.nt_clingen_id for translation in related_clingen_id_components[1]
-                ]
-                related_nt_clingen_id_combinations = list(
-                    itertools.product(related_nt_clingen_id_first_allele, related_nt_clingen_id_second_allele)
-                )
-                joined_related_nt_clingen_id_combinations = [
-                    ",".join(sorted(list(combination)))  # type: ignore
-                    for combination in related_nt_clingen_id_combinations
-                ]
-
-                # query the db for variants with these combinations
-                related_aa_variants = db.execute(
-                    select(Variant, MappedVariant.clingen_allele_id)
-                    .join(MappedVariant)
-                    .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
-                    .where(MappedVariant.clingen_allele_id.in_(joined_related_aa_clingen_id_combinations))
-                    .where(MappedVariant.clingen_allele_id != allele_id)
-                    .where(MappedVariant.current == True)  # noqa: E712
-                ).all()
-                related_nt_variants = db.execute(
-                    select(Variant, MappedVariant.clingen_allele_id)
-                    .join(MappedVariant)
-                    .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
-                    .where(MappedVariant.clingen_allele_id.in_(joined_related_nt_clingen_id_combinations))
-                    .where(MappedVariant.current == True)  # noqa: E712
-                ).all()
-
-            elif all(component.startswith("CA") for component in allele_id_components):
-                related_clingen_id_components = []  # list of lists, one list for each component
-                for component in allele_id_components:
-                    subquery = (
-                        db.execute(
-                            select(VariantTranslation.aa_clingen_id).where(
-                                VariantTranslation.nt_clingen_id == allele_id
-                            )
-                        )
-                        .scalars()
-                        .all()
-                    )
-                    related_clingen_id_components.append(
-                        db.execute(
-                            select(VariantTranslation).where(
-                                or_(
-                                    VariantTranslation.nt_clingen_id == allele_id,
-                                    VariantTranslation.aa_clingen_id.in_(subquery),
-                                )
-                            )
-                        )
-                        .scalars()
-                        .all()
-                    )
-                # create every possible combination of those two, including the original components, except for the version with both original components
-                # assuming that aa variants should always be paired with aa variants, and nt variants with nt variants,
-                # create lists of just the aa variants, and lists of just the nt variants.
-                # assuming only 2 components for any multivariant in db.
-                aa_clingen_id_first_allele = [
-                    translation.aa_clingen_id for translation in related_clingen_id_components[0]
-                ]
-                aa_clingen_id_second_allele = [
-                    translation.aa_clingen_id for translation in related_clingen_id_components[1]
-                ]
-                related_aa_clingen_id_combinations = list(
-                    itertools.product(aa_clingen_id_first_allele, aa_clingen_id_second_allele)
-                )
-                # turn each inner list into a single string and sort each pair lexicographically, since this is how they are stored in the db
-                joined_related_aa_clingen_id_combinations = [
-                    ",".join(sorted(list(combination)))  # type: ignore
-                    for combination in related_aa_clingen_id_combinations
-                ]
-
-                related_nt_clingen_id_first_allele = [
-                    translation.nt_clingen_id for translation in related_clingen_id_components[0]
-                ]
-                # original component should also be included, even if it is not in the variant translations table
-                related_nt_clingen_id_first_allele.append(allele_id_components[0])
-                related_nt_clingen_id_second_allele = [
-                    translation.nt_clingen_id for translation in related_clingen_id_components[1]
-                ]
-                # original component should also be included, even if it is not in the variant translations table
-                related_nt_clingen_id_first_allele.append(allele_id_components[1])
-                related_nt_clingen_id_combinations = list(
-                    itertools.product(related_nt_clingen_id_first_allele, related_nt_clingen_id_second_allele)
-                )
-                joined_related_nt_clingen_id_combinations = [
-                    ",".join(sorted(list(combination)))  # type: ignore
-                    for combination in related_nt_clingen_id_combinations
-                ]
-                # query the db for variants with these combinations
-                related_aa_variants = db.execute(
-                    select(Variant, MappedVariant.clingen_allele_id)
-                    .join(MappedVariant)
-                    .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
-                    .where(MappedVariant.clingen_allele_id.in_(joined_related_aa_clingen_id_combinations))
-                    .where(MappedVariant.current == True)  # noqa: E712
-                ).all()
-                related_nt_variants = db.execute(
-                    select(Variant, MappedVariant.clingen_allele_id)
-                    .join(MappedVariant)
-                    .options(joinedload(Variant.score_set).joinedload(ScoreSet.experiment))
-                    .where(MappedVariant.clingen_allele_id.in_(joined_related_nt_clingen_id_combinations))
-                    .where(MappedVariant.clingen_allele_id != allele_id)
-                    .where(MappedVariant.current == True)  # noqa: E712
-                ).all()
-
-            else:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid Clingen Allele ID '{allele_id}': all components must be either PA or CA",
-                )
-
-            equivalent_aa_variants = {}
-            for variant, related_allele_id in related_aa_variants:
-                if has_permission(user_data, variant.score_set, Action.READ).permitted:
-                    if related_allele_id not in equivalent_aa_variants:
-                        equivalent_aa_variants[related_allele_id] = {
-                            "clingen_allele_id": related_allele_id,
-                            "variant_effect_measurements": [],
-                        }
-                    equivalent_aa_variants[related_allele_id]["variant_effect_measurements"].append(variant)
-
-            variants_by_allele_id[allele_id]["equivalent_aa"] = [
-                equivalent_aa_variants[related_allele_id] for related_allele_id in equivalent_aa_variants
-            ]
-
-            equivalent_nt_variants = {}
-            for variant, related_allele_id in related_nt_variants:
-                if has_permission(user_data, variant.score_set, Action.READ).permitted:
-                    if related_allele_id not in equivalent_nt_variants:
-                        equivalent_nt_variants[related_allele_id] = {
-                            "clingen_allele_id": related_allele_id,
-                            "variant_effect_measurements": [],
-                        }
-                    equivalent_nt_variants[related_allele_id]["variant_effect_measurements"].append(variant)
-
-            variants_by_allele_id[allele_id]["equivalent_nt"] = [
-                equivalent_nt_variants[related_allele_id] for related_allele_id in equivalent_nt_variants
-            ]
-
-    return [variants_by_allele_id[allele_id] for allele_id in request.clingen_allele_ids]
-
-
-@router.get(
-    "/variants/{urn}",
-    status_code=200,
-    response_model=VariantEffectMeasurementWithScoreSet,
-    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
-    response_model_exclude_none=True,
-    summary="Fetch variant by URN",
-)
-def get_variant(*, urn: str, db: Session = Depends(deps.get_db), user_data: UserData = Depends(get_current_user)):
-    """
-    Fetch a single variant by URN.
-    """
-    save_to_logging_context({"requested_resource": urn})
     try:
-        query = db.query(Variant).filter(Variant.urn == urn)
-        variant = query.one_or_none()
+        variant = db.scalars(select(Variant).where(Variant.urn == urn)).one_or_none()
     except MultipleResultsFound:
         logger.info(msg="Could not fetch the requested variant; Multiple such variants exist.", extra=logging_context())
         raise HTTPException(status_code=500, detail=f"multiple variants with URN '{urn}' were found")
@@ -471,6 +81,287 @@ def get_variant(*, urn: str, db: Session = Depends(deps.get_db), user_data: User
 
 
 @router.get(
+    "/variants/vrs/{identifier}",
+    status_code=200,
+    response_model=list[VariantVrsMatch],
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Look up variants by VRS identifier",
+)
+def lookup_variants_by_vrs_identifier(
+    *,
+    response: Response,
+    identifier: Annotated[
+        str,
+        Path(
+            description="A valid GA4GH digest-based identifier for the mapped allele.",
+            json_schema_extra={"example": "ga4gh:VA.0123abcd"},
+            regex=GA4GH_IR_REGEXP,
+        ),
+    ],
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the molecular layer (Cat-VRS membership, VEP/gnomAD/ClinVar annotations) as it "
+            "stood at this instant, over the variant's fixed score. ISO 8601, ideally timezone-aware. "
+            "Content valid-time only — it never re-selects a score-set version, and scores/classifications "
+            "are as-of-invariant. Defaults to current."
+        ),
+    ),
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+) -> list[VariantVrsMatch]:
+    """Resolve a GA4GH VRS identifier to the readable variants whose mapping links that allele.
+
+    A deduplicated allele may be shared across score sets, so one identifier can resolve to several
+    variants. This is a lookup returning a collection: results are filtered to the score sets the caller
+    may read, and an empty list is returned when nothing readable matches. An absent identifier and a
+    match visible only in a private score set are deliberately indistinguishable (both yield ``[]``), so
+    the response never reveals a private allele's existence.
+    """
+    save_to_logging_context({"requested_resource": identifier, "as_of": as_of})
+    response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
+
+    matches = find_variants_by_vrs_identifier(db, identifier, as_of=as_of)
+    permitted = [
+        (variant, allele)
+        for variant, allele in matches
+        if has_permission(user_data, variant.score_set, Action.READ).permitted
+    ]
+
+    return [
+        VariantVrsMatch(
+            variant_urn=variant.urn or "",
+            clingen_allele_id=allele.clingen_allele_id,
+            vrs_id=(allele.post_mapped or {}).get("id"),
+            level=allele.level,
+        )
+        for variant, allele in permitted
+    ]
+
+
+@router.get(
+    "/variants/{urn}",
+    status_code=200,
+    response_model=VariantDetail,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    # Emit nulls rather than omitting absent fields: this shape is a stable, self-describing envelope
+    # (its bulk pair, GET /score-sets/{urn}/variant-details, streams the same object one-per-line for
+    # dataframe/columnar consumption), so every response carries the same key set.
+    response_model_exclude_none=False,
+    summary="Fetch assayed variant detail by URN",
+)
+def get_variant(
+    *,
+    urn: str,
+    response: Response,
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the molecular layer (Cat-VRS membership, VEP/gnomAD/ClinVar annotations) as it "
+            "stood at this instant, over the variant's fixed score. ISO 8601, ideally timezone-aware. "
+            "Content valid-time only — it never re-selects a score-set version, and scores/classifications "
+            "are as-of-invariant. Defaults to current."
+        ),
+    ),
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+):
+    """Fetch the two-tier detail envelope for a single assayed variant by URN.
+
+    Flat assay-level fields for the common UI case plus the spec-pure GA4GH CategoricalVariant and a
+    digest-keyed annotation map for machine/standard consumers. A superseded variant is served (it is
+    the citable unit) but self-describes via isCurrent/supersededByScoreSet rather than reading as current.
+    """
+    save_to_logging_context({"requested_resource": urn, "as_of": as_of})
+    response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
+    variant = _fetch_readable_variant(db, user_data, urn)
+
+    # Version standing: resolve the superseding version's visibility exactly as fetch_score_set_by_urn
+    # does — a newer version the user cannot read is not leaked (the variant then reads as current).
+    superseding = variant.score_set.superseding_score_set
+    if superseding is not None and not has_permission(user_data, superseding, Action.READ).permitted:
+        superseding = None
+
+    visible_calibration_ids = {
+        sc.id
+        for sc in variant.score_set.score_calibrations
+        if sc.id is not None and has_permission(user_data, sc, Action.READ).permitted
+    }
+
+    return get_variant_detail(
+        db,
+        variant,
+        superseding_score_set=superseding,
+        visible_calibration_ids=visible_calibration_ids,
+        as_of=as_of,
+    )
+
+
+@router.get(
+    "/variants/{urn}/va/study-result",
+    status_code=200,
+    response_model=ExperimentalVariantFunctionalImpactStudyResult,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Construct a VA-Spec StudyResult for a variant",
+)
+def get_variant_study_result(
+    *,
+    response: Response,
+    urn: str,
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the molecular layer (Cat-VRS membership, VEP/gnomAD/ClinVar annotations) as it "
+            "stood at this instant, over the variant's fixed score. ISO 8601, ideally timezone-aware. "
+            "Content valid-time only — it never re-selects a score-set version, and scores/classifications "
+            "are as-of-invariant. Defaults to current."
+        ),
+    ),
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+) -> ExperimentalVariantFunctionalImpactStudyResult:
+    """Construct a single VA-Spec StudyResult for a variant by URN, from its mapping substrate."""
+    save_to_logging_context({"requested_resource": urn, "as_of": as_of})
+    response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
+
+    variant = _fetch_readable_variant(db, user_data, urn)
+
+    context = variant_annotation_context(db, variant, as_of=as_of)
+    if context is None:
+        raise HTTPException(
+            status_code=404, detail=f"No study result exists for variant {urn}: no mapping data exists."
+        )
+
+    try:
+        return variant_study_result(context)
+    except MappingDataDoesntExistException as e:
+        logger.info(msg=f"Could not construct a study result for variant {urn}: {e}", extra=logging_context())
+        raise HTTPException(status_code=404, detail=f"No study result exists for variant {urn}: {e}")
+
+
+@router.get(
+    "/variants/{urn}/va/functional-statement",
+    status_code=200,
+    response_model=Statement,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Construct a VA-Spec functional-impact Statement for a variant",
+)
+def get_variant_functional_impact_statement(
+    *,
+    response: Response,
+    urn: str,
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the molecular layer (Cat-VRS membership, VEP/gnomAD/ClinVar annotations) as it "
+            "stood at this instant, over the variant's fixed score. ISO 8601, ideally timezone-aware. "
+            "Content valid-time only — it never re-selects a score-set version, and scores/classifications "
+            "are as-of-invariant. Defaults to current."
+        ),
+    ),
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
+) -> Statement:
+    """Construct a single VA-Spec functional-impact Statement for a variant by URN."""
+    save_to_logging_context({"requested_resource": urn, "as_of": as_of})
+    response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
+
+    variant = _fetch_readable_variant(db, user_data, urn)
+
+    context = variant_annotation_context(db, variant, as_of=as_of)
+    if context is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No functional impact statement exists for variant {urn}: no mapping data exists.",
+        )
+
+    try:
+        functional_impact = variant_functional_impact_statement(context, principal=principal)
+    except MappingDataDoesntExistException as e:
+        logger.info(
+            msg=f"Could not construct a functional impact statement for variant {urn}: {e}", extra=logging_context()
+        )
+        raise HTTPException(status_code=404, detail=f"No functional impact statement exists for variant {urn}: {e}")
+
+    if not functional_impact:
+        logger.info(
+            msg=f"Variant {urn} does not have sufficient evidence to evaluate its functional impact.",
+            extra=logging_context(),
+        )
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No functional impact statement exists for variant {urn}. Variant does not have sufficient "
+                "evidence to evaluate its functional impact."
+            ),
+        )
+
+    return functional_impact
+
+
+@router.get(
+    "/variants/{urn}/va/pathogenicity-statement",
+    status_code=200,
+    response_model=VariantPathogenicityStatement,
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
+    summary="Construct a VA-Spec pathogenicity Statement for a variant",
+)
+def get_variant_pathogenicity_statement(
+    *,
+    response: Response,
+    urn: str,
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the molecular layer (Cat-VRS membership, VEP/gnomAD/ClinVar annotations) as it "
+            "stood at this instant, over the variant's fixed score. ISO 8601, ideally timezone-aware. "
+            "Content valid-time only — it never re-selects a score-set version, and scores/classifications "
+            "are as-of-invariant. Defaults to current."
+        ),
+    ),
+    db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
+) -> VariantPathogenicityStatement:
+    """Construct a single VA-Spec pathogenicity Statement for a variant by URN."""
+    save_to_logging_context({"requested_resource": urn, "as_of": as_of})
+    response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
+
+    variant = _fetch_readable_variant(db, user_data, urn)
+
+    context = variant_annotation_context(db, variant, as_of=as_of)
+    if context is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No pathogenicity statement exists for variant {urn}: no mapping data exists.",
+        )
+
+    try:
+        pathogenicity_statement = variant_pathogenicity_statement(context, principal=principal)
+    except MappingDataDoesntExistException as e:
+        logger.info(
+            msg=f"Could not construct a pathogenicity statement for variant {urn}: {e}", extra=logging_context()
+        )
+        raise HTTPException(status_code=404, detail=f"No pathogenicity statement exists for variant {urn}: {e}")
+
+    if not pathogenicity_statement:
+        logger.info(
+            msg=f"Variant {urn} does not have sufficient evidence to evaluate its pathogenicity.",
+            extra=logging_context(),
+        )
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No pathogenicity statement exists for variant {urn}; Variant does not have sufficient "
+                "evidence to evaluate its pathogenicity."
+            ),
+        )
+
+    return pathogenicity_statement
+
+
+@router.get(
     "/variants/{urn}/csv-namespaces",
     status_code=200,
     response_model=list[AvailableCsvNamespace],
@@ -480,9 +371,17 @@ def get_variant(*, urn: str, db: Session = Depends(deps.get_db), user_data: User
 def get_variant_csv_namespaces(
     *,
     urn: str,
+    response: Response,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
     principal: Principal = Depends(get_principal),
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the offered namespaces as they stood at this instant, so discovery matches an "
+            "`as_of` download. ISO 8601, ideally timezone-aware. Defaults to current."
+        ),
+    ),
 ) -> Any:
     """
     List the CSV column namespaces this variant has data for, labeled and grouped for a picker.
@@ -513,11 +412,14 @@ def get_variant_csv_namespaces(
 
     assert_permission(user_data, variant.score_set, Action.READ)
 
+    # Echoed like the CSV endpoints: the instant discovery answered for is part of the answer.
+    response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
     return available_variant_csv_namespaces(
         db,
         urn,
         may_read_score_set=lambda score_set: has_permission(user_data, score_set, Action.READ).permitted,
         viewer=principal.viewer_for(ScoreCalibrationViewer),
+        as_of=as_of,
     )
 
 
@@ -545,6 +447,14 @@ def get_variant_csv_data(
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
     principal: Principal = Depends(get_principal),
+    as_of: Optional[datetime] = Query(
+        default=None,
+        description=(
+            "Reconstruct the mapping-derived columns (reference HGVS, VEP, gnomAD, ClinVar) as they "
+            "stood at this instant, over the variant's fixed score. ISO 8601, ideally timezone-aware. "
+            "Defaults to current."
+        ),
+    ),
 ) -> Any:
     """
     Return tabular data for a single variant, identified by URN, in CSV format.
@@ -598,9 +508,14 @@ def get_variant_csv_data(
         namespaces=namespaces,
         may_read_score_set=lambda score_set: has_permission(user_data, score_set, Action.READ).permitted,
         viewer=principal.viewer_for(ScoreCalibrationViewer),
+        as_of=as_of,
     )
     return StreamingResponse(
         iter([csv_str]),
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{urn}.csv"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{urn}.csv"',
+            "X-As-Of": as_of.isoformat() if as_of is not None else "current",
+            "Access-Control-Expose-Headers": "X-As-Of",
+        },
     )
