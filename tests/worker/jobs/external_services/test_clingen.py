@@ -275,6 +275,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         session.add(
             MappingRecordAllele(
                 mapping_record_id=a_link.mapping_record_id,
+                score_set_id=a_link.score_set_id,
                 allele_id=derived_allele.id,
                 is_authoritative=False,
             )
@@ -939,6 +940,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             session.add(
                 MappingRecordAllele(
                     mapping_record_id=a_link.mapping_record_id,
+                    score_set_id=a_link.score_set_id,
                     allele_id=derived.id,
                     is_authoritative=False,
                 )

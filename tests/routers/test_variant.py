@@ -72,6 +72,7 @@ def _seed_mapping(session, variant_urn):
     variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == variant_urn))
     record = MappingRecord(
         variant_id=variant.id,
+        score_set_id=variant.score_set_id,
         assay_level="cdna",
         hgvs_assay_level="NM_000546.6:c.1216G>A",
         mapping_api_version="test.0.0",
@@ -103,14 +104,31 @@ def _seed_mapping(session, variant_urn):
             # The measured cdna link and its genomic projection share a projection_group; the protein
             # apex is in no pair (group None); the cousin sits in its own projection group.
             MappingRecordAllele(
-                mapping_record_id=record.id, allele_id=measured.id, is_authoritative=True, projection_group=0
+                mapping_record_id=record.id,
+                score_set_id=record.score_set_id,
+                allele_id=measured.id,
+                is_authoritative=True,
+                projection_group=0,
             ),
             MappingRecordAllele(
-                mapping_record_id=record.id, allele_id=genomic.id, is_authoritative=False, projection_group=0
+                mapping_record_id=record.id,
+                score_set_id=record.score_set_id,
+                allele_id=genomic.id,
+                is_authoritative=False,
+                projection_group=0,
             ),
-            MappingRecordAllele(mapping_record_id=record.id, allele_id=protein.id, is_authoritative=False),
             MappingRecordAllele(
-                mapping_record_id=record.id, allele_id=cousin.id, is_authoritative=False, projection_group=1
+                mapping_record_id=record.id,
+                score_set_id=record.score_set_id,
+                allele_id=protein.id,
+                is_authoritative=False,
+            ),
+            MappingRecordAllele(
+                mapping_record_id=record.id,
+                score_set_id=record.score_set_id,
+                allele_id=cousin.id,
+                is_authoritative=False,
+                projection_group=1,
             ),
             VepAlleleConsequence(
                 allele_id=measured.id,

@@ -311,6 +311,7 @@ def setup_sample_alleles_with_caid(session, with_populated_domain_data, sample_l
 
     mapping_record = MappingRecord(
         variant_id=variant.id,
+        score_set_id=variant.score_set_id,
         assay_level="genomic",
         mapping_api_version="pytest.0.0",
     )
@@ -320,6 +321,7 @@ def setup_sample_alleles_with_caid(session, with_populated_domain_data, sample_l
     session.add(
         MappingRecordAllele(
             mapping_record_id=mapping_record.id,
+            score_set_id=mapping_record.score_set_id,
             allele_id=allele.id,
             is_authoritative=True,
         )
@@ -358,6 +360,7 @@ def setup_rt_derived_allele_with_caid(session, setup_sample_alleles_with_caid):
     session.add(
         MappingRecordAllele(
             mapping_record_id=mapping_record.id,
+            score_set_id=mapping_record.score_set_id,
             allele_id=rt_allele.id,
             is_authoritative=False,
         )
@@ -1176,6 +1179,7 @@ def setup_sample_alleles_for_vep(session, with_populated_domain_data, mock_worke
 
     mapping_record = MappingRecord(
         variant_id=variant.id,
+        score_set_id=variant.score_set_id,
         assay_level="cdna",
         mapping_api_version="pytest.0.0",
     )
@@ -1185,6 +1189,7 @@ def setup_sample_alleles_for_vep(session, with_populated_domain_data, mock_worke
     session.add(
         MappingRecordAllele(
             mapping_record_id=mapping_record.id,
+            score_set_id=mapping_record.score_set_id,
             allele_id=allele.id,
             is_authoritative=True,
         )
@@ -1221,6 +1226,7 @@ def setup_sample_protein_allele_for_vep(session, with_populated_domain_data, moc
 
     mapping_record = MappingRecord(
         variant_id=variant.id,
+        score_set_id=variant.score_set_id,
         assay_level="protein",
         mapping_api_version="pytest.0.0",
     )
@@ -1230,6 +1236,7 @@ def setup_sample_protein_allele_for_vep(session, with_populated_domain_data, moc
     session.add(
         MappingRecordAllele(
             mapping_record_id=mapping_record.id,
+            score_set_id=mapping_record.score_set_id,
             allele_id=allele.id,
             is_authoritative=True,
         )
@@ -1262,6 +1269,7 @@ def setup_rt_derived_allele_for_vep(session, setup_sample_alleles_for_vep):
     session.add(
         MappingRecordAllele(
             mapping_record_id=mapping_record.id,
+            score_set_id=mapping_record.score_set_id,
             allele_id=rt_allele.id,
             is_authoritative=False,
         )

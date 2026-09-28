@@ -42,7 +42,11 @@ def _variant(session, score_set, suffix):
 
 def _record(session, variant, *, assay_level="genomic", valid_from=None):
     record = MappingRecord(
-        variant_id=variant.id, assay_level=assay_level, mapping_api_version="test.0.0", valid_from=valid_from
+        variant_id=variant.id,
+        score_set_id=variant.score_set_id,
+        assay_level=assay_level,
+        mapping_api_version="test.0.0",
+        valid_from=valid_from,
     )
     session.add(record)
     session.commit()
@@ -51,7 +55,11 @@ def _record(session, variant, *, assay_level="genomic", valid_from=None):
 
 def _link(session, record, allele, *, is_authoritative=False, valid_from=None):
     link = MappingRecordAllele(
-        mapping_record_id=record.id, allele_id=allele.id, is_authoritative=is_authoritative, valid_from=valid_from
+        mapping_record_id=record.id,
+        score_set_id=record.score_set_id,
+        allele_id=allele.id,
+        is_authoritative=is_authoritative,
+        valid_from=valid_from,
     )
     session.add(link)
     session.commit()

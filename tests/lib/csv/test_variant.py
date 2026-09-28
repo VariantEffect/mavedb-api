@@ -1039,7 +1039,69 @@ class TestOneLiveMappingPerVariantIsGuaranteed:
     def test_a_second_live_mapping_record_is_rejected(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
         # The fixture already seeded one live record for this variant.
-        session.add(MappingRecord(variant_id=variant.id, assay_level="genomic", mapping_api_version="test.0.0"))
+        session.add(
+            MappingRecord(
+                variant_id=variant.id,
+                score_set_id=variant.score_set_id,
+                assay_level="genomic",
+                mapping_api_version="test.0.0",
+            )
+        )
+
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+    @staticmethod
+    def _other_score_set(session, score_set):
+        other = ScoreSet(
+            **{k: v for k, v in TEST_SEQ_SCORESET.items() if k != "target_genes"},
+            urn="urn:mavedb:00000001-a-3",
+            experiment_id=score_set.experiment_id,
+            licence_id=score_set.licence_id,
+            created_by_id=score_set.created_by_id,
+            modified_by_id=score_set.modified_by_id,
+        )
+        session.add(other)
+        session.commit()
+        return other
+
+    def test_a_record_cannot_claim_another_score_set(self, session, setup_lib_db_with_mapped_variant):
+        """``scoreset_id`` is carried for row-level security, so it must match the variant's score set.
+
+        The other score set exists, so the rejection comes from the composite key on
+        ``(variant_id, scoreset_id)``, not from a missing parent.
+        """
+        variant = setup_lib_db_with_mapped_variant.variant
+        other = self._other_score_set(session, variant.score_set)
+        live = session.scalars(
+            select(MappingRecord).where(MappingRecord.variant_id == variant.id).where(MappingRecord.valid_to.is_(None))
+        ).one()
+        live.retire(session)
+        session.add(
+            MappingRecord(
+                variant_id=variant.id,
+                score_set_id=other.id,
+                assay_level="genomic",
+                mapping_api_version="test.1.0",
+            )
+        )
+
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+    def test_an_allele_link_cannot_claim_another_score_set(self, session, setup_lib_db_with_mapped_variant):
+        """A link's ``scoreset_id`` must match its mapping record's, by the composite key on the link."""
+        variant = setup_lib_db_with_mapped_variant.variant
+        other = self._other_score_set(session, variant.score_set)
+        live = session.scalars(
+            select(MappingRecord).where(MappingRecord.variant_id == variant.id).where(MappingRecord.valid_to.is_(None))
+        ).one()
+        allele = Allele(vrs_digest="lib-csv-unlinked", level="genomic")
+        session.add(allele)
+        session.commit()
+        session.add(MappingRecordAllele(mapping_record_id=live.id, score_set_id=other.id, allele_id=allele.id))
 
         with pytest.raises(IntegrityError):
             session.commit()
@@ -1053,7 +1115,14 @@ class TestOneLiveMappingPerVariantIsGuaranteed:
         ).one()
 
         live.retire(session)
-        session.add(MappingRecord(variant_id=variant.id, assay_level="genomic", mapping_api_version="test.1.0"))
+        session.add(
+            MappingRecord(
+                variant_id=variant.id,
+                score_set_id=variant.score_set_id,
+                assay_level="genomic",
+                mapping_api_version="test.1.0",
+            )
+        )
         session.commit()
 
         still_live = session.scalars(

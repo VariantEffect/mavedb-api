@@ -1,7 +1,7 @@
 from datetime import date
 from typing import TYPE_CHECKING, List
 
-from sqlalchemy import Column, Date, ForeignKey, Integer, String
+from sqlalchemy import Column, Date, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, relationship
 
@@ -21,7 +21,7 @@ class Variant(Base):
     urn = Column(String(64), index=True, nullable=True, unique=True)
     data = Column(JSONB, nullable=False)
 
-    score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=False)
+    score_set_id: Mapped[int] = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=False)
     # TODO examine if delete-orphan is necessary, explore cascade
     score_set: Mapped["ScoreSet"] = relationship(back_populates="variants")
 
@@ -42,3 +42,9 @@ class Variant(Base):
 
     # Bidirectional relationship with ScoreCalibrationFunctionalClassification is left
     # purposefully undefined for performance reasons.
+
+    __table_args__ = (
+        # Target of mapping_records' composite (variant_id, score_set_id) foreign key. The records
+        # carry their score set so an RLS policy can check it without joining through variants (#833).
+        Index("uq_variants_id_scoreset", id, score_set_id, unique=True),
+    )

@@ -1,7 +1,7 @@
 from datetime import date
 from typing import TYPE_CHECKING, Any, Optional
 
-from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, Index, Integer, String, func, text
+from sqlalchemy import Boolean, Column, Date, Enum, ForeignKey, ForeignKeyConstraint, Index, Integer, String, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, relationship
@@ -22,7 +22,11 @@ class MappingRecord(ValidTime, Base):
 
     id: Mapped[int] = Column(Integer, primary_key=True)
 
-    variant_id = Column(Integer, ForeignKey("variants.id"), nullable=False)
+    variant_id = Column(Integer, nullable=False)
+    # Denormalized from the variant so an RLS policy can check the score set directly; delegating
+    # through variants costs ~700 ms per lookup at production size (#833). The composite foreign key
+    # below keeps it equal to the variant's score set.
+    score_set_id: Mapped[int] = Column(Integer, nullable=False)
     variant: Mapped["Variant"] = relationship("Variant", back_populates="mapping_records")
 
     # Digest of the pre-mapped (assayed-level) VRS representation, indexed for
@@ -98,6 +102,14 @@ class MappingRecord(ValidTime, Base):
     __retire_cascade__ = ("allele_links",)
 
     __table_args__ = (
+        ForeignKeyConstraint(
+            [variant_id, score_set_id],
+            ["variants.id", "variants.scoreset_id"],
+            name="fk_mapping_records_variant_score_set",
+            link_to_name=True,
+        ),
+        # Target of mapping_record_alleles' composite foreign key.
+        Index("uq_mapping_records_id_score_set", id, score_set_id, unique=True),
         Index("ix_mapping_records_vrs_digest", "vrs_digest"),
         Index("ix_mapping_records_variant_id", "variant_id"),
         # At most one live mapping record per variant — promotes to the database the invariant the

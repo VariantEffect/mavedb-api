@@ -78,6 +78,7 @@ def seed_mapping_record(
 
     record = MappingRecord(
         variant_id=variant.id,
+        score_set_id=variant.score_set_id,
         assay_level=assay_level,
         hgvs_assay_level=hgvs_assay_level,
         mapping_api_version=mapping_api_version,
@@ -104,6 +105,7 @@ def seed_mapping_record(
         links: list[Any] = [
             MappingRecordAllele(
                 mapping_record_id=record.id,
+                score_set_id=record.score_set_id,
                 allele_id=allele.id,
                 is_authoritative=spec.is_authoritative,
                 projection_group=spec.projection_group,

@@ -26,10 +26,16 @@ def _variant_mapped_to_allele(session, score_set, allele):
     session.add(variant)
     session.commit()
 
-    record = MappingRecord(variant_id=variant.id, assay_level="genomic", mapping_api_version="test.0.0")
+    record = MappingRecord(
+        variant_id=variant.id, score_set_id=variant.score_set_id, assay_level="genomic", mapping_api_version="test.0.0"
+    )
     session.add(record)
     session.commit()
-    session.add(MappingRecordAllele(mapping_record_id=record.id, allele_id=allele.id, is_authoritative=True))
+    session.add(
+        MappingRecordAllele(
+            mapping_record_id=record.id, score_set_id=record.score_set_id, allele_id=allele.id, is_authoritative=True
+        )
+    )
     session.commit()
     return variant
 

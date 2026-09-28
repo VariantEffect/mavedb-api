@@ -396,6 +396,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
 
             mapping_record = MappingRecord(
                 variant_id=variant.id,
+                score_set_id=variant.score_set_id,
                 vrs_digest=pre_mapped_allele.get("id"),
                 pre_mapped=pre_mapped_allele or None,
                 assay_level=sequence_level,
@@ -465,6 +466,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 job_manager.db.add(
                     MappingRecordAllele(
                         mapping_record_id=mapping_record.id,
+                        score_set_id=mapping_record.score_set_id,
                         allele_id=authoritative_allele.id,
                         is_authoritative=True,
                     )

@@ -37,6 +37,7 @@ def _seed_cdna_measurement(session, variant_urn, *, clingen_allele_id="CA123", v
     variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == variant_urn))
     record = MappingRecord(
         variant_id=variant.id,
+        score_set_id=variant.score_set_id,
         assay_level="cdna",
         hgvs_assay_level="NM_000546.6:c.1216G>A",
         mapping_api_version="test.0.0",
@@ -47,7 +48,11 @@ def _seed_cdna_measurement(session, variant_urn, *, clingen_allele_id="CA123", v
     measured = Allele(vrs_digest=vrs_digest, level="cdna", clingen_allele_id=clingen_allele_id)
     session.add(measured)
     session.commit()
-    session.add(MappingRecordAllele(mapping_record_id=record.id, allele_id=measured.id, is_authoritative=True))
+    session.add(
+        MappingRecordAllele(
+            mapping_record_id=record.id, score_set_id=record.score_set_id, allele_id=measured.id, is_authoritative=True
+        )
+    )
     session.commit()
 
 
@@ -122,14 +127,22 @@ def test_nucleotide_siblings_shown(client, session, data_provider, data_files, s
     # Two coding measurements encoding the same protein consequence (PA9), each carrying its own CA.
     for suffix, caid, digest in ((1, "CA111", "cdna-1"), (2, "CA222", "cdna-2")):
         variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == f"{score_set['urn']}#{suffix}"))
-        record = MappingRecord(variant_id=variant.id, assay_level="cdna", mapping_api_version="test.0.0")
+        record = MappingRecord(
+            variant_id=variant.id, score_set_id=variant.score_set_id, assay_level="cdna", mapping_api_version="test.0.0"
+        )
         session.add(record)
         session.commit()
         nt = Allele(vrs_digest=digest, level="cdna", clingen_allele_id=caid)
         session.add(nt)
         session.commit()
-        session.add(MappingRecordAllele(mapping_record_id=record.id, allele_id=nt.id, is_authoritative=True))
-        session.add(MappingRecordAllele(mapping_record_id=record.id, allele_id=prot.id))
+        session.add(
+            MappingRecordAllele(
+                mapping_record_id=record.id, score_set_id=record.score_set_id, allele_id=nt.id, is_authoritative=True
+            )
+        )
+        session.add(
+            MappingRecordAllele(mapping_record_id=record.id, score_set_id=record.score_set_id, allele_id=prot.id)
+        )
         session.commit()
 
     response = client.get("/api/v1/clingen-alleles/CA111/measurements")
@@ -153,14 +166,22 @@ def test_direct_measurements_sort_before_related(client, session, data_provider,
 
     for suffix, caid, digest in ((1, "CA111", "cdna-1"), (2, "CA222", "cdna-2")):
         variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == f"{score_set['urn']}#{suffix}"))
-        record = MappingRecord(variant_id=variant.id, assay_level="cdna", mapping_api_version="test.0.0")
+        record = MappingRecord(
+            variant_id=variant.id, score_set_id=variant.score_set_id, assay_level="cdna", mapping_api_version="test.0.0"
+        )
         session.add(record)
         session.commit()
         nt = Allele(vrs_digest=digest, level="cdna", clingen_allele_id=caid)
         session.add(nt)
         session.commit()
-        session.add(MappingRecordAllele(mapping_record_id=record.id, allele_id=nt.id, is_authoritative=True))
-        session.add(MappingRecordAllele(mapping_record_id=record.id, allele_id=prot.id))
+        session.add(
+            MappingRecordAllele(
+                mapping_record_id=record.id, score_set_id=record.score_set_id, allele_id=nt.id, is_authoritative=True
+            )
+        )
+        session.add(
+            MappingRecordAllele(mapping_record_id=record.id, score_set_id=record.score_set_id, allele_id=prot.id)
+        )
         session.commit()
 
     response = client.get("/api/v1/clingen-alleles/CA111/measurements")

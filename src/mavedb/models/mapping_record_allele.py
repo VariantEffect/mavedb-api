@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Column, ForeignKey, Index, Integer, text
+from sqlalchemy import Boolean, Column, ForeignKey, ForeignKeyConstraint, Index, Integer, text
 from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
@@ -15,11 +15,9 @@ class MappingRecordAllele(ValidTime, Base):
     __tablename__ = "mapping_record_alleles"
 
     id: Mapped[int] = Column(Integer, primary_key=True)
-    mapping_record_id: Mapped[int] = Column(
-        Integer,
-        ForeignKey("mapping_records.id", ondelete="CASCADE"),
-        nullable=False,
-    )
+    mapping_record_id: Mapped[int] = Column(Integer, nullable=False)
+    # Denormalized from the mapping record for the RLS policy, like MappingRecord.score_set_id (#833).
+    score_set_id: Mapped[int] = Column(Integer, nullable=False)
     allele_id: Mapped[int] = Column(
         Integer,
         ForeignKey("alleles.id", ondelete="RESTRICT"),
@@ -38,6 +36,12 @@ class MappingRecordAllele(ValidTime, Base):
     allele: Mapped["Allele"] = relationship("Allele", back_populates="mapping_record_links")
 
     __table_args__ = (
+        ForeignKeyConstraint(
+            [mapping_record_id, score_set_id],
+            ["mapping_records.id", "mapping_records.score_set_id"],
+            name="fk_mapping_record_alleles_mapping_record_score_set",
+            ondelete="CASCADE",
+        ),
         Index(
             "ix_mapping_record_alleles_mapping_record_id",
             "mapping_record_id",

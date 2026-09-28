@@ -47,6 +47,7 @@ def _make_allele_with_caid(session, score_set_id: int, urn_suffix: str, caid: st
 
     mapping_record = MappingRecord(
         variant_id=variant.id,
+        score_set_id=variant.score_set_id,
         assay_level="genomic",
         mapping_api_version="1.0.0",
         mapped_date=date.today(),
@@ -56,6 +57,7 @@ def _make_allele_with_caid(session, score_set_id: int, urn_suffix: str, caid: st
 
     link = MappingRecordAllele(
         mapping_record_id=mapping_record.id,
+        score_set_id=mapping_record.score_set_id,
         allele_id=allele.id,
         is_authoritative=True,
     )
@@ -224,6 +226,7 @@ class TestWarmClingenCacheUnit:
 
         old_mapping_record = MappingRecord(
             variant_id=variant.id,
+            score_set_id=variant.score_set_id,
             assay_level="genomic",
             mapping_api_version="0.9.0",
             mapped_date=date(2023, 1, 1),
@@ -235,6 +238,7 @@ class TestWarmClingenCacheUnit:
 
         old_link = MappingRecordAllele(
             mapping_record_id=old_mapping_record.id,
+            score_set_id=old_mapping_record.score_set_id,
             allele_id=old_allele.id,
             is_authoritative=True,
         )
@@ -254,6 +258,7 @@ class TestWarmClingenCacheUnit:
 
         current_mapping_record = MappingRecord(
             variant_id=variant.id,
+            score_set_id=variant.score_set_id,
             assay_level="genomic",
             mapping_api_version="1.0.0",
             mapped_date=date.today(),
@@ -263,6 +268,7 @@ class TestWarmClingenCacheUnit:
 
         current_link = MappingRecordAllele(
             mapping_record_id=current_mapping_record.id,
+            score_set_id=current_mapping_record.score_set_id,
             allele_id=current_allele.id,
             is_authoritative=True,
         )

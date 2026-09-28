@@ -74,6 +74,7 @@ def _allele(session, digest, *, level="cdna", clingen_allele_id=None):
 def _record(session, variant, *, assay_level="cdna", hgvs_assay_level=None):
     record = MappingRecord(
         variant_id=variant.id,
+        score_set_id=variant.score_set_id,
         assay_level=assay_level,
         hgvs_assay_level=hgvs_assay_level,
         mapping_api_version="test.0.0",
@@ -85,7 +86,12 @@ def _record(session, variant, *, assay_level="cdna", hgvs_assay_level=None):
 
 def _link(session, record, allele, *, is_authoritative=False):
     session.add(
-        MappingRecordAllele(mapping_record_id=record.id, allele_id=allele.id, is_authoritative=is_authoritative)
+        MappingRecordAllele(
+            mapping_record_id=record.id,
+            score_set_id=record.score_set_id,
+            allele_id=allele.id,
+            is_authoritative=is_authoritative,
+        )
     )
     session.commit()
 

@@ -491,6 +491,7 @@ async def reverse_translate_variants_for_score_set(
             new_links.append(
                 MappingRecordAllele(
                     mapping_record_id=rec.id,
+                    score_set_id=rec.score_set_id,
                     allele_id=allele.id,
                     is_authoritative=False,
                     projection_group=projection_group,

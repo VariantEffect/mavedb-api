@@ -1014,6 +1014,7 @@ class TestMapVariantsForScoreSetUnit:
         session.commit()
         mapping_record = MappingRecord(
             variant_id=variant.id,
+            score_set_id=variant.score_set_id,
             assay_level=SequenceLevel.genomic,
             mapped_date=date(2023, 1, 1),
             mapping_api_version="v1.0.0",
@@ -1026,7 +1027,10 @@ class TestMapVariantsForScoreSetUnit:
         session.add(prior_allele)
         session.commit()
         prior_link = MappingRecordAllele(
-            mapping_record_id=mapping_record.id, allele_id=prior_allele.id, is_authoritative=True
+            mapping_record_id=mapping_record.id,
+            score_set_id=mapping_record.score_set_id,
+            allele_id=prior_allele.id,
+            is_authoritative=True,
         )
         session.add(prior_link)
         session.commit()
@@ -1541,6 +1545,7 @@ class TestMapVariantsForScoreSetIntegration:
         for variant in variants:
             mapping_record = MappingRecord(
                 variant_id=variant.id,
+                score_set_id=variant.score_set_id,
                 assay_level=SequenceLevel.genomic,
                 mapped_date=date(2023, 1, 1),
                 mapping_api_version="v1.0.0",

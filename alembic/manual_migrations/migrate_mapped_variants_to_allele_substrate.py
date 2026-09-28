@@ -800,6 +800,7 @@ def _backfill_annotation_timelines(
 def _migrate_variant(
     db: Session,
     variant_id: int,
+    score_set_id: int,
     mvs: list[MappedVariant],
     stats: Counter,
     skipped: dict[str, list[int]],
@@ -910,6 +911,7 @@ def _migrate_variant(
 
         record = MappingRecord(
             variant_id=variant_id,
+            score_set_id=score_set_id,
             vrs_digest=pre_mapped_digest,
             pre_mapped=pre_mapped_document,
             assay_level=level,
@@ -1124,6 +1126,9 @@ def do_migration(
                 )
             ).all()
         )
+        score_set_ids: dict[int, int] = dict(
+            db.execute(sa.select(Variant.id, Variant.score_set_id).where(Variant.id.in_(chunk))).tuples().all()
+        )
         candidate_digests = {(mv.post_mapped or {}).get("id") for mvs in mvs_by_variant.values() for mv in mvs}
         candidate_digests.discard(None)
         allele_cache: dict[str, Allele] = {}
@@ -1143,6 +1148,7 @@ def do_migration(
                     variant_touched_allele_ids = _migrate_variant(
                         db,
                         variant_id,
+                        score_set_ids[variant_id],
                         mvs_by_variant[variant_id],
                         stats,
                         skipped,
