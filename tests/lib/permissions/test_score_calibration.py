@@ -205,6 +205,46 @@ class TestScoreCalibrationReadActionHandler:
             assert result.http_code == test_case.expected_code
 
 
+class TestScoreCalibrationReadRequiresScoreSetRead:
+    """A calibration is never more visible than its score set, since its variant routes return the score set's scores."""
+
+    @pytest.mark.parametrize(
+        "user_type, should_be_permitted",
+        [
+            ("admin", True),
+            ("owner", True),
+            ("contributor", True),
+            ("mapper", True),
+            ("other_user", False),
+            ("anonymous", False),
+        ],
+    )
+    def test_published_calibration_on_private_score_set(
+        self, entity_helper: EntityTestHelper, user_type: str, should_be_permitted: bool
+    ) -> None:
+        score_calibration = entity_helper.create_score_calibration("published", score_set_state="private")
+
+        result = has_permission(entity_helper.create_user_data(user_type), score_calibration, Action.READ)
+
+        assert result.permitted == should_be_permitted
+        if not should_be_permitted:
+            assert result.http_code == 404
+
+    def test_owner_who_cannot_read_the_score_set_cannot_read_their_calibration(
+        self, entity_helper: EntityTestHelper
+    ) -> None:
+        # The calibration's creator is neither the score set's owner nor one of its contributors, e.g. after
+        # being removed from the contributor list.
+        score_calibration = entity_helper.create_score_calibration(
+            "private", investigator_provided=True, score_set_owner_id=7
+        )
+
+        result = has_permission(entity_helper.create_user_data("owner"), score_calibration, Action.READ)
+
+        assert not result.permitted
+        assert result.http_code == 404
+
+
 class TestScoreCalibrationUpdateActionHandler:
     """Test the _handle_update_action helper function directly."""
 

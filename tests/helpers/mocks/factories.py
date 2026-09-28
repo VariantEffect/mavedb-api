@@ -153,6 +153,10 @@ def create_mock_score_set(
     mock_target_gene = create_mock_target_gene()
     mock_experiment = create_mock_experiment()
 
+    # Read by the score set permission check, which calibration visibility depends on.
+    kwargs.setdefault("private", False)
+    kwargs.setdefault("contributors", [])
+
     return create_sealed_mock(
         urn=urn,
         title=title,

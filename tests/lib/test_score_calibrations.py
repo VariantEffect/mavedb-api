@@ -1193,10 +1193,37 @@ async def test_publish_score_calibration_marks_calibration_public(
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
+    existing_calibration.score_set.private = False
     assert existing_calibration.private is True
 
     published_calibration = publish_score_calibration(session, existing_calibration, test_user)
     assert published_calibration.private is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ],
+    ],
+    indirect=["mock_publication_fetch"],
+)
+async def test_cannot_publish_calibration_when_score_set_is_private(
+    setup_lib_db_with_score_set, session, mock_publication_fetch
+):
+    test_user = session.execute(select(User)).scalars().first()
+
+    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+        session, setup_lib_db_with_score_set.urn, test_user
+    )
+    assert existing_calibration.score_set.private is True
+
+    with pytest.raises(ValueError, match="Cannot publish a calibration whose score set is private."):
+        publish_score_calibration(session, existing_calibration, test_user)
+    assert existing_calibration.private is True
 
 
 @pytest.mark.asyncio
@@ -1218,6 +1245,7 @@ async def test_publish_score_calibration_user_is_set_as_modifier(
     existing_calibration = await create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
+    existing_calibration.score_set.private = False
 
     publish_user = session.execute(select(User).where(User.id != test_user.id)).scalars().first()
     published_calibration = publish_score_calibration(session, existing_calibration, publish_user)
