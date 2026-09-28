@@ -1,6 +1,7 @@
 # ruff: noqa: E402
 
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -32,6 +33,7 @@ from tests.helpers.util.score_calibration import create_publish_and_promote_scor
 from tests.helpers.util.score_set import (
     create_seq_score_set_with_mapped_variants,
     create_seq_score_set_with_variants,
+    publish_score_set,
 )
 
 
@@ -213,6 +215,8 @@ def test_show_mapped_variant_functional_impact_statement(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -294,6 +298,8 @@ def test_cannot_show_mapped_variant_functional_impact_statement_when_no_mapping_
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -360,6 +366,8 @@ def test_show_mapped_variant_clinical_evidence_line(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -441,6 +449,8 @@ def test_cannot_show_mapped_variant_clinical_evidence_line_when_no_mapping_data_
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )

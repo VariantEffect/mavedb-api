@@ -1818,8 +1818,9 @@ async def create_score_set(
             )
 
     if len(meta_analyzes_score_sets) > 0:
-        # If any existing score set is a meta-analysis for score sets in the same collection of experiment sets, use its
-        # experiment as the parent of our new meta-analysis. Otherwise, create a new experiment.
+        # If an existing score set is a meta-analysis for score sets in the same collection of experiment sets, and the
+        # user may add score sets to its experiment, use that experiment as the parent of our new meta-analysis.
+        # Otherwise, create a new experiment.
         meta_analyzes_experiment_sets = list(
             set(
                 (
@@ -1831,13 +1832,31 @@ async def create_score_set(
         )
         meta_analyzes_experiment_set_urns = [es.urn for es in meta_analyzes_experiment_sets if es.urn is not None]
         existing_meta_analyses = find_meta_analyses_for_experiment_sets(db, meta_analyzes_experiment_set_urns)
+        reusable_experiment = next(
+            (
+                meta_analysis.experiment
+                for meta_analysis in existing_meta_analyses
+                if has_permission(user_data, meta_analysis.experiment, Action.ADD_SCORE_SET).permitted
+            ),
+            None,
+        )
 
-        if len(existing_meta_analyses) > 0:
-            experiment = existing_meta_analyses[0].experiment
+        if reusable_experiment is not None:
+            experiment = reusable_experiment
         elif len(meta_analyzes_experiment_sets) == 1:
             # The analyzed score sets all belong to one experiment set, so the meta-analysis should go in that
-            # experiment set's meta-analysis experiment. But there is no meta-analysis experiment (or else we would
-            # have found it by looking at existing_meta_analyses[0].experiment), so we will create one.
+            # experiment set's meta-analysis experiment. An experiment set holds at most one meta-analysis experiment
+            # (see generate_experiment_urn), so if another user's private one exists we cannot create a second.
+            if len(existing_meta_analyses) > 0:
+                logger.info(
+                    msg="Failed to create score set; Another user's private meta-analysis experiment exists for the requested meta-analyzed score sets.",
+                    extra=logging_context(),
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail="A meta-analysis of these score sets is in progress by another user.",
+                )
+
             meta_analyzes_experiment_set = meta_analyzes_experiment_sets[0]
             experiment = Experiment(
                 experiment_set=meta_analyzes_experiment_set,
