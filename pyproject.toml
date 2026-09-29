@@ -111,8 +111,8 @@ testpaths = "tests/"
 pythonpath = "."
 norecursedirs = "tests/helpers/"
 markers = """
-    integration: tests that exercise multi-component flows and/or database interactions.
-    unit: fast unit tests with isolated dependencies.
+    integration: tests that exercise a multi-component flow end-to-end, with no internal mocking.
+    unit: fast, isolated tests. Real un-mocked collaborators are fine if they're local, fast, and deterministic.
     network: tests which interact with external services over a network connection.
     slow: tests which are slow running.
 """
