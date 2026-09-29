@@ -663,14 +663,14 @@ class TestMapVariantsForScoreSetUnit:
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
-            urn="variant:1",
+            urn="urn:mavedb:00000001-a-1#1",
         )
         variant2 = Variant(
             score_set_id=sample_score_set.id,
             hgvs_nt="NM_000000.1:c.2G>T",
             hgvs_pro="NP_000000.1:p.Val2Leu",
             data={},
-            urn="variant:2",
+            urn="urn:mavedb:00000001-a-1#2",
         )
         session.add_all([variant1, variant2])
         session.commit()
@@ -759,14 +759,14 @@ class TestMapVariantsForScoreSetUnit:
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
-            urn="variant:1",
+            urn="urn:mavedb:00000001-a-1#1",
         )
         variant2 = Variant(
             score_set_id=sample_score_set.id,
             hgvs_nt="NM_000000.1:c.2G>T",
             hgvs_pro="NP_000000.1:p.Val2Leu",
             data={},
-            urn="variant:2",
+            urn="urn:mavedb:00000001-a-1#2",
         )
         session.add_all([variant1, variant2])
         session.commit()
@@ -796,7 +796,7 @@ class TestMapVariantsForScoreSetUnit:
 
         # Verify that both variants have post-mapped data. I'm comfortable assuming the
         # data is correct given our layer permutation tests above.
-        for urn in ["variant:1", "variant:2"]:
+        for urn in ["urn:mavedb:00000001-a-1#1", "urn:mavedb:00000001-a-1#2"]:
             mapped_variant = session.query(MappedVariant).filter(MappedVariant.variant.has(urn=urn)).one_or_none()
             assert mapped_variant is not None
             assert mapped_variant.post_mapped != {}
