@@ -1,6 +1,11 @@
+# ruff: noqa: E402
+
 import threading
 
 import pytest
+
+pytest.importorskip("fastapi")
+
 from fastapi import HTTPException
 
 from mavedb.lib.csv import build_limiter
