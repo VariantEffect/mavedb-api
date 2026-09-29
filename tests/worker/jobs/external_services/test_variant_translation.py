@@ -11,6 +11,7 @@ from sqlalchemy import select
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus, PipelineStatus
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.models.variant_annotation_status import VariantAnnotationStatus
 from mavedb.models.variant_translation import VariantTranslation
@@ -370,7 +371,7 @@ class TestPopulateVariantTranslationsUnit:
         score_set_id = sample_populate_variant_translations_run.job_params["score_set_id"]
 
         variant2 = Variant(
-            urn="urn:variant:test-second-ca-allele",
+            urn=f"{session.get(ScoreSet, score_set_id).urn}#21",
             score_set_id=score_set_id,
             hgvs_nt="NM_000000.1:c.2T>G",
             hgvs_pro="NP_000000.1:p.Val2Gly",

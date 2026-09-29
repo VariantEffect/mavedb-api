@@ -349,7 +349,7 @@ class TestPopulateVepForScoreSetUnit:
 
         score_set = session.get(ScoreSet, sample_populate_vep_run.job_params["score_set_id"])
         variant_2 = Variant(
-            urn="urn:variant:test-variant-for-vep-2",
+            urn=f"{score_set.urn}#22",
             score_set_id=score_set.id,
             hgvs_nt=hgvs,
             data={"hgvs_c": hgvs},
