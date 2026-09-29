@@ -52,4 +52,4 @@ class Variant(Base):
 
 
 # Serves ordering a score set's variants by number, so deep pages of a large score set skip the full sort.
-Index("ix_variants_scoreset_id_variant_number", Variant.score_set_id, Variant.variant_number, Variant.id)
+Index("ix_variants_scoreset_number", Variant.score_set_id, Variant.variant_number, Variant.id)

@@ -11,7 +11,7 @@ from sqlalchemy import event, text
 from mavedb.lib.csv.columns import plan_csv_columns
 from mavedb.lib.csv.fetch import fetch_variant_csv_data
 
-VARIANT_NUMBER_INDEX = "ix_variants_scoreset_id_variant_number"
+VARIANT_NUMBER_INDEX = "ix_variants_scoreset_number"
 
 
 def _captured_variant_query(session, namespaces, start=None, limit=None):
