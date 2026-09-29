@@ -11,6 +11,7 @@ fastapi = pytest.importorskip("fastapi")
 biocommons = pytest.importorskip("biocommons")
 bioutils = pytest.importorskip("bioutils")
 
+from mavedb.routers import refget
 from tests.helpers.constants import TEST_SEQREPO_INITIAL_STATE, VALID_ENSEMBL_IDENTIFIER
 
 
@@ -193,8 +194,8 @@ def test_get_sequence_multiple_ids(client):
 
 def test_get_sequence_invalid_header_range_coords_start_larger_than_end(client):
     resp = client.get(f"/api/v1/refget/sequence/{VALID_ENSEMBL_IDENTIFIER}", headers={"Range": "bytes=12-10"})
-    assert resp.status_code == 501
-    assert "Invalid coordinates" in resp.text
+    assert resp.status_code == 400
+    assert "Invalid range header format" in resp.text
 
 
 def test_get_sequence_invalid_header_range_coords_start_too_large(client):
@@ -213,8 +214,18 @@ def test_get_sequence_invalid_header_range_coords_end_too_large(client):
 
 def test_get_sequence_invalid_query_range_coords_start_larger_than_end(client):
     resp = client.get(f"/api/v1/refget/sequence/{VALID_ENSEMBL_IDENTIFIER}", params={"start": 12, "end": 10})
-    assert resp.status_code == 501
+    assert resp.status_code == 416
     assert "Invalid coordinates" in resp.text
+    assert "Content-Range" in resp.headers
+
+
+def test_get_sequence_query_range_start_larger_than_end_on_circular_sequence_is_not_implemented(client, monkeypatch):
+    monkeypatch.setattr(refget, "CIRCULAR_SEQUENCE_ACCESSIONS", frozenset({VALID_ENSEMBL_IDENTIFIER}))
+
+    resp = client.get(f"/api/v1/refget/sequence/{VALID_ENSEMBL_IDENTIFIER}", params={"start": 12, "end": 10})
+
+    assert resp.status_code == 501
+    assert "circular chromosomes are not supported" in resp.text
 
 
 def test_get_sequence_invalid_query_range_coords_start_too_large(client):
