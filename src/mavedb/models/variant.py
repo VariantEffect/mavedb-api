@@ -41,16 +41,14 @@ class Variant(Base):
 
     @hybrid_property
     def variant_number(self) -> Optional[int]:
-        """The integer after '#' in the URN, which orders a score set's variants. None without a '#'."""
-        parts = (self.urn or "").split("#")
-        return int(parts[1]) if len(parts) > 1 and parts[1] else None
+        """The integer after '#' in the URN, which orders a score set's variants."""
+        return int(self.urn.split("#")[1]) if self.urn else None
 
     @variant_number.inplace.expression
     @classmethod
     def _variant_number_expression(cls) -> ColumnElement[int]:
-        # Order by this expression rather than restating it: the index below serves only an identical one. NULLIF
-        # keeps a URN with no '#' from failing the cast, so such variants sort last instead of breaking inserts.
-        return cast(func.nullif(func.split_part(cls.urn, "#", 2), ""), Integer)
+        # Order by this expression rather than restating it: the index below serves only an identical one.
+        return cast(func.split_part(cls.urn, "#", 2), Integer)
 
 
 # Serves ordering a score set's variants by number, so deep pages of a large score set skip the full sort.
