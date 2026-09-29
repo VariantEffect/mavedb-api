@@ -20,6 +20,8 @@ from starlette_context.plugins import (
 )
 
 from mavedb import __version__
+from mavedb.db.session import engine
+from mavedb.db.timeouts import SLOW_STATEMENT_SECONDS, apply_api_timeouts, log_slow_statements
 from mavedb.lib.exceptions import (
     AmbiguousIdentifierError,
     HGNCGeneNotFoundError,
@@ -75,6 +77,9 @@ logger = logging.getLogger(__name__)
 # Scan all our model classes and create backref attributes. Otherwise, these attributes only get added to classes once
 # an instance of the related class has been created.
 configure_mappers()
+
+apply_api_timeouts(engine)
+log_slow_statements(engine, SLOW_STATEMENT_SECONDS)
 
 # forward_retired_urns is applied to every route, so that one implementation forwards a read of a URN
 # publication has retired wherever that URN points: a record, or any of its sub-resources.
