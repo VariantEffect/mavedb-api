@@ -6,6 +6,7 @@ import re
 from copy import deepcopy
 from datetime import date
 from io import StringIO
+import threading
 from unittest.mock import patch
 
 import jsonschema
@@ -18,6 +19,7 @@ cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.annotation.annotate import variant_study_result
+from mavedb.lib.csv import build_limiter
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
@@ -3849,6 +3851,34 @@ def test_csv_routes_raise_the_statement_timeout(session, data_provider, client, 
 
     assert response.status_code == 200
     allow_long_statements.assert_called_once()
+
+
+@pytest.mark.parametrize("path", ["scores", "counts", "variants/data"])
+def test_csv_routes_refuse_large_builds_when_every_slot_is_held(
+    session, data_provider, client, setup_router_db, data_files, monkeypatch, path
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    held = threading.BoundedSemaphore(1)
+    held.acquire()
+    monkeypatch.setattr(build_limiter, "_slots", held)
+    monkeypatch.setattr(build_limiter, "CSV_BUILD_MIN_ROWS", 1)
+    monkeypatch.setattr(build_limiter, "CSV_BUILD_WAIT_SECONDS", 0.01)
+
+    refused = client.get(f"/api/v1/score-sets/{published_score_set['urn']}/{path}")
+
+    assert refused.status_code == 503
+    assert refused.headers["retry-after"] == str(build_limiter.RETRY_AFTER_SECONDS)
+    # A limit under the threshold is never refused, which keeps the score set page's previews working.
+    monkeypatch.setattr(build_limiter, "CSV_BUILD_MIN_ROWS", 2)
+    preview = client.get(f"/api/v1/score-sets/{published_score_set['urn']}/{path}?limit=1")
+    assert preview.status_code == 200
 
 
 # Deprecated query-parameter aliases. Galaxy and other external tooling call these endpoints, so the old
