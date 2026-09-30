@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session, contains_eager
 
 from mavedb import deps
 from mavedb.data_providers.services import CSV_UPLOAD_S3_BUCKET_NAME, s3_client
+from mavedb.db.timeouts import allow_long_statements
 from mavedb.lib.annotation.annotate import (
     variant_functional_impact_statement,
     variant_pathogenicity_statement,
@@ -1080,6 +1081,9 @@ def get_score_set_variants_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
+    # Full-table CSV builds legitimately outrun the API's default statement timeout.
+    allow_long_statements(db)
+
     csv_str = get_score_set_variants_as_csv(
         db,
         score_set,
@@ -1155,6 +1159,9 @@ def get_score_set_scores_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
+    # Full-table CSV builds legitimately outrun the API's default statement timeout.
+    allow_long_statements(db)
+
     # Both score namespaces: this endpoint has always returned every score column the investigator
     # uploaded, and `scores` alone is now just the required one.
     csv_str = get_score_set_variants_as_csv(
@@ -1177,7 +1184,7 @@ def get_score_set_scores_csv(
     },
     summary="Get score set counts in CSV format",
 )
-async def get_score_set_counts_csv(
+def get_score_set_counts_csv(
     *,
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
@@ -1222,6 +1229,9 @@ async def get_score_set_counts_csv(
         raise HTTPException(status_code=404, detail=f"score set with URN {urn} not found")
 
     assert_permission(user_data, score_set, Action.READ)
+
+    # Full-table CSV builds legitimately outrun the API's default statement timeout.
+    allow_long_statements(db)
 
     csv_str = get_score_set_variants_as_csv(db, score_set, ["counts"], False, start, limit, drop_unused_hgvs_columns)
     return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)

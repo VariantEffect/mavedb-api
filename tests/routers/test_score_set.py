@@ -3834,6 +3834,23 @@ def test_download_counts_file(session, data_provider, client, setup_router_db, d
     assert "hgvs_splice" not in columns
 
 
+@pytest.mark.parametrize("path", ["scores", "counts", "variants/data"])
+def test_csv_routes_raise_the_statement_timeout(session, data_provider, client, setup_router_db, data_files, path):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    with patch("mavedb.routers.score_sets.allow_long_statements") as allow_long_statements:
+        response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}/{path}")
+
+    assert response.status_code == 200
+    allow_long_statements.assert_called_once()
+
+
 # Deprecated query-parameter aliases. Galaxy and other external tooling call these endpoints, so the old
 # names keep working for a release rather than being silently ignored.
 def test_deprecated_drop_na_columns_still_drops_unused_hgvs_columns(
