@@ -93,7 +93,7 @@ class VariantAnnotationStatus(Base):
         # FK index for job_run_id — needed for CASCADE deletes on job_runs
         Index("ix_variant_annotation_status_job_run_id", "job_run_id"),
         CheckConstraint(
-            "annotation_type IN ('vrs_mapping', 'clingen_allele_id', 'mapped_hgvs', 'variant_translation', 'gnomad_allele_frequency', 'clinvar_control', 'vep_functional_consequence', 'ldh_submission')",
+            "annotation_type IN ('vrs_mapping', 'cross_level_translation', 'clingen_allele_id', 'mapped_hgvs', 'variant_translation', 'gnomad_allele_frequency', 'clinvar_control', 'vep_functional_consequence', 'ldh_submission')",
             name="ck_variant_annotation_type_valid",
         ),
         CheckConstraint(

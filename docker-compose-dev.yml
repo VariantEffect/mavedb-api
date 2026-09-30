@@ -20,6 +20,7 @@ services:
       REDIS_PORT: 6379
       REDIS_SSL: "false"
       LOG_CONFIG: dev
+      PYTHONPATH: "/variant-annotation:/code/src"
     ports:
       - "8002:8000"
     ulimits:
@@ -28,6 +29,7 @@ services:
         hard: 65536
     volumes:
       - .:/code
+      - ../variant-annotation:/variant-annotation
       - mavedb-seqrepo-dev:/usr/local/share/seqrepo
 
   worker:
@@ -45,12 +47,14 @@ services:
       REDIS_PORT: 6379
       REDIS_SSL: "false"
       LOG_CONFIG: dev
+      PYTHONPATH: "/variant-annotation:/code/src"
     ulimits:
       nofile:
         soft: 65536
         hard: 65536
     volumes:
       - .:/code
+      - ../variant-annotation:/variant-annotation
       - mavedb-seqrepo-dev:/usr/local/share/seqrepo
     depends_on:
       - db

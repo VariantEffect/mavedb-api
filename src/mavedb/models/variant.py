@@ -10,18 +10,19 @@ from mavedb.db.base import Base
 
 if TYPE_CHECKING:
     from .mapped_variant import MappedVariant
+    from .mapping_record import MappingRecord
     from .score_set import ScoreSet
 
 
 class Variant(Base):
     __tablename__ = "variants"
 
-    id = Column(Integer, primary_key=True)
+    id: Mapped[int] = Column(Integer, primary_key=True)
 
     urn = Column(String(64), index=True, nullable=True, unique=True)
     data = Column(JSONB, nullable=False)
 
-    score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=False)
+    score_set_id: Mapped[int] = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=False)
     # TODO examine if delete-orphan is necessary, explore cascade
     score_set: Mapped["ScoreSet"] = relationship(back_populates="variants")
 
@@ -36,8 +37,18 @@ class Variant(Base):
         back_populates="variant", cascade="all, delete-orphan"
     )
 
+    mapping_records: Mapped[List["MappingRecord"]] = relationship(
+        back_populates="variant", cascade="all, delete-orphan"
+    )
+
     # Bidirectional relationship with ScoreCalibrationFunctionalClassification is left
     # purposefully undefined for performance reasons.
+
+    __table_args__ = (
+        # Target of mapping_records' composite (variant_id, score_set_id) foreign key. The records
+        # carry their score set so an RLS policy can check it without joining through variants (#833).
+        Index("uq_variants_id_scoreset", id, score_set_id, unique=True),
+    )
 
     @hybrid_property
     def variant_number(self) -> Optional[int]:

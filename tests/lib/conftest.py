@@ -135,6 +135,9 @@ def setup_lib_db_with_variant(session, setup_lib_db_with_score_set):
 def setup_lib_db_with_mapped_variant(session, setup_lib_db_with_variant):
     """
     Sets up the lib test db with a user, reference, license, and a score set.
+
+    Seeds only the frozen ``MappedVariant`` table; tests that need a mapping on the allele substrate seed
+    their own record, so that they control its alleles. ``tests/lib/csv`` overrides this to add one.
     """
 
     mapped_variant = MappedVariant(**TEST_MINIMAL_MAPPED_VARIANT, variant_id=setup_lib_db_with_variant.id)
@@ -305,6 +308,23 @@ def mock_mapped_variant(mock_variant):
     mv.modification_date = datetime(2023, 1, 3)
 
     return mv
+
+
+@pytest.fixture
+def mock_mapping_record(mock_mapped_variant):
+    # Pre-mapped data and the mapping API version now live on the per-variant MappingRecord.
+    rec = mock.Mock()
+    rec.pre_mapped = mock_mapped_variant.pre_mapped
+    rec.mapping_api_version = mock_mapped_variant.mapping_api_version
+    return rec
+
+
+@pytest.fixture
+def mock_allele(mock_mapped_variant):
+    # Post-mapped data now lives on the (cross-variant deduped) Allele.
+    allele = mock.Mock()
+    allele.post_mapped = mock_mapped_variant.post_mapped
+    return allele
 
 
 @pytest.fixture

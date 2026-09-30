@@ -10,14 +10,11 @@ marked deprecated in OpenAPI, and each use is logged so we can see who is left b
 TODO(#XXX): remove this module once clients have migrated.
 """
 
-import logging
 from dataclasses import dataclass, field
 from typing import List, Optional
 
 from mavedb.lib.csv.namespaces import CsvNamespace
-from mavedb.lib.logging.context import save_to_logging_context
-
-logger = logging.getLogger(__name__)
+from mavedb.lib.deprecation import deprecation_headers, record_deprecated_usage
 
 
 DROP_NA_COLUMNS_DESCRIPTION = (
@@ -48,12 +45,7 @@ class ResolvedCsvParams:
 
     def _record(self, name: str, replacement: str) -> None:
         self.deprecations[name] = replacement
-        save_to_logging_context({"deprecated_query_parameters": sorted(self.deprecations), "deprecation_marker": True})
-        logger.warning(
-            msg=f"Request used the deprecated query parameter '{name}'; it will be removed in a future"
-            f" release. Use '{replacement}' instead.",
-            extra={"deprecated_query_parameter": name, "replacement_query_parameter": replacement},
-        )
+        record_deprecated_usage(name, successor=replacement)
 
     @property
     def response_headers(self) -> dict[str, str]:
@@ -64,11 +56,7 @@ class ResolvedCsvParams:
         warnings = "; ".join(
             f"{name} is deprecated, use {replacement}" for name, replacement in sorted(self.deprecations.items())
         )
-        return {
-            # RFC 8594. No Sunset header: the removal release is not scheduled.
-            "Deprecation": "true",
-            "Warning": f'299 - "{warnings}"',
-        }
+        return deprecation_headers(successor=None, warning=warnings)
 
 
 def resolve_deprecated_csv_params(

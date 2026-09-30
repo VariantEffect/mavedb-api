@@ -9,12 +9,16 @@ from datetime import date, timedelta
 from unittest.mock import ANY, MagicMock, call, patch
 
 from mavedb.lib.mondo import get_generic_disease_term
+from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.calibration_control import CalibrationControl
+from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.calibration_control_status import CalibrationControlStatus
+from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.job_run import JobRun
+from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
@@ -289,6 +293,80 @@ class TestCreateVariantsForScoreSetUnit:
         # Verify that existing variants have been removed
         remaining_variants = session.query(Variant).filter(Variant.score_set_id == sample_score_set.id).all()
         assert len(remaining_variants) == 0
+        session.refresh(sample_score_set)
+        assert sample_score_set.num_variants == 0  # Updated after creation
+
+    async def test_create_variants_for_score_set_removes_existing_mapped_variants_before_creation(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_populated_domain_data,
+        mock_worker_ctx,
+        mock_s3_client,
+        create_variants_sample_params,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        sample_score_set,
+        sample_independent_variant_creation_run,
+    ):
+        # An existing variant that has been mapped: its mapping record and annotation event must not
+        # block its removal.
+        sample_score_set.num_variants = 1
+        variant = Variant(data={}, score_set_id=sample_score_set.id)
+        session.add(variant)
+        session.commit()
+        session.add(
+            MappingRecord(
+                variant_id=variant.id,
+                score_set_id=sample_score_set.id,
+                assay_level="cdna",
+                mapping_api_version="test.0.0",
+            )
+        )
+        session.add(
+            AnnotationEvent(
+                annotation_type=AnnotationType.VRS_MAPPING,
+                variant_id=variant.id,
+                disposition=Disposition.PRESENT,
+                reason="mapped",
+            )
+        )
+        session.commit()
+        variant_id = variant.id
+
+        with (
+            patch.object(mock_s3_client, "download_fileobj", return_value=None),
+            # Mock pd.read_csv to return sample dataframes
+            patch(
+                "mavedb.worker.jobs.variant_processing.creation.pd.read_csv",
+                side_effect=[sample_score_dataframe, sample_count_dataframe],
+            ),
+            patch(
+                "mavedb.worker.jobs.variant_processing.creation.validate_and_standardize_dataframe_pair",
+                return_value=(
+                    sample_score_dataframe,
+                    sample_count_dataframe,
+                    create_variants_sample_params["score_columns_metadata"],
+                    create_variants_sample_params["count_columns_metadata"],
+                ),
+            ),
+            patch(
+                "mavedb.worker.jobs.variant_processing.creation.create_variants_data",
+                return_value=[MagicMock(spec=Variant)],
+            ),
+            patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
+        ):
+            await create_variants_for_score_set(
+                mock_worker_ctx,
+                sample_independent_variant_creation_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_independent_variant_creation_run.id),
+            )
+
+        # Verify that existing variants have been removed
+        remaining_variants = session.query(Variant).filter(Variant.score_set_id == sample_score_set.id).all()
+        assert len(remaining_variants) == 0
+        assert session.query(MappingRecord).filter(MappingRecord.score_set_id == sample_score_set.id).count() == 0
+        assert session.query(AnnotationEvent).filter(AnnotationEvent.variant_id == variant_id).count() == 0
         session.refresh(sample_score_set)
         assert sample_score_set.num_variants == 0  # Updated after creation
 

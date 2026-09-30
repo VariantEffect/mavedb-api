@@ -1,7 +1,7 @@
 """Add urn_redirects, forwarding URNs that publication has retired
 
 Revision ID: c4b18d0f7a92
-Revises: a7f3c2e9b104
+Revises: 393764b9e833
 Create Date: 2026-09-01 00:00:00.000000
 
 """
@@ -11,7 +11,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "c4b18d0f7a92"
-down_revision = "a7f3c2e9b104"
+down_revision = "393764b9e833"
 branch_labels = None
 depends_on = None
 

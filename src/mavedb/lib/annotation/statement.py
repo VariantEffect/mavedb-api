@@ -10,6 +10,7 @@ from ga4gh.va_spec.base.core import (
 )
 
 from mavedb.lib.annotation.classification import ExperimentalVariantFunctionalImpactClassification
+from mavedb.lib.annotation.context import VariantAnnotationContext
 from mavedb.lib.annotation.contribution import (
     mavedb_api_contribution,
     mavedb_score_calibration_contribution,
@@ -20,23 +21,22 @@ from mavedb.lib.annotation.method import (
     variant_interpretation_functional_guideline_method,
     variant_interpretation_pathogenicity_guideline_method,
 )
-from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 
 
-def mapped_variant_to_functional_statement(
-    mapped_variant: MappedVariant,
+def functional_statement(
+    context: VariantAnnotationContext,
     proposition: ExperimentalVariantFunctionalImpactProposition,
     evidence: list[EvidenceLine],
     score_calibration: ScoreCalibration,
     functional_classification: ExperimentalVariantFunctionalImpactClassification,
 ) -> Statement:
     """
-    Create a functional impact statement for a mapped variant.
+    Create a functional impact statement for a variant.
 
     Args:
-        mapped_variant: The variant being classified
+        context: The variant's annotation context (variant + mapping-record provenance)
         proposition: The functional impact proposition
         evidence: List of evidence lines supporting the statement
         score_calibration: The score calibration with the strongest evidence
@@ -48,11 +48,11 @@ def mapped_variant_to_functional_statement(
     direction = aggregate_direction_of_evidence(evidence)
 
     return Statement(
-        description=f"Variant functional impact statement for {mapped_variant.variant.urn}.",
+        description=f"Variant functional impact statement for {context.variant.urn}.",
         specifiedBy=variant_interpretation_functional_guideline_method(),
         contributions=[
             mavedb_api_contribution(),
-            mavedb_vrs_contribution(mapped_variant),
+            mavedb_vrs_contribution(context),
             mavedb_score_calibration_contribution(score_calibration),
         ],
         proposition=proposition,
@@ -67,18 +67,18 @@ def mapped_variant_to_functional_statement(
     )
 
 
-def mapped_variant_to_pathogenicity_statement(
-    mapped_variant: MappedVariant,
+def pathogenicity_statement(
+    context: VariantAnnotationContext,
     proposition: VariantPathogenicityProposition,
     evidence: list[VariantPathogenicityEvidenceLine],
     score_calibration: ScoreCalibration,
     functional_range: Optional[ScoreCalibrationFunctionalClassification],
 ) -> VariantPathogenicityStatement:
     """
-    Create a pathogenicity statement for a mapped variant.
+    Create a pathogenicity statement for a variant.
 
     Args:
-        mapped_variant: The variant being classified
+        context: The variant's annotation context (variant + mapping-record provenance)
         proposition: The pathogenicity proposition
         evidence: List of evidence lines supporting the statement
         score_calibration: The score calibration with the strongest evidence
@@ -105,11 +105,11 @@ def mapped_variant_to_pathogenicity_statement(
         acmg_classification = AcmgClassification.UNCERTAIN_SIGNIFICANCE
 
     return VariantPathogenicityStatement(
-        description=f"Variant pathogenicity statement for {mapped_variant.variant.urn}.",
+        description=f"Variant pathogenicity statement for {context.variant.urn}.",
         specifiedBy=variant_interpretation_pathogenicity_guideline_method(),
         contributions=[
             mavedb_api_contribution(),
-            mavedb_vrs_contribution(mapped_variant),
+            mavedb_vrs_contribution(context),
             mavedb_score_calibration_contribution(score_calibration),
         ],
         proposition=proposition,

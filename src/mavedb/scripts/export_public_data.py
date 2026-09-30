@@ -30,14 +30,19 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, lazyload
 
 from mavedb.lib.annotation.annotate import variant_highest_level_annotation
+from mavedb.lib.annotation.context import variant_annotation_context
+from mavedb.lib.alleles import get_live_record_allele_links
+from mavedb.lib.cat_vrs import build_categorical_variant
+from mavedb.lib.csv.entries import score_sets_have_current_mappings
 from mavedb.lib.csv.namespaces import CsvNamespace
 from mavedb.lib.csv.score_set import (
     available_score_set_csv_namespaces,
     get_score_set_variants_as_csv,
 )
+from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
-from mavedb.lib.score_sets import get_current_mapped_variants_for_annotation
+from mavedb.lib.score_sets import get_annotatable_variants
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.license import License
@@ -61,33 +66,29 @@ PUBLIC_DUMP_LICENSE = "CC0"
 """The only license whose data the dump may carry."""
 
 
+def _emit_legacy_mapped_variants_artifact() -> bool:
+    """Whether to emit the deprecated ``mapped/{urn}.mapped-variants.json`` artifact.
+
+    Superseded by ``vrs/{urn}.vrs.ndjson`` and removed with the MappedVariant table drop; kept for a
+    deprecation window until then. Set ``EXPORT_LEGACY_MAPPED_VARIANTS=0`` (or ``false``/``no``/``off``) to
+    stop emitting it before the boundary. Defaults to on.
+    """
+    return os.getenv("EXPORT_LEGACY_MAPPED_VARIANTS", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 def annotation_export_namespaces(db: Session, score_set: ScoreSet, viewer: ScoreCalibrationViewer) -> list[str]:
     """The namespaces the public annotations CSV should carry for this score set.
 
-    *viewer* has no default on purpose. Discovery resolves an omitted viewer to the public subset, which
-    is the right answer for the dump but the wrong way to arrive at it: the archive's audience is a
-    decision this script makes, so it says so rather than inheriting it.
+    *viewer* has no default: the dump always targets the anonymous/public audience, and that should be
+    explicit here rather than inherited from discovery's default.
 
-    Asks discovery what the score set actually has rather than naming groups by hand. The previous
-    hand-maintained list enumerated ClinVar releases one by one, so it emitted all-NA columns for releases
-    never ingested, needed a code change for every new release, and was fragile to schema changes.
+    Derived from discovery rather than a hand-maintained list, so a new release needs no code change here.
+    Includes everything discovery finds regardless of `selected_by_default` (a UI attention flag, not a
+    completeness one) or `research_use_only` (each group carries its own `research_use_only` column, so
+    consumers can filter on the data itself — VA-Spec NDJSON follows a different rule, see TODO(#803)).
 
-    The archive carries everything MaveDB holds about the score set, so this takes what discovery found
-    and subtracts from it rather than opting groups in.
-
-    In particular it does not filter on `selected_by_default`. That flag answers "what should a download
-    dialog open on", which is a question about attention rather than about what exists, and the reasons a
-    group opens unchecked are not interchangeable. An archive is about completeness, not about what a user
-    should be nudged to look at first.
-
-    Nor does it filter on `research_use_only`. A research-use-only calibration is public data, and every
-    group it produces carries a `research_use_only` column stating its standing, so a consumer can filter
-    on the data itself. VA-Spec NDJSON follows a different rule currently, see TODO(#803).
-
-    Subtractions:
-
-    - Every score and count group, and the score set's own identity: scores and counts get their own
-      files, and the URN is in the filename, so repeating either would be noise.
+    Excludes the score, count, and score-set-identity groups: those get their own files, and the URN is
+    already in the filename.
     """
     excluded = {
         CsvNamespace.SCORES,
@@ -107,20 +108,31 @@ def flatmap(f: Callable[[S], Iterable[T]], items: Iterable[S]) -> Iterable[T]:
 
 
 def archive_path_base(score_set_urn: str) -> str:
-    """The filename stem a score set's artifacts share, e.g. ``urn-mavedb-00000001-a-1``.
+    """The filename stem shared by a score set's artifacts, e.g. ``urn-mavedb-00000001-a-1``.
 
-    Colons are not portable in archive member names on every platform, so the URN is hyphenated. The
-    README documents the substitution as the way back to the URN, which makes it part of the published
-    contract rather than an implementation detail.
+    Colons aren't portable in archive member names on every platform, so the URN is hyphenated. The
+    README documents the substitution as the way back to the URN.
     """
     return score_set_urn.replace(":", "-")
 
 
 def score_set_has_current_mappings(db: Session, score_set: ScoreSet) -> bool:
-    """Whether any variant in the score set has a current mapping.
+    """Whether any variant in the score set has a live mapping on the allele substrate.
 
-    Gates the three mapping-derived artifacts. A score set whose mappings are all superseded yields no
-    annotations, so emitting empty files for it would advertise absence as data.
+    Gates the artifacts built from that substrate, so a score set whose mappings are all superseded
+    doesn't emit empty files. Reads the same predicate CSV discovery uses rather than the frozen
+    ``MappedVariant`` table, which no longer gets writes and would report every score set mapped since
+    the migration as unmapped.
+    """
+    # TODO(#372): non-null id fields
+    return score_sets_have_current_mappings(db, [score_set.id])  # type: ignore
+
+
+def score_set_has_legacy_mapped_variants(db: Session, score_set: ScoreSet) -> bool:
+    """Whether the frozen ``MappedVariant`` table still holds current rows for this score set.
+
+    Gates ``mapped/{urn}.mapped-variants.json``, the one artifact still sourced from that table. Score
+    sets mapped after the allele-substrate migration have no such rows.
     """
     return (
         db.scalars(
@@ -152,9 +164,8 @@ def counts_csv(db: Session, score_set: ScoreSet) -> Optional[str]:
 def annotations_csv(db: Session, score_set: ScoreSet, viewer: ScoreCalibrationViewer) -> str:
     """`csv/{urn}.annotations.csv` — every annotation namespace discovery offers for the score set.
 
-    The same *viewer* selects the namespaces and resolves their cells. Threading one viewer through both
-    is what keeps a calibration from being offered as a column group and then withheld as data, or the
-    reverse.
+    The same *viewer* selects the namespaces and resolves their cells, so a calibration can't be offered
+    as a column group and then withheld as data, or vice versa.
     """
     return get_score_set_variants_as_csv(
         db,
@@ -168,8 +179,11 @@ def annotations_csv(db: Session, score_set: ScoreSet, viewer: ScoreCalibrationVi
 def mapped_variants_json(db: Session, score_set: ScoreSet) -> str:
     """`mapped/{urn}.mapped-variants.json` — the score set's current mapped variants.
 
-    Same shape as GET /api/v1/score-sets/{urn}/mapped-variants, but narrower: that endpoint also
-    returns superseded mappings, while this dump includes only each variant's current mapping.
+    Legacy, and the last artifact sourced from the frozen ``MappedVariant`` table. The endpoint this
+    once mirrored is gone — GET /score-sets/{urn}/mapped-variants now returns 410, and its replacement
+    serves a different field shape (see ``get_score_set_mapped_variants_removed``).
+    ``vrs/{urn}.vrs.ndjson`` supersedes this file in the archive. Only each variant's current mapping
+    is included, never a superseded one.
     """
     mapped_variants = db.scalars(
         select(MappedVariant)
@@ -184,16 +198,20 @@ def mapped_variants_json(db: Session, score_set: ScoreSet) -> str:
 
 
 def va_ndjson(db: Session, score_set: ScoreSet, principal: Principal) -> str:
-    """`va/{urn}.va.ndjson` — one record per current mapped variant at its highest materialized VA level.
+    """`va/{urn}.va.ndjson` — one record per annotatable variant at its highest materialized VA level.
 
-    Mirrors the GET /api/v1/score-sets/{urn}/annotated-variants/* streams. Every record is
-    newline-terminated, the last one included, so a line-based consumer needs no special case.
+    Mirrors the GET /api/v1/score-sets/{urn}/annotated-variants/* streams, which select the same set.
+    Every record is newline-terminated, including the last, so a line-based consumer needs no special
+    case. A variant the pipeline could not place carries no post-mapped allele, is therefore not
+    annotatable, and contributes no line; ``annotation`` is null where a placed variant yields no
+    VA-Spec layer.
     """
     lines = []
-    for mv in get_current_mapped_variants_for_annotation(db, score_set):
-        annotation = variant_highest_level_annotation(mv, principal=principal)
+    for variant in get_annotatable_variants(db, score_set):
+        context = variant_annotation_context(db, variant)
+        annotation = variant_highest_level_annotation(context, principal=principal) if context is not None else None
         record = {
-            "variant_urn": mv.variant.urn,
+            "variant_urn": variant.urn,
             "annotation": annotation.model_dump(exclude_none=True) if annotation else None,
         }
         lines.append(json.dumps(record, default=str))
@@ -201,16 +219,53 @@ def va_ndjson(db: Session, score_set: ScoreSet, principal: Principal) -> str:
     return "".join(line + "\n" for line in lines)
 
 
+def vrs_ndjson(db: Session, score_set: ScoreSet) -> str:
+    """`vrs/{urn}.vrs.ndjson` — GA4GH VRS objects for each mapped variant, one line each.
+
+    Carries the VRS pair plus the Cat-VRS categorical variant, built from the same live allele links
+    `GET /variants/{urn}` serves. Its own artifact rather than CSV columns because these are nested
+    objects; join to `annotations.csv` on `mavedb.post_mapped_vrs_id`.
+
+    `pre_mapped` is the assayed-level VRS on the target's own reference; `post_mapped` is the measured
+    allele lifted to a genomic or transcript reference. `categorical_variant` is spec-pure Cat-VRS (no
+    MaveDB fields), anchored on the measured allele with the derived alleles as members — null when
+    there's no hydratable authoritative allele.
+
+    Emitted for every mapped variant regardless of calibration visibility, since none of this is
+    calibration-derived.
+    """
+    lines = []
+    for variant in get_annotatable_variants(db, score_set):
+        links = get_live_record_allele_links(db, variant.id)
+        authoritative = next((link.allele for link in links if link.is_authoritative), None)
+        record = next((link.mapping_record for link in links), None)
+        transit = build_categorical_variant(links, name=variant.urn or "")
+
+        lines.append(
+            json.dumps(
+                {
+                    "variant_urn": variant.urn,
+                    "pre_mapped": record.pre_mapped if record is not None else None,
+                    "post_mapped": authoritative.post_mapped if authoritative is not None else None,
+                    "categorical_variant": (
+                        transit.categorical_variant.model_dump(mode="json", exclude_none=True)
+                        if transit is not None
+                        else None
+                    ),
+                },
+                default=str,
+            )
+        )
+
+    return "".join(line + "\n" for line in lines)
+
+
 def score_set_artifacts(db: Session, score_set: ScoreSet, principal: Principal) -> Iterator[tuple[str, str]]:
     """Every archive entry one score set contributes, as ``(path within the zip, content)`` pairs.
 
-    Scores are unconditional. Counts appear only where count columns are defined, and the three
-    mapping-derived artifacts only where a current mapping exists — see the README's caveats, which
-    promise exactly this and are what a consumer checks a missing file against.
-
-    A generator rather than a dict so the caller writes each artifact and lets it go. Returning them
-    together would hold all four of a score set's payloads in memory at once, and one score set's
-    ``va.ndjson`` alone runs to tens of kilobytes per variant once a pathogenicity layer materializes.
+    Scores are unconditional; counts and the mapping-derived artifacts appear only when the score set
+    has them — see the README's caveats. A generator rather than a dict so the caller writes and
+    releases each artifact, instead of holding a score set's full payload in memory at once.
     """
     base = archive_path_base(str(score_set.urn))
     viewer = principal.viewer_for(ScoreCalibrationViewer)
@@ -219,8 +274,11 @@ def score_set_artifacts(db: Session, score_set: ScoreSet, principal: Principal) 
 
     if score_set_has_current_mappings(db, score_set):
         yield f"csv/{base}.annotations.csv", annotations_csv(db, score_set, viewer)
-        yield f"mapped/{base}.mapped-variants.json", mapped_variants_json(db, score_set)
+        yield f"vrs/{base}.vrs.ndjson", vrs_ndjson(db, score_set)
         yield f"va/{base}.va.ndjson", va_ndjson(db, score_set, principal)
+
+    if _emit_legacy_mapped_variants_artifact() and score_set_has_legacy_mapped_variants(db, score_set):
+        yield f"mapped/{base}.mapped-variants.json", mapped_variants_json(db, score_set)
 
     counts = counts_csv(db, score_set)
     if counts is not None:
@@ -228,26 +286,32 @@ def score_set_artifacts(db: Session, score_set: ScoreSet, principal: Principal) 
 
 
 def public_experiment_set(
-    experiment_set_view: ExperimentSetPublicDump, visible_calibration_ids: set[int]
+    experiment_set_view: ExperimentSetPublicDump,
+    visible_calibration_ids: set[int],
+    readable_superseding_urns: set[str],
 ) -> Optional[ExperimentSetPublicDump]:
-    """
-    Narrow a validated experiment set to what belongs in the public dump.
+    """Narrow a validated experiment set to what belongs in the public dump.
 
-    Drops calibrations an anonymous caller may not read, then experiments left with no score sets, and
-    returns None for an experiment set left with no experiments. The score sets themselves need no filter:
-    the loading query already restricts them to published, CC0-licensed ones.
+    Drops calibrations the caller may not READ, blanks a superseding score set the caller may not READ,
+    drops experiments left with no score sets, and returns None if no experiments remain. The score sets
+    themselves need no filter — the loading query already restricts them to published, CC0-licensed rows.
 
-    Narrowing the validated view rather than the ORM graph is deliberate. ``ExperimentSet.experiments`` and
-    ``ScoreSet.score_calibrations`` are both mapped with ``cascade="all, delete-orphan"``, so removing a
-    member from either ORM collection marks the removed row as an orphan and the next flush deletes it.
-    This script can flush: ``with_database_session`` commits when invoked with ``--commit``.
+    Blanking supersession matters because a published score set is often superseded by a *private*
+    in-progress replacement; without it, `main.json` would name an unreleased score set's URN and title
+    in an archive published to Zenodo, which can't be recalled.
 
-    Args:
-        experiment_set_view (ExperimentSetPublicDump): The validated experiment set to narrow.
-        visible_calibration_ids (set[int]): Ids of the calibrations an anonymous caller may read.
+    `readable_superseding_urns` gates on READ, the rule `_score_set_response` applies. It is
+    defense-in-depth rather than the live gate, and it can only subtract: `published_experiment_sets`
+    loads members through a published+CC0 filter that propagates to `superseding_score_set`, so a
+    private replacement is already `None` before this runs — and so is a *published* successor whose
+    license keeps it out of the archive. That second case is unresolved: the consumer reads a superseded
+    score set as current. Naming it would need the successor fetched by a separate unfiltered query and
+    injected into the view, not merely left un-blanked; whether it should be named is an open policy
+    question. Both behaviors are pinned by
+    `test_supersession_is_named_only_when_the_archive_carries_the_successor`.
 
-    Returns:
-        Optional[ExperimentSetPublicDump]: The narrowed experiment set, or None if nothing public remains.
+    Narrows the validated view rather than the ORM graph because `ExperimentSet.experiments` and
+    `ScoreSet.score_calibrations` cascade-delete orphans, and this script can flush (`--commit`).
     """
     experiments = []
     for experiment_view in experiment_set_view.experiments:
@@ -261,7 +325,13 @@ def public_experiment_set(
                         calibration
                         for calibration in (score_set_view.score_calibrations or [])
                         if calibration.id in visible_calibration_ids
-                    ]
+                    ],
+                    "superseding_score_set": (
+                        score_set_view.superseding_score_set
+                        if score_set_view.superseding_score_set is not None
+                        and score_set_view.superseding_score_set.urn in readable_superseding_urns
+                        else None
+                    ),
                 }
             )
             for score_set_view in experiment_view.score_sets
@@ -275,11 +345,11 @@ def public_experiment_set(
 
 
 def published_experiment_sets(db: Session) -> list[ExperimentSet]:
-    """Every published experiment set, with its members narrowed to what the dump may carry.
+    """Every published experiment set, with members narrowed to what the dump may carry.
 
-    The narrowing is in the loader rather than applied afterwards, so an unpublished experiment or a
-    non-CC0 score set is never loaded onto the graph the metadata view is validated from. An experiment
-    set can survive this with no members left; ``public_experiment_set`` drops those.
+    Narrowing happens in the loader so an unpublished experiment or non-CC0 score set is never loaded
+    onto the graph the metadata view validates from. An experiment set can still end up with no members
+    left; `public_experiment_set` drops those.
     """
     return list(
         db.scalars(
@@ -304,13 +374,11 @@ def published_experiment_sets(db: Session) -> list[ExperimentSet]:
 def public_dump_metadata(db: Session, principal: Principal) -> tuple[dict, list[str]]:
     """The `main.json` payload, and the score-set URNs whose artifacts the archive carries.
 
-    One function for both because they are one decision: a score set is in the archive exactly when its
-    metadata survived narrowing, so deriving the URN list from the narrowed views rather than from the
-    query keeps the two from disagreeing.
+    One function for both: a score set is in the archive exactly when its metadata survives narrowing,
+    so deriving the URN list from the narrowed views (not the query) keeps the two in sync.
 
-    Publishing a score set does not publish its calibrations — a calibration keeps its own `private` flag
-    and a stricter READ rule — so which calibrations appear is asked of *principal* rather than inferred
-    from the score set's own visibility.
+    Calibration visibility is asked of *principal* rather than inferred from score-set visibility, since
+    publishing a score set doesn't publish its calibrations.
     """
     experiment_sets = published_experiment_sets(db)
 
@@ -333,10 +401,24 @@ def public_dump_metadata(db: Session, principal: Principal) -> tuple[dict, list[
     # Issue: https://github.com/VariantEffect/mavedb-api/issues/192
     # See, for instance, https://stackoverflow.com/questions/12670395/json-encoding-very-long-iterators.
 
+    # Asked of the ORM graph, not the validated views: a successor is typically outside the loading
+    # query's published+CC0 filter, so checking the view would miss it. READ is the gate, but this set
+    # only ever subtracts — the loader nulls a non-CC0 successor on the view first, so being readable
+    # here is not enough to get one named. See `public_experiment_set`.
+    readable_superseding_urns: set[str] = {
+        str(score_set_orm.superseding_score_set.urn)
+        for score_set_orm in flatmap(lambda es: flatmap(lambda e: e.score_sets, es.experiments), experiment_sets)
+        if score_set_orm.superseding_score_set is not None
+        and score_set_orm.superseding_score_set.urn is not None
+        and has_permission(principal.user_data, score_set_orm.superseding_score_set, Action.READ).permitted
+    }
+
     experiment_set_views = [
         narrowed
         for narrowed in (
-            public_experiment_set(ExperimentSetPublicDump.model_validate(es), visible_calibration_ids)
+            public_experiment_set(
+                ExperimentSetPublicDump.model_validate(es), visible_calibration_ids, readable_superseding_urns
+            )
             for es in experiment_sets
         )
         if narrowed is not None
@@ -360,15 +442,12 @@ def public_dump_metadata(db: Session, principal: Principal) -> tuple[dict, list[
 def write_public_dump(db: Session, principal: Principal, archive: ZipFile) -> list[str]:
     """Write every member of the public dump into *archive*, and report the score sets carried.
 
-    Takes the archive rather than a filename so the whole composition — metadata, resources, and each
-    score set's artifacts — can be exercised without touching the filesystem.
+    Takes the archive rather than a filename so the whole composition can be exercised without touching
+    the filesystem.
     """
     metadata, score_set_urns = public_dump_metadata(db, principal)
-
-    # Metadata for all data sets goes in a single JSON file.
     archive.writestr("main.json", json.dumps(jsonable_encoder(metadata)))
 
-    # Copy the CC0 license and README.
     resources_dir = os.path.join(os.path.dirname(__file__), "resources")
     archive.write(os.path.join(resources_dir, "CC0_license.txt"), "LICENSE.txt")
     archive.write(os.path.join(resources_dir, "README.md"), "README.md")
@@ -378,8 +457,8 @@ def write_public_dump(db: Session, principal: Principal, archive: ZipFile) -> li
     for i, score_set_urn in enumerate(score_set_urns):
         score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one_or_none()
         if score_set is None:
-            # `main.json` already names this score set, so skipping it silently would leave the archive
-            # advertising files it does not contain. Reachable only if the row disappears mid-run.
+            # main.json already names this score set, so skip-silently would advertise files it doesn't
+            # contain. Reachable only if the row disappears mid-run.
             logger.warning(
                 f"[{i + 1}/{num_score_sets}] {score_set_urn} is named in main.json but could no longer be "
                 "loaded; the archive will carry no files for it."

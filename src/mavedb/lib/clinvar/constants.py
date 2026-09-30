@@ -26,6 +26,10 @@ Now that ClinVar versions are fetched sequentially (not concurrently), aggressiv
 backoff for throttling is unnecessary — a modest retry with short backoff suffices.
 """
 
-CLINVAR_FIELDS_TO_KEEP = ("GeneSymbol", "ClinicalSignificance", "ReviewStatus")
+CLINVAR_FIELDS_TO_KEEP = ("GeneSymbol", "ClinicalSignificance", "ReviewStatus", "VariationID")
 """Only these fields are extracted from each ClinVar TSV row and cached. The full TSV has ~30 columns; trimming to only what we need shrinks the cached pickle from hundreds of MB to tens of MB and speeds up load times.
+
+VariationID is ClinVar's canonical public identifier (anchors the web UI / variation links); we keep it
+alongside the AlleleID (the row key) so the link record can carry both. A row missing the column on an
+older archival TSV degrades to None rather than failing the whole version's parse.
 """

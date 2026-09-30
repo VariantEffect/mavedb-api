@@ -175,8 +175,11 @@ def _fetch_parse_and_cache(
             # as a list (which would be 1.5–2 GB for a modern TSV).
             with gzip.open(filename=buf, mode="rt") as f:
                 reader = csv.DictReader(f, delimiter="\t")  # type: ignore
+                # row.get (not row[field]) so a field absent from an older archival TSV schema yields
+                # None for that row rather than raising and discarding the whole version's parse.
                 data: Dict[str, Dict[str, str]] = {
-                    str(row["#AlleleID"]): {field: row[field] for field in CLINVAR_FIELDS_TO_KEEP} for row in reader
+                    str(row["#AlleleID"]): {field: row.get(field) for field in CLINVAR_FIELDS_TO_KEEP}  # type: ignore[misc]
+                    for row in reader
                 }
         finally:
             csv.field_size_limit(default_csv_field_size_limit)

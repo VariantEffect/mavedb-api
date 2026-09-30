@@ -2639,14 +2639,16 @@ class TestCleanupStalledJobsArqIntegration:
         await arq_worker.async_run()
         # Don't call run_check() - the retried test_function doesn't exist and would fail
 
-        # Verify the cleanup job succeeded
-        cleanup_job = session.execute(
-            select(JobRun).where(JobRun.job_function == "cleanup_stalled_jobs")
-        ).scalar_one_or_none()
+        # Verify the cleanup job succeeded. Asserted over every run rather than via
+        # `scalar_one_or_none`, because the `arq_worker` fixture registers `BACKGROUND_CRONJOBS` and
+        # `cleanup_stalled_jobs_cron` fires at minutes {5, 15, 25, 35, 45, 55}. A burst run that happens
+        # to straddle one of those minutes executes the cron alongside the job enqueued above, so the
+        # row count depends on the wall clock. Every run must still succeed, which is the property here.
+        cleanup_jobs = session.scalars(select(JobRun).where(JobRun.job_function == "cleanup_stalled_jobs")).all()
 
-        assert cleanup_job is not None
-        assert cleanup_job.status == JobStatus.SUCCEEDED
-        assert cleanup_job.job_type == "cron_job"
+        assert cleanup_jobs
+        assert all(job.status == JobStatus.SUCCEEDED for job in cleanup_jobs)
+        assert all(job.job_type == "cron_job" for job in cleanup_jobs)
 
         # Verify the stalled job was cleaned up
         session.refresh(stalled_job)

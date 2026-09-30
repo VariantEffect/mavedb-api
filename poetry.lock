@@ -270,6 +270,61 @@ docs = ["mkdocs"]
 tests = ["pytest (>=7.1,<8.0)", "pytest-cov (>=4.1,<5.0)", "pytest-optional-tests", "tox (>=3.25,<4.0)", "vcrpy"]
 
 [[package]]
+name = "biopython"
+version = "1.88"
+description = "Freely available tools for computational molecular biology."
+optional = true
+python-versions = ">=3.10"
+groups = ["main"]
+markers = "extra == \"server\""
+files = [
+    {file = "biopython-1.88-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:9732e2c74b1e3751810b026e568817afb18101039c30c9b16b9193e40ec1efdb"},
+    {file = "biopython-1.88-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:02a6d8ed4eea1ee9e1c2a9d7690f21a60406bcfee7c71348363e267cce397bee"},
+    {file = "biopython-1.88-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b321ee0f652aaecefe065b11d64b527c4d04f7826dfb7cfa31edea5ab1db07c2"},
+    {file = "biopython-1.88-cp310-cp310-win32.whl", hash = "sha256:99288eb34ce75cb85a10ab3e5d76ffe45f0c03c7f5cc6d144d3777419e44b31e"},
+    {file = "biopython-1.88-cp310-cp310-win_amd64.whl", hash = "sha256:0e732f44208f1bab7c42bfea94422609249bd897da6b25b5588618436e80a6d2"},
+    {file = "biopython-1.88-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:793de1a57d9b75546a4041f547b6a848031a71933f66d4c761857b0b0118c46b"},
+    {file = "biopython-1.88-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:906a7b2d4bc4515f5718f3ae994bd3bcfe8e87d963954008b57e0109e3772a58"},
+    {file = "biopython-1.88-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:99e1f7022ab8eee2ae9e9a05b66ad183b9fe4eeb4e561a65ed0fd85eef5f8267"},
+    {file = "biopython-1.88-cp311-cp311-win32.whl", hash = "sha256:024e438d044a0b1d4a0157af4ab2411b83389696aee3cdeb71f5ee74d0a59df2"},
+    {file = "biopython-1.88-cp311-cp311-win_amd64.whl", hash = "sha256:5808c5b980e63226426737b6f71b5dd7747e2e3d0074720cc04edf348ab57eab"},
+    {file = "biopython-1.88-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:43ce1fbed01c0ddb903fa426fa0f836062d973a09df15560ac8e895da24c1350"},
+    {file = "biopython-1.88-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:fe2dccf88e309dc896e7c2cc974a47be7a7b96d59c7f2ffd74ffcc7cfbdebb0c"},
+    {file = "biopython-1.88-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:9384c30460832926e765319040d732d1252a713a05af1dd4cc8b19cb1d590439"},
+    {file = "biopython-1.88-cp312-cp312-win32.whl", hash = "sha256:4904abb18a1e039a631e549529c9b8123a166838cafe27f649f83f0183382d61"},
+    {file = "biopython-1.88-cp312-cp312-win_amd64.whl", hash = "sha256:dd5131b70287486af1acef2fc40de51c68de2ea740ab772097ac2d10bad9a0b5"},
+    {file = "biopython-1.88-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:465caece761b9ec22e0dc63bb5969517c901587a27104c4f1cee69f414b4df2d"},
+    {file = "biopython-1.88-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:df709eabdce2fc2cc1059fcefbbea245d2b2c41fc2026eda6194b810474e68d6"},
+    {file = "biopython-1.88-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:410eaa083fcc308b44c7051e597ae2f39e4068754bdd605cc32aed025aa132d0"},
+    {file = "biopython-1.88-cp313-cp313-win32.whl", hash = "sha256:e3ac69b8abddac75dce301cbe77fc2650cbe0bd62ab2d2662d0f6f378b8c8018"},
+    {file = "biopython-1.88-cp313-cp313-win_amd64.whl", hash = "sha256:f0aaf49f0c8919fb7a02cdc3db9e7f89165f53417a18d80508e0f167121cb7c1"},
+    {file = "biopython-1.88-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:5508f8f585d101269982d58abb4ab50cbde5d3c50e21b01986c55ac7cc5f34f9"},
+    {file = "biopython-1.88-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:8ffa3f911a8ded827663bb98ffcd5fcfcaed2c7262bf6d3be5338332c81c7b66"},
+    {file = "biopython-1.88-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:99144485e7723842fe6c6bb0c13f323a550fc30817d3e0814126987f9b06855a"},
+    {file = "biopython-1.88-cp314-cp314-win32.whl", hash = "sha256:b86c1e86c829b372995d5e0eb80146551972a1bff25da1698b48844b6e6840cd"},
+    {file = "biopython-1.88-cp314-cp314-win_amd64.whl", hash = "sha256:0b8fea4940c58915e6d4c670f17f4e9c20797e9e26d4300b6efbe960b99d199d"},
+    {file = "biopython-1.88-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:393398c8383217f3f51aaa2372960e697b494a3eee97e1c4d5f62ee60ea9287b"},
+    {file = "biopython-1.88-cp314-cp314t-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:ab5c2211a9d1ad7d4b8afd7f53caa7f20e104a5ddf0b30f7cb899f039379de68"},
+    {file = "biopython-1.88-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:adbafdc7769d46cc9e72aba86b7e2da3aa078d2a533b53757ca88ca6ff1d0489"},
+    {file = "biopython-1.88-cp314-cp314t-win32.whl", hash = "sha256:1e29b72bb79786f4157b394fbd852d736ffd883a13a177c21d6d15ea1b67d357"},
+    {file = "biopython-1.88-cp314-cp314t-win_amd64.whl", hash = "sha256:f684b0fddbfe3b37de36d1b377c4c10d968226940c307a5a16e360e63063900f"},
+    {file = "biopython-1.88-cp315-cp315-macosx_11_0_arm64.whl", hash = "sha256:f238b612f15166c6a3c869f833b5aa6c0dd448dabb1d4b94b132281de3e91cab"},
+    {file = "biopython-1.88-cp315-cp315-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1c5c795fed9469b1115fd00d7681f4953a2d54ec502715720d11fe986678fa1b"},
+    {file = "biopython-1.88-cp315-cp315-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:9e6e675ff0ecd0822735c9da0b7091eb29a757279bc810039890ae1f54f18fdd"},
+    {file = "biopython-1.88-cp315-cp315-win32.whl", hash = "sha256:277b54f1b804a74df1eb7f0fe8f6d6a1eda15bc78a94802c000f5f0a20ce4fdc"},
+    {file = "biopython-1.88-cp315-cp315-win_amd64.whl", hash = "sha256:d4180714488d2ac6418fd42c445d1cda71fdd85ff71ad6748e7a312fa944e138"},
+    {file = "biopython-1.88-cp315-cp315t-macosx_11_0_arm64.whl", hash = "sha256:e800cacbf8e240105338f8eb52e92a00cd0103881d3cdf1798e89130cf878ed8"},
+    {file = "biopython-1.88-cp315-cp315t-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f300ef2db3d3fd33631364fe3f83a64d281d255dd0e8182feb8e3db9e290ce32"},
+    {file = "biopython-1.88-cp315-cp315t-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:0063aea2051a99b2f278dd8bef23d5eca3f50eb922fb72d4a99678484bae043d"},
+    {file = "biopython-1.88-cp315-cp315t-win32.whl", hash = "sha256:d879c732e0dee158cebf09047fa616451fa30f3abcab4105e3ce5cd336571147"},
+    {file = "biopython-1.88-cp315-cp315t-win_amd64.whl", hash = "sha256:abeda1d57624b82476be498259dbc4531a1957bb1d77c80fd986adaa44f1b406"},
+    {file = "biopython-1.88.tar.gz", hash = "sha256:9aaa31c0bda4d059f7b2ee00bfdb5cbb73ade3057aa4b737a7cc0187091d071a"},
+]
+
+[package.dependencies]
+numpy = "*"
+
+[[package]]
 name = "bioutils"
 version = "0.6.1"
 description = "miscellaneous simple bioinformatics utilities and lookup tables"
@@ -1431,6 +1486,19 @@ files = [
 [package.dependencies]
 dnspython = ">=2.0.0"
 idna = ">=2.0.0"
+
+[[package]]
+name = "et-xmlfile"
+version = "2.0.0"
+description = "An implementation of lxml.xmlfile for the standard library"
+optional = true
+python-versions = ">=3.8"
+groups = ["main"]
+markers = "extra == \"server\""
+files = [
+    {file = "et_xmlfile-2.0.0-py3-none-any.whl", hash = "sha256:7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa"},
+    {file = "et_xmlfile-2.0.0.tar.gz", hash = "sha256:dab3f4764309081ce75662649be815c4c9081e88f0837825f90fd28317d4da54"},
+]
 
 [[package]]
 name = "eutils"
@@ -2894,6 +2962,22 @@ files = [
 ]
 
 [[package]]
+name = "openpyxl"
+version = "3.1.5"
+description = "A Python library to read/write Excel 2010 xlsx/xlsm files"
+optional = true
+python-versions = ">=3.8"
+groups = ["main"]
+markers = "extra == \"server\""
+files = [
+    {file = "openpyxl-3.1.5-py2.py3-none-any.whl", hash = "sha256:5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2"},
+    {file = "openpyxl-3.1.5.tar.gz", hash = "sha256:cf0e3cf56142039133628b5acffe8ef0c12bc902d2aadd3e0fe5878dc08d1050"},
+]
+
+[package.dependencies]
+et-xmlfile = "*"
+
+[[package]]
 name = "orcid"
 version = "1.0.3"
 description = "A python wrapper over the ORCID API"
@@ -4093,30 +4177,30 @@ pyasn1 = ">=0.1.3"
 
 [[package]]
 name = "ruff"
-version = "0.15.12"
+version = "0.6.8"
 description = "An extremely fast Python linter and code formatter, written in Rust."
 optional = false
 python-versions = ">=3.7"
 groups = ["dev"]
 files = [
-    {file = "ruff-0.15.12-py3-none-linux_armv6l.whl", hash = "sha256:f86f176e188e94d6bdbc09f09bfd9dc729059ad93d0e7390b5a73efe19f8861c"},
-    {file = "ruff-0.15.12-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:e3bcd123364c3770b8e1b7baaf343cc99a35f197c5c6e8af79015c666c423a6c"},
-    {file = "ruff-0.15.12-py3-none-macosx_11_0_arm64.whl", hash = "sha256:fe87510d000220aa1ed530d4448a7c696a0cae1213e5ec30e5874287b66557b5"},
-    {file = "ruff-0.15.12-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:84a1630093121375a3e2a95b4a6dc7b59e2b4ee76216e32d81aae550a832d002"},
-    {file = "ruff-0.15.12-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:fb129f40f114f089ebe0ca56c0d251cf2061b17651d464bb6478dc01e69f11f5"},
-    {file = "ruff-0.15.12-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:b0c862b172d695db7598426b8af465e7e9ac00a3ea2a3630ee67eb82e366aaa6"},
-    {file = "ruff-0.15.12-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:2849ea9f3484c3aca43a82f484210370319e7170df4dfe4843395ddf6c57bc33"},
-    {file = "ruff-0.15.12-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:9e77c7e51c07fe396826d5969a5b846d9cd4c402535835fb6e21ce8b28fef847"},
-    {file = "ruff-0.15.12-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:83b2f4f2f3b1026b5fb449b467d9264bf22067b600f7b6f41fc5958909f449d0"},
-    {file = "ruff-0.15.12-py3-none-manylinux_2_31_riscv64.whl", hash = "sha256:9ba3b8f1afd7e2e43d8943e55f249e13f9682fde09711644a6e7290eb4f3e339"},
-    {file = "ruff-0.15.12-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:e852ba9fdc890655e1d78f2df1499efbe0e54126bd405362154a75e2bde159c5"},
-    {file = "ruff-0.15.12-py3-none-musllinux_1_2_armv7l.whl", hash = "sha256:dd8aed930da53780d22fc70bdf84452c843cf64f8cb4eb38984319c24c5cd5fd"},
-    {file = "ruff-0.15.12-py3-none-musllinux_1_2_i686.whl", hash = "sha256:01da3988d225628b709493d7dc67c3b9b12c0210016b08690ef9bd27970b262b"},
-    {file = "ruff-0.15.12-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:9cae0f92bd5700d1213188b31cd3bdd2b315361296d10b96b8e2337d3d11f53e"},
-    {file = "ruff-0.15.12-py3-none-win32.whl", hash = "sha256:d0185894e038d7043ba8fd6aee7499ece6462dc0ea9f1e260c7451807c714c20"},
-    {file = "ruff-0.15.12-py3-none-win_amd64.whl", hash = "sha256:c87a162d61ab3adca47c03f7f717c68672edec7d1b5499e652331780fe74950d"},
-    {file = "ruff-0.15.12-py3-none-win_arm64.whl", hash = "sha256:a538f7a82d061cee7be55542aca1d86d1393d55d81d4fcc314370f4340930d4f"},
-    {file = "ruff-0.15.12.tar.gz", hash = "sha256:ecea26adb26b4232c0c2ca19ccbc0083a68344180bba2a600605538ce51a40a6"},
+    {file = "ruff-0.6.8-py3-none-linux_armv6l.whl", hash = "sha256:77944bca110ff0a43b768f05a529fecd0706aac7bcce36d7f1eeb4cbfca5f0f2"},
+    {file = "ruff-0.6.8-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:27b87e1801e786cd6ede4ada3faa5e254ce774de835e6723fd94551464c56b8c"},
+    {file = "ruff-0.6.8-py3-none-macosx_11_0_arm64.whl", hash = "sha256:cd48f945da2a6334f1793d7f701725a76ba93bf3d73c36f6b21fb04d5338dcf5"},
+    {file = "ruff-0.6.8-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:677e03c00f37c66cea033274295a983c7c546edea5043d0c798833adf4cf4c6f"},
+    {file = "ruff-0.6.8-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:9f1476236b3eacfacfc0f66aa9e6cd39f2a624cb73ea99189556015f27c0bdeb"},
+    {file = "ruff-0.6.8-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:6f5a2f17c7d32991169195d52a04c95b256378bbf0de8cb98478351eb70d526f"},
+    {file = "ruff-0.6.8-py3-none-manylinux_2_17_ppc64.manylinux2014_ppc64.whl", hash = "sha256:5fd0d4b7b1457c49e435ee1e437900ced9b35cb8dc5178921dfb7d98d65a08d0"},
+    {file = "ruff-0.6.8-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:f8034b19b993e9601f2ddf2c517451e17a6ab5cdb1c13fdff50c1442a7171d87"},
+    {file = "ruff-0.6.8-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:6cfb227b932ba8ef6e56c9f875d987973cd5e35bc5d05f5abf045af78ad8e098"},
+    {file = "ruff-0.6.8-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6ef0411eccfc3909269fed47c61ffebdcb84a04504bafa6b6df9b85c27e813b0"},
+    {file = "ruff-0.6.8-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:007dee844738c3d2e6c24ab5bc7d43c99ba3e1943bd2d95d598582e9c1b27750"},
+    {file = "ruff-0.6.8-py3-none-musllinux_1_2_armv7l.whl", hash = "sha256:ce60058d3cdd8490e5e5471ef086b3f1e90ab872b548814e35930e21d848c9ce"},
+    {file = "ruff-0.6.8-py3-none-musllinux_1_2_i686.whl", hash = "sha256:1085c455d1b3fdb8021ad534379c60353b81ba079712bce7a900e834859182fa"},
+    {file = "ruff-0.6.8-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:70edf6a93b19481affd287d696d9e311388d808671bc209fb8907b46a8c3af44"},
+    {file = "ruff-0.6.8-py3-none-win32.whl", hash = "sha256:792213f7be25316f9b46b854df80a77e0da87ec66691e8f012f887b4a671ab5a"},
+    {file = "ruff-0.6.8-py3-none-win_amd64.whl", hash = "sha256:ec0517dc0f37cad14a5319ba7bba6e7e339d03fbf967a6d69b0907d61be7a263"},
+    {file = "ruff-0.6.8-py3-none-win_arm64.whl", hash = "sha256:8d3bb2e3fbb9875172119021a13eed38849e762499e3cfde9588e4b4d70968dc"},
+    {file = "ruff-0.6.8.tar.gz", hash = "sha256:a5bf44b1aa0adaf6d9d20f86162b34f7c593bfedabc51239953e446aefc8ce18"},
 ]
 
 [[package]]
@@ -4797,6 +4881,64 @@ docs = ["Sphinx (>=4.1.2,<4.2.0)", "sphinx_rtd_theme (>=0.5.2,<0.6.0)", "sphinxc
 test = ["aiohttp (>=3.10.5)", "flake8 (>=6.1,<7.0)", "mypy (>=0.800)", "psutil", "pyOpenSSL (>=25.3.0,<25.4.0)", "pycodestyle (>=2.11.0,<2.12.0)"]
 
 [[package]]
+name = "variant-annotation"
+version = "0.1.0-dev.2"
+description = "Genetic variant mapping and annotation pipeline"
+optional = true
+python-versions = ">=3.11"
+groups = ["main"]
+markers = "extra == \"server\""
+files = []
+develop = false
+
+[package.dependencies]
+biopython = "*"
+boto3 = "*"
+click = "*"
+openpyxl = "*"
+pandas = ">=2.2.1,<3.0.0"
+python-dotenv = "*"
+redis = "*"
+requests = "*"
+variant-translation = "1.1.0b1"
+
+[package.extras]
+dev = ["ruff"]
+gnomad = ["hail"]
+mapping = ["dcd-mapping @ git+https://github.com/VariantEffect/dcd_mapping2.git@v2026.1.2"]
+publish = ["build", "twine"]
+tests = ["pytest"]
+
+[package.source]
+type = "git"
+url = "https://github.com/bbi-lab/variant-annotation.git"
+reference = "v0.1.0-dev.2"
+resolved_reference = "073b7aa07c44fad1059725733ff8b11ac0dd2d4b"
+
+[[package]]
+name = "variant-translation"
+version = "1.1.0b1"
+description = "Reverse-translate protein HGVS variants."
+optional = true
+python-versions = ">=3.8"
+groups = ["main"]
+markers = "extra == \"server\""
+files = [
+    {file = "variant_translation-1.1.0b1-py3-none-any.whl", hash = "sha256:cdf693ab564b767c89e7b463b1345e801d2ab4a5f312631584bf79d178ba6122"},
+    {file = "variant_translation-1.1.0b1.tar.gz", hash = "sha256:5151d02ccb5c651c7ba47398d75355f2bd19a36717faa39dc2a390cfb4c7968f"},
+]
+
+[package.dependencies]
+click = "*"
+hgvs = "*"
+python-dotenv = "*"
+requests = "*"
+
+[package.extras]
+dev = ["pytest", "ruff"]
+publish = ["build", "twine"]
+
+[[package]]
 name = "virtualenv"
 version = "21.3.1"
 description = "Virtual Python Environment builder"
@@ -5098,9 +5240,9 @@ test = ["big-O", "jaraco.functools", "jaraco.itertools", "jaraco.test", "more_it
 type = ["pytest-mypy"]
 
 [extras]
-server = ["aiocache", "alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "psycopg2", "pyathena", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "starlette-context", "uvicorn", "watchtower"]
+server = ["aiocache", "alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "psycopg2", "pyathena", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "starlette-context", "uvicorn", "variant-annotation", "watchtower"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "c32a7c46b7d3c9b818a58a6fa7b3ffc5e28d099969b1e3394b8baedf45585d3d"
+content-hash = "7c51ea285ac86d12da6956251af1c55460ec203441ab8adfe9ccbdd47c545cc6"

@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from mavedb.lib.annotation.flatten import FlatAnnotation, flatten_annotation
 from mavedb.lib.csv.entries import calibration_viewer
+from mavedb.lib.csv.specs import CsvMappedRow
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
-from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_calibration_functional_classification_variant_association import (
@@ -74,7 +74,7 @@ def containing_classification_ids(db: Session, variant_ids: Sequence[int]) -> di
 def annotations_for_rows(
     db: Session,
     variants: Sequence[Variant],
-    mappings: Sequence[Optional[MappedVariant]],
+    mappings: Sequence[Optional[CsvMappedRow]],
     calibration_namespaces: dict[str, str],
     viewer: Optional[ScoreCalibrationViewer] = None,
 ) -> Optional[list[dict[str, Optional[FlatAnnotation]]]]:
@@ -103,7 +103,7 @@ def annotations_for_rows(
             if mapping is None or calibration is None or calibration.score_set_id != variant.score_set_id:
                 annotations[namespace] = None
             else:
-                annotations[namespace] = flatten_annotation(mapping, calibration, contained)
+                annotations[namespace] = flatten_annotation(variant, calibration, contained)
         rows.append(annotations)
 
     return rows
