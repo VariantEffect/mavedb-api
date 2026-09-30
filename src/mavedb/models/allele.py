@@ -1,10 +1,9 @@
 from datetime import date
 from typing import TYPE_CHECKING, Any, Optional
 
-from sqlalchemy import Date, Index, Integer, String, UniqueConstraint, func
+from sqlalchemy import Column, Date, Index, Integer, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
@@ -22,20 +21,20 @@ def _coalesce_hgvs(hgvs_g, hgvs_c, hgvs_p):
 class Allele(Base):
     __tablename__ = "alleles"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = Column(Integer, primary_key=True)
 
-    vrs_digest: Mapped[str] = mapped_column(String, nullable=False)
-    level: Mapped[str] = mapped_column(String(length=16), nullable=False)
+    vrs_digest: Mapped[str] = Column(String, nullable=False)
+    level: Mapped[str] = Column(String(length=16), nullable=False)
 
-    hgvs_g: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    hgvs_c: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    hgvs_p: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    hgvs_g = Column(String, nullable=True)
+    hgvs_c = Column(String, nullable=True)
+    hgvs_p = Column(String, nullable=True)
 
-    clingen_allele_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    post_mapped: Mapped[Optional[Any]] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    clingen_allele_id = Column(String, nullable=True)
+    post_mapped: Mapped[Optional[Any]] = Column(JSONB(none_as_null=True), nullable=True)
 
-    created_at: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
-    updated_at: Mapped[date] = mapped_column(Date, nullable=False, default=date.today, onupdate=date.today)
+    created_at: Mapped[date] = Column(Date, nullable=False, default=date.today)
+    updated_at: Mapped[date] = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
     @hybrid_property
     def transcript(self) -> str:
