@@ -7,7 +7,7 @@ and silently pay for an N+1.
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
-from sqlalchemy import Integer, and_, cast, func, select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from mavedb.lib.csv.namespaces import CLINVAR_DB_NAME
@@ -73,9 +73,7 @@ def fetch_variant_csv_data(
     query = select(*select_columns)
 
     if score_set is not None:
-        query = query.where(Variant.score_set_id == score_set.id).order_by(
-            cast(func.split_part(Variant.urn, "#", 2), Integer)
-        )
+        query = query.where(Variant.score_set_id == score_set.id).order_by(Variant.variant_number)
     else:
         query = query.where(Variant.id.in_(variant_ids or []))
 

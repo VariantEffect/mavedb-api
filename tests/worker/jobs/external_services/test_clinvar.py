@@ -103,7 +103,7 @@ class TestRefreshClinvarControlsUnit:
         # Add a variant without a CAID
         score_set = session.get(ScoreSet, sample_refresh_clinvar_controls_job_run.job_params["score_set_id"])
         variant = Variant(
-            urn="urn:variant:test-variant-no-caid",
+            urn=f"{score_set.urn}#11",
             score_set_id=score_set.id,
             hgvs_nt="NM_000000.1:c.2G>A",
             hgvs_pro="NP_000000.1:p.Val2Ile",
@@ -366,7 +366,7 @@ class TestRefreshClinvarControlsUnit:
         # Add a variant and mapped variant to the database with a CAID
         score_set = session.get(ScoreSet, sample_refresh_clinvar_controls_job_run.job_params["score_set_id"])
         variant = Variant(
-            urn="urn:variant:test-variant-with-caid-2",
+            urn=f"{score_set.urn}#12",
             score_set_id=score_set.id,
             hgvs_nt="NM_000000.1:c.3C>T",
             hgvs_pro="NP_000000.1:p.Ala3Val",
@@ -484,7 +484,7 @@ class TestRefreshClinvarControlsUnit:
         # Add an additional mapped variant to the database with a CAID
         score_set = session.get(ScoreSet, sample_refresh_clinvar_controls_job_run.job_params["score_set_id"])
         variant2 = Variant(
-            urn="urn:variant:test-variant-with-caid-2",
+            urn=f"{score_set.urn}#12",
             score_set_id=score_set.id,
             hgvs_nt="NM_000000.1:c.4G>C",
             hgvs_pro="NP_000000.1:p.Gly4Ala",
@@ -690,7 +690,7 @@ class TestRefreshClinvarControlsIntegration:
         # Add a variant without a CAID
         score_set = session.get(ScoreSet, sample_refresh_clinvar_controls_job_run.job_params["score_set_id"])
         variant = Variant(
-            urn="urn:variant:integration-test-variant-no-caid",
+            urn=f"{score_set.urn}#13",
             score_set_id=score_set.id,
             hgvs_nt="NM_000000.1:c.5T>A",
             hgvs_pro="NP_000000.1:p.Leu5Gln",
@@ -746,7 +746,7 @@ class TestRefreshClinvarControlsIntegration:
         # Add a variant with a multi-variant CAID
         score_set = session.get(ScoreSet, sample_refresh_clinvar_controls_job_run.job_params["score_set_id"])
         variant = Variant(
-            urn="urn:variant:integration-test-variant-multicid",
+            urn=f"{score_set.urn}#14",
             score_set_id=score_set.id,
             hgvs_nt="NM_000000.1:c.6A>G",
             hgvs_pro="NP_000000.1:p.Thr6Ala",
@@ -808,7 +808,7 @@ class TestRefreshClinvarControlsIntegration:
         # Add a variant with a CAID
         score_set = session.get(ScoreSet, sample_refresh_clinvar_controls_job_run.job_params["score_set_id"])
         variant = Variant(
-            urn="urn:variant:integration-test-variant-with-caid",
+            urn=f"{score_set.urn}#15",
             score_set_id=score_set.id,
             hgvs_nt="NM_000000.1:c.7C>A",
             hgvs_pro="NP_000000.1:p.Ser7Tyr",
@@ -872,7 +872,7 @@ class TestRefreshClinvarControlsIntegration:
         # Add a variant with a CAID
         score_set = session.get(ScoreSet, sample_refresh_clinvar_controls_job_run.job_params["score_set_id"])
         variant = Variant(
-            urn="urn:variant:integration-test-variant-with-caid",
+            urn=f"{score_set.urn}#15",
             score_set_id=score_set.id,
             hgvs_nt="NM_000000.1:c.8G>T",
             hgvs_pro="NP_000000.1:p.Val8Phe",
@@ -936,7 +936,7 @@ class TestRefreshClinvarControlsIntegration:
         # Add a variant with a CAID
         score_set = session.get(ScoreSet, sample_refresh_clinvar_controls_job_run.job_params["score_set_id"])
         variant = Variant(
-            urn="urn:variant:integration-test-variant-with-caid",
+            urn=f"{score_set.urn}#15",
             score_set_id=score_set.id,
             hgvs_nt="NM_000000.1:c.9A>C",
             hgvs_pro="NP_000000.1:p.Lys9Thr",
@@ -1015,7 +1015,7 @@ class TestRefreshClinvarControlsIntegration:
         # Add a variant with a CAID
         score_set = session.get(ScoreSet, sample_refresh_clinvar_controls_job_run.job_params["score_set_id"])
         variant = Variant(
-            urn="urn:variant:integration-test-variant-with-caid",
+            urn=f"{score_set.urn}#15",
             score_set_id=score_set.id,
             hgvs_nt="NM_000000.1:c.10C>G",
             hgvs_pro="NP_000000.1:p.Pro10Arg",
@@ -1082,7 +1082,7 @@ class TestRefreshClinvarControlsIntegration:
         # Add a variant with a CAID
         score_set = session.get(ScoreSet, sample_refresh_clinvar_controls_job_in_pipeline.job_params["score_set_id"])
         variant = Variant(
-            urn="urn:variant:integration-test-variant-with-caid",
+            urn=f"{score_set.urn}#15",
             score_set_id=score_set.id,
             hgvs_nt="NM_000000.1:c.12G>A",
             hgvs_pro="NP_000000.1:p.Met12Ile",
@@ -1210,7 +1210,7 @@ class TestRefreshClinvarControlsIntegration:
         # Add an additional mapped variant to the database with a CAID
         score_set = session.get(ScoreSet, sample_refresh_clinvar_controls_job_run.job_params["score_set_id"])
         variant2 = Variant(
-            urn="urn:variant:integration-test-variant-with-caid-2",
+            urn=f"{score_set.urn}#16",
             score_set_id=score_set.id,
             hgvs_nt="NM_000000.1:c.11G>C",
             hgvs_pro="NP_000000.1:p.Gly11Ala",

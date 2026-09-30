@@ -229,7 +229,7 @@ def setup_sample_variants_with_caid(
 
     # Add a variant and mapped variant to the database with a CAID
     variant = Variant(
-        urn="urn:variant:test-variant-with-caid",
+        urn=f"{score_set.urn}#1",
         score_set_id=score_set.id,
         hgvs_nt="NM_000000.1:c.1A>G",
         hgvs_pro="NP_000000.1:p.Met1Val",
@@ -970,7 +970,7 @@ def setup_sample_variants_with_caid_for_hgvs(
     score_set = session.get(ScoreSet, sample_populate_hgvs_run.job_params["score_set_id"])
 
     variant = Variant(
-        urn="urn:variant:test-variant-with-caid-hgvs",
+        urn=f"{score_set.urn}#2",
         score_set_id=score_set.id,
         hgvs_nt="NM_000000.1:c.1A>G",
         hgvs_pro="NP_000000.1:p.Met1Val",
@@ -1066,7 +1066,7 @@ def setup_sample_variants_with_caid_for_translation(
     score_set = session.get(ScoreSet, sample_populate_variant_translations_run.job_params["score_set_id"])
 
     variant = Variant(
-        urn="urn:variant:test-variant-with-caid-translation",
+        urn=f"{score_set.urn}#3",
         score_set_id=score_set.id,
         hgvs_nt="NM_000000.1:c.1A>G",
         hgvs_pro="NP_000000.1:p.Met1Val",
@@ -1228,7 +1228,7 @@ def setup_sample_variants_for_vep(session, with_populated_domain_data, mock_work
     score_set = session.get(ScoreSet, sample_populate_vep_run.job_params["score_set_id"])
 
     variant = Variant(
-        urn="urn:variant:test-variant-for-vep",
+        urn=f"{score_set.urn}#4",
         score_set_id=score_set.id,
         hgvs_nt="NM_007294.4:c.5A>G",
         hgvs_pro="NP_009225.1:p.Cys2Tyr",
@@ -1260,7 +1260,7 @@ def setup_sample_protein_variant_for_vep(session, with_populated_domain_data, mo
     score_set = session.get(ScoreSet, sample_populate_vep_run.job_params["score_set_id"])
 
     variant = Variant(
-        urn="urn:variant:test-protein-variant-for-vep",
+        urn=f"{score_set.urn}#5",
         score_set_id=score_set.id,
         hgvs_pro="NP_009225.1:p.Val1696His",
         data={"hgvs_p": "NP_009225.1:p.Val1696His"},

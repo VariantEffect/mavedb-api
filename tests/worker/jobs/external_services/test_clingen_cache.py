@@ -52,7 +52,7 @@ class TestWarmClingenCacheUnit:
         # Create two variants with the same CAID — should only warm once (distinct)
         for i, caid in enumerate(["CA111111", "CA222222", "CA111111"]):
             variant = Variant(
-                urn=f"urn:variant:warm-test-{i}",
+                urn=f"{score_set.urn}#{100 + i}",
                 score_set_id=score_set.id,
                 hgvs_nt=f"NM_000000.1:c.{i + 1}A>G",
                 hgvs_pro=f"NP_000000.1:p.Met{i + 1}Val",
@@ -101,7 +101,7 @@ class TestWarmClingenCacheUnit:
         caids = ["CA333333", None, "CA-MULTI-001,CA-MULTI-002"]
         for i, caid in enumerate(caids):
             variant = Variant(
-                urn=f"urn:variant:warm-filter-{i}",
+                urn=f"{score_set.urn}#{200 + i}",
                 score_set_id=score_set.id,
                 hgvs_nt=f"NM_000000.1:c.{i + 10}A>G",
                 hgvs_pro=f"NP_000000.1:p.Met{i + 10}Val",
@@ -148,7 +148,7 @@ class TestWarmClingenCacheUnit:
 
         for i, caid in enumerate(["CA444444", "CA555555"]):
             variant = Variant(
-                urn=f"urn:variant:warm-fail-{i}",
+                urn=f"{score_set.urn}#{300 + i}",
                 score_set_id=score_set.id,
                 hgvs_nt=f"NM_000000.1:c.{i + 20}A>G",
                 hgvs_pro=f"NP_000000.1:p.Met{i + 20}Val",
@@ -196,7 +196,7 @@ class TestWarmClingenCacheUnit:
         score_set = session.get(ScoreSet, sample_warm_clingen_cache_job_run.job_params["score_set_id"])
 
         variant = Variant(
-            urn="urn:variant:warm-current-test",
+            urn=f"{score_set.urn}#400",
             score_set_id=score_set.id,
             hgvs_nt="NM_000000.1:c.30A>G",
             hgvs_pro="NP_000000.1:p.Met30Val",
