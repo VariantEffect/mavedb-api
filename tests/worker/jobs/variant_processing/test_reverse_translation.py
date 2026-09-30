@@ -1054,6 +1054,93 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert len(events) == 2
         assert max(events, key=lambda e: e.id).disposition == "present"
 
+    @pytest.mark.parametrize(
+        "rerun_outcome, keeps_prior_link",
+        [
+            ("upstream_unavailable", True),
+            ("translation_error", False),
+            ("not_translatable", False),
+            ("vrs_translation_failure", False),
+        ],
+    )
+    async def test_rerun_keeps_prior_links_only_when_upstream_unavailable(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+        rerun_outcome,
+        keeps_prior_link,
+    ):
+        """A variant that fails a rerun because UTA was unavailable keeps the derived links from its last
+        successful run, since its inputs are unchanged. Any other failure is the rerun's answer for that
+        variant, so its prior links are retired."""
+        variant_ok = Variant(
+            score_set_id=sample_score_set.id, urn=f"{sample_score_set.urn}#11", hgvs_nt="NM_000000.1:c.1A>G", data={}
+        )
+        variant_down = Variant(
+            score_set_id=sample_score_set.id, urn=f"{sample_score_set.urn}#12", hgvs_nt="NM_000000.1:c.2G>T", data={}
+        )
+        session.add_all([variant_ok, variant_down])
+        session.commit()
+        await _map_variants(session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set)
+
+        ok_candidate = "NM_000001.1:c.5A>G"
+        down_candidate = "NM_000001.1:c.6G>T"
+        ids = {ok_candidate: "ga4gh:VA.ok", down_candidate: "ga4gh:VA.down"}
+        first_construct = fake_construct(
+            {"NM_000000.1:c.1A>G": [(ok_candidate, None)], "NM_000000.1:c.2G>T": [(down_candidate, None)]}
+        )
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", first_construct),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", fake_translate(ids)),
+        ):
+            first = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+        assert first.status == JobStatus.SUCCEEDED
+        down_link = next(
+            link for link in _non_authoritative_links(session) if link.allele.vrs_digest == "ga4gh:VA.down"
+        )
+
+        rerun = JobRun(
+            urn="test:reverse_translate_variants_for_score_set:rerun",
+            job_type="reverse_translate_variants_for_score_set",
+            job_function="reverse_translate_variants_for_score_set",
+            max_retries=3,
+            retry_count=0,
+            job_params=dict(sample_independent_reverse_translation_run.job_params),
+        )
+        session.add(rerun)
+        session.commit()
+
+        ok_result = {"NM_000000.1:c.1A>G": [(ok_candidate, None)]}
+        down_message = {"NM_000000.1:c.2G>T": "reverse translation failed"}
+        second_translate = fake_translate(ids)
+        if rerun_outcome == "upstream_unavailable":
+            second_construct = fake_construct(ok_result, upstream_unavailable_by_hgvs=down_message)
+        elif rerun_outcome == "translation_error":
+            second_construct = fake_construct(ok_result, errors_by_hgvs=down_message)
+        elif rerun_outcome == "not_translatable":
+            second_construct = fake_construct(ok_result, not_translatable_by_hgvs=down_message)
+        else:
+            second_construct = first_construct
+            second_translate = fake_translate(ids, errors_by_hgvs={down_candidate: "cannot translate to VRS"})
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", second_construct),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", second_translate),
+        ):
+            second = await _reverse_translate(session, mock_worker_ctx, rerun)
+        assert second.status == JobStatus.SUCCEEDED
+
+        session.refresh(down_link)
+        assert (down_link.valid_to is None) is keeps_prior_link
+        live_digests = sorted(
+            link.allele.vrs_digest for link in _non_authoritative_links(session) if link.valid_to is None
+        )
+        assert live_digests == (["ga4gh:VA.down", "ga4gh:VA.ok"] if keeps_prior_link else ["ga4gh:VA.ok"])
+
     async def test_all_failures_fail_the_job(
         self,
         session,

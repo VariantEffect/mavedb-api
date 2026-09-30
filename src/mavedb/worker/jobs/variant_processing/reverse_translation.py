@@ -534,6 +534,16 @@ async def reverse_translate_variants_for_score_set(
                 metadata=annotation_metadata,
             )
 
+    # A record the library couldn't ask about because UTA was unavailable keeps its derived links:
+    # its inputs are unchanged since the run that produced them, so they are still that run's answer.
+    # Every other outcome, including a skip or a failed translation, is this run's answer and replaces
+    # the prior set.
+    unavailable_record_ids = [
+        variant_input_map[id(error.input)][0].id
+        for error in errors
+        if error.reason is TranslationErrorReason.UPSTREAM_UNAVAILABLE
+    ]
+
     # Supersede prior live derived links atomically.
     # TODO#765: re-runs retire and recreate the whole derived set because re-mapping re-mints
     # records; idempotent records would allow unchanged links to stay live.
@@ -542,6 +552,7 @@ async def reverse_translate_variants_for_score_set(
         new_links,
         MappingRecordAllele.is_authoritative.is_(False),
         MappingRecordAllele.mapping_record_id.in_(current_record_ids),
+        MappingRecordAllele.mapping_record_id.not_in(unavailable_record_ids),
     )
 
     # The library types each error's reason: NOT_TRANSLATABLE is a benign structural gap (the
