@@ -76,13 +76,22 @@ def list_my_calibrations(
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
 ) -> list[ScoreCalibration]:
-    """List all score calibrations created by the current user."""
-    return (
+    """
+    List the score calibrations created by the current user that the user may still read.
+
+    Calibrations on score sets the user can no longer read, for example after being removed as a
+    contributor, are omitted.
+    """
+    calibrations = (
         db.query(ScoreCalibration)
         .filter(ScoreCalibration.created_by_id == user_data.user.id)
         .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
         .all()
     )
+
+    return [
+        calibration for calibration in calibrations if has_permission(user_data, calibration, Action.READ).permitted
+    ]
 
 
 @router.get(
@@ -781,6 +790,8 @@ def publish_score_calibration_route(
 ) -> ScoreCalibration:
     """
     Publish a score calibration, making it publicly visible.
+
+    The calibration's score set must already be published.
     """
     save_to_logging_context({"requested_resource": urn, "resource_property": "private"})
 
@@ -813,15 +824,14 @@ def publish_score_calibration_route(
             ),
         )
 
-    # XXX: desired?
-    # if item.score_set.private:
-    #     logger.debug(
-    #         "Score calibrations associated with private score sets cannot be published", extra=logging_context()
-    #     )
-    #     raise HTTPException(
-    #         status_code=400,
-    #         detail="Score calibrations associated with private score sets cannot be published. First publish the score set, then calibrations.",
-    #     )
+    if item.score_set.private:
+        logger.debug(
+            "Score calibrations associated with private score sets cannot be published", extra=logging_context()
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="Score calibrations associated with private score sets cannot be published. First publish the score set, then calibrations.",
+        )
 
     item = publish_score_calibration(db, item, user_data.user)
     db.commit()

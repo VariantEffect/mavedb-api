@@ -77,6 +77,7 @@ from mavedb.lib.slack import send_slack_error
 from mavedb.lib.target_genes import find_or_create_target_gene_by_accession, find_or_create_target_gene_by_sequence
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.types.authentication import UserData
+from mavedb.lib.urn_redirects import record_urn_redirect
 from mavedb.lib.urns import (
     generate_experiment_set_urn,
     generate_experiment_urn,
@@ -1817,8 +1818,9 @@ async def create_score_set(
             )
 
     if len(meta_analyzes_score_sets) > 0:
-        # If any existing score set is a meta-analysis for score sets in the same collection of experiment sets, use its
-        # experiment as the parent of our new meta-analysis. Otherwise, create a new experiment.
+        # If an existing score set is a meta-analysis for score sets in the same collection of experiment sets, and the
+        # user may add score sets to its experiment, use that experiment as the parent of our new meta-analysis.
+        # Otherwise, create a new experiment.
         meta_analyzes_experiment_sets = list(
             set(
                 (
@@ -1830,13 +1832,31 @@ async def create_score_set(
         )
         meta_analyzes_experiment_set_urns = [es.urn for es in meta_analyzes_experiment_sets if es.urn is not None]
         existing_meta_analyses = find_meta_analyses_for_experiment_sets(db, meta_analyzes_experiment_set_urns)
+        reusable_experiment = next(
+            (
+                meta_analysis.experiment
+                for meta_analysis in existing_meta_analyses
+                if has_permission(user_data, meta_analysis.experiment, Action.ADD_SCORE_SET).permitted
+            ),
+            None,
+        )
 
-        if len(existing_meta_analyses) > 0:
-            experiment = existing_meta_analyses[0].experiment
+        if reusable_experiment is not None:
+            experiment = reusable_experiment
         elif len(meta_analyzes_experiment_sets) == 1:
             # The analyzed score sets all belong to one experiment set, so the meta-analysis should go in that
-            # experiment set's meta-analysis experiment. But there is no meta-analysis experiment (or else we would
-            # have found it by looking at existing_meta_analyses[0].experiment), so we will create one.
+            # experiment set's meta-analysis experiment. An experiment set holds at most one meta-analysis experiment
+            # (see generate_experiment_urn), so if another user's private one exists we cannot create a second.
+            if len(existing_meta_analyses) > 0:
+                logger.info(
+                    msg="Failed to create score set; Another user's private meta-analysis experiment exists for the requested meta-analyzed score sets.",
+                    extra=logging_context(),
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail="A meta-analysis of these score sets is in progress by another user.",
+                )
+
             meta_analyzes_experiment_set = meta_analyzes_experiment_sets[0]
             experiment = Experiment(
                 experiment_set=meta_analyzes_experiment_set,
@@ -2552,6 +2572,13 @@ async def publish_score_set(
 
     assert_permission(user_data, item, Action.PUBLISH)
 
+    if not item.private:
+        logger.info(
+            msg="Failed to publish score set; The requested score set has already been published.",
+            extra=logging_context(),
+        )
+        raise HTTPException(status_code=409, detail="This score set has already been published.")
+
     if not item.experiment:
         logger.info(
             msg="Failed to publish score set; The requested score set does not belong to an experiment.",
@@ -2585,7 +2612,9 @@ async def publish_score_set(
     published_date = date.today()
 
     if item.experiment.experiment_set.private or not item.experiment.experiment_set.published_date:
+        retired_experiment_set_urn = item.experiment.experiment_set.urn
         item.experiment.experiment_set.urn = generate_experiment_set_urn(db)
+        record_urn_redirect(db, retired_experiment_set_urn, item.experiment.experiment_set.urn)
         item.experiment.experiment_set.private = False
         item.experiment.experiment_set.published_date = published_date
         db.add(item.experiment.experiment_set)
@@ -2593,18 +2622,23 @@ async def publish_score_set(
     save_to_logging_context({"experiment_set": item.experiment.experiment_set.urn})
 
     if item.experiment.private or not item.experiment.published_date:
+        retired_experiment_urn = item.experiment.urn
         item.experiment.urn = generate_experiment_urn(
             db,
             item.experiment.experiment_set,
             experiment_is_meta_analysis=len(item.meta_analyzes_score_sets) > 0,
         )
+        record_urn_redirect(db, retired_experiment_urn, item.experiment.urn)
         item.experiment.private = False
         item.experiment.published_date = published_date
         db.add(item.experiment)
 
     save_to_logging_context({"experiment": item.experiment.urn})
 
+    retired_score_set_urn = item.urn
     item.urn = generate_score_set_urn(db, item.experiment)
+    # Variant URNs are rewritten below from the score set's, so this one redirect forwards them too.
+    record_urn_redirect(db, retired_score_set_urn, item.urn)
     item.private = False
     item.published_date = published_date
     refresh_variant_urns(db, item)

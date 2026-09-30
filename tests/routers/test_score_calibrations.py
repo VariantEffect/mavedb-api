@@ -33,6 +33,7 @@ from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_calibration import (
     create_publish_and_promote_score_calibration,
     create_test_score_calibration_in_score_set_via_client,
+    force_publish_test_score_calibration,
     publish_test_score_calibration_via_client,
 )
 from tests.helpers.util.score_set import create_seq_score_set_with_mapped_variants, publish_score_set
@@ -364,6 +365,8 @@ def test_anonymous_user_can_get_score_calibration_when_public(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -399,6 +402,8 @@ def test_other_user_can_get_score_calibration_when_public(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -434,6 +439,8 @@ def test_creating_user_can_get_score_calibration_when_public(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -468,6 +475,8 @@ def test_contributing_user_can_get_score_calibration_when_public(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -512,6 +521,8 @@ def test_admin_user_can_get_score_calibration_when_public(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -854,10 +865,10 @@ def test_anonymous_user_can_get_score_calibrations_for_score_set_when_public(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    publish_test_score_calibration_via_client(client, calibration["urn"])
-
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
         score_set = publish_score_set(client, score_set["urn"])
+
+    publish_test_score_calibration_via_client(client, calibration["urn"])
 
     with DependencyOverrider(anonymous_app_overrides):
         response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
@@ -899,10 +910,10 @@ def test_other_user_can_get_score_calibrations_for_score_set_when_public(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    publish_test_score_calibration_via_client(client, calibration["urn"])
-
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
         score_set = publish_score_set(client, score_set["urn"])
+
+    publish_test_score_calibration_via_client(client, calibration["urn"])
 
     with DependencyOverrider(extra_user_app_overrides):
         response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
@@ -944,7 +955,7 @@ def test_anonymous_user_cannot_get_score_calibrations_for_score_set_when_calibra
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    force_publish_test_score_calibration(session, calibration["urn"])
 
     with DependencyOverrider(anonymous_app_overrides):
         response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
@@ -984,7 +995,7 @@ def test_other_user_cannot_get_score_calibrations_for_score_set_when_calibration
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    force_publish_test_score_calibration(session, calibration["urn"])
 
     with DependencyOverrider(extra_user_app_overrides):
         response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
@@ -1015,6 +1026,8 @@ def test_creating_user_can_get_score_calibrations_for_score_set_when_public(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -1055,6 +1068,8 @@ def test_contributing_user_can_get_score_calibrations_for_score_set_when_public(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -1105,6 +1120,8 @@ def test_admin_user_can_get_score_calibrations_for_score_set_when_public(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -1215,6 +1232,8 @@ def test_get_primary_score_calibration_for_score_set_when_exists(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -1250,6 +1269,8 @@ def test_get_primary_score_calibration_for_score_set_when_multiple_exist(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
 
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
@@ -2279,6 +2300,8 @@ def test_cannot_update_published_score_calibration_as_score_set_owner(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -2467,6 +2490,8 @@ def test_can_update_published_score_calibration_as_admin_user(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -2893,6 +2918,8 @@ def test_cannot_delete_published_score_calibration_as_owner(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3052,6 +3079,8 @@ def test_can_delete_published_score_calibration_as_admin_user(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3088,6 +3117,8 @@ def test_cannot_delete_primary_score_calibration(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3136,6 +3167,8 @@ def test_cannot_promote_score_calibration_as_anonymous_user(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3170,6 +3203,8 @@ def test_cannot_promote_score_calibration_when_score_calibration_not_owned_by_us
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3206,6 +3241,8 @@ def test_can_promote_score_calibration_as_score_set_owner(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3240,6 +3277,8 @@ def test_can_promote_score_calibration_as_score_set_contributor(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3285,6 +3324,8 @@ def test_can_promote_score_calibration_as_admin_user(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3321,6 +3362,8 @@ def test_can_promote_existing_primary_to_primary(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     primary_calibration = create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3355,6 +3398,8 @@ def test_cannot_promote_research_use_only_to_primary(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client,
         score_set["urn"],
@@ -3424,6 +3469,8 @@ def test_cannot_promote_to_primary_if_primary_exists(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3460,6 +3507,8 @@ def test_can_promote_to_primary_if_primary_exists_when_demote_existing_is_true(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     primary_calibration = create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3508,6 +3557,8 @@ def test_score_set_owner_can_promote_to_primary_with_demote_existing_flag_on_com
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     with DependencyOverrider(admin_app_overrides):
         primary_calibration = create_publish_and_promote_score_calibration(
             client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
@@ -3568,6 +3619,8 @@ def test_cannot_demote_score_calibration_as_anonymous_user(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3603,6 +3656,8 @@ def test_cannot_demote_score_calibration_when_score_calibration_not_owned_by_use
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3638,6 +3693,8 @@ def test_can_demote_score_calibration_as_score_set_contributor(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3684,6 +3741,8 @@ def test_can_demote_score_calibration_as_score_set_owner(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3720,6 +3779,8 @@ def test_can_demote_score_calibration_as_admin_user(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3757,6 +3818,8 @@ def test_can_demote_non_primary_score_calibration(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3893,6 +3956,8 @@ def test_can_publish_score_calibration_as_score_set_owner(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3929,6 +3994,8 @@ def test_can_publish_score_calibration_as_admin_user(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3966,6 +4033,8 @@ def test_can_publish_already_published_calibration(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -3985,6 +4054,45 @@ def test_can_publish_already_published_calibration(
     assert publish_response_2.status_code == 200
     published_calibration_2 = publish_response_2.json()
     assert published_calibration_2["private"] is False
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_publish_score_calibration_when_score_set_is_private(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    response = client.post(
+        f"/api/v1/score-calibrations/{calibration['urn']}/publish",
+    )
+
+    assert response.status_code == 400
+    error = response.json()
+    assert "Score calibrations associated with private score sets cannot be published" in error["detail"]
+
+    persisted = session.execute(
+        select(CalibrationDbModel).where(CalibrationDbModel.urn == calibration["urn"])
+    ).scalar_one()
+    assert persisted.private is True
 
 
 ###########################################################
@@ -4273,6 +4381,8 @@ def test_anonymous_user_can_get_variants_for_public_calibration(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
 
     calibration = create_test_score_calibration_in_score_set_via_client(
         client,
@@ -4547,6 +4657,8 @@ def test_anonymous_user_can_get_all_variants_for_public_calibration(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
 
     calibration = create_test_score_calibration_in_score_set_via_client(
         client,
@@ -4568,6 +4680,71 @@ def test_anonymous_user_can_get_all_variants_for_public_calibration(
         assert fc_variants["functionalClassificationId"] == calibration["functionalClassifications"][i]["id"]
         assert isinstance(fc_variants["variants"], list)
         assert len(fc_variants["variants"]) == calibration["functionalClassifications"][i]["variantCount"]
+
+
+def _create_published_calibration_on_private_score_set(client, session, data_provider, data_files) -> dict:
+    """Create a calibration marked public on a score set that is still private."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    force_publish_test_score_calibration(session, calibration["urn"])
+
+    return calibration
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+@pytest.mark.parametrize("route", ["", "/variants", "/functional-classifications/{fc_id}/variants"])
+def test_anonymous_user_cannot_read_published_calibration_on_private_score_set(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides, route
+):
+    calibration = _create_published_calibration_on_private_score_set(client, session, data_provider, data_files)
+    fc_id = calibration["functionalClassifications"][0]["id"]
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}{route.format(fc_id=fc_id)}")
+
+    assert response.status_code == 404
+    error = response.json()
+    assert f"score calibration with URN '{calibration['urn']}' not found" in error["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_score_set_owner_can_read_published_calibration_on_private_score_set(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    calibration = _create_published_calibration_on_private_score_set(client, session, data_provider, data_files)
+
+    response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}/variants")
+
+    assert response.status_code == 200
+    assert len(response.json()) == len(calibration["functionalClassifications"])
 
 
 ###########################################################
@@ -5004,6 +5181,54 @@ def test_authenticated_user_sees_own_calibrations(
     assert len(calibrations) == 1
     assert calibrations[0]["urn"] == calibration["urn"]
     assert calibrations[0]["scoreSetUrn"] == score_set["urn"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_user_does_not_see_own_calibrations_on_score_sets_they_can_no_longer_read(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    add_contributor(
+        session,
+        score_set["urn"],
+        ScoreSetDbModel,
+        EXTRA_USER["username"],
+        EXTRA_USER["first_name"],
+        EXTRA_USER["last_name"],
+    )
+    with DependencyOverrider(extra_user_app_overrides):
+        create_test_score_calibration_in_score_set_via_client(
+            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        )
+
+    score_set_item = session.execute(
+        select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
+    ).scalar_one()
+    score_set_item.contributors = []
+    session.add(score_set_item)
+    session.commit()
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get("/api/v1/score-calibrations/me")
+
+    assert response.status_code == 200
+    assert response.json() == []
 
 
 @pytest.mark.parametrize(

@@ -678,7 +678,8 @@ def publish_score_calibration(db: Session, calibration: ScoreCalibration, user: 
     Raises
     ------
     ValueError
-        If the calibration is already published (i.e., `private` is False).
+        If the calibration is already published (i.e., `private` is False), or if its
+        score set is still private.
 
     Notes
     -----
@@ -687,6 +688,9 @@ def publish_score_calibration(db: Session, calibration: ScoreCalibration, user: 
     """
     if not calibration.private:
         raise ValueError("Calibration is already published.")
+
+    if calibration.score_set.private:
+        raise ValueError("Cannot publish a calibration whose score set is private.")
 
     calibration.private = False
     calibration.modified_by = user

@@ -287,7 +287,7 @@ def make_dump_score_set(session, sample_user, dump_experiment, dump_licenses, du
             is how a variant the mapper could not place is stored, and which the README documents as
             yielding a null `annotation`. Note that the shared `TEST_MINIMAL_MAPPED_VARIANT` uses an
             empty dict here, a shape production never stores and the annotation layer cannot parse.
-        published: sets published_date, which the dump's selection query requires.
+        published: sets published_date, which the dump's selection query requires, and clears private.
         cc0: whether the score set carries the CC0 license the dump requires.
     """
     counter = {"n": 0}
@@ -318,6 +318,7 @@ def make_dump_score_set(session, sample_user, dump_experiment, dump_licenses, du
             modified_by=sample_user,
             licence_id=CC0_LICENSE_ID if cc0 else OTHER_LICENSE_ID,
             published_date=date(2024, 1, 1) if published else None,
+            private=not published,
             dataset_columns={"score_columns": score_columns, "count_columns": list(count_columns)},
             target_genes=[
                 TargetGene(

@@ -55,6 +55,10 @@ def _add_pathogenicity_calibration(db, score_set, variants_in_abnormal_range, ur
     Only *variants_in_abnormal_range* are associated with the abnormal range, which is what
     ``functional_classification_of_variant`` consults to classify a variant.
     """
+    # A public calibration is only readable when its score set is too.
+    score_set.private = False
+    db.add(score_set)
+
     calibration = ScoreCalibration(
         score_set_id=score_set.id,
         urn=urn,
@@ -113,6 +117,10 @@ def _add_rangeless_calibration(db, score_set, urn, title):
     It can support neither a functional nor a pathogenicity annotation, so every column of its namespace
     would be NA.
     """
+    # A public calibration is only readable when its score set is too.
+    score_set.private = False
+    db.add(score_set)
+
     calibration = ScoreCalibration(
         score_set_id=score_set.id,
         urn=urn,

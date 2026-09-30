@@ -7,6 +7,7 @@ cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
 import json
+from unittest.mock import patch
 
 from sqlalchemy import delete, select
 
@@ -34,7 +35,7 @@ from tests.helpers.util.score_calibration import (
     create_test_score_calibration_in_score_set_via_client,
     publish_test_score_calibration_via_client,
 )
-from tests.helpers.util.score_set import create_seq_score_set_with_mapped_variants
+from tests.helpers.util.score_set import create_seq_score_set_with_mapped_variants, publish_score_set
 
 CALIBRATION_PUBLICATIONS = [
     {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
@@ -48,6 +49,10 @@ def _score_set_with_variant_urns(client, session, data_provider, data_files):
     score_set = create_seq_score_set_with_mapped_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
+    # Calibrations on a private score set cannot be published. Publishing also renames the variant URNs,
+    # so it must precede the URN lookup below.
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     score_set_orm = session.query(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"]).one()
     variant_urns = [
         variant.urn
@@ -73,6 +78,9 @@ def _create_private_calibration(client, session, data_provider, data_files):
         experiment["urn"],
         data_files / "scores.csv",
     )
+    # Calibrations on a private score set cannot be published, so publish the score set first.
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     return create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
