@@ -9,6 +9,7 @@ legacy ``MappedVariant``.
 
 import json
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 import pytest
 
@@ -41,6 +42,7 @@ from tests.helpers.util.score_calibration import create_publish_and_promote_scor
 from tests.helpers.util.score_set import (
     create_seq_score_set_with_mapped_variants,
     create_seq_score_set_with_variants,
+    publish_score_set,
     seed_annotation_substrate,
 )
 
@@ -106,6 +108,9 @@ def test_variant_functional_impact_statement(
     score_set = create_seq_score_set_with_mapped_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
+    # A calibration can be published only on a published score set.
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -150,6 +155,9 @@ def test_variant_pathogenicity_statement(
     score_set = create_seq_score_set_with_mapped_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
+    # A calibration can be published only on a published score set.
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
