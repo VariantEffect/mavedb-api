@@ -1,3 +1,4 @@
+import re
 from copy import deepcopy
 from datetime import date
 from typing import Any, Dict, Optional
@@ -239,6 +240,18 @@ def seed_annotation_substrate(db, score_set, *, skip_first=False, pre_mapped=Non
     return variants
 
 
+def shift_hgvs_position(hgvs, offset):
+    """Move the first position in an HGVS expression by ``offset``; ``None`` and offset 0 pass through."""
+    if hgvs is None or offset == 0:
+        return hgvs
+
+    # DNA positions follow the type letter directly (g.123A>G); a protein position follows a three-letter
+    # residue (p.Gly123Arg).
+    return re.sub(
+        r"(:[gcpn]\.\(?(?:[A-Za-z]{3})?)(\d+)", lambda m: f"{m.group(1)}{int(m.group(2)) + offset}", hgvs, count=1
+    )
+
+
 def seed_csv_substrate(
     db,
     score_set,
@@ -271,10 +284,14 @@ def seed_csv_substrate(
         .where(ScoreSetDbModel.urn == score_set["urn"])
         .order_by(VariantDbModel.id)
     ).all()
-    level_hgvs = {"genomic": hgvs_g, "cdna": hgvs_c, "protein": hgvs_p}
-    assay_hgvs = level_hgvs[assay_level]
+    hgvs_g_in, hgvs_c_in, hgvs_p_in = hgvs_g, hgvs_c, hgvs_p
 
     for index, variant in enumerate(variants):
+        # Distinct variants are distinct alleles, and alleles are unique per HGVS expression, so each
+        # variant gets its own position. The first variant keeps the HGVS exactly as given.
+        hgvs_g, hgvs_c, hgvs_p = (shift_hgvs_position(h, index) for h in (hgvs_g_in, hgvs_c_in, hgvs_p_in))
+        level_hgvs = {"genomic": hgvs_g, "cdna": hgvs_c, "protein": hgvs_p}
+        assay_hgvs = level_hgvs[assay_level]
         annotated = annotate == "all" or index == 0
         specs = [
             AlleleSpec(

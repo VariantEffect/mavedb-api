@@ -101,6 +101,7 @@ from tests.helpers.util.score_set import (
     publish_score_set,
     seed_annotation_substrate,
     seed_csv_substrate,
+    shift_hgvs_position,
 )
 from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import (
@@ -3970,17 +3971,23 @@ def test_download_variants_data_file(
         ]
     )
     rows = list(reader)
-    for row in rows:
+    # seed_csv_substrate gives each variant its own allele, so each row's HGVS is the seeded one shifted by
+    # the row's position (the first row is unshifted).
+    for index, row in enumerate(rows):
         if has_hgvs_g:
-            assert row["mavedb.post_mapped_hgvs_g"] == mapped_variant["hgvs_g"]
-            assert row["mavedb.post_mapped_hgvs_c"] == mapped_variant["hgvs_c"]
-            assert row["mavedb.post_mapped_hgvs_p"] == mapped_variant["hgvs_p"]
-            assert row["mavedb.post_mapped_hgvs_at_assay_level"] == mapped_variant["hgvs_assay_level"]
+            assert row["mavedb.post_mapped_hgvs_g"] == shift_hgvs_position(mapped_variant["hgvs_g"], index)
+            assert row["mavedb.post_mapped_hgvs_c"] == shift_hgvs_position(mapped_variant["hgvs_c"], index)
+            assert row["mavedb.post_mapped_hgvs_p"] == shift_hgvs_position(mapped_variant["hgvs_p"], index)
+            assert row["mavedb.post_mapped_hgvs_at_assay_level"] == shift_hgvs_position(
+                mapped_variant["hgvs_assay_level"], index
+            )
         elif has_hgvs_p:
             assert row["mavedb.post_mapped_hgvs_g"] == "NA"
             assert row["mavedb.post_mapped_hgvs_c"] == "NA"
-            assert row["mavedb.post_mapped_hgvs_p"] == mapped_variant["hgvs_p"]
-            assert row["mavedb.post_mapped_hgvs_at_assay_level"] == mapped_variant["hgvs_assay_level"]
+            assert row["mavedb.post_mapped_hgvs_p"] == shift_hgvs_position(mapped_variant["hgvs_p"], index)
+            assert row["mavedb.post_mapped_hgvs_at_assay_level"] == shift_hgvs_position(
+                mapped_variant["hgvs_assay_level"], index
+            )
         else:
             assert row["mavedb.post_mapped_hgvs_g"] == "NA"
             assert row["mavedb.post_mapped_hgvs_c"] == "NA"

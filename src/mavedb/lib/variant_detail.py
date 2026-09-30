@@ -236,7 +236,7 @@ def get_variant_detail(
         is_convergent = is_convergent_encoding(allele.level, link.projection_group, defining_group=defining_group)
         alleles[allele.vrs_digest] = AlleleIdentity(
             level=allele.level,
-            hgvs=allele.hgvs_g or allele.hgvs_c or allele.hgvs_p,
+            hgvs=allele.hgvs,
             clingen_allele_id=allele.clingen_allele_id,
             is_focus=link.is_authoritative,
             relation=relation.value if relation is not None else None,

@@ -292,7 +292,7 @@ def canonical_variation_document(document: Mapping[str, Any], *, subject: str) -
     return variation.model_dump(mode="json", exclude_none=True), identifier
 
 
-def _location_refgets(variation: Mapping[str, Any]) -> list[str]:
+def location_refgets(variation: Mapping[str, Any]) -> list[str]:
     """Collect the refgetAccession of the variation's location, or of each member of a block."""
     members = variation.get("members") or [variation]
     refgets = []
@@ -332,7 +332,7 @@ def verify_allele_refget(variation: Mapping[str, Any], hgvs: str, sr: SeqRepo, *
         )
         return
 
-    for refget in _location_refgets(variation):
+    for refget in location_refgets(variation):
         if refget != expected:
             msg = (
                 f"Allele for {subject} sits on {refget}, but SeqRepo holds {expected} for {accession}. "
