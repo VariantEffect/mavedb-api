@@ -20,14 +20,16 @@ from mavedb.worker.lib.managers.job_manager import JobManager
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
 
-def _make_allele_with_caid(session, score_set_id: int, urn_suffix: str, caid: str | None, vrs_digest: str) -> Allele:
+def _make_allele_with_caid(
+    session, score_set_id: int, variant_number: int, caid: str | None, vrs_digest: str
+) -> Allele:
     """Create a Variant → MappingRecord → Allele chain and return the Allele.
 
     get_alleles_for_score_set joins: Allele ← MappingRecordAllele (current) ← MappingRecord (current) ← Variant.
     Leaving valid_to=NULL on MappingRecord and MappingRecordAllele makes them current.
     """
     variant = Variant(
-        urn=f"urn:variant:{urn_suffix}",
+        urn=f"{session.get(ScoreSet, score_set_id).urn}#{variant_number}",
         score_set_id=score_set_id,
         hgvs_nt="NM_000000.1:c.1A>G",
         hgvs_pro="NP_000000.1:p.Met1Val",
@@ -101,12 +103,12 @@ class TestWarmClingenCacheUnit:
 
         # Three variants, two sharing the same CAID — should only warm 2 distinct IDs.
         # Two separate allele rows are needed (different VRS digests) to get 2 distinct CAIDs.
-        _make_allele_with_caid(session, score_set.id, "warm-test-0", "CA111111", "digest-warm-0")
-        _make_allele_with_caid(session, score_set.id, "warm-test-1", "CA222222", "digest-warm-1")
+        _make_allele_with_caid(session, score_set.id, 11, "CA111111", "digest-warm-0")
+        _make_allele_with_caid(session, score_set.id, 12, "CA222222", "digest-warm-1")
         # Third variant points to same allele as first (same CAID CA111111 via a fresh allele row
         # with the same digest — but since get_alleles_for_score_set returns per-variant rows and
         # caid dedup happens in the warmer, we can share the digest).
-        _make_allele_with_caid(session, score_set.id, "warm-test-2", "CA111111", "digest-warm-2")
+        _make_allele_with_caid(session, score_set.id, 13, "CA111111", "digest-warm-2")
         session.commit()
 
         mock_get_allele_data = AsyncMock(return_value={"some": "data"})
@@ -139,7 +141,7 @@ class TestWarmClingenCacheUnit:
 
         caids = ["CA333333", None, "CA-MULTI-001,CA-MULTI-002"]
         for i, caid in enumerate(caids):
-            _make_allele_with_caid(session, score_set.id, f"warm-filter-{i}", caid, f"digest-filter-{i}")
+            _make_allele_with_caid(session, score_set.id, 100 + i, caid, f"digest-filter-{i}")
         session.commit()
 
         mock_get_allele_data = AsyncMock(return_value={"some": "data"})
@@ -170,7 +172,7 @@ class TestWarmClingenCacheUnit:
         score_set = session.get(ScoreSet, sample_warm_clingen_cache_job_run.job_params["score_set_id"])
 
         for i, caid in enumerate(["CA444444", "CA555555"]):
-            _make_allele_with_caid(session, score_set.id, f"warm-fail-{i}", caid, f"digest-fail-{i}")
+            _make_allele_with_caid(session, score_set.id, 100 + i, caid, f"digest-fail-{i}")
         session.commit()
 
         # First call raises, second succeeds
@@ -203,7 +205,7 @@ class TestWarmClingenCacheUnit:
         score_set = session.get(ScoreSet, sample_warm_clingen_cache_job_run.job_params["score_set_id"])
 
         variant = Variant(
-            urn="urn:variant:warm-current-test",
+            urn=f"{score_set.urn}#11",
             score_set_id=score_set.id,
             hgvs_nt="NM_000000.1:c.30A>G",
             hgvs_pro="NP_000000.1:p.Met30Val",

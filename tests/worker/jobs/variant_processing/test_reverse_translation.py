@@ -325,7 +325,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         earlier same-day run's cdna transcript, which the day-granular key alone could not tell apart."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -380,7 +380,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         engine (which would otherwise count it as a failure the drop gate reads as a regression)."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -429,7 +429,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         via the day-granular (target_gene_id, mapped_date) fallback rather than skipping."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -476,7 +476,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         projection pair (coding + genomic projection) share one projection_group."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -547,7 +547,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         the accession of the populated HGVS column, with no stored transcript column."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -590,7 +590,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         belongs to no projection pair, so its link's projection_group is NULL."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -647,7 +647,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         grouped with its coding partner in the projection pair."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -699,7 +699,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         The surviving link still carries the pair's group."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -745,7 +745,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         authoritative allele plus its sibling projection derived in the same projection pair."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -809,7 +809,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         the coding sibling becomes the derived member of the same group."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NC_000001.11:g.1000A>G",
             data={},
         )
@@ -860,7 +860,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         link. This is the case the old two-list shape silently dropped."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -917,7 +917,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         ambiguous fan-out becomes N distinct groups, each a coding/genomic pair."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
         )
@@ -981,7 +981,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         identity across re-maps."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -1067,7 +1067,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         """If every variant's translation errors, the job fails and records FAILED annotations."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -1109,14 +1109,14 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         success and a failure annotation."""
         variant_ok = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
         )
         variant_err = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:2",
+            urn=f"{sample_score_set.urn}#12",
             hgvs_nt="NM_000000.1:c.2G>T",
             hgvs_pro="NP_000000.1:p.Val2Leu",
             data={},
@@ -1161,7 +1161,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         #767 fix: such variants must not pollute FAILED for the retroactive backfill."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -1211,9 +1211,15 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         """Across three variants — one translatable, one non-translatable, one genuinely erroring —
         each lands in its own bucket: translated / skipped / failed. The genuine error still records
         FAILED (translation_error); the non-translatable one is a not_translatable skip."""
-        variant_ok = Variant(score_set_id=sample_score_set.id, urn="variant:1", hgvs_nt="NM_000000.1:c.1A>G", data={})
-        variant_skip = Variant(score_set_id=sample_score_set.id, urn="variant:2", hgvs_nt="NM_000000.1:c.2G>T", data={})
-        variant_fail = Variant(score_set_id=sample_score_set.id, urn="variant:3", hgvs_nt="NM_000000.1:c.3T>A", data={})
+        variant_ok = Variant(
+            score_set_id=sample_score_set.id, urn=f"{sample_score_set.urn}#11", hgvs_nt="NM_000000.1:c.1A>G", data={}
+        )
+        variant_skip = Variant(
+            score_set_id=sample_score_set.id, urn=f"{sample_score_set.urn}#12", hgvs_nt="NM_000000.1:c.2G>T", data={}
+        )
+        variant_fail = Variant(
+            score_set_id=sample_score_set.id, urn=f"{sample_score_set.urn}#13", hgvs_nt="NM_000000.1:c.3T>A", data={}
+        )
         session.add_all([variant_ok, variant_skip, variant_fail])
         session.commit()
         await _map_variants(session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set)
@@ -1258,8 +1264,12 @@ class TestReverseTranslateVariantsForScoreSetUnit:
     ):
         """A UTA outage that outlasts the library's retries is FAILED with reason api_error, so it
         stays distinguishable from a genuine translation_error when auditing coverage gaps."""
-        variant_ok = Variant(score_set_id=sample_score_set.id, urn="variant:1", hgvs_nt="NM_000000.1:c.1A>G", data={})
-        variant_down = Variant(score_set_id=sample_score_set.id, urn="variant:2", hgvs_nt="NM_000000.1:c.2G>T", data={})
+        variant_ok = Variant(
+            score_set_id=sample_score_set.id, urn=f"{sample_score_set.urn}#11", hgvs_nt="NM_000000.1:c.1A>G", data={}
+        )
+        variant_down = Variant(
+            score_set_id=sample_score_set.id, urn=f"{sample_score_set.urn}#12", hgvs_nt="NM_000000.1:c.2G>T", data={}
+        )
         session.add_all([variant_ok, variant_down])
         session.commit()
         await _map_variants(session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set)
@@ -1300,7 +1310,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         variant a SUCCESS (one allele created) while retaining the dropped candidate in metadata."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -1347,7 +1357,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         created, and the per-candidate errors are retained in metadata."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -1397,7 +1407,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         (no_coding_transcript → `absent`)."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NC_000001.11:g.1000A>G",
             data={},
         )
@@ -1442,7 +1452,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         TargetGeneMapping, whose reference_accession anchors the projection."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NC_000001.11:g.1000A>G",
             data={},
         )
@@ -1503,7 +1513,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         RT reverse-translates against the newest (highest id), not an arbitrary one."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NC_000001.11:g.1000A>G",
             data={},
         )
@@ -1569,7 +1579,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         run's job_run_id, so a row carrying no such anchor never leaks in (mavedb-api#763)."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NC_000001.11:g.1000A>G",
             data={},
         )
@@ -1621,7 +1631,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert sample_score_set.target_genes[0].category == TargetCategory.protein_coding
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NC_000001.11:g.1000A>G",
             data={},
         )
@@ -1662,7 +1672,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
 
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NC_000001.11:g.1000A>G",
             data={},
         )
@@ -1697,7 +1707,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         resulting config is passed through to construct_equivalent_variants."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -1750,7 +1760,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         (full codon equivalence class, indels included)."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
@@ -1796,7 +1806,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         is resolved NP_→NM_ via UTA and supplied as the VariantInput hint."""
         variant = Variant(
             score_set_id=sample_score_set.id,
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
         )

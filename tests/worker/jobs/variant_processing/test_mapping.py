@@ -744,14 +744,14 @@ class TestMapVariantsForScoreSetUnit:
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
         )
         variant2 = Variant(
             score_set_id=sample_score_set.id,
             hgvs_nt="NM_000000.1:c.2G>T",
             hgvs_pro="NP_000000.1:p.Val2Leu",
             data={},
-            urn="variant:2",
+            urn=f"{sample_score_set.urn}#12",
         )
         session.add_all([variant1, variant2])
         session.commit()
@@ -843,14 +843,14 @@ class TestMapVariantsForScoreSetUnit:
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
         )
         variant2 = Variant(
             score_set_id=sample_score_set.id,
             hgvs_nt="NM_000000.1:c.2G>T",
             hgvs_pro="NP_000000.1:p.Val2Leu",
             data={},
-            urn="variant:2",
+            urn=f"{sample_score_set.urn}#12",
         )
         session.add_all([variant1, variant2])
         session.commit()
@@ -926,14 +926,14 @@ class TestMapVariantsForScoreSetUnit:
             hgvs_nt="NM_000000.1:c.1A>G",
             hgvs_pro="NP_000000.1:p.Met1Val",
             data={},
-            urn="variant:1",
+            urn=f"{sample_score_set.urn}#11",
         )
         variant2 = Variant(
             score_set_id=sample_score_set.id,
             hgvs_nt="NM_000000.1:c.2G>T",
             hgvs_pro="NP_000000.1:p.Val2Leu",
             data={},
-            urn="variant:2",
+            urn=f"{sample_score_set.urn}#12",
         )
         session.add_all([variant1, variant2])
         session.commit()
@@ -963,7 +963,7 @@ class TestMapVariantsForScoreSetUnit:
 
         # Verify that both variants have post-mapped data. I'm comfortable assuming the
         # data is correct given our layer permutation tests above.
-        for urn in ["variant:1", "variant:2"]:
+        for urn in [f"{sample_score_set.urn}#11", f"{sample_score_set.urn}#12"]:
             mapping_record = session.query(MappingRecord).filter(MappingRecord.variant.has(urn=urn)).one_or_none()
             assert mapping_record is not None
             assert authoritative_allele_for(session, mapping_record) is not None
