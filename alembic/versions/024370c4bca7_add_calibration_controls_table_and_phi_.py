@@ -1,7 +1,7 @@
 """add calibration controls, mondo terms, and phi/disease columns
 
 Revision ID: 024370c4bca7
-Revises: a7f3c2e9b104
+Revises: f6752571d14d
 Create Date: 2026-09-15 16:01:06.013964
 
 """
@@ -12,7 +12,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "024370c4bca7"
-down_revision = "a7f3c2e9b104"
+down_revision = "f6752571d14d"
 branch_labels = None
 depends_on = None
 
