@@ -7,8 +7,10 @@ associated publication/odds path references used by the API layer.
 from datetime import date
 from typing import TYPE_CHECKING, Any, Collection, Optional, Sequence, Union
 
+from ga4gh.core.models import MappableConcept
 from pydantic import Field, field_validator, model_validator
 
+from mavedb.lib.mondo import generic_disease_mappable_concept, mondo_term_to_mappable_concept
 from mavedb.lib.oddspaths import oddspaths_evidence_strength_equivalent
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.transform import (
@@ -26,6 +28,10 @@ from mavedb.view_models.acmg_classification import (
     SavedACMGClassification,
 )
 from mavedb.view_models.base.base import BaseModel
+from mavedb.view_models.calibration_control import (
+    CalibrationControlCreate,
+    SavedCalibrationControl,
+)
 from mavedb.view_models.publication_identifier import (
     PublicationIdentifier,
     PublicationIdentifierBase,
@@ -282,6 +288,8 @@ class ScoreCalibrationBase(BaseModel):
     baseline_score_description: Optional[str] = None
     notes: Optional[str] = None
 
+    controls_not_phi: Optional[bool] = None
+
     functional_classifications: Optional[Sequence[FunctionalClassificationBase]] = None
     threshold_sources: Sequence[PublicationIdentifierBase]
     evidence_sources: Sequence[PublicationIdentifierBase]
@@ -432,6 +440,15 @@ class ScoreCalibrationModify(ScoreCalibrationBase):
     score_set_urn: Optional[str] = None
 
     functional_classifications: Optional[Sequence[FunctionalClassificationModify]] = None
+    # None means "no change" on modify; an empty list clears all controls.
+    controls: Optional[Sequence[CalibrationControlCreate]] = None
+    disease: Optional[str] = Field(
+        None,
+        description=(
+            'The MONDO code (e.g. "MONDO:0015263") for this calibration\'s disease context; validated '
+            'against OLS. Omitted or null resolves to the generic "disease or disorder" term.'
+        ),
+    )
     threshold_sources: Sequence[PublicationIdentifierCreate]
     evidence_sources: Sequence[PublicationIdentifierCreate]
     method_sources: Sequence[PublicationIdentifierCreate]
@@ -498,6 +515,12 @@ class SavedScoreCalibration(ScoreCalibrationBase):
     private: bool = True
 
     functional_classifications: Optional[Sequence[SavedFunctionalClassification]] = None
+    # The full controls list lives on the detail models; the base (and any list/collection response)
+    # carries only the count to keep those payloads small. See ScoreCalibrationDetailWithScoreSetUrn.
+    controls_count: int = 0
+    # The FK is non-nullable, so this is always populated by ``generate_disease_concept`` when building
+    # from an ORM object; an unspecified disease resolves to the generic "disease or disorder" concept.
+    disease: MappableConcept
     threshold_sources: Sequence[SavedPublicationIdentifier]
     evidence_sources: Sequence[SavedPublicationIdentifier]
     method_sources: Sequence[SavedPublicationIdentifier]
@@ -562,11 +585,27 @@ class SavedScoreCalibration(ScoreCalibrationBase):
                 )
         return data
 
+    @model_validator(mode="before")
+    def generate_disease_concept(cls, data: Any):
+        """Serialize the stored MONDO term as a ``disease`` MappableConcept when building from an ORM object.
+
+        Falls back to the generic concept if the relationship is unexpectedly empty, so the non-nullable
+        field is always satisfied.
+        """
+        if hasattr(data, "disease_term"):
+            term = data.disease_term
+            data.__setattr__(
+                "disease",
+                mondo_term_to_mappable_concept(term) if term is not None else generic_disease_mappable_concept(),
+            )
+        return data
+
 
 class ScoreCalibration(SavedScoreCalibration):
     """Complete score calibration model returned by the API."""
 
     functional_classifications: Optional[Sequence[FunctionalClassification]] = None
+    controls: Sequence[SavedCalibrationControl] = []
     threshold_sources: Sequence[PublicationIdentifier]
     evidence_sources: Sequence[PublicationIdentifier]
     method_sources: Sequence[PublicationIdentifier]
@@ -575,7 +614,11 @@ class ScoreCalibration(SavedScoreCalibration):
 
 
 class ScoreCalibrationWithScoreSetUrn(SavedScoreCalibration):
-    """Complete score calibration model returned by the API, with score_set_urn."""
+    """Score calibration model with score_set_urn, used for list/collection responses.
+
+    Carries ``controls_count`` (from the base) but not the full controls list — see
+    ``ScoreCalibrationDetailWithScoreSetUrn`` for the single-item detail representation.
+    """
 
     score_set_urn: str
 
@@ -589,3 +632,9 @@ class ScoreCalibrationWithScoreSetUrn(SavedScoreCalibration):
                     f"Unable to coerce score set urn for {cls.__name__}: {exc}."  # type: ignore
                 )
         return data
+
+
+class ScoreCalibrationDetailWithScoreSetUrn(ScoreCalibrationWithScoreSetUrn):
+    """Single-calibration detail response: adds the full controls list to the list model."""
+
+    controls: Sequence[SavedCalibrationControl] = []

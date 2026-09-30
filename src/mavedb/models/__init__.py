@@ -1,6 +1,7 @@
 __all__ = [
     "access_key",
     "acmg_classification",
+    "calibration_control",
     "collection",
     "clinical_control",
     "controlled_keyword",
@@ -16,6 +17,7 @@ __all__ = [
     "legacy_keyword",
     "license",
     "mapped_variant",
+    "mondo_term",
     "pipeline",
     "publication_identifier",
     "published_variant",

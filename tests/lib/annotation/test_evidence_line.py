@@ -25,6 +25,7 @@ from mavedb.lib.annotation.proposition import (
     mapped_variant_to_experimental_variant_functional_impact_proposition,
 )
 from mavedb.lib.annotation.statement import mapped_variant_to_functional_statement
+from tests.helpers.mocks.factories import create_mock_score_calibration
 
 
 @pytest.mark.unit
@@ -62,7 +63,9 @@ class TestAcmgEvidenceLine:
             "mavedb.lib.annotation.evidence_line.pathogenicity_classification_of_variant",
             return_value=(MagicMock(label="Test Range"), expected_outcome, expected_strength),
         ):
-            proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mapped_variant)
+            proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(
+                mapped_variant, score_calibration
+            )
             study_result = variant_study_result(mapped_variant)
             evidence = functional_evidence_line(mapped_variant, score_calibration, [study_result])
             result = acmg_evidence_line(mapped_variant, score_calibration, proposition, [evidence])
@@ -100,7 +103,9 @@ class TestAcmgEvidenceLine:
             "mavedb.lib.annotation.evidence_line.pathogenicity_classification_of_variant",
             return_value=(MagicMock(label="Test Range"), expected_outcome, expected_strength),
         ):
-            proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mapped_variant)
+            proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(
+                mapped_variant, score_calibration
+            )
             study_result = variant_study_result(mapped_variant)
             evidence = functional_evidence_line(mapped_variant, score_calibration, [study_result])
             result = acmg_evidence_line(mapped_variant, score_calibration, proposition, [evidence])
@@ -123,7 +128,9 @@ class TestAcmgEvidenceLine:
         score_calibration = MagicMock()
 
         with pytest.raises(ValueError, match="does not have a score set with score calibrations"):
-            proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mock_mapped_variant)
+            proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(
+                mock_mapped_variant, create_mock_score_calibration()
+            )
             study_result = variant_study_result(mock_mapped_variant)
             acmg_evidence_line(mock_mapped_variant, score_calibration, proposition, [study_result])
 
@@ -151,7 +158,9 @@ class TestAcmgEvidenceLine:
             score_calibration,
             ExperimentalVariantFunctionalImpactClassification.NORMAL,
         )
-        clinical_proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(mapped_variant)
+        clinical_proposition = mapped_variant_to_experimental_variant_clinical_impact_proposition(
+            mapped_variant, score_calibration
+        )
 
         result = acmg_evidence_line(mapped_variant, score_calibration, clinical_proposition, [functional_statement])
 

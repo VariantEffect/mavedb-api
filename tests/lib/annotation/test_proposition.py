@@ -21,6 +21,7 @@ from mavedb.lib.annotation.proposition import (
     mapped_variant_to_experimental_variant_clinical_impact_proposition,
     mapped_variant_to_experimental_variant_functional_impact_proposition,
 )
+from tests.helpers.mocks.factories import create_mock_mondo_term, create_mock_score_calibration
 
 
 @pytest.mark.unit
@@ -28,16 +29,27 @@ class TestExperimentalVariantClinicalImpactProposition:
     """Unit tests for experimental variant clinical impact proposition creation."""
 
     def test_mapped_variant_to_experimental_variant_clinical_impact_proposition(self, mock_mapped_variant):
-        """Test creation of clinical impact proposition from mapped variant."""
-        result = mapped_variant_to_experimental_variant_clinical_impact_proposition(mock_mapped_variant)
+        """The proposition's condition defaults to the calibration's generic disease term."""
+        calibration = create_mock_score_calibration()
+        result = mapped_variant_to_experimental_variant_clinical_impact_proposition(mock_mapped_variant, calibration)
 
         assert isinstance(result, VariantPathogenicityProposition)
         assert result.description == f"Variant pathogenicity proposition for {mock_mapped_variant.variant.urn}."
         assert isinstance(result.subjectVariant, MolecularVariation)
         assert result.predicate == "isCausalFor"
         assert result.objectCondition.root.conceptType == "Disease"
-        assert result.objectCondition.root.primaryCoding.code.root == "C0012634"
-        assert result.objectCondition.root.primaryCoding.system == "https://www.ncbi.nlm.nih.gov/medgen/"
+        assert result.objectCondition.root.primaryCoding.code.root == "MONDO:0000001"
+        assert result.objectCondition.root.primaryCoding.system == "https://purl.obolibrary.org/obo/mondo.owl"
+
+    def test_clinical_impact_proposition_reflects_the_calibration_disease(self, mock_mapped_variant):
+        """A calibration with a specific disease term drives the proposition's condition."""
+        calibration = create_mock_score_calibration(
+            disease_term=create_mock_mondo_term(code="MONDO:0015263", label="Brugada syndrome")
+        )
+        result = mapped_variant_to_experimental_variant_clinical_impact_proposition(mock_mapped_variant, calibration)
+
+        assert result.objectCondition.root.primaryCoding.code.root == "MONDO:0015263"
+        assert result.objectCondition.root.name == "Brugada syndrome"
 
 
 @pytest.mark.unit
