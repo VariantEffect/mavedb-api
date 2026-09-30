@@ -76,7 +76,7 @@ class AnnotationEvent(Base):
 
     # Exactly one is set, per ck_annotation_event_subject.
     variant_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("variants.id", ondelete="RESTRICT"), nullable=True
+        Integer, ForeignKey("variants.id", ondelete="CASCADE"), nullable=True
     )
     allele_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("alleles.id", ondelete="RESTRICT"), nullable=True

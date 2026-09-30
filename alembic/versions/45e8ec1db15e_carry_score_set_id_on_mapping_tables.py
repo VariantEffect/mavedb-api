@@ -10,7 +10,8 @@ check a row's score set directly (#833). Both tables otherwise reach their score
 
 Each column sits under a composite foreign key to its parent's id and score set, so it can't disagree
 with the variant it belongs to. The composite keys replace the single-column ``variant_id`` and
-``mapping_record_id`` foreign keys.
+``mapping_record_id`` foreign keys. Both cascade on delete, so deleting a variant (on re-upload or score set
+deletion) removes its mapping records and their allele links.
 
 **Before deploying to production**, build the ``variants`` index by hand, since a migration can't build it
 concurrently (#877). The ``IF NOT EXISTS`` below then does nothing there, and builds the index on an empty
@@ -45,6 +46,7 @@ def upgrade() -> None:
         "variants",
         ["variant_id", "score_set_id"],
         ["id", "scoreset_id"],
+        ondelete="CASCADE",
     )
 
     op.execute("ALTER TABLE mapping_record_alleles ADD COLUMN score_set_id integer")

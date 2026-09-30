@@ -107,6 +107,7 @@ class MappingRecord(ValidTime, Base):
             ["variants.id", "variants.scoreset_id"],
             name="fk_mapping_records_variant_score_set",
             link_to_name=True,
+            ondelete="CASCADE",
         ),
         # Target of mapping_record_alleles' composite foreign key.
         Index("uq_mapping_records_id_score_set", id, score_set_id, unique=True),

@@ -22,11 +22,15 @@ from mavedb.lib.annotation.annotate import variant_study_result
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
+from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
+from mavedb.models.enums.annotation_type import AnnotationType
+from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.job_run import JobRun
+from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.pipeline import Pipeline
 from mavedb.models.gnomad_variant import GnomADVariant as GnomADVariantDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
@@ -3211,6 +3215,38 @@ def test_can_delete_own_private_scoreset(session, data_provider, client, setup_r
     response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
 
     assert response.status_code == 200
+
+
+def test_can_delete_own_private_scoreset_with_mapped_variants(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    variant = session.scalars(
+        select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
+    ).first()
+    variant_ids = [variant.id]
+    session.add(
+        MappingRecord(
+            variant_id=variant.id, score_set_id=variant.score_set_id, assay_level="cdna", mapping_api_version="test.0.0"
+        )
+    )
+    session.add(
+        AnnotationEvent(
+            annotation_type=AnnotationType.VRS_MAPPING,
+            variant_id=variant.id,
+            disposition=Disposition.PRESENT,
+            reason="mapped",
+        )
+    )
+    session.commit()
+
+    response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
+
+    assert response.status_code == 200
+    assert not session.scalars(select(MappingRecord).where(MappingRecord.variant_id.in_(variant_ids))).first()
+    assert not session.scalars(select(AnnotationEvent).where(AnnotationEvent.variant_id.in_(variant_ids))).first()
 
 
 def test_cannot_delete_own_published_scoreset(session, data_provider, client, setup_router_db, data_files):
