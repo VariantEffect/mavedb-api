@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional
 
@@ -37,6 +37,10 @@ wQIDAQAB
 ORCID_JWT_AUDIENCE = os.getenv("ORCID_CLIENT_ID")
 
 ACCESS_TOKEN_NAME = "X-API-key"
+
+# How stale `last_login` may get before a request rewrites it. Nothing reads the value at request granularity,
+# and writing it on every request costs a commit and a refresh on the hot path of every authenticated route.
+LAST_LOGIN_REFRESH_INTERVAL = timedelta(minutes=15)
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +125,7 @@ async def get_access_token(
     return access_token_header or access_token_cookie
 
 
-async def get_current_user_data_from_api_key(
+def get_current_user_data_from_api_key(
     db: Session = Depends(deps.get_db), access_token: str = Depends(get_access_token)
 ) -> Optional[UserData]:
     user = None
@@ -155,7 +159,7 @@ async def get_current_user_data_from_api_key(
 ####################################################################################################
 
 
-async def get_current_user(
+def get_current_user(
     api_key_user_data: Optional[UserData] = Depends(get_current_user_data_from_api_key),
     token_payload: Optional[dict] = Depends(JWTBearer()),
     db: Session = Depends(deps.get_db),
@@ -205,6 +209,7 @@ async def get_current_user(
             email=email,
             is_first_login=True,
         )
+        needs_write = True
         save_to_logging_context(
             {
                 "user": user.id,
@@ -220,8 +225,14 @@ async def get_current_user(
         logger.info(msg="Failed to authenticate user; User is inactive.", extra=logging_context())
         return None
     else:
-        user.last_login = datetime.now()
-        user.is_first_login = False
+        needs_write = (
+            user.is_first_login
+            or user.last_login is None
+            or datetime.now() - user.last_login >= LAST_LOGIN_REFRESH_INTERVAL
+        )
+        if needs_write:
+            user.last_login = datetime.now()
+            user.is_first_login = False
         save_to_logging_context(
             {
                 "user": user.id,
@@ -230,17 +241,20 @@ async def get_current_user(
             }
         )
 
-    db.add(user)
-    try:
-        db.commit()
-    except IntegrityError:
+    if needs_write:
+        db.add(user)
+        try:
+            db.commit()
+
         # A concurrent request created this user between our initial query and this commit.
         # Roll back and re-fetch the existing record.
-        db.rollback()
-        user = db.query(User).filter(User.username == username).one()
-        logger.debug(msg="Concurrent first-login resolved; returning existing user.", extra=logging_context())
+        except IntegrityError:
+            db.rollback()
+            user = db.query(User).filter(User.username == username).one()
+            logger.debug(msg="Concurrent first-login resolved; returning existing user.", extra=logging_context())
 
-    db.refresh(user)
+        db.refresh(user)
+
     logger.info(msg="Successfully authenticated user via JWT.", extra=logging_context())
 
     # When no roles are requested, the user may act as any assigned role.

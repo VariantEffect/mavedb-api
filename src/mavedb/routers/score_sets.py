@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session, contains_eager
 
 from mavedb import deps
 from mavedb.data_providers.services import CSV_UPLOAD_S3_BUCKET_NAME, s3_client
+from mavedb.db.timeouts import allow_long_statements
 from mavedb.lib.annotation.annotate import (
     variant_functional_impact_statement,
     variant_pathogenicity_statement,
@@ -36,6 +37,7 @@ from mavedb.lib.authorization import (
     require_current_user_with_email,
 )
 from mavedb.lib.contributors import find_or_create_contributor
+from mavedb.lib.csv.build_limiter import csv_build_slot, rows_to_build
 from mavedb.lib.csv.columns import variants_to_csv_rows
 from mavedb.lib.csv.deprecated_params import (
     DROP_NA_COLUMNS_DESCRIPTION,
@@ -1080,18 +1082,22 @@ def get_score_set_variants_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_variants_as_csv(
-        db,
-        score_set,
-        namespaces,
-        True,
-        start,
-        limit,
-        drop_unused_hgvs_columns,
-        # Asked separately from the score set: a private calibration is readable only by its owner,
-        # investigator contributors, or an admin, whoever can read the score set.
-        viewer=principal.viewer_for(ScoreCalibrationViewer),
-    )
+    # Full-table CSV builds legitimately outrun the API's default statement timeout.
+    allow_long_statements(db)
+
+    with csv_build_slot(rows_to_build(score_set.num_variants, start, limit)):
+        csv_str = get_score_set_variants_as_csv(
+            db,
+            score_set,
+            namespaces,
+            True,
+            start,
+            limit,
+            drop_unused_hgvs_columns,
+            # Asked separately from the score set: a private calibration is readable only by its owner,
+            # investigator contributors, or an admin, whoever can read the score set.
+            viewer=principal.viewer_for(ScoreCalibrationViewer),
+        )
     return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
 
 
@@ -1155,11 +1161,15 @@ def get_score_set_scores_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
+    # Full-table CSV builds legitimately outrun the API's default statement timeout.
+    allow_long_statements(db)
+
     # Both score namespaces: this endpoint has always returned every score column the investigator
     # uploaded, and `scores` alone is now just the required one.
-    csv_str = get_score_set_variants_as_csv(
-        db, score_set, ["scores", "scores_custom"], False, start, limit, drop_unused_hgvs_columns
-    )
+    with csv_build_slot(rows_to_build(score_set.num_variants, start, limit)):
+        csv_str = get_score_set_variants_as_csv(
+            db, score_set, ["scores", "scores_custom"], False, start, limit, drop_unused_hgvs_columns
+        )
     return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
 
 
@@ -1177,7 +1187,7 @@ def get_score_set_scores_csv(
     },
     summary="Get score set counts in CSV format",
 )
-async def get_score_set_counts_csv(
+def get_score_set_counts_csv(
     *,
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
@@ -1223,7 +1233,13 @@ async def get_score_set_counts_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_variants_as_csv(db, score_set, ["counts"], False, start, limit, drop_unused_hgvs_columns)
+    # Full-table CSV builds legitimately outrun the API's default statement timeout.
+    allow_long_statements(db)
+
+    with csv_build_slot(rows_to_build(score_set.num_variants, start, limit)):
+        csv_str = get_score_set_variants_as_csv(
+            db, score_set, ["counts"], False, start, limit, drop_unused_hgvs_columns
+        )
     return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
 
 

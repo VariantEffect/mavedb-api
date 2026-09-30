@@ -33,6 +33,10 @@ TAG_NAME = "Refget"
 
 logger = logging.getLogger(__name__)
 
+# SeqRepo records no sequence topology, so the human mitochondrial references are the only sequences treated as
+# circular. Refget needs the distinction: start > end is 416 on a linear sequence and 501 on a circular one.
+CIRCULAR_SEQUENCE_ACCESSIONS = frozenset({"NC_012920.1", "NC_001807.4"})
+
 router = APIRouter(
     prefix=f"{ROUTER_BASE_PREFIX}/refget",
     tags=[TAG_NAME],
@@ -166,16 +170,6 @@ def get_sequence(
             raise HTTPException(status_code=400, detail="Invalid range header format")
 
     save_to_logging_context({"requested_refget_start": start, "requested_refget_end": end})
-    if start is not None and end is not None:
-        if start > end:
-            logger.error(
-                msg="Invalid coordinates: start is greater than end and circular chromosomes are not supported",
-                extra=logging_context(),
-            )
-            raise HTTPException(
-                status_code=501,
-                detail="Invalid coordinates: start is greater than end and circular chromosomes are not supported",
-            )
 
     seq_ids = get_sequence_ids(sr, alias)
     if not seq_ids:
@@ -194,6 +188,21 @@ def get_sequence(
     # body all agree, even when only one of start/end is supplied.
     seq_start = start if start is not None else 0
     seq_end = end if end is not None else seq_len
+
+    # Refget spec: start > end asks for a circular sub-sequence across the origin. That's unsatisfiable on a linear
+    # sequence, and not implemented here for a circular one.
+    if start is not None and end is not None and start > end:
+        if not CIRCULAR_SEQUENCE_ACCESSIONS.isdisjoint(a["alias"] for a in sr.aliases.find_aliases(seq_id=seq_id)):
+            logger.error(msg="Circular sub-sequences are not supported", extra=logging_context())
+            raise HTTPException(
+                status_code=501,
+                detail="Invalid coordinates: start is greater than end and circular chromosomes are not supported",
+            )
+        raise HTTPException(
+            status_code=416,
+            detail="Invalid coordinates: start is greater than end on a linear sequence",
+            headers={"Content-Range": f"bytes */{seq_len}"},
+        )
 
     # Refget spec: only a start "larger than" the sequence length is invalid (strict inequality).
     if start is not None and end is not None:

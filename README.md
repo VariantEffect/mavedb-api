@@ -88,6 +88,21 @@ after running `docker-compose down`.
     The database username and password should be edited for production deployments. `NCBI_API_KEY` will be removed in
     the future. **TODO** Move these to an .env file.
 
+2. Optional database and CSV export tuning variables. Times are in seconds, and setting a timeout or `CSV_BUILD_SLOTS`
+   to `0` disables it. All of them apply only to the API server; the worker, scripts and migrations run without them.
+
+    | Variable | Default | Purpose |
+    |---|---|---|
+    | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | 5 / 10 | Persistent and burst connections per process |
+    | `DB_POOL_TIMEOUT` | 10 | Longest wait for a free pooled connection before the request returns 503 |
+    | `DB_STATEMENT_TIMEOUT_SECONDS` | 30 | Longest single statement before the request returns 503 |
+    | `DB_CSV_STATEMENT_TIMEOUT_SECONDS` | 45 | The same limit for the score set CSV routes |
+    | `DB_LOCK_TIMEOUT_SECONDS` | 5 | Longest wait for a row or table lock before the request returns 503 |
+    | `DB_IDLE_IN_TRANSACTION_TIMEOUT_SECONDS` | 60 | Longest idle gap inside an open transaction before Postgres ends the session |
+    | `DB_SLOW_STATEMENT_SECONDS` | 5 | Statements slower than this are logged with their route |
+    | `CSV_BUILD_SLOTS` | 2 | Score set CSV builds of `CSV_BUILD_MIN_ROWS` or more rows each process runs at once |
+    | `CSV_BUILD_MIN_ROWS` | 10000 | Smaller builds skip the cap. A large build waits up to 10s for a slot, then returns 503 with `Retry-After` |
+
 ### Running the API server in Docker for development
 
 A similar procedure can be followed to run the API server in development mode on your local machine. There are a couple
