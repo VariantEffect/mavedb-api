@@ -7,8 +7,11 @@ sequential scan of this table to enforce that FK, which dominates the delete for
 with a nontrivial number of variants. See mavedb-api#677 ("unpublished score set deletion often
 fails").
 
-Built CONCURRENTLY, outside a transaction, so this doesn't hold an exclusive lock on the table for
-the build's duration.
+Building it takes a lock that blocks writes to the table, so in a populated database build it by hand
+first, which makes this migration a no-op:
+
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_score_calib_func_classification_variants_variant_id
+        ON score_calibration_functional_classification_variants (variant_id);
 
 Revision ID: 15c40c367731
 Revises: c4b18d0f7a92
@@ -29,10 +32,8 @@ TABLE_NAME = "score_calibration_functional_classification_variants"
 
 
 def upgrade():
-    with op.get_context().autocommit_block():
-        op.execute(f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {INDEX_NAME} ON {TABLE_NAME} (variant_id)")
+    op.execute(f"CREATE INDEX IF NOT EXISTS {INDEX_NAME} ON {TABLE_NAME} (variant_id)")
 
 
 def downgrade():
-    with op.get_context().autocommit_block():
-        op.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {INDEX_NAME}")
+    op.execute(f"DROP INDEX IF EXISTS {INDEX_NAME}")
