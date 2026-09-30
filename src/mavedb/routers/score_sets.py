@@ -78,6 +78,7 @@ from mavedb.lib.target_genes import find_or_create_target_gene_by_accession, fin
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.urn_redirects import record_urn_redirect
+from mavedb.lib.validation.exceptions import ValidationError as MaveDBValidationError
 from mavedb.lib.urns import (
     generate_experiment_set_urn,
     generate_experiment_urn,
@@ -1927,7 +1928,7 @@ async def create_score_set(
 
     score_calibrations: list[ScoreCalibration] = []
     if item_create.score_calibrations:
-        for calibration_create in item_create.score_calibrations:
+        for calibration_index, calibration_create in enumerate(item_create.score_calibrations):
             # TODO#592: Support for class-based calibrations on score set creation
             if calibration_create.class_based:
                 logger.info(
@@ -1950,9 +1951,23 @@ async def create_score_set(
                     detail="Calibration controls are not supported on score set creation. Please add controls after creating the score set.",
                 )
 
-            created_calibration_item = await create_score_calibration(
-                db, calibration_create, user_data.user, variant_classes=None
-            )
+            try:
+                created_calibration_item = await create_score_calibration(
+                    db, calibration_create, user_data.user, variant_classes=None
+                )
+            except MaveDBValidationError as e:
+                # custom_loc is relative to the calibration body; nest it under this calibration.
+                field_loc = (e.custom_loc or ["body"])[1:]
+                raise HTTPException(
+                    status_code=422,
+                    detail=[
+                        {
+                            "loc": ["body", "scoreCalibrations", calibration_index, *field_loc],
+                            "msg": str(e),
+                            "type": "value_error",
+                        }
+                    ],
+                )
             created_calibration_item.investigator_provided = True  # necessarily true on score set creation
             score_calibrations.append(created_calibration_item)
 

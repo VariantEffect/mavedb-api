@@ -394,9 +394,15 @@ async def create_score_calibration_route(
                 detail=[{"loc": [e.custom_loc or "controlsFile"], "msg": str(e), "type": "value_error"}],
             )
 
-    created_calibration = await create_score_calibration_in_score_set(
-        db, calibration, user_data.user, variant_classes if classes_file else None
-    )
+    try:
+        created_calibration = await create_score_calibration_in_score_set(
+            db, calibration, user_data.user, variant_classes if classes_file else None
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=[{"loc": e.custom_loc or ["body"], "msg": str(e), "type": "value_error"}],
+        )
 
     db.commit()
     db.refresh(created_calibration)
@@ -604,9 +610,15 @@ async def modify_score_calibration_route(
                 detail=[{"loc": [e.custom_loc or "controlsFile"], "msg": str(e), "type": "value_error"}],
             )
 
-    updated_calibration = await modify_score_calibration(
-        db, item, calibration_update, user_data.user, variant_classes if classes_file else None
-    )
+    try:
+        updated_calibration = await modify_score_calibration(
+            db, item, calibration_update, user_data.user, variant_classes if classes_file else None
+        )
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=[{"loc": e.custom_loc or ["body"], "msg": str(e), "type": "value_error"}],
+        )
 
     # A public calibration may not carry unacknowledged controls, on this route the same as at
     # publish time. controls_not_phi is tristate: only True clears the gate — None (unaddressed) and

@@ -214,6 +214,37 @@ def test_create_score_set_with_contributor(client, mock_publication_fetch, setup
     ],
     indirect=["mock_publication_fetch"],
 )
+def test_cannot_create_score_set_with_score_calibration_with_unknown_disease(
+    client, mock_publication_fetch, setup_router_db, monkeypatch
+):
+    async def fake_fetch(code):
+        return None
+
+    monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)
+
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    score_set["scoreCalibrations"] = [
+        {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED), "disease": "MONDO:9999999"}
+    ]
+
+    response = client.post("/api/v1/score-sets/", json=score_set)
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "scoreCalibrations", 0, "disease"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
 def test_create_score_set_with_score_calibration(client, mock_publication_fetch, setup_router_db):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)

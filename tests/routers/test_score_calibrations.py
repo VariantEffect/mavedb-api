@@ -226,6 +226,80 @@ def test_create_score_calibration_with_disease_resolves_mondo_concept(
     ],
     indirect=["mock_publication_fetch"],
 )
+def test_cannot_create_score_calibration_with_unknown_disease(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, monkeypatch
+):
+    async def fake_fetch(code):
+        return None
+
+    monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)
+
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    payload = {
+        **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        "disease": "MONDO:9999999",
+        "scoreSetUrn": score_set["urn"],
+    }
+
+    response = client.post("/api/v1/score-calibrations/", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "disease"]
+    assert "MONDO:9999999" in response.json()["detail"][0]["msg"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_modify_score_calibration_with_unknown_disease(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, monkeypatch
+):
+    async def fake_fetch(code):
+        return None
+
+    monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)
+
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    payload = {
+        **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        "disease": "MONDO:9999999",
+        "scoreSetUrn": score_set["urn"],
+    }
+
+    response = client.put(f"/api/v1/score-calibrations/{calibration['urn']}", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "disease"]
+    stored = client.get(f"/api/v1/score-calibrations/{calibration['urn']}").json()
+    assert stored["disease"]["primaryCoding"]["code"] == "MONDO:0000001"
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
 def test_contributing_user_can_get_score_calibration_when_private_and_investigator_provided(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
 ):
