@@ -29,7 +29,7 @@ from mavedb.lib.mapping.schema import MappingOutcome
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variant_translations import get_or_create_allele
 from mavedb.lib.variants import get_hgvs_from_post_mapped
-from mavedb.lib.vrs_utils import canonical_variation_document
+from mavedb.lib.vrs_utils import canonical_variation_document, verify_allele_refget
 from mavedb.models.allele import Allele as AlleleDbModel
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
@@ -451,6 +451,12 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 canonical_post_mapped, allele_digest = canonical_variation_document(
                     post_mapped_allele, subject=f"variant {variant.urn}"
                 )
+                # Verify that the post-mapped allele's sequence matches what SeqRepo holds for its accession.
+                if (seqrepo := getattr(ctx["seqrepo"], "sr", None)) is not None:
+                    verify_allele_refget(
+                        canonical_post_mapped, assay_level_hgvs or "", seqrepo, subject=f"variant {variant.urn}"
+                    )
+
                 allele_draft = AlleleDbModel(
                     vrs_digest=allele_digest,
                     level=sequence_level,

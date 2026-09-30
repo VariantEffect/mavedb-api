@@ -28,8 +28,11 @@ from ga4gh.vrs.models import (
 )
 from ga4gh.vrs.normalize import normalize
 
-from mavedb.lib.hgvs import split_cis_phased_hgvs
+from biocommons.seqrepo import SeqRepo
+
+from mavedb.lib.hgvs import extract_accession, split_cis_phased_hgvs
 from mavedb.lib.logging.context import logging_context
+from mavedb.lib.seqrepo import AmbiguousSequenceError, SequenceNotFoundError, resolve_refget
 from mavedb.lib.vrs import vrs_object_from_mapped_variant
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,14 @@ _HGVS_SYNTAX_BY_TYPE = {
     "m": Syntax.HGVS_M,
     "r": Syntax.HGVS_R,
 }
+
+# Accessions whose sequence SeqRepo is the authority for. Anything else (a target-sequence label, a
+# ga4gh: digest) has no accession-to-sequence mapping to check an allele against.
+CANONICAL_ACCESSION_PREFIXES = ("NC_", "NM_", "NR_", "NP_", "XM_", "XP_", "ENST", "ENSP")
+
+
+class AlleleRefgetMismatchError(ValueError):
+    """Raised when an allele sits on a different sequence than SeqRepo holds for its accession."""
 
 
 def _hgvs_syntax(hgvs: str) -> Syntax:
@@ -279,3 +290,54 @@ def canonical_variation_document(document: Mapping[str, Any], *, subject: str) -
         )
 
     return variation.model_dump(mode="json", exclude_none=True), identifier
+
+
+def _location_refgets(variation: Mapping[str, Any]) -> list[str]:
+    """Collect the refgetAccession of the variation's location, or of each member of a block."""
+    members = variation.get("members") or [variation]
+    refgets = []
+    for member in members:
+        reference = (member.get("location") or {}).get("sequenceReference") or {}
+        if reference.get("refgetAccession"):
+            refgets.append(reference["refgetAccession"])
+
+    return refgets
+
+
+def verify_allele_refget(variation: Mapping[str, Any], hgvs: str, sr: SeqRepo, *, subject: str) -> None:
+    """Fail unless a variation sits on the sequence SeqRepo holds for its HGVS accession.
+
+    An allele digest covers the refget of its sequence, and alleles deduplicate on that digest. Two
+    writers that resolve one accession to different sequences mint different digests for the same
+    variant, and the copies never merge (this happened with NM_007294.3 and NP_001346945.1). The
+    digest-consistency check in :func:`canonical_variation_document` cannot see it, because both
+    digests are internally consistent. Comparing against SeqRepo at insert time can.
+
+    A mismatch raises. An accession SeqRepo cannot resolve, or resolves ambiguously, is logged at error
+    level without raising: the allele could not have been built on a sequence SeqRepo lacks, so it points
+    at a SeqRepo problem to alert on, not at this allele.
+
+    :raise AlleleRefgetMismatchError: if the allele's refget differs from the accession's
+    """
+    accession = extract_accession(hgvs)
+    if not accession.startswith(CANONICAL_ACCESSION_PREFIXES):
+        return
+
+    try:
+        expected = resolve_refget(sr, accession)
+    except (SequenceNotFoundError, AmbiguousSequenceError) as e:
+        logger.error(
+            msg=f"Cannot verify the refget of {subject}: {e}",
+            extra=logging_context(),
+        )
+        return
+
+    for refget in _location_refgets(variation):
+        if refget != expected:
+            msg = (
+                f"Allele for {subject} sits on {refget}, but SeqRepo holds {expected} for {accession}. "
+                "The writer and SeqRepo disagree about this accession's sequence, so the allele would not "
+                "deduplicate against the same variant written elsewhere."
+            )
+            logger.error(msg=msg, extra=logging_context())
+            raise AlleleRefgetMismatchError(msg)

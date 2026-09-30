@@ -4,7 +4,7 @@ import tempfile
 from concurrent import futures
 from inspect import getsourcefile
 from posixpath import abspath
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import cdot.hgvs.dataproviders
 import pytest
@@ -12,6 +12,7 @@ import pytest_asyncio
 from arq.worker import Worker
 from biocommons.seqrepo import SeqRepo
 from fastapi.testclient import TestClient
+from ga4gh.vrs.dataproxy import SeqRepoDataProxy
 from httpx import AsyncClient
 from sqlalchemy import Column, Float, Integer, MetaData, String, Table
 
@@ -106,6 +107,7 @@ async def arq_worker(data_provider, session, arq_redis):
     async def on_job(ctx):
         ctx["db"] = session
         ctx["hdp"] = data_provider
+        ctx["seqrepo"] = Mock(spec=SeqRepoDataProxy)  # mirrors lifecycle.on_job_start
         ctx["state"] = {}
         ctx["pool"] = futures.ProcessPoolExecutor()
 
@@ -131,6 +133,7 @@ async def arq_worker(data_provider, session, arq_redis):
 def standalone_worker_context(data_provider, arq_redis):
     yield {
         "hdp": data_provider,
+        "seqrepo": Mock(spec=SeqRepoDataProxy),  # mirrors lifecycle.on_job_start
         "state": {},
         "job_id": "test_job",
         "redis": arq_redis,

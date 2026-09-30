@@ -41,7 +41,7 @@ from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.hgvs import extract_accession, is_cis_phased_hgvs, strip_protein_prediction_parens
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variant_translations import get_or_create_allele
-from mavedb.lib.vrs_utils import translate_hgvs_to_variation
+from mavedb.lib.vrs_utils import translate_hgvs_to_variation, verify_allele_refget
 from mavedb.models.allele import Allele as AlleleDbModel
 from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.enums.annotation_type import AnnotationType
@@ -465,6 +465,12 @@ async def reverse_translate_variants_for_score_set(
                 )
                 failed_candidates.append({"hgvs": hgvs, "level": level.value, "error": str(e)})
                 continue
+
+            # Verify that the post-mapped allele's sequence matches what SeqRepo holds for its accession.
+            if (seqrepo := getattr(ctx["seqrepo"], "sr", None)) is not None:
+                verify_allele_refget(
+                    variation.model_dump(exclude_none=True), hgvs, seqrepo, subject=f"variant record {rec.id}"
+                )
 
             if variation.id in seen_digests:
                 continue

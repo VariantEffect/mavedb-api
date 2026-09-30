@@ -20,6 +20,14 @@ from bioutils.accessions import infer_namespaces
 DEFAULT_CHUNK_SIZE = 8192
 
 
+class SequenceNotFoundError(LookupError):
+    """Raised when SeqRepo holds no sequence for an accession."""
+
+
+class AmbiguousSequenceError(LookupError):
+    """Raised when SeqRepo holds more than one sequence for an accession."""
+
+
 def base64url_to_hex(s: str) -> str:
     return hexlify(urlsafe_b64decode(s)).decode("ascii")
 
@@ -47,6 +55,29 @@ def get_sequence_ids(sr: SeqRepo, query: str) -> list[str]:
 
     seq_ids = list(set(a["seq_id"] for a in aliases))
     return seq_ids
+
+
+def resolve_refget(sr: SeqRepo, accession: str) -> str:
+    """Return the single GA4GH refget (``SQ.…``) SeqRepo holds for an accession.
+
+    SeqRepo's ``seq_id`` is the sequence's sha512t24u digest, so the refget is ``SQ.`` plus it. The
+    shared SeqRepo is the only authority for what an accession's sequence is, and every writer of VRS
+    alleles must agree with it for allele digests to deduplicate. More than one sequence for an accession
+    is an error rather than a pick.
+
+    The same contract is held by ``dcd_mapping.lookup.resolve_refget``; both are pinned to
+    ``tests/fixtures/canonical_accession_sequences.json``.
+
+    :raise SequenceNotFoundError: if SeqRepo has no sequence for the accession
+    :raise AmbiguousSequenceError: if it has more than one
+    """
+    seq_ids = get_sequence_ids(sr, accession)
+    if not seq_ids:
+        raise SequenceNotFoundError(f"SeqRepo has no sequence for accession {accession}.")
+    if len(seq_ids) > 1:
+        raise AmbiguousSequenceError(f"SeqRepo holds {len(seq_ids)} sequences for accession {accession}.")
+
+    return f"SQ.{seq_ids[0]}"
 
 
 def _generate_nsa_options(query: str) -> Union[list[tuple[str, ...]], list[tuple[None, str]]]:
