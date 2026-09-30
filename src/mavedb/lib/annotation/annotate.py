@@ -124,7 +124,6 @@ def variant_pathogenicity_statement(
 
     study_result = variant_impact_study_result(context)
     functional_proposition = variant_functional_impact_proposition(context)
-    clinical_proposition = variant_pathogenicity_proposition(context)
 
     eligible_calibrations = calibrations_available_for_annotation(
         context,
@@ -138,6 +137,15 @@ def variant_pathogenicity_statement(
 
     if not strongest_calibration:
         return None
+
+    # The statement carries one proposition (targeted by every evidence line), so its disease context
+    # is the strongest calibration's — the same calibration that anchors the ACMG classification.
+    #
+    # TODO#XXX - Pooling calibrations with different disease contexts is not supported by the current VA-Spec model. If a
+    # variant has multiple calibrations with different disease contexts, the strongest calibration is used for the
+    # statement's disease context and we should consider whether to filter out calibrations with different disease contexts
+    # from the evidence lines.
+    clinical_proposition = variant_pathogenicity_proposition(context, strongest_calibration)
 
     # Get the classification from the strongest range (used for the functional statement within clinical evidence)
     # If strongest_range is None, the variant is not in any range, so classification will be INDETERMINATE

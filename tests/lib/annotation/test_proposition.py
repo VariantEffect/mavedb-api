@@ -31,6 +31,7 @@ from mavedb.lib.cat_vrs import build_categorical_variant
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from tests.helpers.constants import TEST_VALID_POST_MAPPED_VRS_ALLELE
+from tests.helpers.mocks.factories import create_mock_mondo_term, create_mock_score_calibration
 from tests.lib.annotation.conftest import annotation_context_for
 
 
@@ -60,21 +61,31 @@ class TestExperimentalVariantClinicalImpactProposition:
     """Unit tests for experimental variant clinical impact proposition creation."""
 
     def test_variant_pathogenicity_proposition(self, mock_annotation_context):
-        """Test creation of pathogenicity proposition from a variant annotation context."""
-        result = variant_pathogenicity_proposition(mock_annotation_context)
+        """The proposition's condition defaults to the calibration's generic disease term."""
+        result = variant_pathogenicity_proposition(mock_annotation_context, create_mock_score_calibration())
 
         assert isinstance(result, VariantPathogenicityProposition)
         assert result.description == f"Variant pathogenicity proposition for {mock_annotation_context.variant.urn}."
         assert isinstance(result.subjectVariant, MolecularVariation)
         assert result.predicate == "isCausalFor"
         assert result.objectCondition.root.conceptType == "Disease"
-        assert result.objectCondition.root.primaryCoding.code.root == "C0012634"
-        assert result.objectCondition.root.primaryCoding.system == "https://www.ncbi.nlm.nih.gov/medgen/"
+        assert result.objectCondition.root.primaryCoding.code.root == "MONDO:0000001"
+        assert result.objectCondition.root.primaryCoding.system == "https://purl.obolibrary.org/obo/mondo.owl"
+
+    def test_clinical_impact_proposition_reflects_the_calibration_disease(self, mock_mapped_variant):
+        """A calibration with a specific disease term drives the proposition's condition."""
+        calibration = create_mock_score_calibration(
+            disease_term=create_mock_mondo_term(code="MONDO:0015263", label="Brugada syndrome")
+        )
+        result = variant_pathogenicity_proposition(annotation_context_for(mock_mapped_variant), calibration)
+
+        assert result.objectCondition.root.primaryCoding.code.root == "MONDO:0015263"
+        assert result.objectCondition.root.name == "Brugada syndrome"
 
     def test_clinical_impact_proposition_carries_a_categorical_subject(self, mock_mapped_variant):
         """A protein assay's categorical subject (Slice 5.1) is carried onto the proposition unchanged."""
         context = annotation_context_for(mock_mapped_variant, subject_variant=_protein_categorical_variant())
-        result = variant_pathogenicity_proposition(context)
+        result = variant_pathogenicity_proposition(context, create_mock_score_calibration())
 
         assert isinstance(result.subjectVariant, CategoricalVariant)
 

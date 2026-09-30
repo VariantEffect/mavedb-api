@@ -169,15 +169,22 @@ class EntityTestHelper:
         )
 
     @staticmethod
-    def create_score_calibration(entity_state: str = "private", investigator_provided: bool = False):
+    def create_score_calibration(
+        entity_state: str = "private",
+        investigator_provided: bool = False,
+        score_set_state: Optional[str] = None,
+        score_set_owner_id: int = 2,
+    ):
         """Create a ScoreCalibration mock for testing.
 
         Args:
             entity_state: "private" or "published" (affects score_set and private property)
             investigator_provided: True if investigator-provided, False if community-provided
+            score_set_state: "private" or "published" for the score set; defaults to entity_state
+            score_set_owner_id: ID of the score set's owner; defaults to the calibration's owner
         """
         private = entity_state == "private"
-        score_set = EntityTestHelper.create_score_set(entity_state)
+        score_set = EntityTestHelper.create_score_set(score_set_state or entity_state, owner_id=score_set_owner_id)
 
         # ScoreCalibrations have their own private property plus associated ScoreSet
         return Mock(

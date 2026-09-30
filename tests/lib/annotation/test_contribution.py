@@ -25,6 +25,7 @@ from mavedb.lib.annotation.contribution import (
     mavedb_vrs_contribution,
 )
 from mavedb.lib.vrs import vrs_object_from_mapped_variant
+from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.user import User
 from tests.helpers.constants import TEST_VALID_POST_MAPPED_VRS_ALLELE
@@ -341,6 +342,7 @@ class TestContributionIntegration:
             primary=True,
             investigator_provided=True,
             private=False,
+            disease_term=get_generic_disease_term(session),
             created_by_id=creator.id,
             modified_by_id=creator.id,
         )

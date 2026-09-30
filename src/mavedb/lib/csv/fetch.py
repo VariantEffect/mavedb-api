@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional, Sequence
 
-from sqlalchemy import Integer, Select, and_, cast, func, select
+from sqlalchemy import Select, and_, func, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from mavedb.lib.csv.namespaces import CLINVAR_DB_NAME
@@ -28,7 +28,7 @@ from mavedb.models.variant import Variant
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 
 # CSV rows come out in variant-number order (the integer after '#'); id breaks ties stably.
-_VARIANT_NUMBER_ORDER = (cast(func.split_part(Variant.urn, "#", 2), Integer), Variant.id)
+_VARIANT_NUMBER_ORDER = (Variant.variant_number, Variant.id)
 
 
 @dataclass

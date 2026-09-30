@@ -41,12 +41,12 @@ def make_private(mapped_variant, *, owner_id: int = PRIVATE_CALIBRATION_OWNER_ID
     """Mark every calibration on a mapped variant's score set private, owned by ``owner_id``.
 
     The real permission check reads ``created_by_id`` and the owning score set's contributor list, neither
-    of which the annotation mocks populate.
+    of which the annotation mocks populate. The score set stays public so only the calibration is private.
     """
     for calibration in mapped_variant.variant.score_set.score_calibrations:
         calibration.private = True
         calibration.created_by_id = owner_id
-        calibration.score_set = Mock(contributors=[], created_by_id=owner_id, modified_by_id=owner_id)
+        calibration.score_set = Mock(private=False, contributors=[], created_by_id=owner_id, modified_by_id=owner_id)
     return mapped_variant
 
 

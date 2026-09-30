@@ -12,6 +12,7 @@ from mavedb.lib.score_calibrations import variants_for_functional_classification
 from mavedb.models.acmg_classification import ACMGClassification
 from mavedb.models.enums.acmg_criterion import ACMGCriterion
 from mavedb.models.enums.functional_classification import FunctionalClassification
+from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 
@@ -65,6 +66,7 @@ def make_dump_calibration(session, sample_user, dump_acmg_classifications):
             primary=not (private or research_use_only),
             private=private,
             calibration_metadata={},
+            disease_term=get_generic_disease_term(session),
             created_by_id=sample_user.id,
             modified_by_id=sample_user.id,
         )

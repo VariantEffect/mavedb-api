@@ -28,6 +28,7 @@ from mavedb.lib.allele_measurements import (
     _resolve_protein_apex,
     get_allele_measurements,
 )
+from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.lib.types.authentication import UserData
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
@@ -116,6 +117,7 @@ def _calibration(
         private=private,
         investigator_provided=investigator_provided,
         research_use_only=research_use_only,
+        disease_term=get_generic_disease_term(session),
         created_by_id=user.id,
         modified_by_id=user.id,
     )

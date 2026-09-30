@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.data_providers.services import CSV_UPLOAD_S3_BUCKET_NAME, s3_client
+from mavedb.db.timeouts import allow_long_statements
 from mavedb.lib.annotation.annotate import (
     variant_functional_impact_statement,
     variant_pathogenicity_statement,
@@ -39,6 +40,7 @@ from mavedb.lib.authorization import (
 )
 from mavedb.lib.clinical_controls import get_clinical_control_options, get_clinical_controls_with_variant_urns
 from mavedb.lib.contributors import find_or_create_contributor
+from mavedb.lib.csv.build_limiter import csv_build_slot, rows_to_build
 from mavedb.lib.csv.columns import variants_to_csv_rows
 from mavedb.lib.csv.deprecated_params import (
     DROP_NA_COLUMNS_DESCRIPTION,
@@ -78,6 +80,8 @@ from mavedb.lib.slack import send_slack_error
 from mavedb.lib.target_genes import find_or_create_target_gene_by_accession, find_or_create_target_gene_by_sequence
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.types.authentication import UserData
+from mavedb.lib.urn_redirects import record_urn_redirect
+from mavedb.lib.validation.exceptions import ValidationError as MaveDBValidationError
 from mavedb.lib.urns import (
     generate_experiment_set_urn,
     generate_experiment_urn,
@@ -1250,19 +1254,23 @@ def get_score_set_variants_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_variants_as_csv(
-        db,
-        score_set,
-        namespaces,
-        namespaced=True,
-        start=start,
-        limit=limit,
-        drop_unused_hgvs_columns_flag=drop_unused_hgvs_columns,
-        as_of=as_of,
-        # Asked separately from the score set: a private calibration is readable only by its owner,
-        # investigator contributors, or an admin, whoever can read the score set.
-        viewer=principal.viewer_for(ScoreCalibrationViewer),
-    )
+    # Full-table CSV builds legitimately outrun the API's default statement timeout.
+    allow_long_statements(db)
+
+    with csv_build_slot(rows_to_build(score_set.num_variants, start, limit)):
+        csv_str = get_score_set_variants_as_csv(
+            db,
+            score_set,
+            namespaces,
+            namespaced=True,
+            start=start,
+            limit=limit,
+            drop_unused_hgvs_columns_flag=drop_unused_hgvs_columns,
+            as_of=as_of,
+            # Asked separately from the score set: a private calibration is readable only by its owner,
+            # investigator contributors, or an admin, whoever can read the score set.
+            viewer=principal.viewer_for(ScoreCalibrationViewer),
+        )
     # Both: the deprecation notice (when a legacy parameter was used) and the resolved content-time,
     # so a CSV's as-of instant is a visible fact rather than something the caller has to remember.
     return StreamingResponse(
@@ -1336,11 +1344,15 @@ def get_score_set_scores_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
+    # Full-table CSV builds legitimately outrun the API's default statement timeout.
+    allow_long_statements(db)
+
     # Both score namespaces: this endpoint has always returned every score column the investigator
     # uploaded, and `scores` alone is now just the required one.
-    csv_str = get_score_set_variants_as_csv(
-        db, score_set, ["scores", "scores_custom"], False, start, limit, drop_unused_hgvs_columns
-    )
+    with csv_build_slot(rows_to_build(score_set.num_variants, start, limit)):
+        csv_str = get_score_set_variants_as_csv(
+            db, score_set, ["scores", "scores_custom"], False, start, limit, drop_unused_hgvs_columns
+        )
     return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
 
 
@@ -1358,7 +1370,7 @@ def get_score_set_scores_csv(
     },
     summary="Get score set counts in CSV format",
 )
-async def get_score_set_counts_csv(
+def get_score_set_counts_csv(
     *,
     urn: str,
     start: int = Query(default=None, description="Start index for pagination"),
@@ -1404,7 +1416,13 @@ async def get_score_set_counts_csv(
 
     assert_permission(user_data, score_set, Action.READ)
 
-    csv_str = get_score_set_variants_as_csv(db, score_set, ["counts"], False, start, limit, drop_unused_hgvs_columns)
+    # Full-table CSV builds legitimately outrun the API's default statement timeout.
+    allow_long_statements(db)
+
+    with csv_build_slot(rows_to_build(score_set.num_variants, start, limit)):
+        csv_str = get_score_set_variants_as_csv(
+            db, score_set, ["counts"], False, start, limit, drop_unused_hgvs_columns
+        )
     return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
 
 
@@ -1999,8 +2017,9 @@ async def create_score_set(
             )
 
     if len(meta_analyzes_score_sets) > 0:
-        # If any existing score set is a meta-analysis for score sets in the same collection of experiment sets, use its
-        # experiment as the parent of our new meta-analysis. Otherwise, create a new experiment.
+        # If an existing score set is a meta-analysis for score sets in the same collection of experiment sets, and the
+        # user may add score sets to its experiment, use that experiment as the parent of our new meta-analysis.
+        # Otherwise, create a new experiment.
         meta_analyzes_experiment_sets = list(
             set(
                 (
@@ -2012,13 +2031,31 @@ async def create_score_set(
         )
         meta_analyzes_experiment_set_urns = [es.urn for es in meta_analyzes_experiment_sets if es.urn is not None]
         existing_meta_analyses = find_meta_analyses_for_experiment_sets(db, meta_analyzes_experiment_set_urns)
+        reusable_experiment = next(
+            (
+                meta_analysis.experiment
+                for meta_analysis in existing_meta_analyses
+                if has_permission(user_data, meta_analysis.experiment, Action.ADD_SCORE_SET).permitted
+            ),
+            None,
+        )
 
-        if len(existing_meta_analyses) > 0:
-            experiment = existing_meta_analyses[0].experiment
+        if reusable_experiment is not None:
+            experiment = reusable_experiment
         elif len(meta_analyzes_experiment_sets) == 1:
             # The analyzed score sets all belong to one experiment set, so the meta-analysis should go in that
-            # experiment set's meta-analysis experiment. But there is no meta-analysis experiment (or else we would
-            # have found it by looking at existing_meta_analyses[0].experiment), so we will create one.
+            # experiment set's meta-analysis experiment. An experiment set holds at most one meta-analysis experiment
+            # (see generate_experiment_urn), so if another user's private one exists we cannot create a second.
+            if len(existing_meta_analyses) > 0:
+                logger.info(
+                    msg="Failed to create score set; Another user's private meta-analysis experiment exists for the requested meta-analyzed score sets.",
+                    extra=logging_context(),
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail="A meta-analysis of these score sets is in progress by another user.",
+                )
+
             meta_analyzes_experiment_set = meta_analyzes_experiment_sets[0]
             experiment = Experiment(
                 experiment_set=meta_analyzes_experiment_set,
@@ -2089,7 +2126,7 @@ async def create_score_set(
 
     score_calibrations: list[ScoreCalibration] = []
     if item_create.score_calibrations:
-        for calibration_create in item_create.score_calibrations:
+        for calibration_index, calibration_create in enumerate(item_create.score_calibrations):
             # TODO#592: Support for class-based calibrations on score set creation
             if calibration_create.class_based:
                 logger.info(
@@ -2101,9 +2138,34 @@ async def create_score_set(
                     detail="Class-based calibrations are not supported on score set creation. Please create class-based calibrations after creating the score set.",
                 )
 
-            created_calibration_item = await create_score_calibration(
-                db, calibration_create, user_data.user, variant_classes=None
-            )
+            # TODO#592: Support for controls on score set creation
+            if calibration_create.controls:
+                logger.info(
+                    msg="Failed to create score set; Calibration controls are not supported on score set creation.",
+                    extra=logging_context(),
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail="Calibration controls are not supported on score set creation. Please add controls after creating the score set.",
+                )
+
+            try:
+                created_calibration_item = await create_score_calibration(
+                    db, calibration_create, user_data.user, variant_classes=None
+                )
+            except MaveDBValidationError as e:
+                # custom_loc is relative to the calibration body; nest it under this calibration.
+                field_loc = (e.custom_loc or ["body"])[1:]
+                raise HTTPException(
+                    status_code=422,
+                    detail=[
+                        {
+                            "loc": ["body", "scoreCalibrations", calibration_index, *field_loc],
+                            "msg": str(e),
+                            "type": "value_error",
+                        }
+                    ],
+                )
             created_calibration_item.investigator_provided = True  # necessarily true on score set creation
             score_calibrations.append(created_calibration_item)
 
@@ -2489,6 +2551,27 @@ async def update_score_set_with_variants(
         logger.info(msg="Failed to update score set; The requested score set does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
 
+    existing_score_columns_metadata = (existing_item.dataset_columns or {}).get("score_columns_metadata", {})
+    existing_count_columns_metadata = (existing_item.dataset_columns or {}).get("count_columns_metadata", {})
+
+    did_score_columns_metadata_change = (
+        dataset_column_metadata.get("score_columns_metadata", {}) != existing_score_columns_metadata
+    )
+    did_count_columns_metadata_change = (
+        dataset_column_metadata.get("count_columns_metadata", {}) != existing_count_columns_metadata
+    )
+    request_sets_scores = (
+        did_score_columns_metadata_change
+        or did_count_columns_metadata_change
+        or any([val is not None for val in score_set_variants_data.values()])
+    )
+
+    # Checked before the update is applied, not just before the job is enqueued: score_set_update
+    # commits the metadata half of this request, so refusing afterwards would leave a caller who may
+    # not set scores with a half-applied update and no way to tell which half landed.
+    if request_sets_scores:
+        assert_permission(user_data, existing_item, Action.SET_SCORES)
+
     itemUpdateResult = await score_set_update(
         db=db,
         urn=urn,
@@ -2500,24 +2583,9 @@ async def update_score_set_with_variants(
     updatedItem = itemUpdateResult["item"]
     should_create_variants = itemUpdateResult.get("should_create_variants", False)
 
-    existing_score_columns_metadata = (existing_item.dataset_columns or {}).get("score_columns_metadata", {})
-    existing_count_columns_metadata = (existing_item.dataset_columns or {}).get("count_columns_metadata", {})
-
-    did_score_columns_metadata_change = (
-        dataset_column_metadata.get("score_columns_metadata", {}) != existing_score_columns_metadata
-    )
-    did_count_columns_metadata_change = (
-        dataset_column_metadata.get("count_columns_metadata", {}) != existing_count_columns_metadata
-    )
-
     # run variant creation job only if targets have changed (indicated by "should_create_variants"), new score
     # or count files were uploaded, or dataset column metadata has changed
-    if (
-        should_create_variants
-        or did_score_columns_metadata_change
-        or did_count_columns_metadata_change
-        or any([val is not None for val in score_set_variants_data.values()])
-    ):
+    if should_create_variants or request_sets_scores:
         assert_permission(user_data, updatedItem, Action.SET_SCORES)
 
         updatedItem.processing_state = ProcessingState.processing
@@ -2602,6 +2670,11 @@ async def update_score_set(
     should_create_variants = itemUpdateResult["should_create_variants"]
 
     if should_create_variants:
+        # Structurally unreachable for a published score set, since score_set_update only sets this
+        # flag while the score set is private. Asserted anyway so every path that recreates variants
+        # states the same requirement, and a future change to that flag cannot open a hole here.
+        assert_permission(user_data, updatedItem, Action.SET_SCORES)
+
         # Although this is also updated within the variant creation job, update it here
         # as well so that we can display the proper UI components (queue invocation delay
         # races the score set GET request).
@@ -2712,6 +2785,13 @@ async def publish_score_set(
 
     assert_permission(user_data, item, Action.PUBLISH)
 
+    if not item.private:
+        logger.info(
+            msg="Failed to publish score set; The requested score set has already been published.",
+            extra=logging_context(),
+        )
+        raise HTTPException(status_code=409, detail="This score set has already been published.")
+
     if not item.experiment:
         logger.info(
             msg="Failed to publish score set; The requested score set does not belong to an experiment.",
@@ -2745,7 +2825,9 @@ async def publish_score_set(
     published_date = date.today()
 
     if item.experiment.experiment_set.private or not item.experiment.experiment_set.published_date:
+        retired_experiment_set_urn = item.experiment.experiment_set.urn
         item.experiment.experiment_set.urn = generate_experiment_set_urn(db)
+        record_urn_redirect(db, retired_experiment_set_urn, item.experiment.experiment_set.urn)
         item.experiment.experiment_set.private = False
         item.experiment.experiment_set.published_date = published_date
         db.add(item.experiment.experiment_set)
@@ -2753,18 +2835,23 @@ async def publish_score_set(
     save_to_logging_context({"experiment_set": item.experiment.experiment_set.urn})
 
     if item.experiment.private or not item.experiment.published_date:
+        retired_experiment_urn = item.experiment.urn
         item.experiment.urn = generate_experiment_urn(
             db,
             item.experiment.experiment_set,
             experiment_is_meta_analysis=len(item.meta_analyzes_score_sets) > 0,
         )
+        record_urn_redirect(db, retired_experiment_urn, item.experiment.urn)
         item.experiment.private = False
         item.experiment.published_date = published_date
         db.add(item.experiment)
 
     save_to_logging_context({"experiment": item.experiment.urn})
 
+    retired_score_set_urn = item.urn
     item.urn = generate_score_set_urn(db, item.experiment)
+    # Variant URNs are rewritten below from the score set's, so this one redirect forwards them too.
+    record_urn_redirect(db, retired_score_set_urn, item.urn)
     item.private = False
     item.published_date = published_date
     refresh_variant_urns(db, item)

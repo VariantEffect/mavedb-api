@@ -48,6 +48,18 @@ def create_test_score_calibration_in_score_set_via_client(
     return calibration
 
 
+def force_publish_test_score_calibration(db: "Session", calibration_urn: str) -> None:
+    """Mark a calibration public without the publish route's checks.
+
+    Reproduces calibrations that were published while their score set was still private, which the publish
+    route now refuses.
+    """
+    calibration = db.query(ScoreCalibration).filter(ScoreCalibration.urn == calibration_urn).one()
+    calibration.private = False
+    db.add(calibration)
+    db.commit()
+
+
 def publish_test_score_calibration_via_client(client: "TestClient", calibration_urn: str):
     response = client.post(f"/api/v1/score-calibrations/{calibration_urn}/publish")
 

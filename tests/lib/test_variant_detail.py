@@ -16,6 +16,7 @@ import pytest
 pytest.importorskip("psycopg2")
 
 from mavedb.lib.variant_detail import get_variant_detail
+from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
@@ -125,6 +126,7 @@ def _calibration(session, score_set, *, primary, classifications):
         title=f"cal-{'primary' if primary else 'secondary'}",
         primary=primary,
         private=False,
+        disease_term=get_generic_disease_term(session),
         created_by_id=user.id,
         modified_by_id=user.id,
     )

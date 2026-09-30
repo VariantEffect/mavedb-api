@@ -447,10 +447,12 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
     """
     Find all score sets that are meta-analyses for score sets from a specified collection of experiment sets.
 
+    Results are not filtered by visibility or ownership; callers must check permissions before using them.
+
     :param db: An active database session.
     :param urns: A list of experiment set URNS.
-    :return: A score set that is a meta-analysis for score sets belonging to exactly the collection of experiment sets
-      specified by urns; or None if there is no such meta-analysis.
+    :return: The score sets, ordered by ID, that are meta-analyses for score sets belonging to exactly the collection
+      of experiment sets specified by urns.
     """
     # Ensure that URNs are not repeated in the list.
     urns = list(set(urns))
@@ -483,6 +485,7 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
         .filter(*urn_filters)
         .group_by(ScoreSet.id)
         .having(func.count(func.distinct(analyzed_experiment_set.id)) == len(urns))
+        .order_by(ScoreSet.id)
         .all()
     )
 

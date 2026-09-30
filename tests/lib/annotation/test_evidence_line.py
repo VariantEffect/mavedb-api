@@ -25,6 +25,7 @@ from mavedb.lib.annotation.proposition import (
     variant_pathogenicity_proposition,
 )
 from mavedb.lib.annotation.statement import functional_statement
+from tests.helpers.mocks.factories import create_mock_score_calibration
 
 
 @pytest.mark.unit
@@ -62,7 +63,7 @@ class TestAcmgEvidenceLine:
             "mavedb.lib.annotation.evidence_line.pathogenicity_classification_of_variant",
             return_value=(MagicMock(label="Test Range"), expected_outcome, expected_strength),
         ):
-            proposition = variant_pathogenicity_proposition(context)
+            proposition = variant_pathogenicity_proposition(context, score_calibration)
             study_result = variant_study_result(context)
             evidence = functional_evidence_line(context, score_calibration, [study_result])
             result = acmg_evidence_line(context, score_calibration, proposition, [evidence])
@@ -100,7 +101,7 @@ class TestAcmgEvidenceLine:
             "mavedb.lib.annotation.evidence_line.pathogenicity_classification_of_variant",
             return_value=(MagicMock(label="Test Range"), expected_outcome, expected_strength),
         ):
-            proposition = variant_pathogenicity_proposition(context)
+            proposition = variant_pathogenicity_proposition(context, score_calibration)
             study_result = variant_study_result(context)
             evidence = functional_evidence_line(context, score_calibration, [study_result])
             result = acmg_evidence_line(context, score_calibration, proposition, [evidence])
@@ -124,7 +125,7 @@ class TestAcmgEvidenceLine:
         score_calibration = MagicMock()
 
         with pytest.raises(ValueError, match="does not have a score set with score calibrations"):
-            proposition = variant_pathogenicity_proposition(context)
+            proposition = variant_pathogenicity_proposition(context, create_mock_score_calibration())
             study_result = variant_study_result(context)
             acmg_evidence_line(context, score_calibration, proposition, [study_result])
 
@@ -152,7 +153,7 @@ class TestAcmgEvidenceLine:
             score_calibration,
             ExperimentalVariantFunctionalImpactClassification.NORMAL,
         )
-        clinical_proposition = variant_pathogenicity_proposition(context)
+        clinical_proposition = variant_pathogenicity_proposition(context, score_calibration)
 
         result = acmg_evidence_line(context, score_calibration, clinical_proposition, [statement])
 

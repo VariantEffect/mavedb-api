@@ -1,13 +1,14 @@
 from ga4gh.core.models import Coding, MappableConcept
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactProposition, VariantPathogenicityProposition
 
-from mavedb.lib.annotation.condition import generic_disease_condition
+from mavedb.lib.annotation.condition import calibration_disease_condition
 from mavedb.lib.annotation.context import VariantAnnotationContext
 from mavedb.lib.annotation.document import experiment_to_document
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.mapping import extract_ids_from_post_mapped_metadata
 from mavedb.lib.types.annotation import SequenceFeature
 from mavedb.lib.variants import target_for_variant
+from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.variant import Variant
 
 
@@ -64,6 +65,7 @@ def sequence_feature_for_variant(variant: Variant) -> SequenceFeature:
 
 def variant_pathogenicity_proposition(
     context: VariantAnnotationContext,
+    score_calibration: ScoreCalibration,
 ) -> VariantPathogenicityProposition:
     coding, system = sequence_feature_for_variant(context.variant)
     sequence_feature = MappableConcept(
@@ -74,7 +76,7 @@ def variant_pathogenicity_proposition(
         description=f"Variant pathogenicity proposition for {context.variant.urn}.",
         subjectVariant=context.subject_variant,
         predicate="isCausalFor",
-        objectCondition=generic_disease_condition(),
+        objectCondition=calibration_disease_condition(score_calibration),
         geneContextQualifier=sequence_feature
         if system == "https://www.genenames.org/"
         else None,  # only include gene context if we have a gene identifier

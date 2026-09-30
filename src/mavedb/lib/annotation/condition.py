@@ -1,21 +1,13 @@
-from ga4gh.core.models import Coding, iriReference as IRI, MappableConcept
 from ga4gh.va_spec.base.domain_entities import Condition
 
-from mavedb.lib.annotation.constants import GENERIC_DISEASE_MEDGEN_CODE, MEDGEN_SYSTEM
+from mavedb.lib.mondo import mondo_term_to_mappable_concept
+from mavedb.models.score_calibration import ScoreCalibration
 
 
-def generic_disease_condition_iri() -> IRI:
-    return IRI(root=f"http://identifiers.org/medgen/{GENERIC_DISEASE_MEDGEN_CODE}")
+def calibration_disease_condition(score_calibration: ScoreCalibration) -> Condition:
+    """The disease/disorder a calibration applies to, as a VA-Spec ``Condition``.
 
-
-def generic_disease_condition() -> Condition:
-    return Condition(
-        root=MappableConcept(
-            conceptType="Disease",
-            primaryCoding=Coding(
-                code=GENERIC_DISEASE_MEDGEN_CODE,
-                system=MEDGEN_SYSTEM,
-                iris=[generic_disease_condition_iri()],
-            ),
-        )
-    )
+    Every calibration carries a non-null MONDO disease term (often the generic "disease or
+    disorder" (``MONDO:0000001``)) which is serialized directly to a condition.
+    """
+    return Condition(root=mondo_term_to_mappable_concept(score_calibration.disease_term))

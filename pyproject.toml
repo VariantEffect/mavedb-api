@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "mavedb"
-version = "2026.2.7.2"
+version = "2026.2.7.4"
 description = "API for MaveDB, the database of Multiplexed Assays of Variant Effect."
 license = "AGPL-3.0-only"
 readme = "README.md"
@@ -28,7 +28,7 @@ fqfa = "~1.3.0"
 pyhumps = "~3.8.0"
 pyyaml = "~6.0.1"
 IDUtils = "~1.2.0"
-mavehgvs = "~0.8.0"
+mavehgvs = "~0.8.1"
 eutils = "~0.6.0"
 email_validator = "~2.1.1"
 numpy = "~1.26"
@@ -125,8 +125,8 @@ testpaths = "tests/"
 pythonpath = "."
 norecursedirs = "tests/helpers/"
 markers = """
-    integration: tests that exercise multi-component flows and/or database interactions.
-    unit: fast unit tests with isolated dependencies.
+    integration: tests that exercise a multi-component flow end-to-end, with no internal mocking.
+    unit: fast, isolated tests. Real un-mocked collaborators are fine if they're local, fast, and deterministic.
     network: tests which interact with external services over a network connection.
     slow: tests which are slow running.
 """

@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Sequence
 
-from sqlalchemy import Integer, and_, cast, func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, aliased
 
 from mavedb.lib.hgvs import parse_simple_substitution
@@ -290,7 +290,7 @@ def get_lean_score_set_variants(
         # The anchor: just this score set's variants.
         .where(Variant.score_set_id == score_set.id)
         # Natural table order: variant number (the integer after '#'), id breaks ties stably.
-        .order_by(cast(func.split_part(Variant.urn, "#", 2), Integer), Variant.id)
+        .order_by(Variant.variant_number, Variant.id)
     )
 
     # Runs as its own query, not a join (see get_protein_hgvs_by_record), stitched back below.

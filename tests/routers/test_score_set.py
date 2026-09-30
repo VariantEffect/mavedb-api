@@ -6,6 +6,7 @@ import re
 from copy import deepcopy
 from datetime import date, datetime, timezone
 from io import StringIO
+import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -19,6 +20,7 @@ cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.annotation.annotate import variant_study_result
+from mavedb.lib.csv import build_limiter
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
@@ -74,6 +76,7 @@ from tests.helpers.constants import (
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
     VALID_CLINGEN_CA_ID,
+    VALID_VARIANT_URN,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
@@ -220,6 +223,37 @@ def test_create_score_set_with_contributor(client, mock_publication_fetch, setup
     ],
     indirect=["mock_publication_fetch"],
 )
+def test_cannot_create_score_set_with_score_calibration_with_unknown_disease(
+    client, mock_publication_fetch, setup_router_db, monkeypatch
+):
+    async def fake_fetch(code):
+        return None
+
+    monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)
+
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    score_set["scoreCalibrations"] = [
+        {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED), "disease": "MONDO:9999999"}
+    ]
+
+    response = client.post("/api/v1/score-sets/", json=score_set)
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "scoreCalibrations", 0, "disease"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
 def test_create_score_set_with_score_calibration(client, mock_publication_fetch, setup_router_db):
     experiment = create_experiment(client)
     score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
@@ -291,6 +325,33 @@ def test_cannot_create_score_set_with_class_based_calibration(client, mock_publi
     assert response.status_code == 409
     response_data = response.json()
     assert "Class-based calibrations are not supported on score set creation" in response_data["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        (
+            [
+                {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+                {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+            ]
+        )
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_create_score_set_with_calibration_controls(client, mock_publication_fetch, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set["experimentUrn"] = experiment["urn"]
+    calibration = deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    # Controls reference variants that don't exist until the scores file is processed after creation.
+    calibration["controls"] = [{"variantUrn": VALID_VARIANT_URN, "clinicalStatus": "pathogenic"}]
+    score_set.update({"scoreCalibrations": [calibration]})
+
+    response = client.post("/api/v1/score-sets/", json=score_set)
+    assert response.status_code == 409
+    response_data = response.json()
+    assert "Calibration controls are not supported on score set creation" in response_data["detail"]
 
 
 @pytest.mark.parametrize(
@@ -1149,9 +1210,15 @@ def test_extra_user_can_only_view_published_score_calibrations_in_score_set(
     ],
     indirect=["mock_publication_fetch"],
 )
-def test_creating_user_can_view_all_score_calibrations_in_score_set(client, setup_router_db, mock_publication_fetch):
+def test_creating_user_can_view_all_score_calibrations_in_score_set(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+
     private_calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -1199,6 +1266,73 @@ def test_add_score_set_variants_scores_only_endpoint(client, setup_router_db, da
     # fact that it would have succeeded.
     score_set.update({"processingState": "processing"})
     assert score_set == response_data
+
+
+def test_add_score_set_variants_is_refused_on_a_published_score_set(
+    session, data_provider, client, setup_router_db, data_files, mock_s3_client
+):
+    """Publishing freezes a score set's scores; the upload endpoint must refuse them afterwards.
+
+    The UI only offers score editing while a score set is private, but that is not a guarantee: the
+    endpoint is reachable directly, and a re-upload would replace variants other records already
+    point at.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    scores_csv_path = data_files / "scores.csv"
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{published['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+        # The refusal must land before any work is queued or uploaded.
+        queue.assert_not_called()
+
+    assert response.status_code == 403
+
+
+def test_patch_published_score_set_with_scores_file_is_refused_without_applying_the_update(
+    session, data_provider, client, setup_router_db, data_files, mock_s3_client
+):
+    """A refused score upload must not leave the request's metadata half committed.
+
+    The combined endpoint commits metadata before it reaches the enqueue step, so the SET_SCORES
+    check has to run before the update is applied rather than only before the job is queued.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    scores_csv_path = data_files / "scores.csv"
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.patch(
+            f"/api/v1/score-sets-with-variants/{published['urn']}",
+            data={"title": "Retitled after publication"},
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+        queue.assert_not_called()
+
+    assert response.status_code == 403
+
+    # The title edit rode along with the refused upload, so it must not have been applied either.
+    refreshed = client.get(f"/api/v1/score-sets/{published['urn']}").json()
+    assert refreshed["title"] == published["title"]
 
 
 def test_add_score_set_variants_scores_and_counts_endpoint(
@@ -1753,6 +1887,28 @@ def test_publish_score_set(session, data_provider, client, setup_router_db, data
         select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
     ).scalars()
     assert all([variant.urn.startswith("urn:mavedb:") for variant in score_set_variants])
+
+
+def test_cannot_publish_an_already_published_score_set(session, data_provider, client, setup_router_db, data_files):
+    """Publishing assigns a fresh URN unconditionally, so a second publish would rename a public record."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        response = client.post(f"/api/v1/score-sets/{published_score_set['urn']}/publish")
+        worker_queue.assert_not_called()
+
+    assert response.status_code == 409
+    assert "already been published" in response.json()["detail"]
+
+    # The URN the caller already shared still resolves to this record.
+    unchanged = client.get(f"/api/v1/score-sets/{published_score_set['urn']}")
+    assert unchanged.status_code == 200
+    assert unchanged.json()["urn"] == published_score_set["urn"]
 
 
 def test_publish_score_set_discards_pipeline_when_entrypoint_enqueue_fails(
@@ -2503,6 +2659,161 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_with_differen
 
     assert published_meta_score_set["urn"] == "urn:mavedb:00000003-0-1"
     assert isinstance(MAVEDB_SCORE_SET_URN_RE.fullmatch(published_meta_score_set["urn"]), re.Match)
+
+
+def test_meta_analysis_single_experiment_set_conflicts_with_other_users_private_meta_analysis(
+    session, data_provider, client, setup_router_db, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    private_meta_score_set = create_seq_score_set(
+        client,
+        None,
+        update={
+            "title": "Private Meta Analysis Title",
+            "abstractText": "Private meta-analysis abstract",
+            "methodText": "Private meta-analysis methods",
+            "metaAnalyzesScoreSetUrns": [published_score_set["urn"]],
+        },
+    )
+    private_experiment_urn = private_meta_score_set["experiment"]["urn"]
+
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload.update(
+        {"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [published_score_set["urn"]]}
+    )
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "A meta-analysis of these score sets is in progress by another user."
+    for private_value in (
+        private_experiment_urn,
+        private_meta_score_set["urn"],
+        "Private Meta Analysis Title",
+        "Private meta-analysis abstract",
+        "Private meta-analysis methods",
+    ):
+        assert private_value not in response.text
+
+    private_experiment_score_sets = session.scalars(
+        select(ScoreSetDbModel).join(ExperimentDbModel).where(ExperimentDbModel.urn == private_experiment_urn)
+    ).all()
+    assert [ss.urn for ss in private_experiment_score_sets] == [private_meta_score_set["urn"]]
+
+
+def test_meta_analysis_multiple_experiment_sets_does_not_reuse_other_users_private_meta_analysis(
+    session, data_provider, client, setup_router_db, data_files, extra_user_app_overrides
+):
+    experiment_1 = create_experiment(client, {"title": "Experiment 1"})
+    experiment_2 = create_experiment(client, {"title": "Experiment 2"})
+    score_set_1 = create_seq_score_set(client, experiment_1["urn"], update={"title": "Score Set 1"})
+    score_set_1 = mock_worker_variant_insertion(client, session, data_provider, score_set_1, data_files / "scores.csv")
+    score_set_2 = create_seq_score_set(client, experiment_2["urn"], update={"title": "Score Set 2"})
+    score_set_2 = mock_worker_variant_insertion(client, session, data_provider, score_set_2, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set_1 = publish_score_set(client, score_set_1["urn"])
+        published_score_set_2 = publish_score_set(client, score_set_2["urn"])
+        worker_queue.assert_called()
+
+    meta_analyzes_score_set_urns = [published_score_set_1["urn"], published_score_set_2["urn"]]
+    private_meta_score_set = create_seq_score_set(
+        client,
+        None,
+        update={
+            "title": "Private Meta Analysis Title",
+            "abstractText": "Private meta-analysis abstract",
+            "methodText": "Private meta-analysis methods",
+            "metaAnalyzesScoreSetUrns": meta_analyzes_score_set_urns,
+        },
+    )
+    private_experiment = private_meta_score_set["experiment"]
+
+    with DependencyOverrider(extra_user_app_overrides):
+        meta_score_set = create_seq_score_set(
+            client,
+            None,
+            update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": meta_analyzes_score_set_urns},
+        )
+        meta_score_set = mock_worker_variant_insertion(
+            client, session, data_provider, meta_score_set, data_files / "scores.csv"
+        )
+
+        with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+            published_meta_score_set = publish_score_set(client, meta_score_set["urn"])
+            worker_queue.assert_called_once()
+
+    assert meta_score_set["experiment"]["urn"] != private_experiment["urn"]
+    assert meta_score_set["experiment"]["experimentSetUrn"] != private_experiment["experimentSetUrn"]
+    for private_value in (
+        private_experiment["urn"],
+        private_experiment["experimentSetUrn"],
+        private_meta_score_set["urn"],
+        "Private Meta Analysis Title",
+        "Private meta-analysis abstract",
+        "Private meta-analysis methods",
+    ):
+        assert private_value not in json.dumps(meta_score_set)
+
+    assert published_meta_score_set["urn"] == "urn:mavedb:00000003-0-1"
+
+    private_experiment_record = session.scalars(
+        select(ExperimentDbModel).where(ExperimentDbModel.urn == private_experiment["urn"])
+    ).one()
+    assert private_experiment_record.private
+    assert private_experiment_record.experiment_set.private
+    assert private_experiment_record.experiment_set.urn == private_experiment["experimentSetUrn"]
+
+
+def test_meta_analysis_joins_other_users_published_meta_analysis_experiment(
+    session, data_provider, client, setup_router_db, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    other_meta_score_set = create_seq_score_set(
+        client,
+        None,
+        update={"title": "Other Meta Analysis", "metaAnalyzesScoreSetUrns": [published_score_set["urn"]]},
+    )
+    other_meta_score_set = mock_worker_variant_insertion(
+        client, session, data_provider, other_meta_score_set, data_files / "scores.csv"
+    )
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_other_meta_score_set = publish_score_set(client, other_meta_score_set["urn"])
+        worker_queue.assert_called_once()
+
+    assert published_other_meta_score_set["experiment"]["urn"] == "urn:mavedb:00000001-0"
+
+    with DependencyOverrider(extra_user_app_overrides):
+        meta_score_set = create_seq_score_set(
+            client,
+            None,
+            update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [published_score_set["urn"]]},
+        )
+        meta_score_set = mock_worker_variant_insertion(
+            client, session, data_provider, meta_score_set, data_files / "scores.csv"
+        )
+
+        with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+            published_meta_score_set = publish_score_set(client, meta_score_set["urn"])
+            worker_queue.assert_called_once()
+
+    assert meta_score_set["experiment"]["urn"] == published_other_meta_score_set["experiment"]["urn"]
+    assert published_meta_score_set["urn"] == "urn:mavedb:00000001-0-2"
 
 
 ########################################################################################################################
@@ -3721,6 +4032,51 @@ def test_download_counts_file(session, data_provider, client, setup_router_db, d
     assert "hgvs_splice" not in columns
 
 
+@pytest.mark.parametrize("path", ["scores", "counts", "variants/data"])
+def test_csv_routes_raise_the_statement_timeout(session, data_provider, client, setup_router_db, data_files, path):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    with patch("mavedb.routers.score_sets.allow_long_statements") as allow_long_statements:
+        response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}/{path}")
+
+    assert response.status_code == 200
+    allow_long_statements.assert_called_once()
+
+
+@pytest.mark.parametrize("path", ["scores", "counts", "variants/data"])
+def test_csv_routes_refuse_large_builds_when_every_slot_is_held(
+    session, data_provider, client, setup_router_db, data_files, monkeypatch, path
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        client, session, data_provider, score_set, data_files / "scores.csv", data_files / "counts.csv"
+    )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    held = threading.BoundedSemaphore(1)
+    held.acquire()
+    monkeypatch.setattr(build_limiter, "_slots", held)
+    monkeypatch.setattr(build_limiter, "CSV_BUILD_MIN_ROWS", 1)
+    monkeypatch.setattr(build_limiter, "CSV_BUILD_WAIT_SECONDS", 0.01)
+
+    refused = client.get(f"/api/v1/score-sets/{published_score_set['urn']}/{path}")
+
+    assert refused.status_code == 503
+    assert refused.headers["retry-after"] == str(build_limiter.RETRY_AFTER_SECONDS)
+    # A limit under the threshold is never refused, which keeps the score set page's previews working.
+    monkeypatch.setattr(build_limiter, "CSV_BUILD_MIN_ROWS", 2)
+    preview = client.get(f"/api/v1/score-sets/{published_score_set['urn']}/{path}?limit=1")
+    assert preview.status_code == 200
+
+
 # Deprecated query-parameter aliases. Galaxy and other external tooling call these endpoints, so the old
 # names keep working for a release rather than being silently ignored.
 def test_deprecated_drop_na_columns_still_drops_unused_hgvs_columns(
@@ -4920,6 +5276,8 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -5017,6 +5375,8 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_vari
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -5059,6 +5419,8 @@ def test_get_annotated_functional_impact_statement_for_score_set(
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
@@ -5157,6 +5519,8 @@ def test_get_annotated_functional_impact_statement_for_score_set_when_some_varia
         experiment["urn"],
         data_files / "scores.csv",
     )
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
     create_publish_and_promote_score_calibration(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
