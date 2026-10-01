@@ -13,6 +13,7 @@ from mavedb.lib.gnomad import (
     allele_list_from_list_like_string,
     gnomad_identifier,
     gnomad_table_name,
+    gnomad_variant_url,
     link_gnomad_variants_to_alleles,
     normalize_caid,
 )
@@ -381,3 +382,24 @@ def test_returns_empty_map_when_no_alleles_match(session, mocked_gnomad_variant_
     assert len(session.scalars(select(GnomadAlleleLink)).all()) == 0
     # No gnomAD variant is created when nothing matches the CAID.
     assert len(session.scalars(select(GnomADVariant)).all()) == 0
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "db_version,expected_url",
+    [
+        ("v4.1", "https://gnomad.broadinstitute.org/variant/1-100-A-G?dataset=gnomad_r4"),
+        ("v3.1.2", "https://gnomad.broadinstitute.org/variant/1-100-A-G?dataset=gnomad_r3"),
+        ("v2.1.1", "https://gnomad.broadinstitute.org/variant/1-100-A-G?dataset=gnomad_r2_1"),
+        ("custom", "https://gnomad.broadinstitute.org/variant/1-100-A-G"),
+    ],
+)
+def test_gnomad_variant_url_pins_the_dataset_of_a_known_release(db_version, expected_url):
+    assert gnomad_variant_url("1-100-A-G", db_version) == expected_url
+
+
+@pytest.mark.unit
+def test_gnomad_variant_url_encodes_the_identifier():
+    assert gnomad_variant_url("1-100-A/G", "v4.1") == (
+        "https://gnomad.broadinstitute.org/variant/1-100-A%2FG?dataset=gnomad_r4"
+    )

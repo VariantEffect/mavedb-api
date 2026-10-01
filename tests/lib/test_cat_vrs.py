@@ -3,11 +3,8 @@
 
 The pure builder is unit-tested over transient ``MappingRecordAllele`` instances (no DB) — asserting
 the mode, the member->defining relations, and the spec-pure ``CategoricalVariant`` shape for both
-score-collapse modes. The DB-backed wrapper ``categorical_variant_for_variant`` is exercised at the
-bottom against a real session to pin the fetch + ``as_of`` threading.
+score-collapse modes, and the external cross-references carried in ``mappings``.
 """
-
-from datetime import datetime, timezone
 
 import pytest
 
@@ -22,13 +19,11 @@ from mavedb.lib.cat_vrs import (
     CatVrsMode,
     CatVrsRelation,
     build_categorical_variant,
-    categorical_variant_for_variant,
+    categorical_member_links,
 )
+from mavedb.lib.allele_annotations import AlleleCrossReferences, GnomadReference
 from mavedb.models.allele import Allele
-from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
-from mavedb.models.variant import Variant
-from tests.helpers.constants import TEST_MINIMAL_VARIANT
 
 # A spec-valid 32-char VRS digest; the internal VRS digest is irrelevant to the builder, which keys
 # member relations on the `vrs_digest` *column*, so one fixed valid value across members is fine.
@@ -61,7 +56,13 @@ _DEFAULT_POST_MAPPED = object()
 
 
 def _link(
-    *, level: str, digest: str, is_authoritative: bool, post_mapped=_DEFAULT_POST_MAPPED, projection_group=None
+    *,
+    level: str,
+    digest: str,
+    is_authoritative: bool,
+    post_mapped=_DEFAULT_POST_MAPPED,
+    projection_group=None,
+    caid=None,
 ) -> MappingRecordAllele:
     """A transient (record, allele) link with its allele attached — no session needed.
 
@@ -69,10 +70,11 @@ def _link(
     deliberately distinct from the spec-valid VRS digest embedded in post_mapped. Pass
     ``post_mapped=None`` to model an un-hydratable allele. ``projection_group`` pairs a c↔g projection
     (the two links of one precise change share a value; the protein apex carries ``None``); the builder
-    uses it in projection mode to keep only the measured change's precise coordinate partner.
+    uses it in projection mode to keep only the measured change's precise coordinate partner. ``caid`` is the
+    allele's ClinGen id, which the builder cross-references in ``mappings``.
     """
     pm = _post_mapped() if post_mapped is _DEFAULT_POST_MAPPED else post_mapped
-    allele = Allele(level=level, vrs_digest=digest, post_mapped=pm)
+    allele = Allele(level=level, vrs_digest=digest, post_mapped=pm, clingen_allele_id=caid)
     return MappingRecordAllele(is_authoritative=is_authoritative, allele=allele, projection_group=projection_group)
 
 
@@ -269,91 +271,182 @@ def test_unhydratable_member_allele_is_skipped():
     assert len(transit.categorical_variant.members) == 2
 
 
-# --- DB-backed wrapper: categorical_variant_for_variant (fetch + build, as_of threaded) ---
+# --- External cross-references: CategoricalVariant.mappings ---
 
-T0 = datetime(2020, 1, 1, tzinfo=timezone.utc)
-T1 = datetime(2021, 1, 1, tzinfo=timezone.utc)
-
-
-def _db_allele(session, digest, level):
-    allele = Allele(vrs_digest=digest, level=level, post_mapped=_post_mapped())
-    session.add(allele)
-    session.commit()
-    return allele
+_CLINGEN = "https://reg.clinicalgenome.org/"
+_GNOMAD = "https://gnomad.broadinstitute.org"
+_CLINVAR = "https://www.ncbi.nlm.nih.gov/clinvar/variation/"
 
 
-def _db_variant(session, score_set, suffix):
-    variant = Variant(**TEST_MINIMAL_VARIANT, urn=f"{score_set.urn}#{suffix}", score_set_id=score_set.id)
-    session.add(variant)
-    session.commit()
-    return variant
+def _gnomad(db_identifier: str, db_version: str = "v4.1") -> AlleleCrossReferences:
+    return AlleleCrossReferences(gnomad=GnomadReference(db_identifier=db_identifier, db_version=db_version))
 
 
-def _db_record(session, variant, *, assay_level, valid_from=None):
-    record = MappingRecord(
-        variant_id=variant.id,
-        score_set_id=variant.score_set_id,
-        assay_level=assay_level,
-        mapping_api_version="test.0.0",
-        valid_from=valid_from,
-    )
-    session.add(record)
-    session.commit()
-    return record
+def _clinvar(*variation_ids: str) -> AlleleCrossReferences:
+    """One ClinVar variation ID per live release; a repeated ID models one variation across releases."""
+    return AlleleCrossReferences(clinvar_variation_ids=list(variation_ids))
 
 
-def _db_link(session, record, allele, *, is_authoritative=False, valid_from=None):
-    link = MappingRecordAllele(
-        mapping_record_id=record.id,
-        score_set_id=record.score_set_id,
-        allele_id=allele.id,
-        is_authoritative=is_authoritative,
-        valid_from=valid_from,
-    )
-    session.add(link)
-    session.commit()
-    return link
+def _mappings(transit) -> dict[tuple[str, str], MappingRelation]:
+    """(system, code) -> relation, for the categorical variant's external cross-references."""
+    return {(m.coding.system, m.coding.code.root): m.relation for m in transit.categorical_variant.mappings or []}
 
 
-@pytest.mark.integration
-def test_wrapper_builds_transit_from_live_links(session, setup_lib_db_with_score_set):
-    """Fetch + build: a protein-measured variant's record yields a Mode 2 transit with nt `encodes`."""
-    variant = _db_variant(session, setup_lib_db_with_score_set, 1)
-    record = _db_record(session, variant, assay_level="protein")
-    _db_link(session, record, _db_allele(session, "prot", "protein"), is_authoritative=True)
-    _db_link(session, record, _db_allele(session, "cdna", "cdna"))
+@pytest.mark.unit
+def test_projection_mode_maps_the_measured_change_as_exact_and_other_variants_as_related():
+    """The measured change and its coordinate twin are the categorical variant (exactMatch); the protein
+    consequence and convergent encodings are distinct variants (relatedMatch). The twins' shared CAID and
+    a ClinVar variation repeated across releases each collapse to one mapping."""
+    links = [
+        _link(level="cdna", digest="cdna", is_authoritative=True, projection_group=0, caid="CA1"),
+        _link(level="genomic", digest="gen", is_authoritative=False, projection_group=0, caid="CA1"),
+        _link(level="protein", digest="prot", is_authoritative=False, caid="PA1"),
+        _link(level="genomic", digest="sibling_gen", is_authoritative=False, projection_group=1, caid="CA2"),
+    ]
+    references = {
+        "cdna": _clinvar("100", "100"),
+        "gen": _gnomad("1-100-A-G"),
+        "sibling_gen": _gnomad("1-101-C-T"),
+    }
 
-    transit = categorical_variant_for_variant(session, variant.id, name=variant.urn)
+    transit = build_categorical_variant(links, name="urn:mavedb:test#map1", cross_references=references)
 
     assert transit is not None
-    assert transit.mode == CatVrsMode.REVERSE_TRANSLATION
-    assert transit.member_relations == {"cdna": CatVrsRelation.ENCODES}
+    assert _mappings(transit) == {
+        (_CLINGEN, "CA1"): MappingRelation.EXACT_MATCH,
+        (_CLINVAR, "100"): MappingRelation.EXACT_MATCH,
+        (_GNOMAD, "1-100-A-G"): MappingRelation.EXACT_MATCH,
+        (_CLINGEN, "PA1"): MappingRelation.RELATED_MATCH,
+        (_CLINGEN, "CA2"): MappingRelation.RELATED_MATCH,
+        (_GNOMAD, "1-101-C-T"): MappingRelation.RELATED_MATCH,
+    }
 
 
-@pytest.mark.integration
-def test_wrapper_returns_none_for_unmapped_variant(session, setup_lib_db_with_score_set):
-    variant = _db_variant(session, setup_lib_db_with_score_set, 1)
-    assert categorical_variant_for_variant(session, variant.id, name=variant.urn) is None
+@pytest.mark.unit
+def test_narrow_object_omits_mappings_for_dropped_convergent_encodings():
+    """Mappings follow the member set: the VA subject drops convergent encodings, so their records go too."""
+    links = [
+        _link(level="cdna", digest="cdna", is_authoritative=True, projection_group=0),
+        _link(level="genomic", digest="sibling_gen", is_authoritative=False, projection_group=1),
+    ]
+    references = {"cdna": _gnomad("1-100-A-G"), "sibling_gen": _gnomad("1-101-C-T")}
+
+    transit = build_categorical_variant(
+        links, name="urn:mavedb:test#map2", include_convergent=False, cross_references=references
+    )
+
+    assert transit is not None
+    assert _mappings(transit) == {(_GNOMAD, "1-100-A-G"): MappingRelation.EXACT_MATCH}
 
 
-@pytest.mark.integration
-def test_wrapper_threads_as_of_to_the_historical_record(session, setup_lib_db_with_score_set):
-    """as_of selects the past record, changing the built object — Mode 2 then, Mode 1 now."""
-    variant = _db_variant(session, setup_lib_db_with_score_set, 1)
+@pytest.mark.unit
+def test_reverse_translation_maps_each_encoding_as_related():
+    """Protein measured: the protein's own CAID is exact; every nt encoding is a distinct variant."""
+    links = [
+        _link(level="protein", digest="prot", is_authoritative=True, caid="PA1"),
+        _link(level="cdna", digest="cdna_a", is_authoritative=False, projection_group=0, caid="CA1"),
+        _link(level="cdna", digest="cdna_b", is_authoritative=False, projection_group=1, caid="CA2"),
+    ]
+    references = {"cdna_a": _clinvar("100"), "cdna_b": _clinvar("200")}
 
-    old_record = _db_record(session, variant, assay_level="protein", valid_from=T0)
-    _db_link(session, old_record, _db_allele(session, "old-prot", "protein"), is_authoritative=True, valid_from=T0)
-    old_record.retire(session, at=T1)
-    session.commit()
+    transit = build_categorical_variant(links, name="urn:mavedb:test#map3", cross_references=references)
 
-    new_record = _db_record(session, variant, assay_level="genomic", valid_from=T1)
-    _db_link(session, new_record, _db_allele(session, "new-gen", "genomic"), is_authoritative=True, valid_from=T1)
+    assert transit is not None
+    assert _mappings(transit) == {
+        (_CLINGEN, "PA1"): MappingRelation.EXACT_MATCH,
+        (_CLINGEN, "CA1"): MappingRelation.RELATED_MATCH,
+        (_CLINVAR, "100"): MappingRelation.RELATED_MATCH,
+        (_CLINGEN, "CA2"): MappingRelation.RELATED_MATCH,
+        (_CLINVAR, "200"): MappingRelation.RELATED_MATCH,
+    }
 
-    past = categorical_variant_for_variant(session, variant.id, name=variant.urn, as_of=T0)
-    current = categorical_variant_for_variant(session, variant.id, name=variant.urn)
 
-    assert past is not None and past.mode == CatVrsMode.REVERSE_TRANSLATION
-    assert current is not None and current.mode == CatVrsMode.PROJECTION
+@pytest.mark.unit
+def test_exact_match_wins_when_a_related_member_shares_the_identifier():
+    """A record reached first through a related member is upgraded when an exact member also carries it."""
+    links = [
+        _link(level="cdna", digest="cdna", is_authoritative=True, projection_group=0),
+        _link(level="protein", digest="prot", is_authoritative=False),
+        _link(level="genomic", digest="gen", is_authoritative=False, projection_group=0),
+    ]
+    references = {"prot": _clinvar("100"), "gen": _clinvar("100")}
+
+    transit = build_categorical_variant(links, name="urn:mavedb:test#map4", cross_references=references)
+
+    assert transit is not None
+    assert _mappings(transit) == {(_CLINVAR, "100"): MappingRelation.EXACT_MATCH}
+
+
+@pytest.mark.unit
+def test_mappings_are_resolvable_and_absent_without_identifiers():
+    """Each coding carries an IRI; a variant with no external identifiers emits no ``mappings`` at all."""
+    mapped = build_categorical_variant(
+        [_link(level="genomic", digest="gen", is_authoritative=True)],
+        name="urn:mavedb:test#map5",
+        cross_references={"gen": _gnomad("1-100-A-G")},
+    )
+    unmapped = build_categorical_variant(
+        [_link(level="genomic", digest="gen", is_authoritative=True)], name="urn:mavedb:test#map6"
+    )
+
+    assert mapped is not None and mapped.categorical_variant.mappings is not None
+    coding = mapped.categorical_variant.mappings[0].coding
+    assert [iri.root for iri in coding.iris or []] == [
+        "https://gnomad.broadinstitute.org/variant/1-100-A-G?dataset=gnomad_r4"
+    ]
+    assert unmapped is not None and unmapped.categorical_variant.mappings is None
+
+
+@pytest.mark.unit
+def test_gnomad_mapping_names_its_release():
+    """The gnomAD coding carries the release it was matched in; its link is pinned by ``gnomad_variant_url``."""
+    transit = build_categorical_variant(
+        [_link(level="genomic", digest="gen", is_authoritative=True)],
+        name="urn:mavedb:test#map7",
+        cross_references={"gen": _gnomad("1-100-A-G", "v2.1.1")},
+    )
+
+    assert transit is not None and transit.categorical_variant.mappings is not None
+    coding = transit.categorical_variant.mappings[0].coding
+    assert coding.systemVersion == "v2.1.1"
+    assert [iri.root for iri in coding.iris or []] == [
+        "https://gnomad.broadinstitute.org/variant/1-100-A-G?dataset=gnomad_r2_1"
+    ]
+
+
+@pytest.mark.unit
+def test_mappings_do_not_depend_on_link_order():
+    """The database returns links in no fixed order; the serialized mappings must not follow it."""
+    links = [
+        _link(level="cdna", digest="cdna", is_authoritative=True, projection_group=0, caid="CA1"),
+        _link(level="protein", digest="prot", is_authoritative=False, caid="PA1"),
+        _link(level="genomic", digest="sibling_gen", is_authoritative=False, projection_group=1, caid="CA2"),
+    ]
+    references = {"cdna": _clinvar("200", "100"), "sibling_gen": _gnomad("1-101-C-T")}
+
+    forward = build_categorical_variant(links, name="urn:mavedb:test#map8", cross_references=references)
+    backward = build_categorical_variant(
+        list(reversed(links)), name="urn:mavedb:test#map8", cross_references=references
+    )
+
+    assert forward is not None and backward is not None
+    assert forward.categorical_variant.mappings == backward.categorical_variant.mappings
+    assert [(m.coding.system, m.coding.code.root) for m in forward.categorical_variant.mappings or []] == sorted(
+        _mappings(forward)
+    )
+
+
+@pytest.mark.unit
+def test_member_links_put_the_defining_link_first_and_follow_the_narrow_selection():
+    """The prefetch scope matches the built object: defining first, convergent encodings only when wide."""
+    defining = _link(level="cdna", digest="cdna", is_authoritative=True, projection_group=0)
+    twin = _link(level="genomic", digest="gen", is_authoritative=False, projection_group=0)
+    sibling = _link(level="genomic", digest="sibling_gen", is_authoritative=False, projection_group=1)
+    links = [twin, sibling, defining]
+
+    assert categorical_member_links(links) == [defining, twin, sibling]
+    assert categorical_member_links(links, include_convergent=False) == [defining, twin]
+    assert categorical_member_links([twin, sibling]) == []
 
 
 # ---------------------------------------------------------------------------

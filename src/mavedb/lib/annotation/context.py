@@ -14,8 +14,9 @@ from ga4gh.vrs.models import MolecularVariation
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from mavedb.lib.allele_annotations import get_allele_cross_references
 from mavedb.lib.alleles import get_live_record_allele_links
-from mavedb.lib.cat_vrs import build_categorical_variant
+from mavedb.lib.cat_vrs import build_categorical_variant, categorical_member_links
 from mavedb.lib.vrs import vrs_object_from_mapped_variant
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
@@ -46,8 +47,9 @@ def variant_annotation_context(
     """Assemble the annotation context for ``variant`` from the live (or as-of) mapping substrate.
 
     Returns ``None`` when the variant is unmapped at ``as_of`` or an authoritative allele that carries
-    no ``post_mapped`` VRS (nothing to annotate). One record fetch + one allele-link fetch; the Cat-VRS
-    transit is built from the same links, so the subject costs no redundant query.
+    no ``post_mapped`` VRS (nothing to annotate). One record fetch and one allele-link fetch; a subject with
+    projection members adds one gnomAD and one ClinVar identifier fetch, scoped to those members, for its
+    ``mappings``. The Cat-VRS transit is built from the same links.
     """
     record = db.scalar(
         select(MappingRecord).where(MappingRecord.variant_id == variant.id).where(MappingRecord.live_at(as_of))
@@ -64,8 +66,14 @@ def variant_annotation_context(
     # projection member, else the concrete measured variation. The VA subject is deliberately *narrow*
     # (include_convergent=False): the convergent encodings are dropped, because VA-Spec carries no per-member
     # provenance to mark them as unmeasured, and StudyResult.focusVariant already pins the concrete measured
-    # allele.
-    transit = build_categorical_variant(links, name=variant.urn or "", include_convergent=False)
+    # allele. A lone measured allele is served bare, so it skips the cross-reference fetch and the build.
+    member_links = categorical_member_links(links, include_convergent=False)
+    transit = None
+    if len(member_links) > 1:
+        cross_references = get_allele_cross_references(db, [link.allele for link in member_links], as_of=as_of)
+        transit = build_categorical_variant(
+            links, name=variant.urn or "", include_convergent=False, cross_references=cross_references
+        )
     if transit is not None and len(transit.categorical_variant.members) > 1:
         subject_variant: MolecularVariation | CategoricalVariant = transit.categorical_variant
     else:

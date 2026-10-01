@@ -202,7 +202,13 @@ A separate artifact rather than columns in `csv/{urn}.annotations.csv` because t
 CSV cell can carry an identifier or an HGVS string, but not a VRS object. Join the two on
 `mavedb.post_mapped_vrs_id`, which is the same identifier as `post_mapped.id`.
 
-`categorical_variant` is spec-pure — it contains no MaveDB-specific fields. A variant the pipeline could
+`categorical_variant` is spec-pure — it contains no MaveDB-specific fields. Its `mappings` cross-reference the
+members' ClinGen allele IDs, gnomAD variant IDs and ClinVar variation IDs: `exactMatch` for records of the
+measured change itself (in any coordinate frame), `relatedMatch` for records of other members, such as the
+protein consequence or another nucleotide change encoding the same protein change. A gnomAD mapping names the
+gnomAD release it was matched in as `coding.systemVersion`. Mappings are sorted by `coding.system`, then
+`coding.code`. They carry identifiers only; frequencies and classifications are in
+`csv/{urn}.annotations.csv`. A variant the pipeline could
 not place carries no reference coordinates and is omitted from this file, so every line carries a non-null
 `post_mapped` and the line count equals the number of variants with reference coordinates. `pre_mapped` is
 `null` where no assay-frame VRS was recorded, and `categorical_variant` is `null` where the stored VRS
@@ -281,6 +287,12 @@ be combined with other evidence downstream, not as a standalone clinical verdict
 
 Research-use-only calibrations are excluded from this file, unlike `csv/{urn}.annotations.csv`, which
 includes them under a `research_use_only` flag.
+
+The proposition subject is the measured change. When it has another representation (its genomic or
+transcript twin, or its protein consequence) the subject is a Cat-VRS `CategoricalVariant` over those
+representations, carrying the same `mappings` as `categorical_variant` in `vrs/{urn}.vrs.ndjson`. Unlike
+that file, it leaves out other nucleotide changes that encode the same protein change, so it carries none of
+their mappings. Otherwise the subject is the bare VRS allele and has no `mappings`.
 
 `annotation` is `null` where no VA-Spec layer could be built for a variant that does have reference
 coordinates. A variant the pipeline could not place has none, and is omitted from this file entirely.

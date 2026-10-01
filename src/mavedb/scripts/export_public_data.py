@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session, joinedload, lazyload
 
 from mavedb.lib.annotation.annotate import variant_highest_level_annotation
 from mavedb.lib.annotation.context import variant_annotation_context
+from mavedb.lib.allele_annotations import get_allele_cross_references
 from mavedb.lib.alleles import get_live_record_allele_links
 from mavedb.lib.cat_vrs import build_categorical_variant
 from mavedb.lib.csv.entries import score_sets_have_current_mappings
@@ -239,7 +240,8 @@ def vrs_ndjson(db: Session, score_set: ScoreSet) -> str:
         links = get_live_record_allele_links(db, variant.id)
         authoritative = next((link.allele for link in links if link.is_authoritative), None)
         record = next((link.mapping_record for link in links), None)
-        transit = build_categorical_variant(links, name=variant.urn or "")
+        cross_references = get_allele_cross_references(db, [link.allele for link in links])
+        transit = build_categorical_variant(links, name=variant.urn or "", cross_references=cross_references)
 
         lines.append(
             json.dumps(

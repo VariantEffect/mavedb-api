@@ -2,6 +2,9 @@
 
 """Tests for mavedb.lib.annotation.context — the VA proposition-subject grain (Slice 5.1)."""
 
+from datetime import datetime, timezone
+from unittest import mock
+
 import pytest
 
 pytest.importorskip("psycopg2")
@@ -9,9 +12,37 @@ pytest.importorskip("psycopg2")
 from ga4gh.cat_vrs.models import CategoricalVariant
 from ga4gh.vrs.models import MolecularVariation
 
+from sqlalchemy import select
+
 from mavedb.lib.annotation.context import variant_annotation_context
+from mavedb.models.gnomad_allele_link import GnomadAlleleLink
+from mavedb.models.gnomad_variant import GnomADVariant
 from tests.helpers.constants import TEST_VALID_POST_MAPPED_VRS_ALLELE
 from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
+
+
+T0 = datetime(2020, 1, 1, tzinfo=timezone.utc)
+T1 = datetime(2021, 1, 1, tzinfo=timezone.utc)
+
+
+def _gnomad_variant(session, db_identifier: str) -> int:
+    gnomad_variant = GnomADVariant(
+        db_name="gnomAD",
+        db_identifier=db_identifier,
+        db_version="v4.1",
+        allele_count=1,
+        allele_number=100,
+        allele_frequency=0.01,
+    )
+    session.add(gnomad_variant)
+    session.commit()
+    return gnomad_variant.id
+
+
+def _gnomad_codes(subject) -> list[str]:
+    return [
+        m.coding.code.root for m in subject.mappings or [] if m.coding.system == "https://gnomad.broadinstitute.org"
+    ]
 
 
 @pytest.mark.integration
@@ -106,3 +137,77 @@ class TestVariantAnnotationContextSubject:
         context = variant_annotation_context(session, setup_lib_db_with_mapped_variant.variant)
 
         assert context is None
+
+    def test_subject_mappings_cover_only_the_narrow_members_at_as_of(self, session, setup_lib_db_with_mapped_variant):
+        """The subject cross-references its own members only (not the dropped sibling encoder), as of the
+        requested instant: a gnomAD match replaced at T1 still maps to the old ID before T1."""
+        mapped_variant = setup_lib_db_with_mapped_variant
+        old_id = _gnomad_variant(session, "1-100-A-G")
+        new_id = _gnomad_variant(session, "1-100-A-T")
+        sibling_id = _gnomad_variant(session, "1-101-C-T")
+        seed_mapping_record(
+            session,
+            mapped_variant.variant,
+            assay_level="cdna",
+            valid_from=T0,
+            alleles=[
+                AlleleSpec(
+                    digest="cdna",
+                    level="cdna",
+                    is_authoritative=True,
+                    projection_group=0,
+                    post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE,
+                ),
+                AlleleSpec(
+                    digest="gen",
+                    level="genomic",
+                    projection_group=0,
+                    post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE,
+                    gnomad_variant_ids=[old_id],
+                ),
+                AlleleSpec(
+                    digest="sibling",
+                    level="cdna",
+                    projection_group=1,
+                    post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE,
+                    gnomad_variant_ids=[sibling_id],
+                ),
+            ],
+        )
+        old_link = session.scalar(select(GnomadAlleleLink).where(GnomadAlleleLink.gnomad_variant_id == old_id))
+        assert old_link is not None
+        old_link.retire(at=T1)
+        new_link = GnomadAlleleLink(allele_id=old_link.allele_id, gnomad_variant_id=new_id)
+        new_link.valid_from = T1
+        session.add(new_link)
+        session.commit()
+
+        past = variant_annotation_context(
+            session, mapped_variant.variant, as_of=datetime(2020, 6, 1, tzinfo=timezone.utc)
+        )
+        current = variant_annotation_context(session, mapped_variant.variant)
+
+        assert past is not None and isinstance(past.subject_variant, CategoricalVariant)
+        assert current is not None and isinstance(current.subject_variant, CategoricalVariant)
+        assert _gnomad_codes(past.subject_variant) == ["1-100-A-G"]
+        assert _gnomad_codes(current.subject_variant) == ["1-100-A-T"]
+
+    def test_single_allele_subject_skips_the_cross_reference_fetch(self, session, setup_lib_db_with_mapped_variant):
+        """A lone measured allele is served bare, so nothing would carry the cross-references."""
+        mapped_variant = setup_lib_db_with_mapped_variant
+        seed_mapping_record(
+            session,
+            mapped_variant.variant,
+            assay_level="cdna",
+            alleles=[
+                AlleleSpec(
+                    digest="cdna", level="cdna", is_authoritative=True, post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE
+                ),
+            ],
+        )
+
+        with mock.patch("mavedb.lib.annotation.context.get_allele_cross_references") as fetch:
+            context = variant_annotation_context(session, mapped_variant.variant)
+
+        assert context is not None
+        fetch.assert_not_called()

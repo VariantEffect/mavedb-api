@@ -16,6 +16,8 @@ live link per release), so it is a list.
 
 This is the shared assembler for both ``GET /variants/{urn}`` (all of a variant's alleles) and
 ``GET /alleles/{digest}`` (a single allele) — pass whichever allele set the caller has in hand.
+:func:`get_allele_cross_references` is the identifiers-only counterpart for callers that need only
+the gnomAD and ClinVar identifiers (the Cat-VRS ``mappings``), skipping VEP and the payload columns.
 """
 
 from dataclasses import dataclass, field
@@ -64,6 +66,22 @@ class ClinvarAnnotation:
     db_version: str
 
 
+@dataclass(frozen=True)
+class GnomadReference:
+    """An allele's gnomAD variant ID and the gnomAD release it was matched in."""
+
+    db_identifier: str
+    db_version: str
+
+
+@dataclass
+class AlleleCrossReferences:
+    """An allele's identifiers in external variant registries. Identifiers only; no annotation payload."""
+
+    gnomad: Optional[GnomadReference] = None
+    clinvar_variation_ids: list[str] = field(default_factory=list)
+
+
 @dataclass
 class AlleleAnnotations:
     """The external annotations for a single allele. Every field is sparse — a source with no data
@@ -72,6 +90,17 @@ class AlleleAnnotations:
     vep: Optional[VepAnnotation] = None
     gnomad: Optional[GnomadAnnotation] = None
     clinvar: list[ClinvarAnnotation] = field(default_factory=list)
+
+    def cross_references(self) -> AlleleCrossReferences:
+        """The identifiers these annotations carry, for a caller that already fetched the full map."""
+        return AlleleCrossReferences(
+            gnomad=(
+                GnomadReference(db_identifier=self.gnomad.db_identifier, db_version=self.gnomad.db_version)
+                if self.gnomad is not None
+                else None
+            ),
+            clinvar_variation_ids=[c.clinvar_variation_id for c in self.clinvar if c.clinvar_variation_id],
+        )
 
 
 def get_allele_annotations(
@@ -149,3 +178,45 @@ def get_allele_annotations(
             )
 
     return annotations
+
+
+def get_allele_cross_references(
+    db: Session, alleles: Sequence[Allele], *, as_of: Optional[datetime] = None
+) -> dict[str, AlleleCrossReferences]:
+    """Assemble the digest-keyed gnomAD and ClinVar identifiers for ``alleles``.
+
+    Keyed and time-scoped like :func:`get_allele_annotations`, but reads only the identifier columns:
+    two queries, no VEP. An allele with no identifiers still gets an (empty) entry.
+    """
+    digest_by_id = {allele.id: allele.vrs_digest for allele in alleles}
+    references: dict[str, AlleleCrossReferences] = {
+        digest: AlleleCrossReferences() for digest in digest_by_id.values() if digest is not None
+    }
+    if not digest_by_id:
+        return references
+
+    allele_ids = list(digest_by_id.keys())
+
+    gnomad_rows = db.execute(
+        select(GnomadAlleleLink.allele_id, GnomADVariant.db_identifier, GnomADVariant.db_version)
+        .join(GnomADVariant, GnomADVariant.id == GnomadAlleleLink.gnomad_variant_id)
+        .where(GnomadAlleleLink.allele_id.in_(allele_ids))
+        .where(GnomadAlleleLink.live_at(as_of))
+    ).tuples()
+    for allele_id, db_identifier, db_version in gnomad_rows:
+        digest = digest_by_id[allele_id]
+        if digest is not None:
+            references[digest].gnomad = GnomadReference(db_identifier=db_identifier, db_version=db_version)
+
+    clinvar_rows = db.execute(
+        select(ClinvarAlleleLink.allele_id, ClinvarControl.clinvar_variation_id)
+        .join(ClinvarControl, ClinvarControl.id == ClinvarAlleleLink.clinvar_control_id)
+        .where(ClinvarAlleleLink.allele_id.in_(allele_ids))
+        .where(ClinvarAlleleLink.live_at(as_of))
+    ).tuples()
+    for allele_id, variation_id in clinvar_rows:
+        digest = digest_by_id[allele_id]
+        if digest is not None and variation_id is not None:
+            references[digest].clinvar_variation_ids.append(variation_id)
+
+    return references

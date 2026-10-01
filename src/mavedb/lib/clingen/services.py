@@ -8,7 +8,12 @@ from typing import Optional, Union
 import requests
 from jose import jwt
 
-from mavedb.lib.clingen.constants import CLINGEN_HTTP_TIMEOUT, GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD
+from mavedb.lib.clingen.constants import (
+    CLINGEN_HTTP_TIMEOUT,
+    GENBOREE_ACCOUNT_NAME,
+    GENBOREE_ACCOUNT_PASSWORD,
+    GENBOREE_AUTH_URL,
+)
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
 from mavedb.lib.types.clingen import ClinGenAllele, ClinGenSubmissionError, LdhSubmission
 from mavedb.lib.utils import batched
@@ -164,7 +169,7 @@ class ClinGenLdhService:
             extra=logging_context(),
         )
 
-        auth_url = f"https://genboree.org/auth/usr/gb:{GENBOREE_ACCOUNT_NAME}/auth"
+        auth_url = f"{GENBOREE_AUTH_URL}/gb:{GENBOREE_ACCOUNT_NAME}/auth"
         auth_body = {"type": "plain", "val": GENBOREE_ACCOUNT_PASSWORD}
         try:
             auth_response = requests.post(auth_url, json=auth_body, timeout=CLINGEN_HTTP_TIMEOUT)

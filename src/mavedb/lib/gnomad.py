@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Any, Optional, Sequence, Union
+from urllib.parse import quote
 
 from sqlalchemy import Connection, Row, func, select, text
 from sqlalchemy.orm import Session
@@ -24,12 +25,15 @@ logger = logging.getLogger(__name__)
 
 GNOMAD_DB_NAME = "gnomAD"
 GNOMAD_DATA_VERSION = os.getenv("GNOMAD_DATA_VERSION", "v4.1")
+GNOMAD_BROWSER_URL = "https://gnomad.broadinstitute.org"
 _CAID_LEADING_ZERO_RE = r"^(CA)0+([0-9])"
 """
 Strip leading zeros from a CAID's numeric portion, keeping at least one digit. 
 Kept byte-for-byte in sync with the SQL form used to normalize Allele.clingen_allele_id 
 in link_gnomad_variants_to_alleles.
 """
+_GNOMAD_BROWSER_DATASETS = {"2": "gnomad_r2_1", "3": "gnomad_r3", "4": "gnomad_r4"}
+"""Mapping of gnomAD major release numbers to browser dataset names."""
 
 
 class GnomadLinkVerdict(str, Enum):
@@ -122,6 +126,18 @@ def gnomad_identifier(contig: str, position: Union[str, int], alleles: list[str]
 
     # Create the identifier in the format: contig-position-allele1-allele2
     return f"{contig}-{position}-{'-'.join(alleles)}"
+
+
+def gnomad_variant_url(db_identifier: str, db_version: str) -> str:
+    """Browser link for a gnomAD variant, pinned to the dataset of ``db_version`` (e.g. ``v4.1``).
+
+    An unrecognized ``db_version`` gets no ``dataset`` parameter rather than a guessed one. Mirrors
+    ``gnomadVariantUrl`` in the UI's ``src/lib/gnomad.ts``.
+    """
+    url = f"{GNOMAD_BROWSER_URL}/variant/{quote(db_identifier, safe='')}"
+    major = re.match(r"v?(\d+)", db_version)
+    dataset = _GNOMAD_BROWSER_DATASETS.get(major.group(1)) if major else None
+    return f"{url}?dataset={dataset}" if dataset else url
 
 
 def gnomad_table_name() -> str:

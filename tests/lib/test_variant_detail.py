@@ -9,6 +9,7 @@ the on-the-fly builder; the digest-keyed annotation map; the per-calibration cla
 we assert they are wired in and keyed correctly.
 """
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -18,6 +19,10 @@ pytest.importorskip("psycopg2")
 from mavedb.lib.variant_detail import get_variant_detail
 from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.models.allele import Allele
+from mavedb.models.clinical_control import ClinvarControl
+from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
+from mavedb.models.gnomad_allele_link import GnomadAlleleLink
+from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_calibration import ScoreCalibration
@@ -291,6 +296,103 @@ def test_pre_reverse_translation_data_degrades_projection_of_to_null(session, se
     assert detail.alleles["cdna-digest"].projection_of is None  # no group -> no sibling
     assert detail.alleles["prot-digest"].derivation == "projection"
     assert detail.alleles["prot-digest"].projection_of is None
+
+
+T0 = datetime(2020, 1, 1, tzinfo=timezone.utc)
+T1 = datetime(2021, 1, 1, tzinfo=timezone.utc)
+
+
+def _gnomad_link(session, allele, gnomad_id, *, valid_from=None):
+    gnomad_variant = GnomADVariant(
+        db_name="gnomAD",
+        db_identifier=gnomad_id,
+        db_version="v4.1",
+        allele_count=1,
+        allele_number=100,
+        allele_frequency=0.01,
+    )
+    session.add(gnomad_variant)
+    session.flush()
+    link = GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id)
+    if valid_from is not None:
+        link.valid_from = valid_from
+    session.add(link)
+    session.flush()
+    return link
+
+
+@pytest.mark.integration
+def test_categorical_variant_cross_references_linked_gnomad_and_clinvar_records(session, setup_lib_db_with_score_set):
+    """The live gnomAD and ClinVar links reach the Cat-VRS as identifier-only ``mappings``: the measured
+    change's records are an exactMatch, a convergent encoding's a relatedMatch."""
+    score_set = setup_lib_db_with_score_set
+    variant = _variant(session, score_set, 1, data={"score_data": {"score": -2.3}}, hgvs_nt="c.1216G>A")
+    record = _record(session, variant, assay_level="cdna")
+    measured = _allele(session, "cdna-digest", level="cdna", clingen_allele_id="CA123")
+    genomic = _allele(session, "gen-digest", level="genomic", clingen_allele_id="CA123")
+    cousin = _allele(session, "cousin-digest", level="cdna")
+    _link(session, record, measured, is_authoritative=True, projection_group=0)
+    _link(session, record, genomic, projection_group=0)
+    _link(session, record, cousin, projection_group=1)
+
+    _gnomad_link(session, genomic, "17-7676154-C-T")
+    _gnomad_link(session, cousin, "17-7676152-G-A")
+    control = ClinvarControl(
+        db_identifier="12345",
+        gene_symbol="TP53",
+        clinical_significance="Pathogenic",
+        clinical_review_status="reviewed by expert panel",
+        db_name="ClinVar",
+        db_version="11_2024",
+        clinvar_variation_id="376654",
+    )
+    session.add(control)
+    session.flush()
+    session.add(ClinvarAlleleLink(allele_id=measured.id, clinvar_control_id=control.id))
+    session.commit()
+
+    detail = get_variant_detail(session, variant)
+
+    assert detail.molecular_representation is not None
+    mappings = {
+        (m["coding"]["system"], m["coding"]["code"]): m["relation"] for m in detail.molecular_representation["mappings"]
+    }
+    assert mappings == {
+        ("https://reg.clinicalgenome.org/", "CA123"): "exactMatch",
+        ("https://www.ncbi.nlm.nih.gov/clinvar/variation/", "376654"): "exactMatch",
+        ("https://gnomad.broadinstitute.org", "17-7676154-C-T"): "exactMatch",
+        ("https://gnomad.broadinstitute.org", "17-7676152-G-A"): "relatedMatch",
+    }
+
+
+@pytest.mark.integration
+def test_categorical_variant_mappings_follow_as_of(session, setup_lib_db_with_score_set):
+    """``as_of`` reaches the cross-references: a gnomAD match replaced at T1 maps to the old ID at T0."""
+    variant = _variant(session, setup_lib_db_with_score_set, 1, data={"score_data": {"score": -2.3}})
+    record = _record(session, variant, assay_level="cdna")
+    measured = _allele(session, "cdna-digest", level="cdna")
+    genomic = _allele(session, "gen-digest", level="genomic")
+    for link in (
+        _link(session, record, measured, is_authoritative=True, projection_group=0),
+        _link(session, record, genomic, projection_group=0),
+    ):
+        link.valid_from = T0
+    record.valid_from = T0
+    _gnomad_link(session, genomic, "17-1-A-G", valid_from=T0).retire(at=T1)
+    _gnomad_link(session, genomic, "17-1-A-T", valid_from=T1)
+    session.commit()
+
+    def gnomad_ids(as_of):
+        detail = get_variant_detail(session, variant, as_of=as_of)
+        assert detail.molecular_representation is not None
+        return [
+            m["coding"]["code"]
+            for m in detail.molecular_representation["mappings"]
+            if m["coding"]["system"] == "https://gnomad.broadinstitute.org"
+        ]
+
+    assert gnomad_ids(datetime(2020, 6, 1, tzinfo=timezone.utc)) == ["17-1-A-G"]
+    assert gnomad_ids(None) == ["17-1-A-T"]
 
 
 @pytest.mark.integration

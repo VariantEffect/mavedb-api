@@ -4,6 +4,8 @@ from pathlib import Path
 from urllib3.util.retry import Retry
 
 TSV_VARIANT_ARCHIVE_BASE_URL = "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/archive"
+CLINVAR_VARIATION_URL = "https://www.ncbi.nlm.nih.gov/clinvar/variation"
+"""ClinVar web page for a variation, addressed as ``{CLINVAR_VARIATION_URL}/{variation_id}/``."""
 
 NCBI_REQUEST_HEADERS = {
     "User-Agent": "MaveDB/1.0 (https://mavedb.org)",

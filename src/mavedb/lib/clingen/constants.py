@@ -9,6 +9,13 @@ CLIN_GEN_TENANT = os.getenv("CLIN_GEN_TENANT")
 
 CAR_SUBMISSION_ENDPOINT = os.getenv("CAR_SUBMISSION_ENDPOINT")
 
+CLINGEN_ALLELE_REGISTRY_API_URL = "https://reg.genome.network/allele"
+"""ClinGen Allele Registry REST endpoint for looking up an allele by CAID, PAID or HGVS."""
+CLINGEN_ALLELE_REGISTRY_PAGE_URL = "https://reg.clinicalgenome.org/redmine/projects/registry/genboree_registry/by_caid"
+"""Allele Registry web page for a CAID or PAID, selected with a ``caid`` query parameter."""
+GENBOREE_AUTH_URL = "https://genboree.org/auth/usr"
+"""Genboree account authentication, which issues the JWT for ClinGen submissions."""
+
 LDH_SUBMISSION_TYPE = "cg-ldh-ld-submission"
 LDH_ENTITY_NAME = "MaveDBMapping"
 LDH_ENTITY_ENDPOINT = "maveDb"  # for some reason, not the same :/

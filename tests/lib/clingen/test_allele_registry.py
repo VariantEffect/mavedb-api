@@ -9,6 +9,7 @@ from unittest import mock
 import requests
 
 from mavedb.lib.clingen.allele_registry import (
+    clingen_allele_url,
     get_associated_clinvar_allele_id,
     get_canonical_pa_ids,
     get_clingen_allele_data,
@@ -511,3 +512,11 @@ class TestCacheBackendFailure:
         assert result1 == "333333"
         assert result2 == "333333"
         assert mock_request.call_count == 2  # No caching — both calls hit the API
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("allele_id", ["CA123", "PA456"])
+def test_clingen_allele_url_links_the_registry_page(allele_id):
+    assert clingen_allele_url(allele_id) == (
+        f"https://reg.clinicalgenome.org/redmine/projects/registry/genboree_registry/by_caid?caid={allele_id}"
+    )

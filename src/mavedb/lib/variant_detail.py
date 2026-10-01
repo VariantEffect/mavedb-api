@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from mavedb.lib.allele_annotations import AlleleAnnotations, get_allele_annotations
 from mavedb.lib.allele_identity import AlleleDerivation, AlleleIdentity
 from mavedb.lib.alleles import get_live_record_allele_links
-from mavedb.lib.cat_vrs import categorical_variant_for_variant, is_convergent_encoding
+from mavedb.lib.cat_vrs import build_categorical_variant, is_convergent_encoding
 from mavedb.lib.score_calibrations import calibration_preference_key
 from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.mapping_record import MappingRecord
@@ -194,7 +194,11 @@ def get_variant_detail(
 
     # Spec-pure Cat-VRS built on the fly, plus mode + per-member relations. The defining allele is
     # deliberately absent from `relations`, so it gets relation=None below.
-    transit = categorical_variant_for_variant(db, variant.id, name=variant.urn or "", as_of=as_of)
+    transit = build_categorical_variant(
+        links,
+        name=variant.urn or "",
+        cross_references={digest: entry.cross_references() for digest, entry in annotations.items()},
+    )
     if transit is not None:
         molecular_representation = transit.categorical_variant.model_dump(mode="json", exclude_none=True)
         mode: Optional[str] = transit.mode.value
