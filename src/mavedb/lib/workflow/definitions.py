@@ -39,6 +39,7 @@ def annotation_pipeline_job_definitions(
                 "score_set_id": None,  # Required param to be filled in at runtime
                 "updater_id": None,  # Required param to be filled in at runtime
             },
+            "optional_params": {"force_reregister": False},  # Resubmit alleles that already hold a CAID
             "dependencies": [("reverse_translate_variants_for_score_set", DependencyType.SUCCESS_REQUIRED)],
         },
         {

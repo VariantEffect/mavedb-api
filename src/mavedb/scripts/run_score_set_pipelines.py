@@ -34,6 +34,11 @@ Usage:
     poetry run python -m mavedb.scripts.run_score_set_pipelines map_annotate_score_set \\
         --phase caid --collection-urn urn:mavedb:collection-0000001
 
+    # Re-register every allele with CAR while mapping and annotating; a CAID CAR now assigns
+    # differently replaces the stored one, and its gnomAD/ClinVar links are rebuilt in the same pipeline.
+    poetry run python -m mavedb.scripts.run_score_set_pipelines map_annotate_score_set \\
+        --published-only --concurrency 4 --force-reregister
+
     # Run one gene you already know, no cohort files involved.
     poetry run python -m mavedb.scripts.run_score_set_pipelines map_annotate_score_set \\
         --gene BRCA1 --concurrency 4
@@ -459,7 +464,7 @@ async def enqueue_pipeline(
     custom_pipeline: Optional[tuple[str, PipelineDefinition]],
     score_set: ScoreSet,
     user: User,
-    extra_params: tuple[tuple[str, str], ...],
+    extra_params: tuple[tuple[str, object], ...],
 ) -> EnqueueOutcome:
     """run_pipeline.py's enqueue body, generalized to accept either a base pipeline
     name or a resolved (name, job-subset) pair. A redis.enqueue_job failure triggers
@@ -710,6 +715,11 @@ def render_report(
 )
 @click.option("--updater-id", type=int, default=None, help="ID of the user to attribute pipeline actions to.")
 @click.option(
+    "--force-reregister",
+    is_flag=True,
+    help="Resubmit alleles that already hold a CAID to CAR, replacing any CAID CAR now assigns differently.",
+)
+@click.option(
     "--extra-param",
     "extra_params",
     multiple=True,
@@ -733,6 +743,7 @@ async def main(
     cohort_out: Optional[str],
     failure_out: Optional[str],
     updater_id: Optional[int],
+    force_reregister: bool,
     extra_params: tuple[tuple[str, str], ...],
 ) -> None:
     """Bulk-drive PIPELINE_NAME across a cohort of score sets. Use --list to see available pipelines."""
@@ -891,7 +902,7 @@ async def main(
                     custom_pipeline=custom_pipeline,
                     score_set=score_set,
                     user=user,
-                    extra_params=extra_params,
+                    extra_params=extra_params + ((("force_reregister", True),) if force_reregister else ()),
                 )
 
                 prefix = "  [enqueued]" if outcome.ok else "  [failed]  "

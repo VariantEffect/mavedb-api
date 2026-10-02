@@ -13,6 +13,10 @@ from sqlalchemy import select
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.allele import Allele
+from mavedb.models.clinical_control import ClinvarControl
+from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
+from mavedb.models.gnomad_allele_link import GnomadAlleleLink
+from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.variant import Variant
@@ -24,6 +28,16 @@ from mavedb.worker.jobs.external_services.clingen import (
 from mavedb.worker.lib.managers.job_manager import JobManager
 from tests.helpers.constants import TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST
 from tests.helpers.util.setup.worker import create_mappings_in_score_set
+
+
+def _car_response(caid, allele):
+    """A CAR registration response for ``allele``, listing its submitted HGVS as CAR does."""
+    return {
+        "@id": caid,
+        "type": "nucleotide",
+        "genomicAlleles": [{"hgvs": [get_hgvs_from_post_mapped(allele.post_mapped)]}],
+    }
+
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
@@ -283,7 +297,10 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         session.flush()
 
         def fake_dispatch(hgvs_list):
-            return [{"@id": f"CA{idx}", "type": "nucleotide", "genomicAlleles": []} for idx, _ in enumerate(hgvs_list)]
+            return [
+                {"@id": f"CA{idx}", "type": "nucleotide", "genomicAlleles": [{"hgvs": [hgvs]}]}
+                for idx, hgvs in enumerate(hgvs_list)
+            ]
 
         with (
             patch(
@@ -465,7 +482,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             {
                 "@id": "CA_DUPLICATE",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
+                "genomicAlleles": [{"hgvs": [get_hgvs_from_post_mapped(alleles[0].post_mapped)]}],
             }
         ]
 
@@ -532,7 +549,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             {
                 "@id": f"CA{alleles[0].id}",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
+                "genomicAlleles": [{"hgvs": [get_hgvs_from_post_mapped(alleles[0].post_mapped)]}],
             }
         ]
 
@@ -696,7 +713,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             {
                 "@id": f"CA{alleles[0].id}",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
+                "genomicAlleles": [{"hgvs": [get_hgvs_from_post_mapped(alleles[0].post_mapped)]}],
             }
         ]
 
@@ -822,7 +839,13 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         }
         session.flush()
 
-        registered_alleles_mock = [{"@id": "CA_CONFIRMED", "type": "nucleotide", "genomicAlleles": []}]
+        registered_alleles_mock = [
+            {
+                "@id": "CA_CONFIRMED",
+                "type": "nucleotide",
+                "genomicAlleles": [{"hgvs": [get_hgvs_from_post_mapped(allele.post_mapped)]}],
+            }
+        ]
 
         with (
             patch(
@@ -850,7 +873,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             assert event.disposition == "present"
             assert event.reason == "reconfirmed"
 
-    async def test_submit_score_set_mappings_to_car_force_reregister_caid_conflict(
+    async def test_submit_score_set_mappings_to_car_force_reregister_replaces_a_caid_car_assigns_differently(
         self,
         mock_worker_ctx,
         session,
@@ -863,7 +886,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         dummy_variant_creation_job_run,
         dummy_variant_mapping_job_run,
     ):
-        """Force re-registration returning a different CAID fails without overwriting the stored CAID."""
+        """Under force, CAR's CAID replaces a different stored one, and the links the old one keyed are retired."""
         await create_mappings_in_score_set(
             session,
             mock_s3_client,
@@ -875,7 +898,31 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         )
 
         allele = session.scalars(select(Allele)).first()
-        allele.clingen_allele_id = "CA_STORED"
+        allele.clingen_allele_id = "CA_BACKFILLED"
+        gnomad_variant = GnomADVariant(
+            db_name="gnomAD",
+            db_identifier="1-12345-G-A",
+            db_version="v4.1",
+            allele_count=1,
+            allele_number=2,
+            allele_frequency=0.5,
+        )
+        clinvar_control = ClinvarControl(
+            gene_symbol="BRCA1",
+            clinical_significance="Pathogenic",
+            clinical_review_status="reviewed by expert panel",
+            db_name="ClinVar",
+            db_identifier="12345",
+            db_version="01_2026",
+        )
+        session.add_all([gnomad_variant, clinvar_control])
+        session.flush()
+        session.add_all(
+            [
+                GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id),
+                ClinvarAlleleLink(allele_id=allele.id, clinvar_control_id=clinvar_control.id),
+            ]
+        )
         session.flush()
 
         submit_score_set_mappings_to_car_sample_job_run.job_params = {
@@ -884,13 +931,10 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         }
         session.flush()
 
-        # CAR returns a DIFFERENT CAID — this is an invariant violation
-        registered_alleles_mock = [{"@id": "CA_DIFFERENT", "type": "nucleotide", "genomicAlleles": []}]
-
         with (
             patch(
                 "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
-                return_value=registered_alleles_mock,
+                return_value=[_car_response("CA_FROM_CAR", allele)],
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
@@ -901,22 +945,78 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
-        # Job fails because all CAID-returning submissions had a conflict
-        assert result.status == JobStatus.FAILED
-
-        # CAID must NOT have been overwritten
+        assert result.status == JobStatus.SUCCEEDED
         session.refresh(allele)
-        assert allele.clingen_allele_id == "CA_STORED"
+        assert allele.clingen_allele_id == "CA_FROM_CAR"
 
-        events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+        live_gnomad = session.scalars(
+            select(GnomadAlleleLink).where(GnomadAlleleLink.allele_id == allele.id, GnomadAlleleLink.current)
         ).all()
-        assert len(events) == 1
-        for event in events:
-            assert event.disposition == "failed"
-            assert event.reason == "caid_conflict"
-            assert event.event_metadata["clingen_allele_id"] == "CA_STORED"
-            assert event.event_metadata["conflicting_caid"] == "CA_DIFFERENT"
+        live_clinvar = session.scalars(
+            select(ClinvarAlleleLink).where(ClinvarAlleleLink.allele_id == allele.id, ClinvarAlleleLink.current)
+        ).all()
+        assert live_gnomad == [] and live_clinvar == []
+
+        corrected = session.scalars(
+            select(AnnotationEvent).where(
+                AnnotationEvent.annotation_type == "clingen_allele_id", AnnotationEvent.reason == "corrected"
+            )
+        ).one()
+        assert corrected.disposition == "present"
+        assert corrected.event_metadata["replaced_caid"] == "CA_BACKFILLED"
+        assert corrected.event_metadata["clingen_allele_id"] == "CA_FROM_CAR"
+        assert corrected.event_metadata["retired_gnomad_links"] == 1
+        assert corrected.event_metadata["retired_clinvar_links"] == 1
+
+    async def test_submit_score_set_mappings_to_car_rejects_a_response_without_the_submitted_hgvs(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        """A response for some other allele is not written to the submitted one, however the counts line up."""
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+        allele = session.scalars(select(Allele)).first()
+        other_allele = {"@id": "CA_OTHER", "type": "nucleotide", "genomicAlleles": [{"hgvs": ["NC_000001.11:g.1A>T"]}]}
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=[other_allele],
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
+            )
+
+        assert result.status == JobStatus.FAILED
+        session.refresh(allele)
+        assert allele.clingen_allele_id is None
+
+        event = session.scalars(
+            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+        ).one()
+        assert (event.disposition, event.reason) == ("failed", "malformed_response")
+        assert event.event_metadata["returned_caid"] == "CA_OTHER"
 
     async def _add_derived_alleles_with_distinct_hgvs(self, session, count):
         """Attach ``count`` extra alleles to the score set, each carrying a distinct HGVS so the CAR
@@ -980,7 +1080,9 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
 
         def fake_dispatch(hgvs_list):
             dispatched_batches.append(list(hgvs_list))
-            return [{"@id": f"CA/{hgvs}", "type": "nucleotide", "genomicAlleles": []} for hgvs in hgvs_list]
+            return [
+                {"@id": f"CA/{hgvs}", "type": "nucleotide", "genomicAlleles": [{"hgvs": [hgvs]}]} for hgvs in hgvs_list
+            ]
 
         with (
             patch(
@@ -1050,7 +1152,9 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             # register normally.
             if call_count["n"] == 1:
                 return []
-            return [{"@id": f"CA/{hgvs}", "type": "nucleotide", "genomicAlleles": []} for hgvs in hgvs_list]
+            return [
+                {"@id": f"CA/{hgvs}", "type": "nucleotide", "genomicAlleles": [{"hgvs": [hgvs]}]} for hgvs in hgvs_list
+            ]
 
         with (
             patch(
@@ -1120,7 +1224,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             {
                 "@id": f"CA{alleles[0].id}",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
+                "genomicAlleles": [{"hgvs": [get_hgvs_from_post_mapped(alleles[0].post_mapped)]}],
             }
         ]
 
@@ -1187,7 +1291,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             {
                 "@id": f"CA{alleles[0].id}",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
+                "genomicAlleles": [{"hgvs": [get_hgvs_from_post_mapped(alleles[0].post_mapped)]}],
             }
         ]
 
@@ -1481,7 +1585,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
             {
                 "@id": f"CA{alleles[0].id}",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
+                "genomicAlleles": [{"hgvs": [get_hgvs_from_post_mapped(alleles[0].post_mapped)]}],
             }
         ]
 
@@ -1675,7 +1779,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
             {
                 "@id": f"CA{alleles[0].id}",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
+                "genomicAlleles": [{"hgvs": [get_hgvs_from_post_mapped(alleles[0].post_mapped)]}],
             }
         ]
 
@@ -1743,7 +1847,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
             {
                 "@id": f"CA{alleles[0].id}",
                 "type": "nucleotide",
-                "genomicAlleles": [{"hgvs": get_hgvs_from_post_mapped(alleles[0].post_mapped)}],
+                "genomicAlleles": [{"hgvs": [get_hgvs_from_post_mapped(alleles[0].post_mapped)]}],
             }
         ]
 

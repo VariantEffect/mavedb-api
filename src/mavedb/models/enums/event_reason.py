@@ -25,6 +25,7 @@ class EventReason(str, Enum):
     CREATED = "created"  # linked/registered this run (gnomAD, ClinVar, CAR)
     PREEXISTING = "preexisting"  # already held before this run (gnomAD, ClinVar, CAR)
     RECONFIRMED = "reconfirmed"  # re-verified unchanged (gnomAD, CAR force)
+    CORRECTED = "corrected"  # replaced a stored value the source now assigns differently (CAR force)
     SKIPPED = "skipped"  # version-skip: already current at this source version (gnomAD, VEP)
     SUPERSEDED = "superseded"  # re-resolved within a release, newest wins (ClinVar)
     SUBMITTED = "submitted"  # LDH
@@ -52,7 +53,6 @@ class EventReason(str, Enum):
     API_ERROR = "api_error"  # network/timeout/upstream error (ClinVar, VEP, LDH, CAR no-response, RT UTA outage)
     SERVICE_REJECTED = "service_rejected"  # external service refused the input (CAR)
     MALFORMED_RESPONSE = "malformed_response"  # unparseable/contractless response (CAR)
-    CAID_CONFLICT = "caid_conflict"  # returned identifier conflicts with the stored one (CAR)
     TRANSLATION_FAILED = "translation_failed"  # all candidate HGVS failed translation (RT)
     TRANSLATION_ERROR = "translation_error"  # the translation engine errored (RT)
     TRANSCRIPT_UNRESOLVED = "transcript_unresolved"  # protein-coding target with no resolvable transcript (RT)

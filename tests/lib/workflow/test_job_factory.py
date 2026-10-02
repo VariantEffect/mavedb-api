@@ -26,6 +26,25 @@ class TestJobFactoryCreateJobRunUnit:
         assert job_run.job_params["param1"] == "value1"
         assert job_run.job_params["param2"] == "value2"
 
+    @pytest.mark.parametrize(
+        "pipeline_value, expected",
+        [({}, False), ({"force": True}, True)],
+        ids=["default", "set by pipeline"],
+    )
+    def test_create_job_run_takes_optional_params_from_the_pipeline_or_their_default(
+        self, job_factory, sample_job_definition, pipeline_value, expected
+    ):
+        job_def = {**sample_job_definition, "optional_params": {"force": False}}
+        job_run = job_factory.create_job_run(
+            job_def=job_def,
+            correlation_id="test-correlation-id",
+            pipeline_params={"required_param": "required_value", "param1": "override", **pipeline_value},
+            pipeline_id=1,
+        )
+
+        assert job_run.job_params["force"] is expected
+        assert job_run.job_params["param1"] == "value1"
+
     def test_create_job_run_raises_error_for_missing_params(self, job_factory, sample_job_definition):
         incomplete_params = {"param1": "new_value1"}  # Missing param2
 

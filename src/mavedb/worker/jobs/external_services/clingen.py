@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.clingen.alleles import get_alleles_for_score_set
@@ -30,14 +31,17 @@ from mavedb.lib.clingen.services import (
     ClinGenAlleleRegistryService,
     ClinGenLdhService,
 )
+from mavedb.lib.types.clingen import ClinGenAllele
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.utils import batched
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.allele import Allele as AlleleModel
+from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.job_pipeline import FailureCategory
+from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_set import ScoreSet
@@ -53,6 +57,27 @@ logger = logging.getLogger(__name__)
 class _AlleleEntry:
     post_mapped: dict | None
     existing_caid: str | None
+
+
+def _response_hgvs(response: ClinGenAllele) -> set[str]:
+    """Every HGVS expression a CAR allele response lists, across genomic, transcript and protein alleles."""
+    definitions = [
+        *response.get("genomicAlleles", []),
+        *response.get("transcriptAlleles", []),
+        *response.get("aminoAcidAlleles", []),
+    ]
+    return {hgvs for definition in definitions for hgvs in definition.get("hgvs", [])}
+
+
+def _retire_caid_keyed_links(db: Session, allele_id: int) -> tuple[int, int]:
+    """Retire an allele's live gnomAD and ClinVar links, which were matched through its CAID.
+
+    Both linkers skip an allele only while it holds a live link, so retiring them makes the next
+    gnomAD and ClinVar runs link the allele again under its corrected CAID.
+    """
+    gnomad = db.execute(GnomadAlleleLink.retire_live_where(GnomadAlleleLink.allele_id == allele_id))
+    clinvar = db.execute(ClinvarAlleleLink.retire_live_where(ClinvarAlleleLink.allele_id == allele_id))
+    return gnomad.rowcount, clinvar.rowcount  # type: ignore[attr-defined]
 
 
 def _annotate_caid(
@@ -94,6 +119,11 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
         - score_set_id (int): ID of the ScoreSet to process
         - correlation_id (str): Correlation ID for tracking
 
+    Optional job_params:
+        - force_reregister (bool): resubmit alleles that already hold a CAID. Where CAR assigns a different
+          one, it replaces the stored CAID (recorded as ``corrected``) and the allele's gnomAD and ClinVar
+          links are retired.
+
     Args:
         ctx (dict): Worker context containing DB and Redis connections
         job_manager (JobManager): Manager for job lifecycle and DB operations
@@ -101,6 +131,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
     Side Effects:
         - Updates Allele records with ClinGen Allele IDs
         - Submits data to ClinGen Allele Registry
+        - Retires the gnomAD and ClinVar links of an allele whose CAID is corrected
 
     Returns:
         JobExecutionOutcome: outcome with per-allele counts (submitted/registered/already-registered/failed).
@@ -113,7 +144,9 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
 
     score_set = job_manager.db.scalars(select(ScoreSet).where(ScoreSet.id == job.job_params["score_set_id"])).one()  # type: ignore
     correlation_id = job.job_params["correlation_id"]  # type: ignore
-    force_reregister = bool(job.job_params.get("force_reregister", False))  # type: ignore[union-attr]
+    # A pipeline param may arrive as a string from --extra-param, where bool("false") would be True.
+    raw_force = job.job_params.get("force_reregister", False)  # type: ignore[union-attr]
+    force_reregister = raw_force is True or str(raw_force).lower() == "true"
 
     job_manager.save_to_context(
         {
@@ -368,33 +401,56 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
                 continue
 
             caid = caid_iri.split("/")[-1]
-            for allele_id in allele_ids_for_hgvs:
-                entry = allele_data[allele_id]
-                prior_caid = entry.existing_caid
 
-                # TODO#780 - CAID is immutable — a different value returned by CAR is a hard invariant
-                # violation.  Do not overwrite; record a failure with full audit context.
-                if prior_caid and prior_caid != caid:
-                    logger.error(
-                        msg=(
-                            f"CAR returned a different CAID for allele {allele_id}: "
-                            f"stored={prior_caid!r}, returned={caid!r}. "
-                            "Not overwriting. Investigate immediately."
-                        ),
-                        extra=job_manager.logging_context(),
-                    )
-
+            # The positional zip is CAR's contract, but nothing else ties a response to its submission.
+            # An allele that does not list the submitted expression cannot be trusted for these alleles.
+            if hgvs_string not in _response_hgvs(response):
+                logger.error(
+                    msg=f"CAR returned {caid!r} for HGVS '{hgvs_string}', but that allele does not list it.",
+                    extra=job_manager.logging_context(),
+                )
+                for allele_id in allele_ids_for_hgvs:
                     failed_allele_ids.add(allele_id)
                     _annotate_caid(
                         annotation_manager,
                         allele_id,
                         Disposition.FAILED,
-                        EventReason.CAID_CONFLICT,
-                        error_message="CAR returned a CAID that conflicts with the stored value.",
+                        EventReason.MALFORMED_RESPONSE,
+                        error_message="ClinGen Allele Registry returned an allele that does not include the submitted HGVS.",
+                        metadata={"submitted_hgvs": hgvs_string, "returned_caid": caid},
+                    )
+
+                continue
+
+            for allele_id in allele_ids_for_hgvs:
+                entry = allele_data[allele_id]
+                prior_caid = entry.existing_caid
+
+                # Only force_reregister resubmits an allele that already holds a CAID, and CAR's answer for the
+                # allele's own HGVS wins. Its gnomAD and ClinVar links were matched through the old CAID, so retire
+                # them and the later steps link the allele again.
+                if prior_caid and prior_caid != caid:
+                    linked_allele_ids.add(allele_id)
+                    alleles_by_id[allele_id].clingen_allele_id = caid
+                    retired_gnomad, retired_clinvar = _retire_caid_keyed_links(job_manager.db, allele_id)
+                    logger.warning(
+                        msg=(
+                            f"Replaced CAID {prior_caid!r} with {caid!r} for allele {allele_id}; retired "
+                            f"{retired_gnomad} gnomAD and {retired_clinvar} ClinVar link(s)."
+                        ),
+                        extra=job_manager.logging_context(),
+                    )
+                    _annotate_caid(
+                        annotation_manager,
+                        allele_id,
+                        Disposition.PRESENT,
+                        EventReason.CORRECTED,
                         metadata={
-                            "clingen_allele_id": prior_caid,
-                            "conflicting_caid": caid,
+                            "clingen_allele_id": caid,
+                            "replaced_caid": prior_caid,
                             "submitted_hgvs": hgvs_string,
+                            "retired_gnomad_links": retired_gnomad,
+                            "retired_clinvar_links": retired_clinvar,
                         },
                     )
 
