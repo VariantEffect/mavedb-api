@@ -11,7 +11,7 @@ checks.
 """
 
 import json
-from typing import TypeVar
+from typing import Any, TypeVar, Union
 
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
@@ -21,6 +21,20 @@ Annotation = TypeVar(
 )
 
 
+# VariantPathogenicityStatement is a Statement, so the union covers every emitted layer.
+EmittedAnnotation = Union[ExperimentalVariantFunctionalImpactStudyResult, Statement]
+
+
+def serialize_annotation(annotation: EmittedAnnotation, *, exclude_none: bool = True) -> dict[str, Any]:
+    """Dump an annotation for emission, nested evidence included in full.
+
+    VA-Spec declares ``EvidenceLine.hasEvidenceItems`` as ``list[InformationEntity]``, and pydantic serializes
+    a field as its declared type: without ``serialize_as_any``, a nested study result loses ``focus``,
+    ``functionalImpactScore`` and ``sourceDataSet``. Every emission path goes through here for that reason.
+    """
+    return annotation.model_dump(exclude_none=exclude_none, serialize_as_any=True)
+
+
 class AnnotationRoundTripError(Exception):
     """An emitted annotation did not survive serialization and re-validation."""
 
@@ -28,8 +42,8 @@ class AnnotationRoundTripError(Exception):
 def round_trip_annotation(annotation: Annotation) -> Annotation:
     """Serialize an annotation the way the API emits it, then read it back.
 
-    Mirrors the emission path exactly — ``model_dump(exclude_none=True)`` then ``json.dumps(default=str)``
-    — because the failures worth catching are the ones those two steps introduce.
+    Mirrors the emission path exactly — :func:`serialize_annotation` then ``json.dumps(default=str)`` —
+    because the failures worth catching are the ones those two steps introduce.
 
     The assertion is that emission is a fixed point: the re-validated object dumps to the same JSON it
     was parsed from. Object equality would be the wrong test. VA-Spec declares container fields in terms
@@ -44,14 +58,14 @@ def round_trip_annotation(annotation: Annotation) -> Annotation:
             that serializes differently than what was emitted.
     """
     model = type(annotation)
-    emitted = json.dumps(annotation.model_dump(exclude_none=True), default=str)
+    emitted = json.dumps(serialize_annotation(annotation), default=str)
 
     try:
         reparsed = model.model_validate(json.loads(emitted))
     except Exception as err:
         raise AnnotationRoundTripError(f"{model.__name__} did not re-validate after emission: {err}") from err
 
-    re_emitted = json.dumps(reparsed.model_dump(exclude_none=True), default=str)
+    re_emitted = json.dumps(serialize_annotation(reparsed), default=str)
     if re_emitted != emitted:
         raise AnnotationRoundTripError(f"{model.__name__} did not survive a round trip unchanged.")
 

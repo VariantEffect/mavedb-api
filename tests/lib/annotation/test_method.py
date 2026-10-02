@@ -230,15 +230,12 @@ class TestCalibrationMethods:
         assert method.reportedIn.root == "Not Provided"
 
     def test_pathogenicity_score_calibration_as_method_sets_method_type(self):
-        """Test pathogenicity calibration method includes criterion-based methodType."""
+        """A calibration's method is a functional data assessment, the type that permits PS3 and BS3."""
         score_calibration = Mock()
         score_calibration.publication_identifier_associations = []
 
-        method = pathogenicity_score_calibration_as_method(
-            score_calibration,
-            VariantPathogenicityEvidenceLine.Criterion.PS3,
-        )
+        method = pathogenicity_score_calibration_as_method(score_calibration)
 
         assert method.name == "Calibration method"
         assert method.reportedIn.root == "Not Provided"
-        assert method.methodType == VariantPathogenicityEvidenceLine.Criterion.PS3.value
+        assert method.methodType == VariantPathogenicityEvidenceLine.MethodType.FUNCTIONAL_DATA_ASSESSMENT.value

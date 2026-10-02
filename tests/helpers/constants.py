@@ -1652,6 +1652,18 @@ TEST_MINIMAL_CALIBRATION = {
 }
 
 
+SAVED_GENERIC_DISEASE_CONCEPT = {
+    "type": "MappableConcept",
+    "conceptType": "Disease",
+    "name": "disease or disorder",
+    "primaryCoding": {
+        "system": "https://purl.obolibrary.org/obo/mondo.owl",
+        "code": "MONDO:0000001",
+        "iris": ["https://purl.obolibrary.org/obo/MONDO_0000001"],
+    },
+}
+
+
 TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED = {
     "title": "Test BRNICH Score Calibration",
     "research_use_only": False,
@@ -1692,6 +1704,9 @@ TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED = {
     "primary": True,
     "private": False,
     "scoreSetId": 1,
+    "controls": [],
+    "controlsCount": 0,
+    "disease": SAVED_GENERIC_DISEASE_CONCEPT,
     "createdBy": {
         "recordType": "User",
         "firstName": TEST_USER["first_name"],
@@ -1762,6 +1777,7 @@ TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION = {
     "private": False,
     "urn": VALID_CALIBRATION_URN,
     "scoreSetId": 1,
+    "disease": SAVED_GENERIC_DISEASE_CONCEPT,
     "createdBy": {
         "recordType": "User",
         "firstName": TEST_USER["first_name"],
@@ -1825,14 +1841,14 @@ TEST_CLINVAR_CONTROL = {
 
 
 TEST_SAVED_CLINVAR_CONTROL = {
-    "recordType": "ClinicalControlWithMappedVariants",
+    "recordType": "ClinicalControlWithClinvarLinks",
     "dbIdentifier": "183058",
     "geneSymbol": "PTEN",
     "clinicalSignificance": "Likely benign",
     "clinicalReviewStatus": "criteria provided, multiple submitters, no conflicts",
     "dbName": "ClinVar",
     "dbVersion": "11_2024",
-    "mappedVariants": [],
+    "clinvarLinks": [],
 }
 
 
@@ -1847,14 +1863,14 @@ TEST_GENERIC_CLINICAL_CONTROL = {
 
 
 TEST_SAVED_GENERIC_CLINICAL_CONTROL = {
-    "recordType": "ClinicalControlWithMappedVariants",
+    "recordType": "ClinicalControlWithClinvarLinks",
     "dbIdentifier": "ABC123",
     "geneSymbol": "BRCA1",
     "clinicalSignificance": "benign",
     "clinicalReviewStatus": "lots of convincing evidence",
     "dbName": "GenDB",
     "dbVersion": "2024",
-    "mappedVariants": [],
+    "clinvarLinks": [],
 }
 
 
@@ -2191,7 +2207,7 @@ TEST_SAVED_GNOMAD_VARIANT = {
     "faf95MaxAncestry": TEST_GNOMAD_FAF95_MAX_ANCESTRY,
     "creationDate": date.today().isoformat(),
     "modificationDate": date.today().isoformat(),
-    "recordType": "GnomADVariantWithMappedVariants",
+    "recordType": "GnomADVariantWithVariantLinks",
     "id": 1,  # Presuming this is the only gnomAD variant in the database
 }
 

@@ -8,6 +8,7 @@ and mapped variants, ensuring proper IRI generation and document metadata.
 """
 
 import urllib.parse
+from types import SimpleNamespace
 
 import pytest
 
@@ -19,8 +20,7 @@ from ga4gh.va_spec.base.core import Document
 from mavedb.lib.annotation.document import (
     experiment_as_iri,
     experiment_to_document,
-    mapped_variant_as_iri,
-    mapped_variant_to_document,
+    measured_allele_as_iri,
     score_calibration_as_document,
     score_set_as_iri,
     score_set_to_document,
@@ -81,41 +81,23 @@ class TestScoreSetDocumentFunctions:
 
 
 @pytest.mark.unit
-class TestMappedVariantDocumentFunctions:
-    """Unit tests for mapped variant document creation functions."""
+class TestMeasuredAlleleDocumentFunctions:
+    """Unit tests for measured-allele IRI generation."""
 
-    def test_mapped_variant_as_iri(self, mock_mapped_variant):
-        """Test IRI generation for mapped variants with ClinGen allele ID."""
-        expected_iri_root = (
-            f"https://mavedb.org/variant/{urllib.parse.quote_plus(mock_mapped_variant.clingen_allele_id)}"
-        )
-        result = mapped_variant_as_iri(mock_mapped_variant)
+    def test_measured_allele_as_iri(self):
+        """Test IRI generation for a measured allele with a ClinGen allele ID."""
+        allele = SimpleNamespace(clingen_allele_id="CA123456")
+        expected_iri_root = f"https://mavedb.org/variant/{urllib.parse.quote_plus(allele.clingen_allele_id)}"
+        result = measured_allele_as_iri(allele)
 
         assert result.root == expected_iri_root
 
-    def test_mapped_variant_as_iri_no_caid(self, mock_mapped_variant):
-        """Test IRI generation for mapped variants without ClinGen allele ID returns None."""
-        mock_mapped_variant.clingen_allele_id = None
-        result = mapped_variant_as_iri(mock_mapped_variant)
+    def test_measured_allele_as_iri_no_caid(self):
+        """Test IRI generation for a measured allele without a ClinGen allele ID returns None."""
+        allele = SimpleNamespace(clingen_allele_id=None)
+        result = measured_allele_as_iri(allele)
 
         assert result is None
-
-    def test_mapped_variant_to_document(self, mock_mapped_variant):
-        """Test document creation for mapped variants with ClinGen allele ID."""
-        document = mapped_variant_to_document(mock_mapped_variant)
-
-        assert document.id == mock_mapped_variant.variant.urn
-        assert document.name == "MaveDB Mapped Variant"
-        assert document.documentType == "mapped genomic variant description"
-        assert len(document.urls) > 0
-        assert mapped_variant_as_iri(mock_mapped_variant).root in document.urls
-
-    def test_mapped_variant_to_document_no_caid(self, mock_mapped_variant):
-        """Test document creation for mapped variants without ClinGen allele ID returns None."""
-        mock_mapped_variant.clingen_allele_id = None
-        document = mapped_variant_to_document(mock_mapped_variant)
-
-        assert document is None
 
 
 @pytest.mark.unit

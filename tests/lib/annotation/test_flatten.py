@@ -52,7 +52,7 @@ class TestFlattenAnnotation:
             urn="urn:mavedb:calibration:1", title="Clinical Calibration"
         )
 
-        annotation = flatten_annotation(mapped_variant, calibration)
+        annotation = flatten_annotation(mapped_variant.variant, calibration)
 
         assert annotation.functional_classification == "abnormal"
         assert annotation.acmg_criterion == "PS3"
@@ -65,7 +65,7 @@ class TestFlattenAnnotation:
     def test_benign_criterion_yields_benign_classification(self):
         calibration, mapped_variant = _pathogenicity_calibration_and_variant(criterion=ACMGCriterion.BS3)
 
-        annotation = flatten_annotation(mapped_variant, calibration)
+        annotation = flatten_annotation(mapped_variant.variant, calibration)
 
         assert annotation.acmg_criterion == "BS3"
         assert annotation.pathogenicity_classification == "BENIGN"
@@ -80,7 +80,7 @@ class TestFlattenAnnotation:
             [classification], urn="urn:mavedb:calibration:2", title="Functional Calibration"
         )
 
-        annotation = flatten_annotation(mapped_variant, calibration)
+        annotation = flatten_annotation(mapped_variant.variant, calibration)
 
         assert annotation.functional_classification == "normal"
         assert annotation.acmg_criterion is None
@@ -93,7 +93,7 @@ class TestFlattenAnnotation:
     def test_no_calibration_yields_empty_annotation(self):
         mapped_variant = create_mock_mapped_variant()
 
-        assert flatten_annotation(mapped_variant, None) == FlatAnnotation()
+        assert flatten_annotation(mapped_variant.variant, None) == FlatAnnotation()
 
     def test_calibration_without_ranges_keeps_its_identity(self):
         """Which calibration was consulted is known even when it can classify nothing.
@@ -105,7 +105,7 @@ class TestFlattenAnnotation:
             [], urn="urn:mavedb:calibration:3", title="Baseline Only"
         )
 
-        annotation = flatten_annotation(mapped_variant, calibration)
+        annotation = flatten_annotation(mapped_variant.variant, calibration)
 
         assert annotation.calibration_urn == "urn:mavedb:calibration:3"
         assert annotation.calibration_title == "Baseline Only"
@@ -119,7 +119,7 @@ class TestFlattenAnnotation:
     def test_variant_outside_all_ranges_is_uncertain(self):
         calibration, mapped_variant = _pathogenicity_calibration_and_variant(variant_in_range=False)
 
-        annotation = flatten_annotation(mapped_variant, calibration)
+        annotation = flatten_annotation(mapped_variant.variant, calibration)
 
         assert annotation.functional_classification == "indeterminate"
         assert annotation.acmg_criterion == "PS3"
@@ -143,7 +143,7 @@ class TestFlattenAnnotation:
             criterion=criterion, evidence_strength=evidence_strength
         )
 
-        annotation = flatten_annotation(mapped_variant, calibration)
+        annotation = flatten_annotation(mapped_variant.variant, calibration)
 
         assert annotation.acmg_evidence_outcome_code == expected_code
 
@@ -153,7 +153,7 @@ class TestFlattenAnnotation:
             evidence_strength=StrengthOfEvidenceProvided.MODERATE_PLUS
         )
 
-        annotation = flatten_annotation(mapped_variant, calibration)
+        annotation = flatten_annotation(mapped_variant.variant, calibration)
 
         assert annotation.acmg_evidence_strength == "MODERATE_PLUS"
         assert annotation.acmg_evidence_outcome_code == "PS3_moderate_plus"

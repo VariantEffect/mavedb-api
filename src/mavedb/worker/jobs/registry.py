@@ -18,8 +18,6 @@ from mavedb.worker.jobs.data_management import (
 from mavedb.worker.jobs.external_services import (
     link_gnomad_variants,
     poll_uniprot_mapping_jobs_for_score_set,
-    populate_hgvs_for_score_set,
-    populate_variant_translations_for_score_set,
     populate_vep_for_score_set,
     refresh_clinvar_controls,
     submit_score_set_mappings_to_car,
@@ -32,6 +30,7 @@ from mavedb.worker.jobs.system import cleanup_stalled_jobs
 from mavedb.worker.jobs.variant_processing import (
     create_variants_for_score_set,
     map_variants_for_score_set,
+    reverse_translate_variants_for_score_set,
 )
 
 # All job functions for ARQ worker
@@ -39,6 +38,7 @@ BACKGROUND_FUNCTIONS: List[Callable] = [
     # Variant processing jobs
     create_variants_for_score_set,
     map_variants_for_score_set,
+    reverse_translate_variants_for_score_set,
     # External service jobs
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,
@@ -47,8 +47,6 @@ BACKGROUND_FUNCTIONS: List[Callable] = [
     submit_uniprot_mapping_jobs_for_score_set,
     poll_uniprot_mapping_jobs_for_score_set,
     link_gnomad_variants,
-    populate_hgvs_for_score_set,
-    populate_variant_translations_for_score_set,
     populate_vep_for_score_set,
     # Data management jobs
     refresh_materialized_views,
@@ -71,8 +69,10 @@ BACKGROUND_CRONJOBS: List[CronJob] = [
     cron(
         cleanup_stalled_jobs,
         name="cleanup_stalled_jobs_cron",
-        minute={15, 45},  # Run at :15 and :45 past each hour (every 30 minutes)
-        keep_result=timedelta(minutes=25).total_seconds(),
+        # Every 10 minutes. Paired with the 20-min progress-stall window this gives an effective
+        # stall-detection latency of ~20-30 min (vs. up to 50 min on the old 30-min cadence).
+        minute={5, 15, 25, 35, 45, 55},
+        keep_result=timedelta(minutes=9).total_seconds(),
     ),
 ]
 
@@ -98,6 +98,13 @@ STANDALONE_JOB_DEFINITIONS: dict[Callable, JobDefinition] = {
         "params": {"score_set_id": None, "updater_id": None, "correlation_id": None},
         "function": "map_variants_for_score_set",
         "key": "map_variants_for_score_set",
+        "type": JobType.VARIANT_MAPPING,
+    },
+    reverse_translate_variants_for_score_set: {
+        "dependencies": [],
+        "params": {"score_set_id": None, "correlation_id": None},
+        "function": "reverse_translate_variants_for_score_set",
+        "key": "reverse_translate_variants_for_score_set",
         "type": JobType.VARIANT_MAPPING,
     },
     submit_score_set_mappings_to_car: {
@@ -147,20 +154,6 @@ STANDALONE_JOB_DEFINITIONS: dict[Callable, JobDefinition] = {
         "params": {"score_set_id": None, "correlation_id": None},
         "function": "link_gnomad_variants",
         "key": "link_gnomad_variants",
-        "type": JobType.MAPPED_VARIANT_ANNOTATION,
-    },
-    populate_hgvs_for_score_set: {
-        "dependencies": [],
-        "params": {"score_set_id": None, "correlation_id": None},
-        "function": "populate_hgvs_for_score_set",
-        "key": "populate_hgvs_for_score_set",
-        "type": JobType.MAPPED_VARIANT_ANNOTATION,
-    },
-    populate_variant_translations_for_score_set: {
-        "dependencies": [],
-        "params": {"score_set_id": None, "correlation_id": None},
-        "function": "populate_variant_translations_for_score_set",
-        "key": "populate_variant_translations_for_score_set",
         "type": JobType.MAPPED_VARIANT_ANNOTATION,
     },
     populate_vep_for_score_set: {

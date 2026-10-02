@@ -245,12 +245,12 @@ class TestScoreSetSetScoresActionHandler:
             # Admins can set scores on any ScoreSet
             PermissionTest("ScoreSet", "private", "admin", Action.SET_SCORES, True),
             PermissionTest("ScoreSet", "published", "admin", Action.SET_SCORES, True),
-            # Owners can set scores on any ScoreSet they own
+            # Owners can only set scores on ScoreSets they own that are still unpublished
             PermissionTest("ScoreSet", "private", "owner", Action.SET_SCORES, True),
-            PermissionTest("ScoreSet", "published", "owner", Action.SET_SCORES, True),
-            # Contributors can set scores on any ScoreSet they contribute to
+            PermissionTest("ScoreSet", "published", "owner", Action.SET_SCORES, False, 403),
+            # Contributors are likewise limited to unpublished ScoreSets
             PermissionTest("ScoreSet", "private", "contributor", Action.SET_SCORES, True),
-            PermissionTest("ScoreSet", "published", "contributor", Action.SET_SCORES, True),
+            PermissionTest("ScoreSet", "published", "contributor", Action.SET_SCORES, False, 403),
             # Mappers cannot set scores on ScoreSets
             PermissionTest("ScoreSet", "private", "mapper", Action.SET_SCORES, False, 404),
             PermissionTest("ScoreSet", "published", "mapper", Action.SET_SCORES, False, 403),

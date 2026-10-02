@@ -1,15 +1,26 @@
 from datetime import date
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
 from pydantic import model_validator
 
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
-from mavedb.view_models.mapped_variant import MappedVariant, SavedMappedVariant
+from mavedb.view_models.mapped_variant import SavedMappedVariant
 
-if TYPE_CHECKING:
-    from mavedb.view_models.score_set import ScoreSet, ShortScoreSet
+
+class VariantVrsMatch(BaseModel):
+    """One variant whose mapping links an allele bearing the queried VRS identifier.
+
+    The ``GET /variants/vrs/{identifier}`` lookup result. The ClinGen id + level ride from the matched
+    (deduplicated) allele; the URN from the variant it is linked to. Replaces the legacy MappedVariant VRS
+    lookup on the new Allele substrate (#743, item 3.5).
+    """
+
+    variant_urn: str
+    clingen_allele_id: Optional[str] = None
+    vrs_id: Optional[str] = None
+    level: Optional[str] = None
 
 
 class VariantEffectMeasurementBase(BaseModel):
@@ -74,39 +85,3 @@ class VariantEffectMeasurement(SavedVariantEffectMeasurement):
     """Variant effect measurement view model returned to most clients"""
 
     pass
-
-
-class VariantEffectMeasurementWithScoreSet(SavedVariantEffectMeasurement):
-    """Variant effect measurement view model with mapped variants and score set"""
-
-    score_set: "ScoreSet"
-    mapped_variants: list[MappedVariant]
-
-
-class VariantEffectMeasurementWithShortScoreSet(SavedVariantEffectMeasurement):
-    """Variant effect measurement view model with mapped variants and a limited set of score set details"""
-
-    score_set: "ShortScoreSet"
-    mapped_variants: list[MappedVariant]
-
-
-class ClingenAlleleIdVariantLookupsRequest(BaseModel):
-    """A request to search for variants matching a list of ClinGen allele IDs"""
-
-    clingen_allele_ids: list[str]
-
-
-class Variant(BaseModel):
-    """View model for a variant, defined by its ClinGen allele id, with associated variant effect measurements"""
-
-    clingen_allele_id: str
-    variant_effect_measurements: list[VariantEffectMeasurementWithShortScoreSet]
-
-
-class ClingenAlleleIdVariantLookupResponse(BaseModel):
-    """Response model for a variant lookup by ClinGen allele ID"""
-
-    clingen_allele_id: str
-    exact_match: Optional[Variant] = None
-    equivalent_nt: list[Variant] = []
-    equivalent_aa: list[Variant] = []

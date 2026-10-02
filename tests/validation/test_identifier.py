@@ -63,6 +63,10 @@ class TestEnsemblValidators(TestCase):
     def test_passes_valid_id(self):
         validate_ensembl_identifier("ENSG00000143384")
 
+    def test_passes_valid_versioned_id(self):
+        validate_ensembl_identifier("ENSP00000369497.3")
+        validate_ensembl_list(["ENSG00000139618.15", "ENST00000380152.8"])
+
 
 class TestRefSeqValidators(TestCase):
     """
