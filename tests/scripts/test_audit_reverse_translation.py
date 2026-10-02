@@ -345,6 +345,22 @@ class TestRoundTripPair:
 
         assert [outcome for outcome, _ in outcomes] == ["genomic: could not re-derive", "protein: could not re-derive"]
 
+    @pytest.mark.parametrize("derived", ["NP_1.1:p.?", "NP_1.1:p.(Met1?)"])
+    def test_reports_a_start_codon_change_as_unknown_effect_not_a_failure(self, derived):
+        outcomes = round_trip_pair(_pair(), lambda c: "NC_1.11:g.100A>G", lambda c: derived, DIGESTS.__getitem__)
+
+        assert outcomes[1][0] == "protein: unknown effect (start codon)"
+
+    def test_two_notations_for_an_unchanged_protein_match(self):
+        pair = _pair(protein_digests=["p-synonymous"], protein_hgvs=["NP_1.1:p.Thr328="])
+        digests = {**DIGESTS, "NP_1.1:p.Ter330Ter": "p-stop"}
+
+        outcomes = round_trip_pair(
+            pair, lambda c: "NC_1.11:g.100A>G", lambda c: "NP_1.1:p.Ter330Ter", digests.__getitem__
+        )
+
+        assert outcomes[1][0] == "protein: matches (unchanged)"
+
     def test_reports_a_record_with_no_protein_apex(self):
         outcomes = round_trip_pair(
             _pair(protein_digests=[], protein_hgvs=[]), lambda c: "NC_1.11:g.100A>G", lambda c: "", DIGESTS.__getitem__

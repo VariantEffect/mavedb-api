@@ -28,6 +28,7 @@ translation and is paced by it.
 
 import json
 import logging
+import re
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -519,6 +520,14 @@ ROUND_TRIP_SQL = """
 """
 
 
+_UNCHANGED_PROTEIN_RE = re.compile(r":p\.(=|[A-Z][a-z]{2}\d+=|Ter\d+Ter|\*\d+\*)$")
+
+
+def _is_unchanged_protein(hgvs_p: str) -> bool:
+    """Whether a protein HGVS expression says the protein sequence is unchanged."""
+    return bool(_UNCHANGED_PROTEIN_RE.search(hgvs_p))
+
+
 @dataclass(frozen=True)
 class ProjectionPair:
     """One live projection group as stored, plus the protein alleles live on its record."""
@@ -578,6 +587,10 @@ def round_trip_pair(
 
     try:
         derived_p = strip_protein_prediction_parens(c_to_p(pair.hgvs_c))
+        # A start-codon change has no predictable protein effect (p.? or p.Met1?), and VRS cannot express one.
+        if derived_p.endswith("?"):
+            results.append(("protein: unknown effect (start codon)", {**base, "derived": derived_p}))
+            return results
         derived_p_digest = digest_of(derived_p)
     except Exception as e:
         results.append(("protein: could not re-derive", {**base, "error": str(e)}))
@@ -585,6 +598,10 @@ def round_trip_pair(
 
     if derived_p_digest in digests:
         results.append(("protein: matches", base))
+    elif _is_unchanged_protein(derived_p) and all(_is_unchanged_protein(h) for h in pair.protein_hgvs if h):
+        # Different notations for the same unchanged protein: hgvs writes an insertion that creates a stop right
+        # after the last residue as p.Ter330Ter, while RT's apex is p.Thr328=. Their digests differ.
+        results.append(("protein: matches (unchanged)", base))
     else:
         results.append(
             (
