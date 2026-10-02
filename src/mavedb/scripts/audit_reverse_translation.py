@@ -188,8 +188,9 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
         name="malformed_projection_group",
         severity=WARNING,
         description=(
-            "A live projection group is not exactly one cdna allele and one genomic allele. A member that "
-            "failed to translate leaves a group of one; read the samples."
+            "A live projection group is not exactly one cdna allele and one genomic allele. A member RT could not "
+            "translate leaves a group of one; the variant's cross_level_translation event lists it under "
+            "failed_candidates with the error."
         ),
         sql="""
             SELECT l.mapping_record_id, l.projection_group, count(*) AS members,
@@ -232,7 +233,10 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
     SqlCheck(
         name="allele_without_live_link",
         severity=INFO,
-        description="An allele no live mapping record links to. Remaps leave some behind; a large count means links were retired without replacement.",
+        description=(
+            "An allele no live mapping record links to. Superseded mappings, including every non-current legacy "
+            "row the backfill imported, leave alleles with retired links only; one with no link at all was never linked."
+        ),
         sql="""
             SELECT a.id AS allele_id, a.level, coalesce(a.hgvs_g, a.hgvs_c, a.hgvs_p) AS hgvs
             FROM alleles a
