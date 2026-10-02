@@ -43,6 +43,7 @@ class WorkerCoordinateTranslator:
         self._hdp = hdp
         self._parser: Any = None
         self._mapper: Any = None
+        self._literal_mapper: Any = None
 
     def _ensure_initialized(self) -> None:
         if self._mapper is None:
@@ -54,6 +55,13 @@ class WorkerCoordinateTranslator:
                 self._hdp,
                 assembly_name="GRCh38",
                 alt_aln_method="splign",
+            )
+            # Unnormalized, so a delins stays a delins rather than becoming ``inv`` (see c_to_g_literal).
+            self._literal_mapper = hgvs.assemblymapper.AssemblyMapper(
+                self._hdp,
+                assembly_name="GRCh38",
+                alt_aln_method="splign",
+                normalize=False,
             )
 
     def c_to_p(self, c_hgvs: str) -> str:
@@ -67,3 +75,8 @@ class WorkerCoordinateTranslator:
     def c_to_g(self, c_hgvs: str) -> str:
         self._ensure_initialized()
         return str(self._mapper.c_to_g(self._parser.parse(c_hgvs)))
+
+    def c_to_g_literal(self, c_hgvs: str) -> str:
+        """Project to genomic without normalization; variant-annotation uses it to rewrite an ``inv`` as delins."""
+        self._ensure_initialized()
+        return str(self._literal_mapper.c_to_g(self._parser.parse(c_hgvs)))
