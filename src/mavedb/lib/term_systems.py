@@ -19,16 +19,6 @@ MAVEDB_CAT_VRS_RELATION: TermSystem = ("https://mavedb.org/cat-vrs/relations", "
 
 ### External Term Systems
 
-# Sequence Ontology. Used by several Cat-VRS Relation terms (translation_of, transcribed_to); see
-# ga4gh/cat-vrs examples/json/proteinSequenceConsequence-ex2.json.
-SEQUENCE_ONTOLOGY: TermSystem = ("http://www.sequenceontology.org", "so")
-
-# Cat-VRS's own internally controlled vocabulary for the allele-relation terms that have no external
-# ontology equivalent (currently just liftover_to). See ga4gh/cat-vrs recipes-source.yaml. Other
-# ga4gh-gks-term categories (e.g. experimental-var-func-impact-classification) are separate term
-# systems under the same vocabulary owner, not this one.
-GKS_ALLELE_RELATION: TermSystem = ("ga4gh-gks-term:allele-relation", "ga4gh-gks-term")
-
 # External variant registries. Identifiers consumers match on, so deliberately not built from the registries'
 # link constants: a registry moving its web pages must not rename a system in served output.
 CLINVAR_VARIATION: TermSystem = ("https://www.ncbi.nlm.nih.gov/clinvar/variation/", "clinvar")

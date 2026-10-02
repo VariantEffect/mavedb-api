@@ -9,7 +9,13 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Mapping, Optional
 
-from ga4gh.cat_vrs.models import CategoricalVariant, DefiningAlleleConstraint, MappableConcept, Relation
+from ga4gh.cat_vrs.models import CategoricalVariant, DefiningAlleleConstraint, MappableConcept
+from ga4gh.cat_vrs.relations import (
+    LIFTOVER_TO_RELATION,
+    TRANSCRIBED_TO_RELATION,
+    TRANSLATION_OF_RELATION,
+    Relation,
+)
 from ga4gh.core.models import Coding, ConceptMapping, iriReference
 from ga4gh.core.models import Relation as MappingRelation
 from ga4gh.vrs.models import Allele as VrsAllele
@@ -23,11 +29,8 @@ from mavedb.lib.logging.context import logging_context
 from mavedb.lib.term_systems import (
     CLINGEN_ALLELE_REGISTRY,
     CLINVAR_VARIATION,
-    GKS_ALLELE_RELATION,
     GNOMAD,
     MAVEDB_CAT_VRS_RELATION,
-    SEQUENCE_ONTOLOGY,
-    TermSystem,
 )
 from mavedb.lib.term_systems import coding as term_coding
 from mavedb.lib.vrs import vrs_object_from_mapped_variant
@@ -37,17 +40,12 @@ from mavedb.models.mapping_record_allele import MappingRecordAllele
 
 logger = logging.getLogger(__name__)
 
-# Cat-VRS does not attribute its own Relation values to one uniform system: translation_of and
-# transcribed_to are Sequence Ontology terms, while liftover_to has no ontology equivalent and is
-# carried on Cat-VRS's own internal vocabulary instead. Per-term, not a single constant, so that
-# extending `_SPEC_EQUIVALENT` can't silently mislabel a future mapping with the wrong system.
-#
-# Sourced from the spec's published examples/schema (ga4gh/cat-vrs recipes-source.yaml and
-# examples/json/proteinSequenceConsequence-ex2.json).
-_SPEC_TERM_SYSTEM: dict[Relation, TermSystem] = {
-    Relation.TRANSLATION_OF: SEQUENCE_ONTOLOGY,
-    Relation.TRANSCRIBED_TO: SEQUENCE_ONTOLOGY,
-    Relation.LIFTOVER_TO: GKS_ALLELE_RELATION,
+# The spec's own concept for each Cat-VRS relation term. Each carries its term's system: Sequence Ontology
+# for translation_of and transcribed_to, Cat-VRS's internal ga4gh-gkm-term vocabulary for liftover_to.
+_SPEC_RELATION_CONCEPTS: dict[Relation, MappableConcept] = {
+    Relation.TRANSLATION_OF: TRANSLATION_OF_RELATION,
+    Relation.TRANSCRIBED_TO: TRANSCRIBED_TO_RELATION,
+    Relation.LIFTOVER_TO: LIFTOVER_TO_RELATION,
 }
 
 
@@ -182,7 +180,7 @@ def _relation_concept(relation: CatVrsRelation) -> MappableConcept:
         mappings=(
             [
                 ConceptMapping(
-                    coding=term_coding(_SPEC_TERM_SYSTEM[spec_term], spec_term.value),
+                    coding=_SPEC_RELATION_CONCEPTS[spec_term].primaryCoding,
                     relation=MappingRelation.EXACT_MATCH,
                 )
             ]

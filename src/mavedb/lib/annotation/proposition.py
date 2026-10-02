@@ -74,9 +74,9 @@ def variant_pathogenicity_proposition(
 
     return VariantPathogenicityProposition(
         description=f"Variant pathogenicity proposition for {context.variant.urn}.",
-        subjectVariant=context.subject_variant,
+        subject=context.subject_variant,
         predicate="isCausalFor",
-        objectCondition=calibration_disease_condition(score_calibration),
+        object=calibration_disease_condition(score_calibration),
         geneContextQualifier=sequence_feature
         if system == "https://www.genenames.org/"
         else None,  # only include gene context if we have a gene identifier
@@ -93,8 +93,8 @@ def variant_functional_impact_proposition(
 
     return ExperimentalVariantFunctionalImpactProposition(
         description=f"Variant functional impact proposition for {context.variant.urn}.",
-        subjectVariant=context.subject_variant,
+        subject=context.subject_variant,
         predicate="impactsFunctionOf",
-        objectSequenceFeature=sequence_feature,
+        object=sequence_feature,
         experimentalContextQualifier=experiment_to_document(context.variant.score_set.experiment),
     )

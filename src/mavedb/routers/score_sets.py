@@ -29,6 +29,7 @@ from mavedb.lib.annotation.annotate import (
     variant_pathogenicity_statement,
     variant_study_result,
 )
+from mavedb.lib.annotation.conformance import serialize_annotation
 from mavedb.lib.annotation.context import variant_annotation_context
 from mavedb.lib.deprecation import MAPPED_VARIANT_SUNSET, deprecation_headers, record_deprecated_usage
 from mavedb.lib.annotation.exceptions import EXPECTED_ABSENCE_EXCEPTIONS
@@ -1449,7 +1450,7 @@ def _annotation_stream_record(
     try:
         context = variant_annotation_context(db, variant, as_of=as_of)
         annotation = annotation_function(context) if context is not None else None
-        annotation_data = annotation.model_dump(exclude_none=True) if annotation else None
+        annotation_data = serialize_annotation(annotation) if annotation else None
     except EXPECTED_ABSENCE_EXCEPTIONS:
         logger.debug(f"Nothing to annotate for variant {variant_urn}.")
         return {"variant_urn": variant_urn, "annotation": None}, "unannotated"

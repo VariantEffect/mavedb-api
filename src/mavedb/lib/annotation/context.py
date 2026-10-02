@@ -65,7 +65,7 @@ def variant_annotation_context(
     # The proposition subject follows the measured as anchor rule: the categorical variant when it carries a
     # projection member, else the concrete measured variation. The VA subject is deliberately *narrow*
     # (include_convergent=False): the convergent encodings are dropped, because VA-Spec carries no per-member
-    # provenance to mark them as unmeasured, and StudyResult.focusVariant already pins the concrete measured
+    # provenance to mark them as unmeasured, and StudyResult.focus already pins the concrete measured
     # allele. A lone measured allele is served bare, so it skips the cross-reference fetch and the build.
     member_links = categorical_member_links(links, include_convergent=False)
     transit = None
@@ -74,7 +74,7 @@ def variant_annotation_context(
         transit = build_categorical_variant(
             links, name=variant.urn or "", include_convergent=False, cross_references=cross_references
         )
-    if transit is not None and len(transit.categorical_variant.members) > 1:
+    if transit is not None and len(transit.categorical_variant.members or []) > 1:
         subject_variant: MolecularVariation | CategoricalVariant = transit.categorical_variant
     else:
         subject_variant = vrs_object_from_mapped_variant(measured_allele.post_mapped)

@@ -66,11 +66,11 @@ class TestExperimentalVariantClinicalImpactProposition:
 
         assert isinstance(result, VariantPathogenicityProposition)
         assert result.description == f"Variant pathogenicity proposition for {mock_annotation_context.variant.urn}."
-        assert isinstance(result.subjectVariant, MolecularVariation)
+        assert isinstance(result.subject, MolecularVariation)
         assert result.predicate == "isCausalFor"
-        assert result.objectCondition.root.conceptType == "Disease"
-        assert result.objectCondition.root.primaryCoding.code.root == "MONDO:0000001"
-        assert result.objectCondition.root.primaryCoding.system == "https://purl.obolibrary.org/obo/mondo.owl"
+        assert result.object.conceptType == "Disease"
+        assert result.object.primaryCoding.code.root == "MONDO:0000001"
+        assert result.object.primaryCoding.system == "https://purl.obolibrary.org/obo/mondo.owl"
 
     def test_clinical_impact_proposition_reflects_the_calibration_disease(self, mock_mapped_variant):
         """A calibration with a specific disease term drives the proposition's condition."""
@@ -79,15 +79,15 @@ class TestExperimentalVariantClinicalImpactProposition:
         )
         result = variant_pathogenicity_proposition(annotation_context_for(mock_mapped_variant), calibration)
 
-        assert result.objectCondition.root.primaryCoding.code.root == "MONDO:0015263"
-        assert result.objectCondition.root.name == "Brugada syndrome"
+        assert result.object.primaryCoding.code.root == "MONDO:0015263"
+        assert result.object.name == "Brugada syndrome"
 
     def test_clinical_impact_proposition_carries_a_categorical_subject(self, mock_mapped_variant):
         """A protein assay's categorical subject (Slice 5.1) is carried onto the proposition unchanged."""
         context = annotation_context_for(mock_mapped_variant, subject_variant=_protein_categorical_variant())
         result = variant_pathogenicity_proposition(context, create_mock_score_calibration())
 
-        assert isinstance(result.subjectVariant, CategoricalVariant)
+        assert isinstance(result.subject, CategoricalVariant)
 
 
 @pytest.mark.unit
@@ -100,10 +100,10 @@ class TestExperimentalVariantFunctionalImpactProposition:
 
         assert isinstance(result, ExperimentalVariantFunctionalImpactProposition)
         assert result.description == f"Variant functional impact proposition for {mock_annotation_context.variant.urn}."
-        assert isinstance(result.subjectVariant, MolecularVariation)
+        assert isinstance(result.subject, MolecularVariation)
         assert result.predicate == "impactsFunctionOf"
-        assert result.objectSequenceFeature.primaryCoding.code.root == "BRCA1"
-        assert result.objectSequenceFeature.primaryCoding.system == "https://www.genenames.org/"
+        assert result.object.primaryCoding.code.root == "BRCA1"
+        assert result.object.primaryCoding.system == "https://www.genenames.org/"
         assert result.experimentalContextQualifier is not None
 
     def test_functional_impact_proposition_carries_a_categorical_subject(self, mock_mapped_variant):
@@ -111,7 +111,7 @@ class TestExperimentalVariantFunctionalImpactProposition:
         context = annotation_context_for(mock_mapped_variant, subject_variant=_protein_categorical_variant())
         result = variant_functional_impact_proposition(context)
 
-        assert isinstance(result.subjectVariant, CategoricalVariant)
+        assert isinstance(result.subject, CategoricalVariant)
 
 
 @pytest.mark.unit

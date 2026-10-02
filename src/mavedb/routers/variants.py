@@ -4,7 +4,8 @@ from typing import Annotated, Any, List, Optional
 
 from fastapi import APIRouter, Depends, Path, Query, Response
 from fastapi.exceptions import HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse, StreamingResponse
 from ga4gh.core.identifiers import GA4GH_IR_REGEXP
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
@@ -19,6 +20,7 @@ from mavedb.lib.annotation.annotate import (
     variant_pathogenicity_statement,
     variant_study_result,
 )
+from mavedb.lib.annotation.conformance import EmittedAnnotation, serialize_annotation
 from mavedb.lib.annotation.context import variant_annotation_context
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.authentication import get_current_user
@@ -58,6 +60,18 @@ metadata = {
     "name": TAG_NAME,
     "description": "Search and retrieve variants associated with MaveDB records.",
 }
+
+
+def _annotation_response(annotation: EmittedAnnotation, as_of: Optional[datetime]) -> JSONResponse:
+    """Emit a VA-Spec annotation with its nested evidence intact (see :func:`serialize_annotation`).
+
+    Returning a response bypasses FastAPI's ``response_model`` serialization, which would drop the nested
+    evidence's subclass fields, so the ``X-As-Of`` header is set here rather than on the injected response.
+    """
+    return JSONResponse(
+        content=jsonable_encoder(serialize_annotation(annotation, exclude_none=False)),
+        headers={"X-As-Of": as_of.isoformat() if as_of is not None else "current"},
+    )
 
 
 def _fetch_readable_variant(db: Session, user_data: Optional[UserData], urn: str) -> Variant:
@@ -206,7 +220,6 @@ def get_variant(
 )
 def get_variant_study_result(
     *,
-    response: Response,
     urn: str,
     as_of: Optional[datetime] = Query(
         default=None,
@@ -219,10 +232,9 @@ def get_variant_study_result(
     ),
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
-) -> ExperimentalVariantFunctionalImpactStudyResult:
+) -> JSONResponse:
     """Construct a single VA-Spec StudyResult for a variant by URN, from its mapping substrate."""
     save_to_logging_context({"requested_resource": urn, "as_of": as_of})
-    response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
 
     variant = _fetch_readable_variant(db, user_data, urn)
 
@@ -233,7 +245,7 @@ def get_variant_study_result(
         )
 
     try:
-        return variant_study_result(context)
+        return _annotation_response(variant_study_result(context), as_of)
     except MappingDataDoesntExistException as e:
         logger.info(msg=f"Could not construct a study result for variant {urn}: {e}", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"No study result exists for variant {urn}: {e}")
@@ -248,7 +260,6 @@ def get_variant_study_result(
 )
 def get_variant_functional_impact_statement(
     *,
-    response: Response,
     urn: str,
     as_of: Optional[datetime] = Query(
         default=None,
@@ -262,10 +273,9 @@ def get_variant_functional_impact_statement(
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
     principal: Principal = Depends(get_principal),
-) -> Statement:
+) -> JSONResponse:
     """Construct a single VA-Spec functional-impact Statement for a variant by URN."""
     save_to_logging_context({"requested_resource": urn, "as_of": as_of})
-    response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
 
     variant = _fetch_readable_variant(db, user_data, urn)
 
@@ -297,7 +307,7 @@ def get_variant_functional_impact_statement(
             ),
         )
 
-    return functional_impact
+    return _annotation_response(functional_impact, as_of)
 
 
 @router.get(
@@ -309,7 +319,6 @@ def get_variant_functional_impact_statement(
 )
 def get_variant_pathogenicity_statement(
     *,
-    response: Response,
     urn: str,
     as_of: Optional[datetime] = Query(
         default=None,
@@ -323,10 +332,9 @@ def get_variant_pathogenicity_statement(
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
     principal: Principal = Depends(get_principal),
-) -> VariantPathogenicityStatement:
+) -> JSONResponse:
     """Construct a single VA-Spec pathogenicity Statement for a variant by URN."""
     save_to_logging_context({"requested_resource": urn, "as_of": as_of})
-    response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
 
     variant = _fetch_readable_variant(db, user_data, urn)
 
@@ -358,7 +366,7 @@ def get_variant_pathogenicity_statement(
             ),
         )
 
-    return pathogenicity_statement
+    return _annotation_response(pathogenicity_statement, as_of)
 
 
 @router.get(

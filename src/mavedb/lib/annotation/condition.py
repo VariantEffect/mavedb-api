@@ -10,4 +10,4 @@ def calibration_disease_condition(score_calibration: ScoreCalibration) -> Condit
     Every calibration carries a non-null MONDO disease term (often the generic "disease or
     disorder" (``MONDO:0000001``)) which is serialized directly to a condition.
     """
-    return Condition(root=mondo_term_to_mappable_concept(score_calibration.disease_term))
+    return Condition(**mondo_term_to_mappable_concept(score_calibration.disease_term).model_dump(exclude_none=True))

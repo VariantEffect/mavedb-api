@@ -82,10 +82,11 @@ def translate_hgvs_to_vrs(hgvs: str, translator: AlleleTranslator) -> Allele:
     if hgvs.startswith("NC_") and ":c." in hgvs:
         hgvs = hgvs.replace(":c.", ":g.")
 
-    allele: Allele = translator.translate_from(hgvs, "hgvs", do_normalize=False)
+    allele = translator.translate_from(hgvs, "hgvs", do_normalize=False)
 
     if (
-        not isinstance(allele.location, SequenceLocation)
+        not isinstance(allele, Allele)
+        or not isinstance(allele.location, SequenceLocation)
         or not isinstance(allele.location.start, int)
         or not isinstance(allele.location.end, int)
         or not isinstance(allele.state, LiteralSequenceExpression)

@@ -37,13 +37,13 @@ class TestCalibrationDiseaseConditionUnit:
         )
         condition = calibration_disease_condition(_calibration_with_disease(term))
         assert isinstance(condition, Condition)
-        assert isinstance(condition.root, MappableConcept)
-        assert condition.root.conceptType == "Disease"
-        assert condition.root.name == "Brugada syndrome"
+        assert isinstance(condition, MappableConcept)
+        assert condition.conceptType == "Disease"
+        assert condition.name == "Brugada syndrome"
 
     def test_primary_coding_reflects_the_stored_term(self):
         term = MondoTerm(code="MONDO:0015263", system=MONDO_SYSTEM, label="Brugada syndrome")
-        coding = calibration_disease_condition(_calibration_with_disease(term)).root.primaryCoding
+        coding = calibration_disease_condition(_calibration_with_disease(term)).primaryCoding
         assert isinstance(coding, Coding)
         assert coding.code.root == "MONDO:0015263"
         assert coding.system == MONDO_SYSTEM
@@ -55,5 +55,5 @@ class TestCalibrationDiseaseConditionUnit:
     def test_generic_disease_term_yields_the_mondo_root(self):
         term = MondoTerm(code=MONDO_GENERIC_CODE, system=MONDO_SYSTEM, label=MONDO_GENERIC_LABEL)
         condition = calibration_disease_condition(_calibration_with_disease(term))
-        assert condition.root.primaryCoding.code.root == MONDO_GENERIC_CODE
-        assert condition.root.name == MONDO_GENERIC_LABEL
+        assert condition.primaryCoding.code.root == MONDO_GENERIC_CODE
+        assert condition.name == MONDO_GENERIC_LABEL

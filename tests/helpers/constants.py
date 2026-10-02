@@ -1653,6 +1653,7 @@ TEST_MINIMAL_CALIBRATION = {
 
 
 SAVED_GENERIC_DISEASE_CONCEPT = {
+    "type": "MappableConcept",
     "conceptType": "Disease",
     "name": "disease or disorder",
     "primaryCoding": {

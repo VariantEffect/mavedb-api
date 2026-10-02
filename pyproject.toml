@@ -34,12 +34,13 @@ email_validator = "~2.1.1"
 numpy = "~1.26"
 httpx = "~0.26.0"
 pandas = ">=2.2.0,<3.0.0"
-pydantic = "~2.10.0"
+pydantic = "~2.12.0"
 python-dotenv = "^1.2"
 python-json-logger = "~2.0.7"
 SQLAlchemy = "~2.0.29"
-ga4gh-va-spec = "~0.4.2"
-ga4gh-cat-vrs = "~0.7.2"
+ga4gh-vrs = { version = "2.4.0a6", allow-prereleases = true }
+ga4gh-cat-vrs = { version = "0.8.0a6", allow-prereleases = true }
+ga4gh-va-spec = { version = "0.5.0a6", allow-prereleases = true }
 setuptools = "~81.0.0"
 
 # Optional dependencies for running this application as a server
@@ -113,10 +114,11 @@ mypy_path = "mypy_stubs"
 module = "variant_annotation.*"
 ignore_missing_imports = true
 
-# ga4gh.cat_vrs (the Cat-VRS 1.0.0 pydantic models) ships no py.typed marker, unlike ga4gh.vrs.
+# The GA4GH packages ship no py.typed marker, but their pydantic models are fully annotated. Read them
+# directly rather than through local stubs, which fall out of step with each release.
 [[tool.mypy.overrides]]
-module = "ga4gh.cat_vrs.*"
-ignore_missing_imports = true
+module = "ga4gh.*"
+follow_untyped_imports = true
 
 [tool.pytest.ini_options]
 addopts = "-v --import-mode=importlib"

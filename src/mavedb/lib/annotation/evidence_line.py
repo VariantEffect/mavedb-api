@@ -5,8 +5,7 @@ from ga4gh.va_spec.acmg_2015 import VariantPathogenicityEvidenceLine
 from ga4gh.va_spec.base.core import (
     Direction,
     EvidenceLine,
-    EvidenceLineType,
-    StatementType,
+    Statement,
     StudyResult,
     VariantPathogenicityProposition,
 )
@@ -38,7 +37,7 @@ def acmg_evidence_line(
     context: VariantAnnotationContext,
     score_calibration: ScoreCalibration,
     proposition: VariantPathogenicityProposition,
-    evidence: list[Union[StudyResult, EvidenceLineType, StatementType, iriReference]],
+    evidence: list[Union[StudyResult, EvidenceLine, Statement, iriReference]],
 ) -> VariantPathogenicityEvidenceLine:
     containing_evidence_range, evidence_outcome, evidence_strength = pathogenicity_classification_of_variant(
         context.variant, score_calibration
@@ -63,7 +62,7 @@ def acmg_evidence_line(
     return VariantPathogenicityEvidenceLine(
         description=f"Pathogenicity evidence line for {context.variant.urn}.",
         hasEvidenceItems=list(evidence),
-        specifiedBy=pathogenicity_score_calibration_as_method(score_calibration, evidence_outcome),
+        specifiedBy=pathogenicity_score_calibration_as_method(score_calibration),
         evidenceOutcome={
             "primaryCoding": Coding(
                 code=evidence_outcome_code,
@@ -93,18 +92,18 @@ def acmg_evidence_line(
 def functional_evidence_line(
     context: VariantAnnotationContext,
     score_calibration: ScoreCalibration,
-    evidence: list[Union[StudyResult, EvidenceLineType, StatementType, iriReference]],
+    evidence: list[Union[StudyResult, EvidenceLine, Statement, iriReference]],
 ) -> EvidenceLine:
     containing_evidence_range, classification = functional_classification_of_variant(context.variant, score_calibration)
 
     return EvidenceLine(
         description=f"Functional evidence line for {context.variant.urn}",
-        hasEvidenceItems=[StudyResult(root=item) for item in evidence],
+        hasEvidenceItems=list(evidence),
         directionOfEvidenceProvided=direction_of_support_for_functional_classification(classification),
         evidenceOutcome=MappableConcept(
             primaryCoding=Coding(
                 code=classification.value,
-                system="ga4gh-gks-term:experimental-var-func-impact-classification",
+                system="ga4gh-gkm-term:experimental-var-func-impact-classification",
             ),
         ),
         specifiedBy=functional_score_calibration_as_method(score_calibration),

@@ -10,7 +10,8 @@ import pytest
 
 pytest.importorskip("psycopg2")
 
-from ga4gh.cat_vrs.models import CategoricalVariant, DefiningAlleleConstraint, Relation
+from ga4gh.cat_vrs.models import CategoricalVariant, DefiningAlleleConstraint
+from ga4gh.cat_vrs.relations import Relation
 from ga4gh.core.models import Relation as MappingRelation
 
 from mavedb.lib.cat_vrs import (

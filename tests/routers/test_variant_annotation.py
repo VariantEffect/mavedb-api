@@ -121,6 +121,10 @@ def test_variant_functional_impact_statement(
 
     assert response.status_code == 200
     assert response_data["description"] == f"Variant functional impact statement for {score_set['urn']}#1."
+    # The nested study result keeps its subclass fields, which serializing as the declared base type drops.
+    study_result = response_data["hasEvidenceLines"][0]["hasEvidenceItems"][0]
+    assert study_result["type"] == "ExperimentalVariantFunctionalImpactStudyResult"
+    assert "focus" in study_result
     Statement.model_validate_json(json.dumps(response_data))
 
 

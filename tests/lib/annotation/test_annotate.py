@@ -88,7 +88,7 @@ class TestVariantFunctionalImpactStatement:
         assert result.type == "Statement"
         assert all(evidence_item.type == "EvidenceLine" for evidence_item in result.hasEvidenceLines)
         assert all(
-            study_result.root.type == "ExperimentalVariantFunctionalImpactStudyResult"
+            study_result.type == "ExperimentalVariantFunctionalImpactStudyResult"
             for evidence_line in [evidence_line for evidence_line in result.hasEvidenceLines]
             for study_result in evidence_line.hasEvidenceItems
         )
@@ -234,7 +234,7 @@ class TestVariantPathogenicityStatement:
         assert all(s.type == "Statement" for s in statements)
         assert all(ei.type == "EvidenceLine" for ei in functional_evidence_lines)
         assert all(
-            study_result.root.type == "ExperimentalVariantFunctionalImpactStudyResult"
+            study_result.type == "ExperimentalVariantFunctionalImpactStudyResult"
             for evidence_item in functional_evidence_lines
             for study_result in evidence_item.hasEvidenceItems
         )

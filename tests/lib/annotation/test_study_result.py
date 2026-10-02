@@ -28,7 +28,7 @@ class TestExperimentalVariantImpactStudyResult:
 
         assert isinstance(result, ExperimentalVariantFunctionalImpactStudyResult)
         assert result.description == f"Variant effect study result for {mock_annotation_context.variant.urn}."
-        assert isinstance(result.focusVariant, MolecularVariation)
+        assert isinstance(result.focus, MolecularVariation)
         assert result.functionalImpactScore == mock_annotation_context.variant.data["score_data"]["score"]
         # Verify all expected contribution types are present
         contribution_types = {c.name for c in result.contributions}
@@ -47,7 +47,7 @@ class TestExperimentalVariantImpactStudyResult:
 
         assert isinstance(result, ExperimentalVariantFunctionalImpactStudyResult)
         assert result.description == f"Variant effect study result for {mock_annotation_context.variant.urn}."
-        assert isinstance(result.focusVariant, MolecularVariation)
+        assert isinstance(result.focus, MolecularVariation)
         assert result.functionalImpactScore == mock_annotation_context.variant.data["score_data"]["score"]
         # Verify all expected contribution types are present
         contribution_types = {c.name for c in result.contributions}

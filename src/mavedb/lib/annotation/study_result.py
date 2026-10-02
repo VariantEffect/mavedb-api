@@ -20,11 +20,11 @@ def variant_impact_study_result(
     context: VariantAnnotationContext,
 ) -> ExperimentalVariantFunctionalImpactStudyResult:
     # The study result's focus is the concrete measured allele — never a CategoricalVariant (VA-Spec
-    # narrows ``focusVariant`` to MolecularVariation). The context guarantees a hydratable post_mapped.
+    # narrows ``focus`` to MolecularVariation). The context guarantees a hydratable post_mapped.
     return ExperimentalVariantFunctionalImpactStudyResult(
         description=f"Variant effect study result for {context.variant.urn}.",
         # post_mapped is guaranteed non-null by variant_annotation_context (it returns None otherwise).
-        focusVariant=vrs_object_from_mapped_variant(context.measured_allele.post_mapped),  # type: ignore[arg-type]
+        focus=vrs_object_from_mapped_variant(context.measured_allele.post_mapped),  # type: ignore[arg-type]
         functionalImpactScore=variant_score(context.variant),
         specifiedBy=publication_identifiers_to_method(context.variant.score_set.publication_identifier_associations),
         sourceDataSet=score_set_to_data_set(context.variant.score_set),

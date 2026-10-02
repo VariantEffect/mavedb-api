@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, lazyload
 
 from mavedb.lib.annotation.annotate import variant_highest_level_annotation
+from mavedb.lib.annotation.conformance import serialize_annotation
 from mavedb.lib.annotation.context import variant_annotation_context
 from mavedb.lib.allele_annotations import get_allele_cross_references
 from mavedb.lib.alleles import get_live_record_allele_links
@@ -213,7 +214,7 @@ def va_ndjson(db: Session, score_set: ScoreSet, principal: Principal) -> str:
         annotation = variant_highest_level_annotation(context, principal=principal) if context is not None else None
         record = {
             "variant_urn": variant.urn,
-            "annotation": annotation.model_dump(exclude_none=True) if annotation else None,
+            "annotation": serialize_annotation(annotation) if annotation else None,
         }
         lines.append(json.dumps(record, default=str))
 

@@ -472,6 +472,8 @@ async def reverse_translate_variants_for_score_set(
                     variation.model_dump(exclude_none=True), hgvs, seqrepo, subject=f"variant record {rec.id}"
                 )
 
+            # translate_hgvs_to_variation identifies every variation it returns.
+            assert variation.id is not None
             if variation.id in seen_digests:
                 continue
 

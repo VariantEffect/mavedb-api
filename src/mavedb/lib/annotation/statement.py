@@ -60,7 +60,7 @@ def functional_statement(
         classification=MappableConcept(
             primaryCoding=Coding(
                 code=functional_classification,
-                system="ga4gh-gks-term:experimental-var-func-impact-classification",
+                system="ga4gh-gkm-term:experimental-var-func-impact-classification",
             ),
         ),
         hasEvidenceLines=[evidence_item for evidence_item in evidence],

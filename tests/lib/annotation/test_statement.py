@@ -61,7 +61,7 @@ class TestFunctionalStatement:
         assert result.direction == expected_direction
         assert result.classification.primaryCoding.code.root == classification.value
         assert (
-            result.classification.primaryCoding.system == "ga4gh-gks-term:experimental-var-func-impact-classification"
+            result.classification.primaryCoding.system == "ga4gh-gkm-term:experimental-var-func-impact-classification"
         )
         assert result.hasEvidenceLines
         assert len(result.hasEvidenceLines) == 1
