@@ -267,3 +267,7 @@ def _recomputed_location_identifier(location: dict[str, Any]) -> Optional[str]:
     except Exception:
         logger.debug("Could not hydrate a location for identification", exc_info=True)
         return None
+
+
+if __name__ == "__main__":
+    script_environment()
