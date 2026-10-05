@@ -125,6 +125,7 @@ from time import perf_counter  # `time` above is datetime.time; import the timer
 from typing import Optional
 
 import sqlalchemy as sa
+from biocommons.seqrepo import SeqRepo
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, configure_mappers
 
@@ -133,8 +134,11 @@ from mavedb.db.session import SessionLocal
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from pydantic import ValidationError
 
+from mavedb.data_providers.services import seqrepo
+from mavedb.lib.hgvs import extract_accession
+from mavedb.lib.seqrepo import AmbiguousSequenceError, SequenceNotFoundError, resolve_refget
 from mavedb.lib.variants import get_hgvs_from_post_mapped
-from mavedb.lib.vrs_utils import canonical_variation_document
+from mavedb.lib.vrs_utils import CANONICAL_ACCESSION_PREFIXES, canonical_variation_document, location_refgets
 from mavedb.models.allele import Allele
 from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
@@ -381,13 +385,55 @@ def _fill_missing_allele_fields(allele: Allele, mv: MappedVariant, level: Sequen
         setattr(allele, hgvs_col, hgvs_value)
 
 
+class _SequenceGuard:
+    """Checks that an allele sits on the sequence SeqRepo holds for its HGVS accession.
+
+    The backfill counterpart of :func:`mavedb.lib.vrs_utils.verify_allele_refget`, which the mapping and
+    reverse translation jobs run at insert time. Legacy rows can put one accession on two sequences
+    (``NP_001346945.1`` on two refgets), and ``uq_alleles_hgvs`` lets only one of
+    them hold each HGVS. Without this check, whichever the backfill reaches first wins. SeqRepo's answer
+    is cached per accession for the run.
+    """
+
+    def __init__(self, sr: SeqRepo) -> None:
+        self._sr = sr
+        self._expected: dict[str, Optional[str]] = {}
+        self.mismatches = 0
+
+    def agrees(self, variation: dict, hgvs: Optional[str]) -> bool:
+        """Return False if the variation's refget differs from SeqRepo's for the accession.
+
+        An accession SeqRepo can't resolve passes, as it does in ``verify_allele_refget``: there is nothing
+        to compare against.
+        """
+        accession = extract_accession(hgvs or "")
+        if not accession.startswith(CANONICAL_ACCESSION_PREFIXES):
+            return True
+        if accession not in self._expected:
+            try:
+                self._expected[accession] = resolve_refget(self._sr, accession)
+            except (SequenceNotFoundError, AmbiguousSequenceError) as e:
+                logger.error(f"Cannot verify refgets on {accession}: {e}")
+                self._expected[accession] = None
+        expected = self._expected[accession]
+        if expected is None or all(refget == expected for refget in location_refgets(variation)):
+            return True
+        self.mismatches += 1
+        return False
+
+
 def _authoritative_allele(
-    db: Session, mv: MappedVariant, level: SequenceLevel, allele_cache: dict[str, Allele]
+    db: Session,
+    mv: MappedVariant,
+    level: SequenceLevel,
+    allele_cache: dict[str, Allele],
+    sequence_guard: _SequenceGuard,
 ) -> Optional[Allele]:
     """Get-or-create the authoritative allele from ``mv.post_mapped``, via an in-memory dedup cache.
 
     Returns ``None`` for versions with no post-mapped representation (failed or benign-absent variants
-    get a record but no linked allele, matching the mapping job).
+    get a record but no linked allele, matching the mapping job), and for versions on a sequence other
+    than SeqRepo's for their accession (see :class:`_SequenceGuard`); the enrich re-map rebuilds those.
 
     Unlike :func:`mavedb.lib.variant_translations.get_or_create_allele` (used by the live mapping job),
     this does **not** query the database or flush per call. ``allele_cache`` is pre-seeded by the
@@ -419,6 +465,11 @@ def _authoritative_allele(
         logger.exception(f"Could not canonicalize post_mapped for mapped_variant {mv.id}; skipping its allele.")
         return None
 
+    hgvs_value = _resolve_hgvs_assay_level(mv, level)
+    if not sequence_guard.agrees(post_mapped, hgvs_value):
+        logger.warning(f"mapped_variant {mv.id} ({hgvs_value}) is not on SeqRepo's sequence; skipping its allele.")
+        return None
+
     existing = allele_cache.get(digest)
     if existing is None:
         # `allele_cache` is seeded by a per-chunk prefetch keyed on the STORED `post_mapped` id, but
@@ -435,7 +486,6 @@ def _authoritative_allele(
         _fill_missing_allele_fields(existing, mv, level)
         return existing
 
-    hgvs_value = _resolve_hgvs_assay_level(mv, level)
     allele = Allele(
         vrs_digest=digest,
         level=level,
@@ -807,6 +857,7 @@ def _migrate_variant(
     annotation_manager: AnnotationStatusManager,
     existing_records: set[tuple[int, date]],
     allele_cache: dict[str, Allele],
+    sequence_guard: _SequenceGuard,
 ) -> set[int]:
     """Reconstruct as much of a variant's record history as its data supports, returning the ids of
     every allele this variant authoritatively touched.
@@ -929,7 +980,7 @@ def _migrate_variant(
         db.add(record)
         stats["records"] += 1
 
-        allele = _authoritative_allele(db, mv, level, allele_cache)
+        allele = _authoritative_allele(db, mv, level, allele_cache, sequence_guard)
         if allele is not None:
             db.add(
                 MappingRecordAllele(
@@ -1084,6 +1135,7 @@ def do_migration(
         print("  DRY RUN — no changes will be committed.")
     run_at = run_at or datetime.now(timezone.utc)
     annotation_manager = AnnotationStatusManager(db)
+    sequence_guard = _SequenceGuard(seqrepo())
 
     variant_ids = _variant_ids_to_migrate(db, score_set_urn)
     print(f"Found {len(variant_ids)} variants to migrate.")
@@ -1155,6 +1207,7 @@ def do_migration(
                         annotation_manager,
                         existing_records,
                         allele_cache,
+                        sequence_guard,
                     )
             except Exception as exc:  # noqa: BLE001 — one bad variant must not abort the batch
                 # Discard any events this variant buffered but never got to flush before raising — they
@@ -1191,10 +1244,12 @@ def do_migration(
         phase_seconds["annotation_timelines"] += perf_counter() - mark
 
     print("\nMigration completed:")
+    stats["alleles_off_sequence"] = sequence_guard.mismatches
     for key in (
         "variants",
         "records",
         "record_alleles",
+        "alleles_off_sequence",
         "hgvs_recovered_from_level_column",
         "hgvs_recovered_from_vrs_expression",
         "annotation_events_written",
