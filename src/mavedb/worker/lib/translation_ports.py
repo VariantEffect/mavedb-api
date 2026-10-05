@@ -19,6 +19,11 @@ from typing import Any
 
 from variant_annotation.lib.clients.uta import UtaClient
 
+# The public UTA server refuses connections for minutes at a time; the client default (about 3 s in
+# total) fails the job on a blip. Waits 2, 4, 8, 16 and 32 s before giving up.
+UTA_MAX_ATTEMPTS = 6
+UTA_BACKOFF_SECONDS = 2.0
+
 
 @contextlib.contextmanager
 def uta_transcript_source() -> Generator[UtaClient]:
@@ -32,7 +37,7 @@ def uta_transcript_source() -> Generator[UtaClient]:
     uta_db_url = (os.environ.get("UTA_DB_URL") or "").strip()
     if not uta_db_url:
         raise RuntimeError("UTA_DB_URL must be set to resolve transcript facts (NP_→NM_ associations and WT codons).")
-    with UtaClient.from_url(uta_db_url) as client:
+    with UtaClient.from_url(uta_db_url, max_attempts=UTA_MAX_ATTEMPTS, backoff_seconds=UTA_BACKOFF_SECONDS) as client:
         yield client
 
 

@@ -67,6 +67,10 @@ logger = logging.getLogger(__name__)
 _DEFAULT_TRANSLATION_CONFIG: dict[str, Any] = {
     "include_indels": True,
     "wt_codon_mode": WtCodonMode.ALL,
+    # The public UTA server refuses connections for minutes at a time; the library default (about 6 s
+    # in total) fails the whole batch on a blip. Waits 5, 10, 20, 40 and 80 s before giving up.
+    "upstream_max_attempts": 6,
+    "upstream_retry_backoff_seconds": 5.0,
 }
 
 

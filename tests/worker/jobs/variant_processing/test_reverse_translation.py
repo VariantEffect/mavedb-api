@@ -251,6 +251,11 @@ class TestBuildTranslationConfig:
         assert config.include_indels is True
         assert config.wt_codon_mode == WtCodonMode.ALL
 
+    def test_defaults_ride_out_a_minutes_long_uta_outage(self):
+        config = _build_translation_config(None)
+        assert config.upstream_max_attempts == 6
+        assert config.upstream_retry_backoff_seconds == 5.0
+
     def test_empty_dict_uses_job_defaults(self):
         config = _build_translation_config({})
         assert config.include_indels is True
