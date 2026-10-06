@@ -4,6 +4,7 @@ import os
 from typing import Mapping, Optional, Union
 
 import eutils  # type: ignore
+import requests
 from eutils import EutilsNCBIError  # type: ignore
 from eutils._internal.xmlfacades.pubmedarticle import PubmedArticle  # type: ignore
 from eutils._internal.xmlfacades.pubmedarticleset import PubmedArticleSet  # type: ignore
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError
 from mavedb.lib.external_publications import Crossref, CrossrefWork, PublicationAuthors, Rxiv, RxivContentDetail
+from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
 from mavedb.lib.validation.publication import identifier_valid_for, infer_identifier_from_url, validate_db_name
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
@@ -317,6 +319,7 @@ async def find_generic_article(
 
     # When we are not provided a db name, we must try to match the provided identifier to a
     # publication from each one of our accepted databases.
+    last_fetch_error: Optional[Exception] = None
     for publication_db, identifier_valid in identifier_valid_for(identifier).items():
         if identifier_valid:
             existing_publication = db.execute(
@@ -328,14 +331,11 @@ async def find_generic_article(
             if not existing_publication:
                 try:
                     external_publication = await db_specific_fetches[publication_db](identifier)
-                except json.JSONDecodeError:
-                    logger.warning(
-                        "Failed to fetch identifier %r from %s while fanning out over candidate databases.",
-                        identifier,
-                        publication_db,
-                        exc_info=True,
-                    )
+                except (json.JSONDecodeError, requests.exceptions.RequestException, requests.exceptions.HTTPError) as exc:
+                    save_to_logging_context(format_raised_exception_info_as_dict(exc))
+                    logger.error(msg=f"Failed to fetch identifier {identifier} from candidate databases.", exc_info=exc, extra=logging_context())
                     external_publication = None
+                    last_fetch_error = exc
 
                 found_articles[publication_db] = (
                     ExternalPublication(identifier, publication_db, external_publication)
@@ -344,6 +344,9 @@ async def find_generic_article(
                 )
             else:
                 found_articles[publication_db] = existing_publication
+
+    if last_fetch_error is not None and not any(found_articles.values()):
+        raise last_fetch_error
 
     return found_articles
 
