@@ -46,6 +46,8 @@ from mavedb.lib.types.authentication import UserData
 from mavedb.lib.variants import variant_score
 from mavedb.models.allele import Allele
 from mavedb.models.enums.sequence_level import SequenceLevel
+from mavedb.models.experiment import Experiment
+from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_calibration import ScoreCalibration
@@ -53,6 +55,7 @@ from mavedb.models.score_calibration_functional_classification import ScoreCalib
 from mavedb.models.score_calibration_functional_classification_variant_association import (
     score_calibration_functional_classification_variants_association_table as classification_variants,
 )
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 
 logger = logging.getLogger(__name__)
@@ -71,7 +74,9 @@ class AlleleMeasurement:
     """One measurement in the query's equivalence class.
 
     ``assay_level`` is the sequence level at which this measurement was assayed. ``preferred_classification``
-    is the readable classification the UI will default to.
+    is the readable classification the UI will default to; it never comes from a research-use-only calibration,
+    so ranking and any consumer treating it as clinical evidence can rely on that. ``research_use_only_classification``
+    is a display-only fallback: the RUO pick, set only when ``preferred_classification`` is ``None``.
     """
 
     variant_urn: str
@@ -83,6 +88,7 @@ class AlleleMeasurement:
     score_set_urn: str
     score_set_title: str
     preferred_classification: Optional[ScoreCalibrationFunctionalClassification]
+    research_use_only_classification: Optional[ScoreCalibrationFunctionalClassification]
     is_current: bool
     superseded_by_score_set: Optional[str]
 
@@ -105,13 +111,16 @@ class _ProteinApex:
 
 
 def _preferred_classification(
-    db: Session, variant: Variant, *, user_data: Optional[UserData]
+    db: Session, variant: Variant, *, user_data: Optional[UserData], research_use_only: bool = False
 ) -> Optional[ScoreCalibrationFunctionalClassification]:
     """The variant's preferred *readable* functional classification, or ``None``.
 
     Mirrors the UI's calibration cascade — ``primary`` then ``investigator_provided``, strongest evidence
-    within a tier, then ``id`` for determinism. RUO calibrations are excluded outright, and calibrations
-    the caller can't read are skipped rather than blanking a readable call.
+    within a tier, then ``id`` for determinism. Calibrations the caller can't read are skipped rather than
+    blanking a readable call.
+
+    Draws from one side of the RUO line only: non-RUO calibrations by default (the call MaveDB asserts, matching
+    the annotation layer's default), or RUO calibrations alone when ``research_use_only`` is set, for display.
     """
     candidates = [
         (classification, calibration)
@@ -123,7 +132,7 @@ def _preferred_classification(
             )
             .join(ScoreCalibration, ScoreCalibration.id == ScoreCalibrationFunctionalClassification.calibration_id)
             .where(classification_variants.c.variant_id == variant.id)
-            .where(ScoreCalibration.research_use_only.is_(False))
+            .where(ScoreCalibration.research_use_only.is_(research_use_only))
         ).all()
         if has_permission(user_data, calibration, Action.READ).permitted
     ]
@@ -142,9 +151,21 @@ def _preferred_classification(
     return min(candidates, key=preference)[0]
 
 
-def _ordering_key(measurement: AlleleMeasurement, published_date: Optional[date]) -> tuple:
+# Experiment keywords shown on the variant page's measurement table; how many are filled in breaks evidence ties.
+ASSAY_FACT_KEYWORD_KEYS = frozenset(
+    {"Phenotypic Assay Method", "Molecular Mechanism Assessed", "Phenotypic Assay Model System"}
+)
+
+
+def _assay_fact_count(score_set: ScoreSet) -> int:
+    """How many of :data:`ASSAY_FACT_KEYWORD_KEYS` the score set's experiment provides."""
+    keyword_objs = score_set.experiment.keyword_objs if score_set.experiment is not None else []
+    return len({obj.controlled_keyword.key for obj in keyword_objs} & ASSAY_FACT_KEYWORD_KEYS)
+
+
+def _ordering_key(measurement: AlleleMeasurement, published_date: Optional[date], assay_fact_count: int) -> tuple:
     """Sort: current before superseded; direct before related; strongest evidence (pathogenic wins ties)
-    first; newest-published first; then URN for a stable tiebreak."""
+    first; most assay facts provided first; newest-published first; then URN for a stable tiebreak."""
     magnitude, direction = classification_evidence_strength(measurement.preferred_classification)
     return (
         0 if measurement.is_current else 1,
@@ -152,6 +173,7 @@ def _ordering_key(measurement: AlleleMeasurement, published_date: Optional[date]
         0 if measurement.preferred_classification is not None else 1,
         -magnitude,
         direction,
+        -assay_fact_count,
         -(published_date.toordinal()) if published_date is not None else 0,
         measurement.variant_urn,
     )
@@ -263,13 +285,18 @@ def get_allele_measurements(
             .join(Allele, Allele.id == authoritative.allele_id)
             .where(MappingRecord.id.in_(record_ids))
             .where(MappingRecord.live_at(as_of))
-            .options(joinedload(Variant.score_set))
+            .options(
+                joinedload(Variant.score_set)
+                .joinedload(ScoreSet.experiment)
+                .selectinload(Experiment.keyword_objs)
+                .joinedload(ExperimentControlledKeywordAssociation.controlled_keyword)
+            )
         )
         .tuples()
         .all()
     )
 
-    measurements: list[tuple[AlleleMeasurement, Optional[date]]] = []
+    measurements: list[tuple[AlleleMeasurement, Optional[date], int]] = []
     protein_consequence_count = 0
     apex_only_unresolved_count = 0
     for record, variant, measured_allele in rows:
@@ -302,6 +329,7 @@ def get_allele_measurements(
                 apex_only_unresolved_count += 1
 
         assay_level = SequenceLevel(record.assay_level) if record.assay_level else None
+        preferred = _preferred_classification(db, variant, user_data=user_data)
         measurement = AlleleMeasurement(
             variant_urn=variant.urn or "",
             score=variant_score(variant),
@@ -311,11 +339,16 @@ def get_allele_measurements(
             submitted_hgvs=variant.hgvs_pro if assay_level == SequenceLevel.protein.value else variant.hgvs_nt,
             score_set_urn=score_set.urn or "",
             score_set_title=score_set.title or "",
-            preferred_classification=_preferred_classification(db, variant, user_data=user_data),
+            preferred_classification=preferred,
+            research_use_only_classification=(
+                _preferred_classification(db, variant, user_data=user_data, research_use_only=True)
+                if preferred is None
+                else None
+            ),
             is_current=is_current,
             superseded_by_score_set=superseding.urn if superseding is not None else None,
         )
-        measurements.append((measurement, score_set.published_date))
+        measurements.append((measurement, score_set.published_date, _assay_fact_count(score_set)))
 
     # Publish the apex provenance to the request log so the ambiguous-apex and apex-only-unresolved rates are observable.
     if apex is not None:
@@ -328,5 +361,5 @@ def get_allele_measurements(
             }
         )
 
-    measurements.sort(key=lambda pair: _ordering_key(pair[0], pair[1]))
-    return [measurement for measurement, _ in measurements]
+    measurements.sort(key=lambda entry: _ordering_key(*entry))
+    return [measurement for measurement, _, _ in measurements]

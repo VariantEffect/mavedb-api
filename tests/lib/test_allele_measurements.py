@@ -467,6 +467,46 @@ def test_research_use_only_calibrations_are_excluded(session, setup_lib_db_with_
     result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
 
     assert result[0].preferred_classification is None
+    # The RUO pick is still surfaced for display, by the same cascade (strongest evidence within the tier).
+    assert result[0].research_use_only_classification.oddspaths_ratio == 1000.0
+
+
+@pytest.mark.integration
+def test_research_use_only_classification_absent_when_a_preferred_call_exists(session, setup_lib_db_with_score_set):
+    """The RUO fallback is display-only: with any non-RUO call present it stays empty, even when the RUO call
+    is stronger."""
+    score_set = setup_lib_db_with_score_set
+    nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
+    variant = _variant(session, score_set, 1, data={"score_data": {"score": 1.0}})
+    _link(session, _record(session, variant, assay_level="cdna"), nt, is_authoritative=True)
+
+    _calibration(session, score_set, variants=[variant], primary=False, oddspaths_ratio=1000.0, research_use_only=True)
+    _calibration(session, score_set, variants=[variant], primary=False, oddspaths_ratio=2.0)
+
+    result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
+
+    assert result[0].preferred_classification.oddspaths_ratio == 2.0
+    assert result[0].research_use_only_classification is None
+
+
+@pytest.mark.integration
+def test_research_use_only_classification_does_not_rank(session, setup_lib_db_with_score_set):
+    """A measurement carrying only an RUO call ranks as unclassified: below one with a non-RUO call, however
+    strong the RUO evidence."""
+    score_set = setup_lib_db_with_score_set
+    nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
+    ruo_only = _variant(session, score_set, 1, data={"score_data": {"score": 1.0}})
+    classified = _variant(session, score_set, 2, data={"score_data": {"score": 1.0}})
+    _link(session, _record(session, ruo_only, assay_level="cdna"), nt, is_authoritative=True)
+    _link(session, _record(session, classified, assay_level="cdna"), nt, is_authoritative=True)
+
+    _calibration(session, score_set, variants=[ruo_only], primary=False, oddspaths_ratio=1000.0, research_use_only=True)
+    _calibration(session, score_set, variants=[classified], primary=False, oddspaths_ratio=2.0)
+
+    result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
+
+    assert [m.variant_urn for m in result] == [classified.urn, ruo_only.urn]
+    assert result[1].research_use_only_classification is not None
 
 
 @pytest.mark.integration
@@ -563,6 +603,7 @@ def _measurement(urn, *, relationship=MeasurementRelationship.direct, classifica
         score_set_urn="",
         score_set_title="",
         preferred_classification=classification,
+        research_use_only_classification=None,
         is_current=is_current,
         superseded_by_score_set=None,
     )
@@ -570,37 +611,39 @@ def _measurement(urn, *, relationship=MeasurementRelationship.direct, classifica
 
 def test_ordering_key_ranks_every_dimension():
     """Pin the full precedence chain of ``_ordering_key`` as a pure unit (no DB, no calibration fixtures):
-    current → direct → classified → strongest magnitude → pathogenic direction → newest published → urn.
+    current → direct → classified → strongest magnitude → pathogenic direction → most assay facts → newest
+    published → urn.
     Each adjacent pair below differs by exactly the next-lower key, so sorting a shuffled copy must
     reproduce this exact order."""
     strong_path = _oddspaths_classification(100.0)  # magnitude |ln 100|, pathogenic
     strong_benign = _oddspaths_classification(0.01)  # equal magnitude, benign
     weak_path = _oddspaths_classification(2.0)  # smaller magnitude, pathogenic
 
-    # (measurement, published_date), already in the expected ranked order.
+    # (measurement, published_date, assay_fact_count), already in the expected ranked order.
     ranked = [
-        (_measurement("u#1", classification=strong_path), date(2024, 1, 1)),  # strongest evidence, pathogenic
-        (_measurement("u#2", classification=strong_benign), date(2024, 1, 1)),  # equal magnitude, benign loses
-        (_measurement("u#3", classification=weak_path), date(2024, 1, 1)),  # weaker magnitude
-        (_measurement("u#4a", classification=None), date(2024, 6, 1)),  # unclassified; newer published leads its tie
-        (_measurement("u#4b", classification=None), date(2024, 1, 1)),  # unclassified, older published
-        (_measurement("u#4c", classification=None), date(2024, 1, 1)),  # unclassified, same date → urn tiebreak
-        (_measurement("u#5", relationship=MeasurementRelationship.protein_consequence), date(2024, 6, 1)),  # related
-        (_measurement("u#6", is_current=False), date(2024, 6, 1)),  # superseded sorts last
+        (_measurement("u#1", classification=strong_path), date(2024, 1, 1), 0),  # strongest evidence, pathogenic
+        (_measurement("u#2", classification=strong_benign), date(2024, 1, 1), 0),  # equal magnitude, benign loses
+        (_measurement("u#3", classification=weak_path), date(2024, 1, 1), 0),  # weaker magnitude
+        (_measurement("u#4", classification=None), date(2024, 1, 1), 3),  # unclassified; most assay facts leads
+        (_measurement("u#5a", classification=None), date(2024, 6, 1), 0),  # fewer facts; newer published leads
+        (_measurement("u#5b", classification=None), date(2024, 1, 1), 0),  # unclassified, older published
+        (_measurement("u#5c", classification=None), date(2024, 1, 1), 0),  # same date → urn tiebreak
+        (_measurement("u#6", relationship=MeasurementRelationship.protein_consequence), date(2024, 6, 1), 3),  # related
+        (_measurement("u#7", is_current=False), date(2024, 6, 1), 3),  # superseded sorts last
     ]
 
-    shuffled = [ranked[i] for i in (5, 0, 7, 2, 4, 1, 6, 3)]
-    ordered = sorted(shuffled, key=lambda pair: _ordering_key(pair[0], pair[1]))
+    shuffled = [ranked[i] for i in (5, 0, 8, 7, 2, 4, 1, 6, 3)]
+    ordered = sorted(shuffled, key=lambda entry: _ordering_key(*entry))
 
-    assert [m.variant_urn for m, _ in ordered] == [m.variant_urn for m, _ in ranked]
+    assert [m.variant_urn for m, _, _ in ordered] == [m.variant_urn for m, _, _ in ranked]
 
 
 def test_ordering_key_missing_published_date_sorts_after_dated():
     """A null published date is treated as oldest (``0`` ordinal), so a dated measurement leads an
     otherwise-identical undated one."""
-    dated = (_measurement("u#dated"), date(2024, 1, 1))
-    undated = (_measurement("u#undated"), None)
+    dated = (_measurement("u#dated"), date(2024, 1, 1), 0)
+    undated = (_measurement("u#undated"), None, 0)
 
-    ordered = sorted([undated, dated], key=lambda pair: _ordering_key(pair[0], pair[1]))
+    ordered = sorted([undated, dated], key=lambda entry: _ordering_key(*entry))
 
-    assert [m.variant_urn for m, _ in ordered] == ["u#dated", "u#undated"]
+    assert [m.variant_urn for m, _, _ in ordered] == ["u#dated", "u#undated"]
