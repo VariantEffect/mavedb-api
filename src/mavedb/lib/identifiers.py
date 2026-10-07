@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 
 from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError
 from mavedb.lib.external_publications import Crossref, CrossrefWork, PublicationAuthors, Rxiv, RxivContentDetail
-from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
 from mavedb.lib.validation.publication import identifier_valid_for, infer_identifier_from_url, validate_db_name
 from mavedb.models.doi_identifier import DoiIdentifier
 from mavedb.models.ensembl_identifier import EnsemblIdentifier
@@ -331,9 +330,14 @@ async def find_generic_article(
             if not existing_publication:
                 try:
                     external_publication = await db_specific_fetches[publication_db](identifier)
-                except (json.JSONDecodeError, requests.exceptions.RequestException, requests.exceptions.HTTPError) as exc:
-                    save_to_logging_context(format_raised_exception_info_as_dict(exc))
-                    logger.error(msg=f"Failed to fetch identifier {identifier} from candidate databases.", exc_info=exc, extra=logging_context())
+                except (json.JSONDecodeError, requests.exceptions.RequestException) as exc:
+                    logger.warning(
+                        "Failed to fetch identifier %r from %s while fanning out over candidate databases.",
+                        identifier,
+                        publication_db,
+                        exc_info=True,
+                    )
+
                     external_publication = None
                     last_fetch_error = exc
 
