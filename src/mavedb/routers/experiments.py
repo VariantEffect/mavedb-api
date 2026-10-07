@@ -13,6 +13,7 @@ from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import get_principal, require_current_user, require_current_user_with_email
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import NonexistentOrcidUserError
+from mavedb.lib.collections import readable_official_collections
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.experiments import search_experiments as _search_experiments
 from mavedb.lib.identifiers import (
@@ -26,7 +27,7 @@ from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
-from mavedb.lib.score_sets import find_superseded_score_set_tail
+from mavedb.lib.score_sets import find_superseded_score_set_tail, readable_score_set_urns
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import validate_keyword_list
@@ -79,7 +80,7 @@ def list_experiments(
     editable: Optional[bool] = None,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
-) -> list[Experiment]:
+) -> list[experiment.Experiment]:
     """
     List all experiments viewable by the current user.
     """
@@ -99,7 +100,11 @@ def list_experiments(
         )
 
     items = query.order_by(Experiment.urn).all()
-    return [item for item in items if has_permission(user_data, item, Action.READ).permitted]
+    return [
+        enrich_experiment_with_num_score_sets(item, user_data)
+        for item in items
+        if has_permission(user_data, item, Action.READ).permitted
+    ]
 
 
 @router.post(
@@ -244,10 +249,18 @@ def get_experiment_score_sets(
         superseding_is_visible = fs.superseding_score_set is not None and (
             has_permission(user_data, fs.superseding_score_set, Action.READ).permitted
         )
+        readable_meta_analysis_urns = readable_score_set_urns(
+            user_data,
+            fs.meta_analyzed_by_score_sets,  # type: ignore[attr-defined]  # backref of meta_analyzes_score_sets
+        )
         validated_item = score_set.ScoreSet.model_validate(fs)
         response_item = validated_item.copy(
             update={
                 "experiment": enriched_experiment,
+                "meta_analyzed_by_score_set_urns": [
+                    urn for urn in validated_item.meta_analyzed_by_score_set_urns if urn in readable_meta_analysis_urns
+                ],
+                "official_collections": readable_official_collections(user_data, fs.official_collections),
                 "score_calibrations": [
                     calibration
                     for calibration in (validated_item.score_calibrations or [])

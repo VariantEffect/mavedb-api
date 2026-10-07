@@ -970,6 +970,30 @@ class TestPublicDumpMetadata:
 
         assert _metadata_supersessions(metadata)[urn] == (successor_urn if expect_named else None)
 
+    @pytest.mark.parametrize("meta_analysis_published", [False, True])
+    def test_names_only_readable_meta_analyses(
+        self, session, make_dump_score_set, anonymous_principal, meta_analysis_published
+    ):
+        """Anyone may start a meta-analysis of a published score set, so a private one must never be named
+        in an archive that can't be recalled. The loader's published+CC0 filter withholds it, and
+        `public_experiment_set` narrows by READ as a second line."""
+        analyzed = make_dump_score_set()
+        meta_analysis = make_dump_score_set(published=meta_analysis_published)
+        meta_analysis.meta_analyzes_score_sets = [analyzed]
+        session.commit()
+        urn, meta_analysis_urn = analyzed.urn, meta_analysis.urn
+        session.expunge_all()
+
+        metadata, _ = public_dump_metadata(session, anonymous_principal)
+
+        meta_analyzed_by = {
+            score_set.urn: score_set.meta_analyzed_by_score_set_urns
+            for experiment_set in metadata["experimentSets"]
+            for experiment in experiment_set.experiments
+            for score_set in experiment.score_sets
+        }
+        assert meta_analyzed_by[urn] == ([meta_analysis_urn] if meta_analysis_published else [])
+
     def test_reports_the_urns_whose_artifacts_the_archive_carries(
         self, session, make_dump_score_set, anonymous_principal
     ):

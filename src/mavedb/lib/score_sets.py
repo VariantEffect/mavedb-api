@@ -2,7 +2,7 @@ import logging
 from collections import Counter, defaultdict
 from datetime import datetime
 from operator import attrgetter
-from typing import TYPE_CHECKING, BinaryIO, Optional, Sequence
+from typing import TYPE_CHECKING, BinaryIO, Iterable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -488,6 +488,19 @@ def find_meta_analyses_for_experiment_sets(db: Session, urns: list[str]) -> list
         .order_by(ScoreSet.id)
         .all()
     )
+
+
+def readable_score_set_urns(user_data: Optional[UserData], score_sets: Iterable[ScoreSet]) -> set[str]:
+    """Return the URNs of ``score_sets`` the caller may read.
+
+    For narrowing URN lists that view models build from ORM relationships with no knowledge of the caller,
+    such as ``meta_analyzed_by_score_set_urns`` or a collection's ``score_set_urns``.
+    """
+    return {
+        score_set.urn
+        for score_set in score_sets
+        if score_set.urn is not None and has_permission(user_data, score_set, Action.READ).permitted
+    }
 
 
 def find_superseded_score_set_tail(

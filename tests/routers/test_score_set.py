@@ -26,6 +26,7 @@ from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
 from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
+from mavedb.models.collection import Collection as CollectionDbModel
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.processing_state import ProcessingState
@@ -103,6 +104,7 @@ from tests.helpers.util.score_set import (
     seed_csv_substrate,
     shift_hgvs_position,
 )
+from tests.helpers.util.collection import create_collection
 from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import (
     mock_worker_variant_insertion,
@@ -6278,3 +6280,86 @@ def test_publish_returns_the_owners_own_private_calibration(
         published = publish_score_set(client, score_set["urn"])
 
     assert [c["urn"] for c in (published.get("scoreCalibrations") or [])] == [calibration["urn"]]
+
+
+def test_meta_analyses_are_listed_only_to_callers_who_may_read_them(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides, extra_user_app_overrides
+):
+    """Anyone may start a meta-analysis of a published score set, so the score set must not name a private
+    one to callers who can't read it."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+
+    with DependencyOverrider(extra_user_app_overrides):
+        meta_analysis = create_seq_score_set(
+            client, None, update={"title": "Private meta-analysis", "metaAnalyzesScoreSetUrns": [published["urn"]]}
+        )
+        assert client.get(f"/api/v1/score-sets/{published['urn']}").json()["metaAnalyzedByScoreSetUrns"] == [
+            meta_analysis["urn"]
+        ]
+
+    assert client.get(f"/api/v1/score-sets/{published['urn']}").json()["metaAnalyzedByScoreSetUrns"] == []
+    with DependencyOverrider(anonymous_app_overrides):
+        assert client.get(f"/api/v1/score-sets/{published['urn']}").json()["metaAnalyzedByScoreSetUrns"] == []
+        experiment_score_sets = client.get(f"/api/v1/experiments/{published['experiment']['urn']}/score-sets").json()
+        assert [ss["metaAnalyzedByScoreSetUrns"] for ss in experiment_score_sets] == [[]]
+
+
+def test_official_collections_list_only_readable_collections_and_members(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+):
+    """An official collection badges every member, so a public record's response must not reveal the private
+    members it shares a badge with, or a private badge collection at all."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+    published_experiment_urn = published["experiment"]["urn"]
+    private_score_set = create_seq_score_set(client, published_experiment_urn)
+    private_experiment = create_experiment(client)
+
+    public_badge = create_collection(client)
+    private_badge = create_collection(client)
+    for collection, private in ((public_badge, False), (private_badge, True)):
+        for member in (published, private_score_set):
+            response = client.post(
+                f"/api/v1/collections/{collection['urn']}/score-sets", json={"score_set_urn": member["urn"]}
+            )
+            assert response.status_code == 200, response.text
+        for experiment_urn in (published_experiment_urn, private_experiment["urn"]):
+            response = client.post(
+                f"/api/v1/collections/{collection['urn']}/experiments", json={"experiment_urn": experiment_urn}
+            )
+            assert response.status_code == 200, response.text
+        session.query(CollectionDbModel).filter(CollectionDbModel.urn == collection["urn"]).update(
+            {"badge_name": "Badge", "private": private}
+        )
+    session.commit()
+
+    def members(collections):
+        return {c["urn"]: (sorted(c["scoreSetUrns"]), sorted(c["experimentUrns"])) for c in collections}
+
+    everything = (
+        sorted([published["urn"], private_score_set["urn"]]),
+        sorted([published_experiment_urn, private_experiment["urn"]]),
+    )
+    owner_view = client.get(f"/api/v1/score-sets/{published['urn']}").json()
+    assert members(owner_view["officialCollections"]) == {
+        public_badge["urn"]: everything,
+        private_badge["urn"]: everything,
+    }
+
+    with DependencyOverrider(anonymous_app_overrides):
+        anonymous_view = client.get(f"/api/v1/score-sets/{published['urn']}").json()
+        experiment_view = client.get(f"/api/v1/experiments/{published_experiment_urn}").json()
+        experiment_list = client.get("/api/v1/experiments/").json()
+
+    expected = {public_badge["urn"]: ([published["urn"]], [published_experiment_urn])}
+    assert members(anonymous_view["officialCollections"]) == expected
+    assert members(anonymous_view["experiment"]["officialCollections"]) == expected
+    assert members(experiment_view["officialCollections"]) == expected
+    assert [members(e["officialCollections"]) for e in experiment_list] == [expected]

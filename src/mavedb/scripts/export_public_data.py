@@ -41,10 +41,9 @@ from mavedb.lib.csv.score_set import (
     available_score_set_csv_namespaces,
     get_score_set_variants_as_csv,
 )
-from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
-from mavedb.lib.score_sets import get_annotatable_variants
+from mavedb.lib.score_sets import get_annotatable_variants, readable_score_set_urns
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.license import License
@@ -291,27 +290,28 @@ def score_set_artifacts(db: Session, score_set: ScoreSet, principal: Principal) 
 def public_experiment_set(
     experiment_set_view: ExperimentSetPublicDump,
     visible_calibration_ids: set[int],
-    readable_superseding_urns: set[str],
+    readable_related_urns: set[str],
 ) -> Optional[ExperimentSetPublicDump]:
     """Narrow a validated experiment set to what belongs in the public dump.
 
     Drops calibrations the caller may not READ, blanks a superseding score set the caller may not READ,
-    drops experiments left with no score sets, and returns None if no experiments remain. The score sets
-    themselves need no filter — the loading query already restricts them to published, CC0-licensed rows.
+    drops meta-analyses the caller may not READ from `meta_analyzed_by_score_set_urns`, drops experiments
+    left with no score sets, and returns None if no experiments remain. The score sets themselves need no
+    filter — the loading query already restricts them to published, CC0-licensed rows.
 
     Blanking supersession matters because a published score set is often superseded by a *private*
     in-progress replacement; without it, `main.json` would name an unreleased score set's URN and title
     in an archive published to Zenodo, which can't be recalled.
 
-    `readable_superseding_urns` gates on READ, the rule `_score_set_response` applies. It is
-    defense-in-depth rather than the live gate, and it can only subtract: `published_experiment_sets`
-    loads members through a published+CC0 filter that propagates to `superseding_score_set`, so a
-    private replacement is already `None` before this runs — and so is a *published* successor whose
-    license keeps it out of the archive. That second case is unresolved: the consumer reads a superseded
-    score set as current. Naming it would need the successor fetched by a separate unfiltered query and
-    injected into the view, not merely left un-blanked; whether it should be named is an open policy
-    question. Both behaviors are pinned by
-    `test_supersession_is_named_only_when_the_archive_carries_the_successor`.
+    `readable_related_urns` holds the superseding and meta-analysis score sets the caller may READ, the
+    rule `_score_set_response` applies. It is defense-in-depth rather than the live gate, and it can only
+    subtract: `published_experiment_sets` loads members through a published+CC0 filter that propagates to
+    `superseding_score_set` and `meta_analyzed_by_score_sets`, so a private replacement or meta-analysis is
+    already gone before this runs — and so is a *published* successor whose license keeps it out of the
+    archive. That second case is unresolved: the consumer reads a superseded score set as current. Naming
+    it would need the successor fetched by a separate unfiltered query and injected into the view, not
+    merely left un-blanked; whether it should be named is an open policy question. Both behaviors are
+    pinned by `test_supersession_is_named_only_when_the_archive_carries_the_successor`.
 
     Narrows the validated view rather than the ORM graph because `ExperimentSet.experiments` and
     `ScoreSet.score_calibrations` cascade-delete orphans, and this script can flush (`--commit`).
@@ -332,9 +332,12 @@ def public_experiment_set(
                     "superseding_score_set": (
                         score_set_view.superseding_score_set
                         if score_set_view.superseding_score_set is not None
-                        and score_set_view.superseding_score_set.urn in readable_superseding_urns
+                        and score_set_view.superseding_score_set.urn in readable_related_urns
                         else None
                     ),
+                    "meta_analyzed_by_score_set_urns": [
+                        urn for urn in score_set_view.meta_analyzed_by_score_set_urns if urn in readable_related_urns
+                    ],
                 }
             )
             for score_set_view in experiment_view.score_sets
@@ -404,23 +407,28 @@ def public_dump_metadata(db: Session, principal: Principal) -> tuple[dict, list[
     # Issue: https://github.com/VariantEffect/mavedb-api/issues/192
     # See, for instance, https://stackoverflow.com/questions/12670395/json-encoding-very-long-iterators.
 
-    # Asked of the ORM graph, not the validated views: a successor is typically outside the loading
-    # query's published+CC0 filter, so checking the view would miss it. READ is the gate, but this set
-    # only ever subtracts — the loader nulls a non-CC0 successor on the view first, so being readable
-    # here is not enough to get one named. See `public_experiment_set`.
-    readable_superseding_urns: set[str] = {
-        str(score_set_orm.superseding_score_set.urn)
-        for score_set_orm in flatmap(lambda es: flatmap(lambda e: e.score_sets, es.experiments), experiment_sets)
-        if score_set_orm.superseding_score_set is not None
-        and score_set_orm.superseding_score_set.urn is not None
-        and has_permission(principal.user_data, score_set_orm.superseding_score_set, Action.READ).permitted
-    }
+    # Asked of the ORM graph, not the validated views: a successor or meta-analysis is typically outside the
+    # loading query's published+CC0 filter, so checking the view would miss it. READ is the gate, but for
+    # successors this set only ever subtracts — the loader nulls a non-CC0 successor on the view first, so
+    # being readable here is not enough to get one named. See `public_experiment_set`.
+    loaded_score_sets = list(flatmap(lambda es: flatmap(lambda e: e.score_sets, es.experiments), experiment_sets))
+    readable_related_urns = readable_score_set_urns(
+        principal.user_data,
+        [
+            related
+            for score_set_orm in loaded_score_sets
+            for related in [
+                *([score_set_orm.superseding_score_set] if score_set_orm.superseding_score_set is not None else []),
+                *score_set_orm.meta_analyzed_by_score_sets,  # type: ignore[attr-defined]  # backref
+            ]
+        ],
+    )
 
     experiment_set_views = [
         narrowed
         for narrowed in (
             public_experiment_set(
-                ExperimentSetPublicDump.model_validate(es), visible_calibration_ids, readable_superseding_urns
+                ExperimentSetPublicDump.model_validate(es), visible_calibration_ids, readable_related_urns
             )
             for es in experiment_sets
         )

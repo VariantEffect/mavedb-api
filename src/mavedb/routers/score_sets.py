@@ -66,12 +66,14 @@ from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.score_calibrations import create_score_calibration
 from mavedb.lib.score_set_variants import get_lean_score_set_variants
+from mavedb.lib.collections import readable_official_collections
 from mavedb.lib.score_sets import (
     csv_data_to_df,
     fetch_score_set_search_filter_options,
     find_meta_analyses_for_experiment_sets,
     get_annotatable_variants,
     is_replaces_id_unique_violation,
+    readable_score_set_urns,
     refresh_variant_urns,
 )
 from mavedb.lib.score_sets import (
@@ -595,13 +597,15 @@ def _score_set_response(item: ScoreSet, principal: Principal) -> score_set.Score
     """
     Serialize a score set for a response, withholding the sub-resources this caller may not read.
 
-    Every route in this module that returns a ``ScoreSet`` view model builds it here. The two sub-resources
-    a score set carries have READ rules stricter than its own, and each was leaked from a different route
-    before this was centralized:
+    Every route in this module that returns a ``ScoreSet`` view model builds it here. The sub-resources a
+    score set carries have READ rules of their own, and each was leaked from a route before this was
+    centralized:
 
       - Calibrations. Publishing a score set does not publish its calibrations, and owning a score set does
         not entitle its owner to a community calibration someone else attached to it.
       - The superseding score set, which is usually still private while the score set it replaces is public.
+      - The score sets that meta-analyze this one. Anyone may start a meta-analysis of a published score set.
+      - Official collections, and the other members they list.
 
     The search routes are the deliberate exception: they answer with ``ShortScoreSet``, which carries neither
     sub-resource, so there is nothing for this function to narrow. Any route that widens its response model
@@ -630,10 +634,19 @@ def _score_set_response(item: ScoreSet, principal: Principal) -> score_set.Score
         has_permission(principal.user_data, item.superseding_score_set, Action.READ).permitted
     )
 
+    readable_meta_analysis_urns = readable_score_set_urns(
+        principal.user_data,
+        item.meta_analyzed_by_score_sets,  # type: ignore[attr-defined]  # backref of meta_analyzes_score_sets
+    )
+
     validated_item = score_set.ScoreSet.model_validate(item)
     return validated_item.model_copy(
         update={
             "experiment": enrich_experiment_with_num_score_sets(item.experiment, principal.user_data),
+            "meta_analyzed_by_score_set_urns": [
+                urn for urn in validated_item.meta_analyzed_by_score_set_urns if urn in readable_meta_analysis_urns
+            ],
+            "official_collections": readable_official_collections(principal.user_data, item.official_collections),
             "score_calibrations": [
                 calibration
                 for calibration in (validated_item.score_calibrations or [])
