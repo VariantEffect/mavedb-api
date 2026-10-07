@@ -87,6 +87,7 @@ from mavedb.lib.urns import (
     generate_experiment_set_urn,
     generate_experiment_urn,
     generate_score_set_urn,
+    lock_urn_assignment,
 )
 from mavedb.lib.variant_detail import get_variant_detail
 from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set
@@ -2779,6 +2780,9 @@ async def publish_score_set(
     """
     save_to_logging_context({"requested_resource": urn})
 
+    # Taken before loading the score set so a concurrent publish of the same record waits, then sees it published.
+    lock_urn_assignment(db)
+
     item: Optional[ScoreSet] = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
     if not item:
         logger.info(msg="Failed to publish score set; The requested score set does not exist.", extra=logging_context())
@@ -2823,44 +2827,58 @@ async def publish_score_set(
             detail="cannot publish score set without variant scores",
         )
 
-    published_date = date.today()
+    # Autoflush can write the new URNs at any query below, so a collision may surface before the commit.
+    try:
+        published_date = date.today()
 
-    if item.experiment.experiment_set.private or not item.experiment.experiment_set.published_date:
-        retired_experiment_set_urn = item.experiment.experiment_set.urn
-        item.experiment.experiment_set.urn = generate_experiment_set_urn(db)
-        record_urn_redirect(db, retired_experiment_set_urn, item.experiment.experiment_set.urn)
-        item.experiment.experiment_set.private = False
-        item.experiment.experiment_set.published_date = published_date
-        db.add(item.experiment.experiment_set)
+        if item.experiment.experiment_set.private or not item.experiment.experiment_set.published_date:
+            retired_experiment_set_urn = item.experiment.experiment_set.urn
+            item.experiment.experiment_set.urn = generate_experiment_set_urn(db)
+            record_urn_redirect(db, retired_experiment_set_urn, item.experiment.experiment_set.urn)
+            item.experiment.experiment_set.private = False
+            item.experiment.experiment_set.published_date = published_date
+            db.add(item.experiment.experiment_set)
 
-    save_to_logging_context({"experiment_set": item.experiment.experiment_set.urn})
+        save_to_logging_context({"experiment_set": item.experiment.experiment_set.urn})
 
-    if item.experiment.private or not item.experiment.published_date:
-        retired_experiment_urn = item.experiment.urn
-        item.experiment.urn = generate_experiment_urn(
-            db,
-            item.experiment.experiment_set,
-            experiment_is_meta_analysis=len(item.meta_analyzes_score_sets) > 0,
+        if item.experiment.private or not item.experiment.published_date:
+            retired_experiment_urn = item.experiment.urn
+            item.experiment.urn = generate_experiment_urn(
+                db,
+                item.experiment.experiment_set,
+                experiment_is_meta_analysis=len(item.meta_analyzes_score_sets) > 0,
+            )
+            record_urn_redirect(db, retired_experiment_urn, item.experiment.urn)
+            item.experiment.private = False
+            item.experiment.published_date = published_date
+            db.add(item.experiment)
+
+        save_to_logging_context({"experiment": item.experiment.urn})
+
+        retired_score_set_urn = item.urn
+        item.urn = generate_score_set_urn(db, item.experiment)
+        # Variant URNs are rewritten below from the score set's, so this one redirect forwards them too.
+        record_urn_redirect(db, retired_score_set_urn, item.urn)
+        item.private = False
+        item.published_date = published_date
+        refresh_variant_urns(db, item)
+
+        save_to_logging_context({"score_set": item.urn})
+
+        db.add(item)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        logger.warning(
+            msg="Failed to publish score set; A newly assigned URN collided with an existing record.",
+            extra=logging_context(),
+            exc_info=True,
         )
-        record_urn_redirect(db, retired_experiment_urn, item.experiment.urn)
-        item.experiment.private = False
-        item.experiment.published_date = published_date
-        db.add(item.experiment)
-
-    save_to_logging_context({"experiment": item.experiment.urn})
-
-    retired_score_set_urn = item.urn
-    item.urn = generate_score_set_urn(db, item.experiment)
-    # Variant URNs are rewritten below from the score set's, so this one redirect forwards them too.
-    record_urn_redirect(db, retired_score_set_urn, item.urn)
-    item.private = False
-    item.published_date = published_date
-    refresh_variant_urns(db, item)
-
-    save_to_logging_context({"score_set": item.urn})
-
-    db.add(item)
-    db.commit()
+        raise HTTPException(
+            status_code=409,
+            detail="This score set could not be published because its new URN is already in use. "
+            "Please reload the page to check whether it was published, and try again if it was not.",
+        )
     db.refresh(item)
 
     try:

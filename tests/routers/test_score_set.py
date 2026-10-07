@@ -1912,6 +1912,37 @@ def test_cannot_publish_an_already_published_score_set(session, data_provider, c
     assert unchanged.json()["urn"] == published_score_set["urn"]
 
 
+def test_publish_score_set_returns_conflict_when_assigned_urn_is_taken(
+    session, data_provider, client, setup_router_db, data_files
+):
+    experiment = create_experiment(client)
+    score_set_1 = create_seq_score_set(client, experiment["urn"])
+    score_set_1 = mock_worker_variant_insertion(client, session, data_provider, score_set_1, data_files / "scores.csv")
+    score_set_2 = create_seq_score_set(client, experiment["urn"])
+    score_set_2 = mock_worker_variant_insertion(client, session, data_provider, score_set_2, data_files / "scores.csv")
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set_1 = publish_score_set(client, score_set_1["urn"])
+
+    # Simulates a concurrent publication that minted the same URN between this request's read and its write.
+    with (
+        patch(
+            "mavedb.routers.score_sets.generate_score_set_urn",
+            return_value=published_score_set_1["urn"],
+        ),
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue,
+    ):
+        response = client.post(f"/api/v1/score-sets/{score_set_2['urn']}/publish")
+        worker_queue.assert_not_called()
+
+    assert response.status_code == 409
+    assert "already in use" in response.json()["detail"]
+
+    unpublished = client.get(f"/api/v1/score-sets/{score_set_2['urn']}")
+    assert unpublished.status_code == 200
+    assert unpublished.json()["private"] is True
+
+
 def test_publish_score_set_discards_pipeline_when_entrypoint_enqueue_fails(
     session, data_provider, client, setup_router_db, data_files
 ):

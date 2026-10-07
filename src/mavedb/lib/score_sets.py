@@ -800,8 +800,6 @@ def refresh_variant_urns(db: Session, score_set: ScoreSet):
         variant.urn = refreshed_urn
         db.add(variant)
 
-    db.commit()
-
 
 def bulk_create_urns(n, score_set, reset_counter=False) -> list[str]:
     start_value = 0 if reset_counter else score_set.num_variants
