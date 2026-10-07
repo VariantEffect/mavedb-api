@@ -5380,3 +5380,50 @@ def test_user_sees_calibrations_across_multiple_score_sets(
     returned_urns = {c["urn"] for c in calibrations}
     assert cal_1["urn"] in returned_urns
     assert cal_2["urn"] in returned_urns
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+@pytest.mark.parametrize("action", ["promote-to-primary", "demote-from-primary"])
+def test_score_set_owner_cannot_rank_or_see_private_community_calibration(
+    client,
+    setup_router_db,
+    mock_publication_fetch,
+    session,
+    data_provider,
+    data_files,
+    extra_user_app_overrides,
+    action,
+):
+    """CHANGE_RANK admits the score set owner to community calibrations, but a private one is not theirs to
+    read, so the rank routes must not return or describe it."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+
+    with DependencyOverrider(extra_user_app_overrides):
+        calibration = create_test_score_calibration_in_score_set_via_client(
+            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        )
+    assert calibration["investigatorProvided"] is False
+
+    response = client.post(f"/api/v1/score-calibrations/{calibration['urn']}/{action}")
+
+    assert response.status_code == 404
+    assert "functionalClassifications" not in response.json()

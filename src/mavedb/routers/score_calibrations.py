@@ -701,6 +701,10 @@ async def promote_score_calibration_to_primary_route(
         logger.debug("The requested score calibration does not exist", extra=logging_context())
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
 
+    # CHANGE_RANK admits score set contributors to community calibrations they may not READ. Only public
+    # calibrations can be ranked, so asserting READ first refuses nothing legitimate and keeps this route
+    # from returning, or describing, a calibration the caller cannot see.
+    assert_permission(user_data, item, Action.READ)
     assert_permission(user_data, item, Action.CHANGE_RANK)
 
     if item.primary:
@@ -765,6 +769,10 @@ def demote_score_calibration_from_primary_route(
         logger.debug("The requested score calibration does not exist", extra=logging_context())
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
 
+    # CHANGE_RANK admits score set contributors to community calibrations they may not READ. Only public
+    # calibrations can be ranked, so asserting READ first refuses nothing legitimate and keeps this route
+    # from returning, or describing, a calibration the caller cannot see.
+    assert_permission(user_data, item, Action.READ)
     assert_permission(user_data, item, Action.CHANGE_RANK)
 
     if not item.primary:
