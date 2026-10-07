@@ -6,7 +6,7 @@ assay-level HGVS off the live mapping record, the digest/ClinGen id/VEP conseque
 authoritative allele; each HGVS string always rides even when it is not a placeable simple
 substitution; unmapped variants are retained with null mapped fields; ``as_of`` reconstructs the
 annotation layer while the immutable submitted HGVS and score stay put; and the set is ordered by
-variant number.
+variant number. They also pin the query's plan shape: per-variant lookups stay keyed index probes.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -22,6 +22,7 @@ from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.variant import Variant
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 from tests.helpers.constants import TEST_MINIMAL_VARIANT
+from tests.helpers.util.query_plan import captured_statements, unkeyed_scans
 
 # Deterministic windows far from the transaction clock (mirrors tests/lib/test_alleles.py).
 T0 = datetime(2020, 1, 1, tzinfo=timezone.utc)
@@ -309,3 +310,33 @@ def test_as_of_reconstructs_the_historical_assay_level(session, setup_lib_db_wit
     assert pre_mapping.assay_level_digest is None
     assert pre_mapping.assay_level is None
     assert pre_mapping.mapped == MappedTriple()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("as_of", [None, T2], ids=["current", "as_of"])
+def test_per_variant_lookups_cannot_become_whole_table_reads(session, setup_lib_db_with_score_set, as_of):
+    """With nested loops and sequential scans disabled, every read of the per-variant tables must still be
+    keyed on the outer row: the query must not be able to turn into a hash join over the whole table."""
+    score_set = setup_lib_db_with_score_set
+    variant = _variant(session, score_set, 1, score=-2.3, hgvs_nt="c.1A>T")
+    record = _record(session, variant, assay_level="cdna", hgvs_assay_level="NM_000546.6:c.1216G>A", valid_from=T0)
+    measured = _allele(session, "cdna-digest", level="cdna")
+    genomic = _allele(session, "gen-digest", level="genomic", hgvs_g="NC_000017.11:g.7676154C>T")
+    protein = _allele(session, "prot-digest", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr")
+    _link(session, record, measured, is_authoritative=True, projection_group=0, valid_from=T0)
+    _link(session, record, genomic, is_authoritative=False, projection_group=0, valid_from=T0)
+    _link(session, record, protein, is_authoritative=False, valid_from=T0)
+
+    with captured_statements(session) as captured:
+        get_lean_score_set_variants(session, score_set, as_of=as_of)
+    [(statement, parameters)] = [(s, p) for s, p in captured if "FROM variants" in s]
+
+    assert (
+        unkeyed_scans(
+            session,
+            statement,
+            parameters,
+            {"mapping_records": "variant_id", "mapping_record_alleles": "mapping_record_id"},
+        )
+        == []
+    )

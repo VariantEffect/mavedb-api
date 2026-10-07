@@ -1,8 +1,7 @@
 """Lean whole-set view backing the score-set page (table, heatmap, score/effect histograms).
 
-Assembles one record per variant in two O(N) bulk queries: a base per-variant projection, plus a
-separate protein-HGVS query stitched back in Python (see :func:`get_protein_hgvs_by_record` for why
-it's split out).
+Assembles one record per variant in a single query: the score set's variants, with each per-variant
+annotation fetched by a ``LATERAL ... LIMIT 1`` lookup (see :func:`get_lean_score_set_variants` for why).
 
 Each record carries the **submitted** HGVS (``hgvs_nt``/``hgvs_pro``/``hgvs_splice``, the depositor's
 target frame) and the **mapped** (reference-frame) HGVS as a ``MappedTriple`` — one canonical HGVS per
@@ -23,7 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Sequence
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, true
 from sqlalchemy.orm import Session, aliased
 
 from mavedb.lib.hgvs import parse_simple_substitution
@@ -172,7 +171,7 @@ def get_protein_hgvs_by_record(
 ) -> dict[int, str]:
     """The canonical protein-level mapped HGVS for a set of live mapping records, keyed by
     ``mapping_record.id``. Records with no protein projection (UTR/intronic) are absent from the map.
-    Shared by the lean whole-set view and the CSV export.
+    Used by the CSV export.
 
     Exactly one of *score_set_id* (every variant in one score set) or *variant_ids* (an explicit set,
     which may span several score sets — the variant-level CSV's cross-set equivalent measurements) is
@@ -225,76 +224,118 @@ def get_lean_score_set_variants(
     db: Session, score_set: ScoreSet, *, as_of: Optional[datetime] = None
 ) -> list[LeanVariantRecord]:
     """Assemble the lean whole-set view for ``score_set``, one record per variant, ordered by variant
-    number. Unmapped variants are retained (left joins, null mapped fields) so the table and score
-    histogram still see them. ``as_of`` defaults to currently-live rows.
+    number. Unmapped variants are retained (null mapped fields) so the table and score histogram still
+    see them. ``as_of`` defaults to currently-live rows.
+
+    Every per-variant lookup is a ``LATERAL ... LIMIT 1`` subquery. As plain joins, Postgres may choose a
+    hash join that scans the whole of ``mapping_record_alleles`` once its row estimate for the score set
+    crosses a threshold, which is orders of magnitude slower when that table is not cached. A lateral subquery with a
+    ``LIMIT`` cannot be flattened into the join tree, so each lookup stays a per-variant index probe
+    whatever the planner's statistics say. Each lookup yields at most one row by invariant (one live
+    record per variant, one live authoritative link per record, at most one projection partner, one
+    protein allele); the ``ORDER BY`` only makes a violated invariant deterministic.
     """
-    # The authoritative link's *other* projection_group member — same record, same group, not
-    # authoritative — carries the canonical HGVS at the unmeasured nucleotide level. See join below.
+    # The variant's live mapping record.
+    record = (
+        select(MappingRecord.id, MappingRecord.assay_level, MappingRecord.hgvs_assay_level)
+        .where(MappingRecord.variant_id == Variant.id, MappingRecord.live_at(as_of))
+        .order_by(MappingRecord.id)
+        .limit(1)
+        .lateral("record")
+    )
+
+    # The authoritative (measured) allele, with its VEP consequence. ``is_authoritative`` is tested as a
+    # bare boolean: ``IS TRUE`` would not match the partial unique index's ``WHERE is_authoritative``.
+    authoritative_link = aliased(MappingRecordAllele)
+    authoritative = (
+        select(
+            authoritative_link.projection_group,
+            Allele.vrs_digest,
+            Allele.clingen_allele_id,
+            VepAlleleConsequence.functional_consequence,
+        )
+        .select_from(authoritative_link)
+        .join(Allele, Allele.id == authoritative_link.allele_id)
+        .outerjoin(
+            VepAlleleConsequence, and_(VepAlleleConsequence.allele_id == Allele.id, VepAlleleConsequence.live_at(as_of))
+        )
+        .where(
+            authoritative_link.mapping_record_id == record.c.id,
+            authoritative_link.is_authoritative,
+            authoritative_link.live_at(as_of),
+        )
+        .order_by(authoritative_link.id)
+        .limit(1)
+        .lateral("authoritative")
+    )
+
+    # The authoritative link's projection_group partner: the canonical HGVS at the unmeasured nucleotide
+    # level. A NULL group (protein assay, or pre-reverse-translation data) matches nothing, so the slot
+    # degrades to None.
     projection_link = aliased(MappingRecordAllele)
     projection_allele = aliased(Allele)
+    projection = (
+        select(
+            projection_allele.level.label("projection_level"),
+            # Exactly one of hgvs_g/hgvs_c is populated (it's a nucleotide allele); coalesce picks it.
+            func.coalesce(projection_allele.hgvs_g, projection_allele.hgvs_c).label("projection_hgvs"),
+        )
+        .select_from(projection_link)
+        .join(projection_allele, projection_allele.id == projection_link.allele_id)
+        .where(
+            projection_link.mapping_record_id == record.c.id,
+            projection_link.projection_group == authoritative.c.projection_group,
+            ~projection_link.is_authoritative,
+            projection_link.live_at(as_of),
+        )
+        .order_by(projection_link.id)
+        .limit(1)
+        .lateral("projection")
+    )
 
-    # 1:1 annotation joins, so this is a stream of O(N) index-scan lookups. MappingRecord.id rides
-    # along as the key the protein projection (separate query, below) is stitched back on.
-    base_statement = (
+    # The record's protein-level allele (the protein apex for a nucleotide assay). Absent for UTR/intronic.
+    protein_link = aliased(MappingRecordAllele)
+    protein_allele = aliased(Allele)
+    protein = (
+        select(protein_allele.hgvs_p.label("protein_hgvs"))
+        .select_from(protein_link)
+        .join(protein_allele, protein_allele.id == protein_link.allele_id)
+        .where(
+            protein_link.mapping_record_id == record.c.id,
+            protein_link.live_at(as_of),
+            protein_allele.level == SequenceLevel.protein.value,
+        )
+        .order_by(protein_allele.id)
+        .limit(1)
+        .lateral("protein")
+    )
+
+    statement = (
         select(
             Variant.urn,
             Variant.data,
             Variant.hgvs_nt,
             Variant.hgvs_pro,
             Variant.hgvs_splice,
-            MappingRecord.id.label("mapping_record_id"),
-            MappingRecord.assay_level,
-            MappingRecord.hgvs_assay_level,
-            Allele.vrs_digest,
-            Allele.clingen_allele_id,
-            VepAlleleConsequence.functional_consequence,
-            projection_allele.level.label("projection_level"),
-            # Exactly one of hgvs_g/hgvs_c is populated (it's a nucleotide allele); coalesce picks it.
-            func.coalesce(projection_allele.hgvs_g, projection_allele.hgvs_c).label("projection_hgvs"),
+            record.c.assay_level,
+            record.c.hgvs_assay_level,
+            authoritative.c.vrs_digest,
+            authoritative.c.clingen_allele_id,
+            authoritative.c.functional_consequence,
+            projection.c.projection_level,
+            projection.c.projection_hgvs,
+            protein.c.protein_hgvs,
         )
-        # LEFT join so unmapped variants stay (null mapped fields) for the table + score histogram.
-        # live_at rides in the ON clause, not WHERE. a WHERE would reject the outer join's null row,
-        # silently turning this into an INNER join. Same pattern on every join below.
-        .outerjoin(MappingRecord, and_(MappingRecord.variant_id == Variant.id, MappingRecord.live_at(as_of)))
-        # The one authoritative (measured) allele; is_authoritative keeps this 1:1 (one authoritative
-        # link per live record, an invariant the mapping job upholds).
-        .outerjoin(
-            MappingRecordAllele,
-            and_(
-                MappingRecordAllele.mapping_record_id == MappingRecord.id,
-                MappingRecordAllele.is_authoritative.is_(True),
-                MappingRecordAllele.live_at(as_of),
-            ),
-        )
-        # The allele row itself (digest, ClinGen id). No live_at: alleles are immutable/deduplicated,
-        # not ValidTime — the live link already establishes what applies.
-        .outerjoin(Allele, Allele.id == MappingRecordAllele.allele_id)
-        # Its VEP consequence.
-        .outerjoin(
-            VepAlleleConsequence, and_(VepAlleleConsequence.allele_id == Allele.id, VepAlleleConsequence.live_at(as_of))
-        )
-        # The authoritative link's projection_group partner (other nucleotide level). Unlike the protein
-        # subquery, this is safe as a direct join: a group has ≤2 members, so at most one match, and the
-        # mapping_record_id predicate uses an existing index — no O(N^2) rescan. A NULL group (protein
-        # assay, or pre-reverse-translation data) matches nothing, so the slot degrades to None.
-        .outerjoin(
-            projection_link,
-            and_(
-                projection_link.mapping_record_id == MappingRecord.id,
-                projection_link.projection_group == MappingRecordAllele.projection_group,
-                projection_link.is_authoritative.is_(False),
-                projection_link.live_at(as_of),
-            ),
-        )
-        .outerjoin(projection_allele, projection_allele.id == projection_link.allele_id)
-        # The anchor: just this score set's variants.
+        .select_from(Variant)
+        # LEFT joins so unmapped variants stay (null mapped fields) for the table + score histogram.
+        .outerjoin(record, true())
+        .outerjoin(authoritative, true())
+        .outerjoin(projection, true())
+        .outerjoin(protein, true())
         .where(Variant.score_set_id == score_set.id)
         # Natural table order: variant number (the integer after '#'), id breaks ties stably.
         .order_by(Variant.variant_number, Variant.id)
     )
-
-    # Runs as its own query, not a join (see get_protein_hgvs_by_record), stitched back below.
-    protein_hgvs_by_record = get_protein_hgvs_by_record(db, score_set.id, as_of=as_of)
 
     return [
         LeanVariantRecord(
@@ -312,8 +353,8 @@ def get_lean_score_set_variants(
                 assay_level_hgvs=row.hgvs_assay_level,
                 projection_level=row.projection_level,
                 projection_hgvs=row.projection_hgvs,
-                protein_hgvs=protein_hgvs_by_record.get(row.mapping_record_id),
+                protein_hgvs=row.protein_hgvs,
             ),
         )
-        for row in db.execute(base_statement)
+        for row in db.execute(statement)
     ]
