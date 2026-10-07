@@ -14,15 +14,17 @@ It is measurement-agnostic, and that shapes what it does *not* carry:
   *relative to the focus allele*.
 
 **The equivalence class is the full cross-record union** (:func:`lib.alleles.get_allele_translations`):
-every allele co-linked to any live record touching the focus. That is the discoverable "everything
-related to this change" set. Each member is then labelled relative to the focus allele. Even though this
-level is unable to determine which allele was actually measured, we can still say how a given allele relates
-to the focus allele (e.g., faithful, candidate, convergent) based on the graph structure.
+every allele co-linked to any live record touching the focus, restricted by the caller to records of
+score sets they may read. That is the discoverable "everything related to this change" set. Each member
+is then labelled relative to the focus allele. Even though this level is unable to determine which
+allele was actually measured, we can still say how a given allele relates to the focus allele (e.g.,
+faithful, candidate, convergent) based on the graph structure.
 
 ``as_of`` reconstructs the molecular layer, class membership + annotations, at the past instant. The
 focus allele's own identity is immutable and content-addressed. ``as_of`` defaults to this instant.
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
@@ -64,7 +66,13 @@ class AlleleDetail:
     """External annotations for each member of the cross-layer equivalence class, keyed by VRS digest."""
 
 
-def _focus_projection_pairs(db: Session, focus_alleles: list[Allele], *, as_of: Optional[datetime]) -> dict[str, str]:
+def _focus_projection_pairs(
+    db: Session,
+    focus_alleles: list[Allele],
+    *,
+    as_of: Optional[datetime],
+    score_set_ids: Optional[Collection[int]],
+) -> dict[str, str]:
     """A symmetric ``digest -> digest`` map pairing each focus allele with its c↔g projection.
 
     A ``projection_group`` is one c↔g pair, local to a single mapping record. The projection is the ≤1
@@ -82,13 +90,16 @@ def _focus_projection_pairs(db: Session, focus_alleles: list[Allele], *, as_of: 
             continue
 
         # limit(1) rather than one_or_none(), which would raise for any allele measured more than once.
-        link = db.scalar(
+        link_query = (
             select(MappingRecordAllele)
             .where(MappingRecordAllele.allele_id == focus.id)
             .where(MappingRecordAllele.projection_group.isnot(None))
             .where(MappingRecordAllele.live_at(as_of))
-            .limit(1)
         )
+        if score_set_ids is not None:
+            link_query = link_query.where(MappingRecordAllele.score_set_id.in_(score_set_ids))
+
+        link = db.scalar(link_query.limit(1))
         if link is None:
             continue
 
@@ -138,7 +149,12 @@ def _member_label(
 
 
 def get_allele_detail(
-    db: Session, focus: Allele, *, focus_digests: set[str], as_of: Optional[datetime] = None
+    db: Session,
+    focus: Allele,
+    *,
+    focus_digests: set[str],
+    as_of: Optional[datetime] = None,
+    score_set_ids: Optional[Collection[int]] = None,
 ) -> AlleleDetail:
     """Assemble the allele-detail envelope anchored on ``focus``.
 
@@ -146,15 +162,16 @@ def get_allele_detail(
     a by-digest fetch, or the (genomic + coding) representations of a CAID for a by-CAID fetch. The
     equivalence class is every allele co-linked to a live record touching the ``focus``
     (:func:`get_allele_translations`). An orphan allele falls back to ``focus`` alone. Non-focus members
-    are labelled by :func:`_member_label`.
+    are labelled by :func:`_member_label`. ``score_set_ids``, when given, restricts the equivalence
+    class and projection pairing to records of those score sets.
     """
-    equivalence_class = get_allele_translations(db, focus.id, as_of=as_of) or [focus]
+    equivalence_class = get_allele_translations(db, focus.id, as_of=as_of, score_set_ids=score_set_ids) or [focus]
     annotations = get_allele_annotations(db, equivalence_class, as_of=as_of)
 
     focus_alleles = [a for a in equivalence_class if a.vrs_digest in focus_digests] or [focus]
     focus_is_protein = any(a.level == SequenceLevel.protein.value for a in focus_alleles)
 
-    pairs = _focus_projection_pairs(db, focus_alleles, as_of=as_of)
+    pairs = _focus_projection_pairs(db, focus_alleles, as_of=as_of, score_set_ids=score_set_ids)
     # The focus's projection(s) that are not themselves focus (for a CAID fetch the projection pair is
     # jointly the focus, so this is empty and they are simply flagged is_focus instead).
     projection_digests = {pairs[d] for d in focus_digests if d in pairs} - focus_digests

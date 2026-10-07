@@ -8,16 +8,48 @@ nucleotide layers, the protein allele carries a distinct PA, so the link graph i
 ties all three together.
 """
 
+from collections.abc import Collection
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from mavedb.lib.permissions import Action, has_permission
+from mavedb.lib.types.authentication import UserData
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
+
+
+def readable_score_set_ids_by_allele(
+    db: Session, user_data: Optional[UserData], allele_ids: Collection[int]
+) -> dict[int, set[int]]:
+    """Map each of ``allele_ids`` to the ids of the score sets linking it that the caller may read.
+
+    Every allele exists because some score set's mapping produced it, so these are the score sets through
+    which the caller may see it. An allele with no readable score set is omitted. Links are considered
+    regardless of valid time: a retired link still records why the allele was created.
+    """
+    if not allele_ids:
+        return {}
+
+    links = db.execute(
+        select(MappingRecordAllele.allele_id, MappingRecordAllele.score_set_id)
+        .where(MappingRecordAllele.allele_id.in_(allele_ids))
+        .distinct()
+    ).all()
+    score_sets = db.scalars(select(ScoreSet).where(ScoreSet.id.in_({score_set_id for _, score_set_id in links}))).all()
+    readable = {score_set.id for score_set in score_sets if has_permission(user_data, score_set, Action.READ).permitted}
+
+    by_allele: dict[int, set[int]] = {}
+    for allele_id, score_set_id in links:
+        if score_set_id in readable:
+            by_allele.setdefault(allele_id, set()).add(score_set_id)
+
+    return by_allele
 
 
 def get_live_record_allele_links(
@@ -80,7 +112,13 @@ def find_variants_by_vrs_identifier(
     return [(row[0], row[1]) for row in db.execute(stmt).unique().all()]
 
 
-def get_allele_translations(db: Session, allele_id: int, *, as_of: Optional[datetime] = None) -> list[Allele]:
+def get_allele_translations(
+    db: Session,
+    allele_id: int,
+    *,
+    as_of: Optional[datetime] = None,
+    score_set_ids: Optional[Collection[int]] = None,
+) -> list[Allele]:
     """Return the cross-layer equivalence set of ``allele_id``: every allele co-linked to a
     ``MappingRecord`` that links it (the anchor allele itself included), spanning the genomic, coding,
     and protein layers.
@@ -96,12 +134,19 @@ def get_allele_translations(db: Session, allele_id: int, *, as_of: Optional[date
     the same half-open ``[valid_from, valid_to)`` predicate, so the whole set is evaluated at one
     instant. The retire-cascade invariant (a live link implies a live record) holds under ``as_of`` too,
     so filtering the links alone is sufficient.
+
+    ``score_set_ids``, when given, restricts the union to records of those score sets (e.g. the ones the
+    caller may read). Only the anchor hop needs the filter: every link of a record shares its score set.
     """
-    record_ids = db.scalars(
+    record_query = (
         select(MappingRecordAllele.mapping_record_id)
         .where(MappingRecordAllele.allele_id == allele_id)
         .where(MappingRecordAllele.live_at(as_of))
-    ).all()
+    )
+    if score_set_ids is not None:
+        record_query = record_query.where(MappingRecordAllele.score_set_id.in_(score_set_ids))
+
+    record_ids = db.scalars(record_query).all()
     if not record_ids:
         return []
 

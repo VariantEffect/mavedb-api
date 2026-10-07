@@ -10,8 +10,11 @@ from starlette.convertors import Convertor, register_url_convertor
 
 from mavedb import deps
 from mavedb.lib.allele_detail import get_allele_detail
+from mavedb.lib.alleles import readable_score_set_ids_by_allele
+from mavedb.lib.authentication import get_current_user
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import save_to_logging_context
+from mavedb.lib.types.authentication import UserData
 from mavedb.models.allele import Allele
 from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.routers.shared import (
@@ -93,6 +96,7 @@ def get_allele(
         ),
     ),
     db: Session = Depends(deps.get_db),
+    user_data: Optional[UserData] = Depends(get_current_user),
 ):
     """Fetch the detail envelope for a deduplicated allele, by any of its identifiers.
 
@@ -106,24 +110,38 @@ def get_allele(
     - a **PAID** (``PA…``) — the protein change; the protein allele is focused and its nucleotide
       equivalents surface as reverse-translation candidates.
 
-    This is a **public molecular resource**. It carries no score-set-level information. No scores,
-    classifications, measurements, or version standing. Only the allele's own identity, its cross-layer
-    equivalence class, and public reference annotations (VEP / gnomAD / ClinVar).
+    The envelope carries no score-set-level information. No scores, classifications, measurements, or
+    version standing. Only the allele's own identity, its cross-layer equivalence class, and public
+    reference annotations (VEP / gnomAD / ClinVar).
+
+    An allele is in MaveDB only because a score set's mapping produced it, so it is served only to
+    callers who may read at least one such score set; otherwise the response is a 404, indistinguishable
+    from an unknown identifier. The equivalence class is likewise limited to readable score sets.
     """
     save_to_logging_context({"requested_resource": identifier, "as_of": as_of})
     response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
 
     if identifier.startswith("ga4gh:"):
         allele = db.scalar(select(Allele).where(Allele.vrs_digest == identifier))
-        if allele is None:
+        readable = readable_score_set_ids_by_allele(db, user_data, [allele.id]) if allele is not None else {}
+        if allele is None or allele.id not in readable:
             raise HTTPException(status_code=404, detail=f"allele with VRS digest '{identifier}' not found")
-        return get_allele_detail(db, allele, focus_digests={identifier}, as_of=as_of)
+
+        return get_allele_detail(db, allele, focus_digests={identifier}, as_of=as_of, score_set_ids=readable[allele.id])
 
     # A ClinGen allele id (CAID or PAID): resolve to its allele(s) — the nt-canonical change's genomic +
-    # coding frames for a CAID, or the single protein allele for a PAID — and focus all of them.
-    matches = list(db.scalars(select(Allele).where(Allele.clingen_allele_id == identifier)).all())
+    # coding frames for a CAID, or the single protein allele for a PAID — and focus the readable ones.
+    candidates = db.scalars(select(Allele).where(Allele.clingen_allele_id == identifier)).all()
+    readable = readable_score_set_ids_by_allele(db, user_data, [a.id for a in candidates])
+    matches = [a for a in candidates if a.id in readable]
     if not matches:
         raise HTTPException(status_code=404, detail=f"no allele with ClinGen allele id '{identifier}' found")
 
     focus_digests = {a.vrs_digest for a in matches if a.vrs_digest is not None}
-    return get_allele_detail(db, _representative(matches), focus_digests=focus_digests, as_of=as_of)
+    return get_allele_detail(
+        db,
+        _representative(matches),
+        focus_digests=focus_digests,
+        as_of=as_of,
+        score_set_ids=set().union(*readable.values()),
+    )

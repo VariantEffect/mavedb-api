@@ -3,9 +3,8 @@
 
 Exercise the HTTP surface end to end: the envelope serializes and validates, the equivalence class is
 labelled relative to the focus, CAID fetch focuses the nt-canonical change, ``as_of`` is echoed and
-reconstructs membership, an unknown id is a plain 404 — and, unlike ``GET /variants/{urn}``, the
-endpoint is **public with no privacy gate**: an allele reachable only through a private score set is
-still served.
+reconstructs membership, an unknown id is a plain 404, and an allele reachable only through score sets
+the caller may not read is the same 404, with the equivalence class scoped to readable score sets.
 """
 
 import pytest
@@ -14,7 +13,13 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
+from sqlalchemy import select
+
+from mavedb.models.allele import Allele
+from mavedb.models.mapping_record import MappingRecord
+from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.models.variant import Variant
 from mavedb.view_models.allele_detail import AlleleDetail
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
@@ -189,11 +194,12 @@ def test_get_allele_detail_unknown_caid_is_404(client, setup_router_db):
     assert response.status_code == 404
 
 
-def test_get_allele_detail_is_public_no_privacy_gate(
-    client, session, data_provider, data_files, setup_router_db, anonymous_app_overrides
+@pytest.mark.parametrize("identifier", [CDNA, "CA1", "PA1"])
+@pytest.mark.parametrize("anonymous", [True, False])
+def test_get_allele_detail_is_404_when_only_unreadable_score_sets_link_it(
+    client, session, data_provider, data_files, setup_router_db, anonymous_app_overrides, identifier, anonymous
 ):
-    """The decision: no privacy gate. An allele reachable only through a private score set is still
-    served to an anonymous caller — contrast ``GET /variants/{urn}``, which 404s the same variant."""
+    """An allele exists only because of a private score set the caller may not read, so it is not found."""
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
@@ -201,11 +207,71 @@ def test_get_allele_detail_is_public_no_privacy_gate(
     _seed(session, f"{score_set['urn']}#1")
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/alleles/{CDNA}")
+    if anonymous:
+        with DependencyOverrider(anonymous_app_overrides):
+            response = client.get(f"/api/v1/alleles/{identifier}")
+    else:
+        response = client.get(f"/api/v1/alleles/{identifier}")
+
+    assert response.status_code == 404
+
+
+def test_get_allele_detail_is_404_for_an_allele_no_score_set_links(client, session, setup_router_db):
+    session.add(Allele(vrs_digest=CDNA, level="cdna", hgvs_c="NM_000546.6:c.1216G>A", post_mapped=_post_mapped()))
+    session.commit()
+
+    response = client.get(f"/api/v1/alleles/{CDNA}")
+
+    assert response.status_code == 404
+
+
+def test_get_allele_detail_scopes_equivalence_class_to_readable_score_sets(
+    client, session, data_provider, data_files, setup_router_db
+):
+    """A shared allele is served through the readable score set, but members co-linked only by an
+    unreadable score set's record are withheld."""
+    experiment = create_experiment(client)
+    private_score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    _seed(session, f"{private_score_set['urn']}#1")
+    change_ownership(session, private_score_set["urn"], ScoreSetDbModel)
+
+    readable_score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    variant = session.scalar(select(Variant).where(Variant.urn == f"{readable_score_set['urn']}#1"))
+    record = MappingRecord(
+        variant_id=variant.id, score_set_id=variant.score_set_id, assay_level="cdna", mapping_api_version="test.0.0"
+    )
+    session.add(record)
+    session.commit()
+    for digest, is_authoritative in ((CDNA, True), (PROT, False)):
+        allele = session.scalar(select(Allele).where(Allele.vrs_digest == digest))
+        session.add(
+            MappingRecordAllele(
+                mapping_record_id=record.id,
+                score_set_id=record.score_set_id,
+                allele_id=allele.id,
+                is_authoritative=is_authoritative,
+            )
+        )
+    session.commit()
+
+    response = client.get(f"/api/v1/alleles/{CDNA}")
 
     assert response.status_code == 200
-    assert response.json()["digest"] == CDNA
+    body = response.json()
+    assert set(body["alleles"]) == {CDNA, PROT}
+    assert set(body["annotations"]) == {CDNA, PROT}
+    # The c↔g pairing lives only on the unreadable record.
+    assert "projectionOf" not in body["alleles"][CDNA]
+
+    # The genomic frame of CA1 is reachable only through the unreadable record, so a CAID fetch
+    # focuses the coding frame alone.
+    caid_response = client.get("/api/v1/alleles/CA1")
+    assert caid_response.status_code == 200
+    assert set(caid_response.json()["alleles"]) == {CDNA, PROT}
 
 
 def test_get_allele_detail_echoes_as_of_header(client, session, data_provider, data_files, setup_router_db):
