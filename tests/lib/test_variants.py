@@ -1,19 +1,44 @@
 import pytest
 
 from mavedb.lib.variants import (
-    get_digest_from_post_mapped,
     get_hgvs_from_post_mapped,
+    get_id_from_post_mapped,
     hgvs_from_vrs_allele,
     is_hgvs_g,
     is_hgvs_p,
+    score_from_variant_data,
 )
 from tests.helpers.constants import (
+    TEST_GA4GH_DIGEST,
+    TEST_GA4GH_IDENTIFIER,
     TEST_HGVS_IDENTIFIER,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_POST_MAPPED_VRS_CIS_PHASED_BLOCK,
     TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE,
 )
+
+### Tests for score_from_variant_data function ###
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        ({"score_data": {"score": -2.3}}, -2.3),
+        ({"score_data": {"score": 0}}, 0.0),  # a real 0.0 score is not "missing"
+        ({"score_data": {"score": "1.5"}}, 1.5),  # numeric strings coerce
+        ({"score_data": {"score": None}}, None),  # explicit NA
+        ({"score_data": {}}, None),  # no score key
+        ({"count_data": {"c": 1}}, None),  # no score_data block
+        ({"score_data": {"score": True}}, None),  # a JSON bool is not a score
+        ({"score_data": {"score": "NA"}}, None),  # non-numeric string
+        ({}, None),
+        (None, None),
+    ],
+)
+def test_score_from_variant_data(data, expected):
+    assert score_from_variant_data(data) == expected
+
 
 ### Tests for hgvs_from_vrs_allele function ###
 
@@ -46,6 +71,18 @@ def test_get_hgvs_from_post_mapped_cis_phased_block():
     assert result is None
 
 
+def test_get_hgvs_from_post_mapped_cis_phased_block_combine_cis():
+    # combine_cis collapses the cis-phased members into one bracketed expression.
+    result = get_hgvs_from_post_mapped(TEST_VALID_POST_MAPPED_VRS_CIS_PHASED_BLOCK, combine_cis=True)
+    assert result == "NM_003345:p.[Asp5Phe;Asp5Phe]"
+
+
+def test_get_hgvs_from_post_mapped_single_allele_combine_cis_is_unbracketed():
+    # A single-variant post-mapped allele is unaffected by combine_cis.
+    result = get_hgvs_from_post_mapped(TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X, combine_cis=True)
+    assert result == TEST_HGVS_IDENTIFIER
+
+
 def test_get_hgvs_from_post_mapped_single_allele_vrs_1():
     with pytest.raises(ValueError):
         get_hgvs_from_post_mapped(TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X)
@@ -71,30 +108,80 @@ def test_get_hgvs_from_post_mapped_invalid_structure():
         get_hgvs_from_post_mapped({"invalid_key": "InvalidType"})
 
 
-### Tests for get_digest_from_post_mapped function ###
+def test_hgvs_from_vrs_allele_null_or_empty_expressions():
+    # A VRS allele may carry `expressions: null` or `[]` — that is "no HGVS", not a crash.
+    assert hgvs_from_vrs_allele({"type": "Allele", "expressions": None}) is None
+    assert hgvs_from_vrs_allele({"type": "Allele", "expressions": []}) is None
 
 
-def test_get_digest_from_post_mapped_with_digest():
-    post_mapped_vrs = {"digest": "test_digest_value", "type": "Allele"}
-    result = get_digest_from_post_mapped(post_mapped_vrs)
-    assert result == "test_digest_value"
+def test_get_hgvs_from_post_mapped_member_without_expression():
+    # Regression: a cis-phased block member whose `expressions` is null must yield None, not raise
+    # `TypeError: 'NoneType' object is not subscriptable` (which previously killed the CAR job).
+    block = {
+        "type": "CisPhasedBlock",
+        "members": [
+            {"type": "Allele", "expressions": [{"value": "NM_003345:p.Asp5Phe"}]},
+            {"type": "Allele", "expressions": None},
+        ],
+    }
+    assert get_hgvs_from_post_mapped(block) is None
+    assert get_hgvs_from_post_mapped(block, combine_cis=True) is None
 
 
-def test_get_digest_from_post_mapped_without_digest():
+### Tests for get_id_from_post_mapped function ###
+
+
+def test_get_id_from_post_mapped_with_id():
+    result = get_id_from_post_mapped(TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X)
+    assert result == TEST_GA4GH_IDENTIFIER
+
+
+def test_get_id_from_post_mapped_without_id():
     post_mapped_vrs = {"type": "Allele", "other_field": "value"}
 
-    result = get_digest_from_post_mapped(post_mapped_vrs)
+    result = get_id_from_post_mapped(post_mapped_vrs)
 
     assert result is None
 
 
-def test_get_digest_from_post_mapped_none_input():
-    result = get_digest_from_post_mapped(None)
+def test_get_id_from_post_mapped_prefers_id_over_digest():
+    """The stored ``id`` is returned verbatim, never synthesized from the sibling ``digest``.
+
+    The two fields are known to disagree on some rows, and only ``id`` is indexed and matched by the
+    VRS lookup endpoint, so a digest-derived identifier would resolve to nothing.
+    """
+    post_mapped_vrs = {"type": "Allele", "id": TEST_GA4GH_IDENTIFIER, "digest": "a_different_digest_value_entirely"}
+
+    result = get_id_from_post_mapped(post_mapped_vrs)
+
+    assert result == TEST_GA4GH_IDENTIFIER
+
+
+def test_get_id_from_post_mapped_ignores_digest_when_id_absent():
+    """A row with a digest but no ``id`` yields nothing, rather than a synthesized ``ga4gh:VA.`` CURIE."""
+    post_mapped_vrs = {"type": "Allele", "digest": TEST_GA4GH_DIGEST}
+
+    result = get_id_from_post_mapped(post_mapped_vrs)
+
     assert result is None
 
 
-def test_get_digest_from_post_mapped_empty_dict():
-    result = get_digest_from_post_mapped({})
+def test_get_id_from_post_mapped_ignores_nested_vrs_1_x_id():
+    """VRS 1.x ids nested under ``variation`` are not unwrapped, matching the lookup endpoint's reach."""
+    post_mapped_vrs = {"type": "Allele", "variation": {"id": TEST_GA4GH_IDENTIFIER}}
+
+    result = get_id_from_post_mapped(post_mapped_vrs)
+
+    assert result is None
+
+
+def test_get_id_from_post_mapped_none_input():
+    result = get_id_from_post_mapped(None)
+    assert result is None
+
+
+def test_get_id_from_post_mapped_empty_dict():
+    result = get_id_from_post_mapped({})
     assert result is None
 
 

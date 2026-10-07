@@ -46,11 +46,11 @@ logger = logging.getLogger(__name__)
 #      how long it has legitimately been running. This is what lets a multi-hour VEP fan-out run to
 #      completion without being killed, while still catching a job that has genuinely hung.
 #   2. RUNNING_TIMEOUT_MINUTES — a wall-clock backstop for jobs that never emit progress (or whose
-#      heartbeat column is somehow stuck). Sits ~30 min under ArqWorkerSettings.job_timeout (8h) so
+#      heartbeat column is somehow stuck). Sits ~30 min under ArqWorkerSettings.job_timeout (24h) so
 #      the DB-driven sweeper, not ARQ's hard kill, is what terminates a job — keeping DB state and
 #      actual work in sync.
-PROGRESS_STALL_MINUTES = 20  # RUNNING jobs should checkpoint progress at least this often
-RUNNING_TIMEOUT_MINUTES = 450  # Wall-clock backstop (7.5h), 30 min under the 8h ARQ ceiling
+PROGRESS_STALL_MINUTES = 30  # RUNNING jobs should checkpoint progress at least this often
+RUNNING_TIMEOUT_MINUTES = 1410  # Wall-clock backstop (23.5h), 30 min under the 24h ARQ ceiling
 PENDING_TIMEOUT_MINUTES = 5  # PENDING jobs which are actionable within pipelines should be enqueued within 5 minutes
 PIPELINE_STUCK_TIMEOUT_MINUTES = (
     5  # Pipelines in non-terminal states with no active jobs should resolve within 5 minutes

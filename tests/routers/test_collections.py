@@ -12,12 +12,15 @@ cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.validation.urn_re import MAVEDB_COLLECTION_URN_RE
+from mavedb.models.collection_experiment_association import CollectionExperimentAssociation
+from mavedb.models.collection_score_set_association import CollectionScoreSetAssociation
 from mavedb.models.enums.contribution_role import ContributionRole
 from mavedb.view_models.collection import Collection
 from tests.helpers.constants import (
     EXTRA_USER,
     TEST_COLLECTION,
     TEST_COLLECTION_RESPONSE,
+    ADMIN_USER,
     TEST_USER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
@@ -143,18 +146,12 @@ def test_editor_can_read_private_collection(session, client, setup_router_db, ex
 
     assert response.status_code == 200
     response_data = response.json()
+    # Only callers who may add users see the full roster, so EXTRA_USER does not appear
+    # in "editors" here -- TEST_COLLECTION_RESPONSE's empty default is correct.
     expected_response = deepcopy(TEST_COLLECTION_RESPONSE)
     expected_response.update(
         {
             "urn": response_data["urn"],
-            "editors": [
-                {
-                    "recordType": "User",
-                    "firstName": EXTRA_USER["first_name"],
-                    "lastName": EXTRA_USER["last_name"],
-                    "orcidId": EXTRA_USER["username"],
-                }
-            ],
         }
     )
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
@@ -171,18 +168,12 @@ def test_viewer_can_read_private_collection(session, client, setup_router_db, ex
 
     assert response.status_code == 200
     response_data = response.json()
+    # Only callers who may add users see the full roster, so EXTRA_USER does not appear
+    # in "viewers" here -- TEST_COLLECTION_RESPONSE's empty default is correct.
     expected_response = deepcopy(TEST_COLLECTION_RESPONSE)
     expected_response.update(
         {
             "urn": response_data["urn"],
-            "viewers": [
-                {
-                    "recordType": "User",
-                    "firstName": EXTRA_USER["first_name"],
-                    "lastName": EXTRA_USER["last_name"],
-                    "orcidId": EXTRA_USER["username"],
-                }
-            ],
         }
     )
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
@@ -307,6 +298,8 @@ def test_editor_can_add_experiment_to_collection(
 
     assert response.status_code == 200
     response_data = response.json()
+    # Only callers who may add users see the full roster, so EXTRA_USER does not appear
+    # in "editors" here -- TEST_COLLECTION_RESPONSE's empty default is correct.
     expected_response = deepcopy(TEST_COLLECTION_RESPONSE)
     expected_response.update(
         {
@@ -319,14 +312,6 @@ def test_editor_can_add_experiment_to_collection(
                 "lastName": EXTRA_USER["last_name"],
                 "orcidId": EXTRA_USER["username"],
             },
-            "editors": [
-                {
-                    "recordType": "User",
-                    "firstName": EXTRA_USER["first_name"],
-                    "lastName": EXTRA_USER["last_name"],
-                    "orcidId": EXTRA_USER["username"],
-                }
-            ],
             "experimentUrns": [score_set["experiment"]["urn"]],
         }
     )
@@ -492,6 +477,8 @@ def test_editor_can_add_score_set_to_collection(
 
     assert response.status_code == 200
     response_data = response.json()
+    # Only callers who may add users see the full roster, so EXTRA_USER does not appear
+    # in "editors" here -- TEST_COLLECTION_RESPONSE's empty default is correct.
     expected_response = deepcopy(TEST_COLLECTION_RESPONSE)
     expected_response.update(
         {
@@ -504,14 +491,6 @@ def test_editor_can_add_score_set_to_collection(
                 "lastName": EXTRA_USER["last_name"],
                 "orcidId": EXTRA_USER["username"],
             },
-            "editors": [
-                {
-                    "recordType": "User",
-                    "firstName": EXTRA_USER["first_name"],
-                    "lastName": EXTRA_USER["last_name"],
-                    "orcidId": EXTRA_USER["username"],
-                }
-            ],
             "scoreSetUrns": [score_set["urn"]],
         }
     )
@@ -985,3 +964,155 @@ def test_viewer_cannot_add_via_patch(
         )
 
     assert response.status_code == 403
+
+
+# Regression tests for collection membership disclosure.
+#
+# `PermissionResponse` has no `__bool__`, so `if has_permission(...)` was always true and every
+# association filter and roster check in this router was inert. These tests exercise the paths
+# from the outside, via response bodies, so they stay valid regardless of how filtering is
+# implemented.
+
+
+def test_public_collection_does_not_leak_private_member_score_set(
+    session, client, setup_router_db, anonymous_app_overrides
+):
+    experiment = create_experiment(client)
+    private_score_set = create_seq_score_set(client, experiment["urn"])
+    collection = create_collection(client, update={"private": False})
+
+    response = client.post(
+        f"/api/v1/collections/{collection['urn']}/score-sets",
+        json={"score_set_urn": private_score_set["urn"]},
+    )
+    assert response.status_code == 200
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(f"/api/v1/collections/{collection['urn']}")
+
+    assert response.status_code == 200
+    assert private_score_set["urn"] not in response.text
+
+
+def test_public_collection_does_not_leak_private_member_experiment(
+    session, client, setup_router_db, anonymous_app_overrides
+):
+    private_experiment = create_experiment(client)
+    collection = create_collection(client, update={"private": False})
+
+    response = client.post(
+        f"/api/v1/collections/{collection['urn']}/experiments",
+        json={"experiment_urn": private_experiment["urn"]},
+    )
+    assert response.status_code == 200
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(f"/api/v1/collections/{collection['urn']}")
+
+    assert response.status_code == 200
+    assert private_experiment["urn"] not in response.text
+
+
+def test_collection_owner_still_sees_own_private_member_score_set(session, client, setup_router_db):
+    """Guards against over-filtering: entitled callers must still see their own private members."""
+    experiment = create_experiment(client)
+    private_score_set = create_seq_score_set(client, experiment["urn"])
+    collection = create_collection(client, update={"private": False})
+
+    client.post(
+        f"/api/v1/collections/{collection['urn']}/score-sets",
+        json={"score_set_urn": private_score_set["urn"]},
+    )
+    response = client.get(f"/api/v1/collections/{collection['urn']}")
+
+    assert response.status_code == 200
+    assert private_score_set["urn"] in response.json()["scoreSetUrns"]
+
+
+def test_non_member_does_not_see_collection_viewers_or_editors(
+    session, client, setup_router_db, anonymous_app_overrides
+):
+    collection = create_collection(client, update={"private": False})
+    assert (
+        client.post(
+            f"/api/v1/collections/{collection['urn']}/viewers",
+            json={"orcid_id": EXTRA_USER["username"]},
+        ).status_code
+        == 200
+    )
+
+    with DependencyOverrider(anonymous_app_overrides):
+        response = client.get(f"/api/v1/collections/{collection['urn']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["viewers"] == []
+    assert body["editors"] == []
+    # Admins remain visible so contributors can identify who to contact.
+    assert [admin["orcidId"] for admin in body["admins"]] == [TEST_USER["username"]]
+
+
+def test_narrowing_associations_does_not_delete_them(session, client, setup_router_db, anonymous_app_overrides):
+    """The router assigns filtered lists to `delete-orphan` collections.
+
+    Nothing commits after that assignment today, so the staged orphan deletes are never
+    persisted. This pins that invariant: a non-member read must not destroy the very
+    association rows it declines to show.
+    """
+    experiment = create_experiment(client)
+    private_score_set = create_seq_score_set(client, experiment["urn"])
+    collection = create_collection(client, update={"private": False})
+    client.post(
+        f"/api/v1/collections/{collection['urn']}/score-sets",
+        json={"score_set_urn": private_score_set["urn"]},
+    )
+
+    score_set_assocs_before = session.query(CollectionScoreSetAssociation).count()
+    experiment_assocs_before = session.query(CollectionExperimentAssociation).count()
+    assert score_set_assocs_before == 1
+
+    with DependencyOverrider(anonymous_app_overrides):
+        assert client.get(f"/api/v1/collections/{collection['urn']}").status_code == 200
+
+    session.expire_all()
+    assert session.query(CollectionScoreSetAssociation).count() == score_set_assocs_before
+    assert session.query(CollectionExperimentAssociation).count() == experiment_assocs_before
+
+
+@pytest.mark.parametrize("role", ContributionRole._member_names_)
+def test_only_users_who_can_add_users_see_the_full_roster(
+    role, session, client, setup_router_db, extra_user_app_overrides
+):
+    """Whoever may add a user to a collection may see who is in it; everyone else sees admins only.
+
+    The counterpart to `test_non_member_does_not_see_collection_viewers_or_editors`, which covers
+    outsiders. This covers members, and fails if the roster is opened up to editors and viewers
+    on the strength of their being members at all.
+    """
+    collection = create_collection(client, update={"private": False})
+
+    # TEST_USER is the creator and therefore an admin. Seat EXTRA_USER in the role under test, and
+    # a third user as an editor, so there is a non-admin entry only admins should be able to see.
+    for orcid, seat in ((EXTRA_USER["username"], f"{role}s"), (ADMIN_USER["username"], "editors")):
+        assert (
+            client.post(
+                f"/api/v1/collections/{collection['urn']}/{seat}",
+                json={"orcid_id": orcid},
+            ).status_code
+            == 200
+        )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.get(f"/api/v1/collections/{collection['urn']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    orcids = {key: [user["orcidId"] for user in body[key]] for key in ("admins", "editors", "viewers")}
+
+    if role == ContributionRole.admin.name:
+        assert EXTRA_USER["username"] in orcids["admins"]
+        assert ADMIN_USER["username"] in orcids["editors"]
+    else:
+        assert orcids["admins"] == [TEST_USER["username"]]
+        assert orcids["editors"] == []
+        assert orcids["viewers"] == []

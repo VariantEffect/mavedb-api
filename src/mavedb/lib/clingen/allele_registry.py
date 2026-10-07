@@ -1,16 +1,21 @@
 import asyncio
 import logging
 from typing import Optional
+from urllib.parse import quote
 
 import requests
 from aiocache import cached
 
 from mavedb.lib.clingen.cache import CACHE_CLASS, CACHE_CONFIG, CACHE_TTL_SECONDS, clingen_cache_key_builder
+from mavedb.lib.clingen.constants import CLINGEN_ALLELE_REGISTRY_API_URL, CLINGEN_ALLELE_REGISTRY_PAGE_URL
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-CLINGEN_API_URL = "https://reg.genome.network/allele"
+
+def clingen_allele_url(clingen_allele_id: str) -> str:
+    """Allele Registry page for a CAID or PAID, in the form the ga4gh/cat-vrs examples use."""
+    return f"{CLINGEN_ALLELE_REGISTRY_PAGE_URL}?caid={quote(clingen_allele_id, safe='')}"
 
 
 @cached(ttl=CACHE_TTL_SECONDS, key_builder=clingen_cache_key_builder, cache=CACHE_CLASS, **CACHE_CONFIG)
@@ -33,7 +38,7 @@ async def get_clingen_allele_data(clingen_allele_id: str) -> Optional[dict]:
             (excluding 404, which returns None).
     """
     loop = asyncio.get_running_loop()
-    response = await loop.run_in_executor(None, requests.get, f"{CLINGEN_API_URL}/{clingen_allele_id}")
+    response = await loop.run_in_executor(None, requests.get, f"{CLINGEN_ALLELE_REGISTRY_API_URL}/{clingen_allele_id}")
 
     if response.status_code == 404:
         return None
@@ -134,80 +139,6 @@ async def get_associated_clinvar_allele_id(clingen_allele_id: str) -> str:
         return str(clinvar_allele_id)
 
     return ""
-
-
-def extract_hgvs_from_ca_allele_data(
-    data: dict,
-    target_is_coding: bool,
-    transcript_accession: Optional[str],
-) -> tuple[Optional[str], Optional[str], Optional[str]]:
-    """Extract HGVS strings from ClinGen allele data for a CA (canonical allele) ID.
-
-    Parses the ClinGen API response to find GRCh38 genomic HGVS, coding HGVS
-    matching the target transcript (or MANE fallback), and protein HGVS.
-
-    Args:
-        data: Parsed JSON response from the ClinGen Allele Registry API.
-        target_is_coding: Whether the score set target is protein-coding.
-        transcript_accession: Specific transcript accession to match, or None to use MANE.
-
-    Returns:
-        Tuple of (hgvs_g, hgvs_c, hgvs_p), any of which may be None.
-    """
-    hgvs_g: Optional[str] = None
-    hgvs_c: Optional[str] = None
-    hgvs_p: Optional[str] = None
-
-    if data.get("genomicAlleles"):
-        for allele in data["genomicAlleles"]:
-            if allele.get("referenceGenome") == "GRCh38" and allele.get("hgvs"):
-                hgvs_g = allele["hgvs"][0]
-                break
-
-    if target_is_coding and data.get("transcriptAlleles"):
-        if transcript_accession:
-            for allele in data["transcriptAlleles"]:
-                if allele.get("hgvs"):
-                    for hgvs_string in allele["hgvs"]:
-                        hgvs_reference_sequence = hgvs_string.split(":")[0]
-                        if transcript_accession == hgvs_reference_sequence:
-                            hgvs_c = hgvs_string
-                            break
-                if hgvs_c:
-                    if allele.get("proteinEffect"):
-                        hgvs_p = allele["proteinEffect"].get("hgvs")
-                    break
-        else:
-            # No transcript specified; use MANE if available
-            for allele in data["transcriptAlleles"]:
-                if allele.get("MANE"):
-                    hgvs_c = allele["MANE"].get("nucleotide", {}).get("RefSeq", {}).get("hgvs")
-                    hgvs_p = allele["MANE"].get("protein", {}).get("RefSeq", {}).get("hgvs")
-                    break
-
-    return hgvs_g, hgvs_c, hgvs_p
-
-
-def extract_hgvs_from_pa_allele_data(data: dict) -> tuple[Optional[str], Optional[str], Optional[str]]:
-    """Extract HGVS strings from ClinGen allele data for a PA (protein allele) ID.
-
-    For PA alleles, only hgvs_p is extracted from aminoAcidAlleles.
-
-    Args:
-        data: Parsed JSON response from the ClinGen Allele Registry API.
-
-    Returns:
-        Tuple of (None, None, hgvs_p), where hgvs_p may be None.
-    """
-    hgvs_p: Optional[str] = None
-
-    if data.get("aminoAcidAlleles"):
-        for allele in data["aminoAcidAlleles"]:
-            if allele.get("hgvs"):
-                hgvs_p = allele["hgvs"][0]
-                break
-
-    return None, None, hgvs_p
 
 
 def expand_allele_ids(clingen_allele_ids: list[Optional[str]]) -> set[str]:

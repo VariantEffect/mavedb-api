@@ -74,7 +74,7 @@ score_sets_raw_read_identifiers_association_table = Table(
 class ScoreSet(Base):
     __tablename__ = "scoresets"
 
-    id = Column(Integer, primary_key=True)
+    id: Mapped[int] = Column(Integer, primary_key=True)
 
     # TODO(#372)
     urn = Column(String(64), default=generate_temp_urn, index=True, nullable=True, unique=True)

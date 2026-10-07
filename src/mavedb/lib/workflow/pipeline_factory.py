@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from mavedb import __version__ as mavedb_version
 from mavedb.lib.logging.context import correlation_id_for_context, logging_context
+from mavedb.lib.types.workflow import PipelineDefinition
 from mavedb.lib.workflow.definitions import PIPELINE_DEFINITIONS
 from mavedb.lib.workflow.job_factory import JobFactory
 from mavedb.models.enums.job_pipeline import JobType
@@ -30,42 +31,65 @@ class PipelineFactory:
             Initializes the PipelineFactory with a database session.
 
         create_pipeline(
-            pipeline_name: str,
-            pipeline_description: Optional[str],
+            pipeline_name: Optional[str],
             creating_user: User,
-            pipeline_params: dict
-        ) -> Pipeline:
+            pipeline_params: dict,
+            custom_pipeline: Optional[tuple[str, PipelineDefinition]] = None,
+        ) -> tuple[Pipeline, JobRun]:
             Creates a new Pipeline along with its JobRun and JobDependency records,
-            commits them to the database, and returns the created Pipeline object.
+            commits them to the database, and returns the created Pipeline and start
+            JobRun. Exactly one of pipeline_name/custom_pipeline must be given.
     """
 
     def __init__(self, session: Session):
         self.session = session
 
     def create_pipeline(
-        self, pipeline_name: str, creating_user: User, pipeline_params: dict
+        self,
+        pipeline_name: Optional[str],
+        creating_user: User,
+        pipeline_params: dict,
+        custom_pipeline: Optional[tuple[str, PipelineDefinition]] = None,
     ) -> tuple[Pipeline, JobRun]:
         """
         Creates a new Pipeline instance along with its associated JobRun and JobDependency records.
 
+        Exactly one of `pipeline_name` or `custom_pipeline` must be given:
+        - pipeline_name: look up PIPELINE_DEFINITIONS[pipeline_name] as usual.
+        - custom_pipeline: (name, pipeline_def) — an already-resolved ad-hoc PipelineDefinition,
+          stored under `name` instead of a PIPELINE_DEFINITIONS key.
+
         Args:
-            pipeline_name (str): The name of the pipeline to create.
-            pipeline_description (Optional[str]): A description for the pipeline.
+            pipeline_name (Optional[str]): The name of the pipeline to create, used as a
+                PIPELINE_DEFINITIONS lookup key and as the stored Pipeline.name. Mutually
+                exclusive with custom_pipeline.
             creating_user (User): The user object representing the user creating the pipeline.
             pipeline_params (dict): Additional parameters for pipeline creation, such as correlation_id.
+            custom_pipeline (Optional[tuple[str, PipelineDefinition]]): An ad-hoc (name, pipeline_def)
+                pair to run instead of a named entry from PIPELINE_DEFINITIONS. Mutually exclusive
+                with pipeline_name.
 
         Returns:
             Pipeline: The created Pipeline object.
             JobRun: The JobRun object representing the start of the pipeline.
 
         Raises:
+            ValueError: If neither or both of pipeline_name/custom_pipeline are given.
             KeyError: If the specified pipeline_name is not found in PIPELINE_DEFINITIONS.
             Exception: If there is an error during database operations.
 
         Side Effects:
             - Adds and commits new Pipeline, JobRun, and JobDependency records to the database session.
         """
-        pipeline_def = PIPELINE_DEFINITIONS[pipeline_name]
+        if (pipeline_name is None) == (custom_pipeline is None):
+            raise ValueError("Exactly one of pipeline_name or custom_pipeline must be provided.")
+
+        if custom_pipeline is not None:
+            name, pipeline_def = custom_pipeline
+        else:
+            assert pipeline_name is not None
+            name, pipeline_def = pipeline_name, PIPELINE_DEFINITIONS[pipeline_name]
+
         jobs = pipeline_def["job_definitions"]
         job_runs: dict[str, JobRun] = {}
 
@@ -74,7 +98,7 @@ class PipelineFactory:
         correlation_id: str = pipeline_params.get("correlation_id") or correlation_id_for_context() or str(uuid.uuid4())
 
         pipeline = Pipeline(
-            name=pipeline_name,
+            name=name,
             description=pipeline_def["description"],
             correlation_id=correlation_id,
             created_by_user_id=creating_user.id,
@@ -84,7 +108,7 @@ class PipelineFactory:
         self.session.flush()  # To get pipeline.id
 
         logger.info(
-            msg=f"Creating pipeline '{pipeline_name}' with ID {pipeline.id} and correlation ID {correlation_id}.",
+            msg=f"Creating pipeline '{name}' with ID {pipeline.id} and correlation ID {correlation_id}.",
             extra=logging_context(),
         )
 
@@ -141,7 +165,7 @@ class PipelineFactory:
 
         self.session.commit()
         logger.info(
-            msg=f"Successfully created pipeline '{pipeline_name}' with ID {pipeline.id} and {len(job_runs)} JobRun records.",
+            msg=f"Successfully created pipeline '{name}' with ID {pipeline.id} and {len(job_runs)} JobRun records.",
             extra=logging_context(),
         )
 

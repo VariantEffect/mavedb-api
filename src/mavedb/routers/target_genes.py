@@ -1,7 +1,7 @@
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Query, Session, selectinload
 
 from mavedb import deps
 from mavedb.lib.authentication import get_current_user
@@ -83,16 +83,27 @@ def list_target_genes(
     return sorted(validated_items, key=lambda i: i.name)
 
 
+def _published_target_genes(db: Session) -> Query[TargetGene]:
+    """
+    Query the target genes belonging to published score sets.
+
+    The two routes below aggregate over the whole table and are unauthenticated, so they have no entity to
+    assert a permission on. The parent score set's published state is what keeps the target names and
+    categories of unpublished work out of the response.
+    """
+    return db.query(TargetGene).join(ScoreSet).filter(ScoreSet.published_date.is_not(None))
+
+
 @router.get("/target-genes/names", status_code=200, response_model=List[str], summary="List target gene names")
 def list_target_gene_names(
     *,
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """
-    List distinct target gene names, in alphabetical order.
+    List distinct target gene names from published score sets, in alphabetical order.
     """
 
-    items = db.query(TargetGene).all()
+    items = _published_target_genes(db).all()
     names = map(lambda item: item.name, items)
     return sorted(list(set(names)))
 
@@ -105,10 +116,10 @@ def list_target_gene_categories(
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """
-    List distinct target genes categories, in alphabetical order.
+    List distinct target gene categories from published score sets, in alphabetical order.
     """
 
-    items = db.query(TargetGene).all()
+    items = _published_target_genes(db).all()
     categories = map(lambda item: item.category, items)
     return sorted(list(set(categories)))
 

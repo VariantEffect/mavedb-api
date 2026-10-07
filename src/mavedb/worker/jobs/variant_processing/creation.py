@@ -13,14 +13,23 @@ from sqlalchemy import delete, null, select
 
 from mavedb.data_providers.services import CSV_UPLOAD_S3_BUCKET_NAME, RESTDataProvider, s3_client
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
+from mavedb.lib.score_calibrations import (
+    restore_calibration_variant_links,
+    snapshot_calibration_variant_links,
+)
 from mavedb.lib.score_sets import columns_for_dataset, create_variants, create_variants_data
+from mavedb.lib.types.score_calibrations import CalibrationVariantLinkSnapshot
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.validation.dataframe.dataframe import validate_and_standardize_dataframe_pair
 from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.models.calibration_control import CalibrationControl
 from mavedb.models.enums.job_pipeline import FailureCategory
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.score_calibration_functional_classification_variant_association import (
+    score_calibration_functional_classification_variants_association_table,
+)
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
@@ -180,10 +189,30 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
         }
 
         # Delete variants after validation occurs so we don't overwrite them in the case of a bad update.
+        calibration_link_snapshot: list[CalibrationVariantLinkSnapshot] = []
+        relink_calibrations = False
         if score_set.variants:
             existing_variants = job_manager.db.scalars(
                 select(Variant.id).where(Variant.score_set_id == score_set.id)
             ).all()
+
+            # Calibration controls and functional classification bin membership reference variants
+            # without an ON DELETE action, so the variant delete below fails outright while those
+            # links stand. Record what the new upload cannot regenerate, clear the links, and
+            # re-establish them once the new variants exist.
+            relink_calibrations = bool(score_set.score_calibrations)
+            calibration_link_snapshot = snapshot_calibration_variant_links(job_manager.db, score_set)
+            job_manager.db.execute(
+                delete(CalibrationControl).where(CalibrationControl.variant_id.in_(existing_variants))
+            )
+            job_manager.db.execute(
+                delete(score_calibration_functional_classification_variants_association_table).where(
+                    score_calibration_functional_classification_variants_association_table.c.variant_id.in_(
+                        existing_variants
+                    )
+                )
+            )
+
             job_manager.db.execute(delete(MappedVariant).where(MappedVariant.variant_id.in_(existing_variants)))
             job_manager.db.execute(delete(Variant).where(Variant.id.in_(existing_variants)))
 
@@ -197,6 +226,23 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
 
         variants_data = create_variants_data(validated_scores, validated_counts, None)
         create_variants(job_manager.db, score_set, variants_data)
+
+        # Scoped to the replacement path above: only links the delete broke need re-establishing, so a
+        # first upload leaves calibrations alone. An empty snapshot is not the same as nothing to do,
+        # though, since range-based bins are recomputed from the new scores rather than remembered.
+        if relink_calibrations:
+            # The new variants need ids and scores on record before anything can point at them.
+            job_manager.db.flush()
+
+            relink_report = restore_calibration_variant_links(
+                job_manager.db, score_set, calibration_link_snapshot, updated_by
+            )
+            job_manager.save_to_context(relink_report.to_dict())
+
+            logger.info(
+                msg="Re-established calibration variant references against the newly created variants.",
+                extra=job_manager.logging_context(),
+            )
 
     except ValidationError as e:
         job_manager.db.rollback()

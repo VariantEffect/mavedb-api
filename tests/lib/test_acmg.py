@@ -6,6 +6,7 @@ from sqlalchemy import select
 pytest.importorskip("psycopg2")
 
 from mavedb.lib.acmg import (
+    acmg_evidence_outcome_code,
     ACMGCriterion,
     StrengthOfEvidenceProvided,
     find_or_create_acmg_classification,
@@ -241,3 +242,36 @@ def test_find_or_create_acmg_classification_does_not_commit(session):
     ).scalar_one_or_none()
 
     assert existing is None
+
+
+########################################################################################################################
+# Tests for acmg_evidence_outcome_code
+########################################################################################################################
+
+
+@pytest.mark.parametrize(
+    "criterion, evidence_strength, expected",
+    [
+        # STRONG is a criterion's baseline, so it is written bare.
+        ("PS3", "STRONG", "PS3"),
+        ("BS3", "STRONG", "BS3"),
+        # Anything else is suffixed.
+        ("PS3", "VERY_STRONG", "PS3_very_strong"),
+        ("PS3", "MODERATE", "PS3_moderate"),
+        ("PS3", "SUPPORTING", "PS3_supporting"),
+        ("BS3", "SUPPORTING", "BS3_supporting"),
+        # MaveDB's intermediate strength has no VA-Spec equivalent, but the code format is the same.
+        ("PS3", "MODERATE_PLUS", "PS3_moderate_plus"),
+        # No strength means the criterion was evaluated and not met.
+        ("PS3", None, "PS3_not_met"),
+        ("BS3", None, "BS3_not_met"),
+    ],
+)
+def test_acmg_evidence_outcome_code(criterion, evidence_strength, expected):
+    assert acmg_evidence_outcome_code(criterion, evidence_strength) == expected
+
+
+def test_acmg_evidence_outcome_code_is_case_insensitive_about_strength():
+    """Callers pass a name from whichever enumeration they hold; casing should not change the result."""
+    assert acmg_evidence_outcome_code("PS3", "strong") == "PS3"
+    assert acmg_evidence_outcome_code("PS3", "Moderate") == "PS3_moderate"

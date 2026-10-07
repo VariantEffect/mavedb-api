@@ -11,7 +11,11 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
-from mavedb.lib.clingen.constants import GENBOREE_ACCOUNT_NAME, GENBOREE_ACCOUNT_PASSWORD
+from mavedb.lib.clingen.constants import (
+    CLINGEN_HTTP_TIMEOUT,
+    GENBOREE_ACCOUNT_NAME,
+    GENBOREE_ACCOUNT_PASSWORD,
+)
 from mavedb.lib.clingen.services import (
     ClinGenAlleleRegistryService,
     ClinGenLdhService,
@@ -61,6 +65,7 @@ class TestClinGenLdhService:
         mock_post.assert_called_once_with(
             f"https://genboree.org/auth/usr/gb:{GENBOREE_ACCOUNT_NAME}/auth",
             json={"type": "plain", "val": GENBOREE_ACCOUNT_PASSWORD},
+            timeout=CLINGEN_HTTP_TIMEOUT,
         )
 
     @patch("mavedb.lib.clingen.services.requests.post")
@@ -150,6 +155,7 @@ class TestClinGenLdhService:
                 url=clingen_service.url,
                 json=submission,
                 headers={"Authorization": "Bearer test_jwt_token", "Content-Type": "application/json"},
+                timeout=CLINGEN_HTTP_TIMEOUT,
             )
 
     @patch("mavedb.lib.clingen.services.requests.put")
@@ -169,6 +175,7 @@ class TestClinGenLdhService:
                 url=clingen_service.url,
                 json=submission,
                 headers={"Authorization": "Bearer test_jwt_token", "Content-Type": "application/json"},
+                timeout=CLINGEN_HTTP_TIMEOUT,
             )
 
     @patch("mavedb.lib.clingen.services.requests.put")
@@ -211,6 +218,7 @@ class TestClinGenLdhService:
                 url=clingen_service.url,
                 json=submission,
                 headers={"Authorization": "Bearer test_jwt_token", "Content-Type": "application/json"},
+                timeout=CLINGEN_HTTP_TIMEOUT,
             )
 
 

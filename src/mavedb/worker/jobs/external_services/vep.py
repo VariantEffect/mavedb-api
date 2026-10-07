@@ -1,50 +1,188 @@
-"""VEP functional consequence jobs for variant effect prediction.
+"""VEP molecular-consequence job for variant effect prediction.
 
-This module handles the submission and processing of variant effect predictions
-using the Ensembl VEP API.
-
-The processing is asynchronous, requiring batch submission of HGVS strings
-to the VEP API with fallback to Variant Recoder when necessary.
+Links deduplicated alleles to their Ensembl VEP molecular consequence. The job owns the lifecycle —
+selecting which alleles to annotate, the current-release skip, linking, and status events — while the
+resolution itself (transport, batching, Recoder fallback, the transcript-matching rule) lives in
+``mavedb.lib.vep`` and the shared ``variant_annotation.lib.vep`` kernel, so the pipeline and the lab
+CLI produce identical consequences for the same input (#772).
 """
 
-import asyncio
+import contextlib
 import logging
-import os
+from collections import Counter
 from datetime import date
+from typing import Iterator, Optional
 
 from sqlalchemy import select
+from variant_annotation.lib.vep import (
+    RESOLVER_VERSION,
+    ConsequenceOutcome,
+    ConsequenceResolution,
+    ReferenceSequence,
+    VepInput,
+)
 
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
+from mavedb.lib.clingen.alleles import ScoreSetAlleleRow, get_alleles_for_score_set, group_alleles_for_annotation
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.utils import batched
-from mavedb.lib.vep import VEP_CONSEQUENCES, get_functional_consequence, run_variant_recoder
+from mavedb.lib.vep import (
+    VepLinkVerdict,
+    get_ensembl_release,
+    link_vep_consequences_to_alleles,
+    resolve_consequences,
+)
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus
-from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.event_reason import EventReason
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.score_set import ScoreSet
-from mavedb.models.variant import Variant
+from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
+from mavedb.worker.lib.translation_ports import uta_transcript_source
 
 logger = logging.getLogger(__name__)
 
-_VEP_BATCH_SIZE = 200
-_RECODER_BATCH_SIZE = int(os.getenv("RECODER_BATCH_SIZE", "25"))
-_RECODER_CONCURRENCY = int(os.getenv("RECODER_CONCURRENCY", "5"))
+# Inputs resolved per await so progress can be reported between chunks. Matches the kernel's own VEP
+# batch ceiling (200 HGVS/request), so each chunk is ~one wire batch. Progress must be reported from
+# this coroutine, never from inside resolve_consequences: that call runs on an executor thread and the
+# progress commit touches this job's DB session, which is not thread-safe.
+_RESOLUTION_CHUNK_SIZE = 200
+
+
+class _BestEffortReference:
+    """Wraps the UTA transcript-reference port so a mid-run failure disables reference-identical
+    detection for the affected input (returns ``None``) instead of failing the VEP job.
+
+    Reference-identical labelling is a refinement for wild-type controls; it must never take down
+    resolution. A lookup that raises (a dropped UTA connection, a query error) is logged once and
+    treated as "cannot decide", so the input falls back to ``ABSENT`` exactly as it would with no
+    reference port. Runs on the resolution executor thread, so it logs without ``extra`` context.
+    """
+
+    def __init__(self, inner: ReferenceSequence) -> None:
+        self._inner = inner
+        self._warned = False
+
+    def coding_interval_reference(self, transcript: str, start: int, stop: int) -> Optional[str]:
+        try:
+            return self._inner.coding_interval_reference(transcript, start, stop)
+        except Exception as exc:  # noqa: BLE001 - any UTA failure degrades to no reference-identical label
+            if not self._warned:
+                logger.warning("UTA reference lookup failed mid-run; reference-identical detection degraded: %s", exc)
+                self._warned = True
+            return None
+
+
+@contextlib.contextmanager
+def _reference_source_for_vep(job_manager: JobManager) -> Iterator[Optional[ReferenceSequence]]:
+    """Yield a transcript-reference port for reference-identical detection, or ``None`` when UTA is
+    unavailable.
+
+    Best-effort by design: VEP resolution must not fail because UTA is unset or unreachable. The port is
+    consulted only for no-change controls and unparseables — everything VEP resolves normally is
+    untouched — so without it those inputs simply fall back to ``ABSENT`` rather than being labelled
+    ``REFERENCE_IDENTICAL``. An open-time failure is caught here; a mid-run failure is caught by
+    :class:`_BestEffortReference`.
+    """
+    with contextlib.ExitStack() as stack:
+        try:
+            source = stack.enter_context(uta_transcript_source())
+        except Exception as exc:  # noqa: BLE001 - opening UTA failed; run without reference-identical
+            logger.warning(
+                msg=f"UTA transcript source unavailable; reference-identical detection disabled for this run "
+                f"(wild-type controls resolve to ABSENT). Cause: {exc}",
+                extra=job_manager.logging_context(),
+            )
+            yield None
+            return
+        yield _BestEffortReference(source)
+
+
+def _annotate_vep(
+    annotation_manager: AnnotationStatusManager,
+    allele_id: int,
+    disposition: Disposition,
+    reason: EventReason,
+    *,
+    source_version: str,
+    error_message: str | None = None,
+    metadata: dict | None = None,
+) -> None:
+    """Record one VEP_FUNCTIONAL_CONSEQUENCE event for an allele (the consequence is an allele-level fact).
+
+    The single choke point for VEP's status writes. One event per allele, stamped with the Ensembl
+    release queried; provenance (which variants drove the linkage) is derived from the live links
+    as-of the event, not fanned out here. The consequence value itself is not embedded — it lives in
+    the ``VepAlleleConsequence`` value table, joinable by ``allele_id`` + ``source_version``.
+    """
+    meta = dict(metadata or {})
+    if error_message is not None:
+        meta["error_message"] = error_message
+
+    annotation_manager.record_event(
+        AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
+        allele_id=allele_id,
+        disposition=disposition,
+        reason=reason,
+        source_version=source_version,
+        metadata=meta or None,
+    )
+
+
+def _vep_input_for_allele(row: ScoreSetAlleleRow) -> VepInput | None:
+    """Build a VEP input for an allele, or ``None`` to skip it.
+
+    Only coding and genomic alleles are submitted to VEP: a protein allele's consequence is carried
+    instead by the coding alleles reverse translation enumerates from it, so protein alleles are never
+    sent. Each allele carries exactly one of ``hgvs_g``/``hgvs_c``/``hgvs_p``.
+
+    No transcript is set on the input. A coding allele carries its transcript inside the ``c.`` HGVS
+    accession, which the kernel infers, so it resolves against its own transcript (the #772 fix). A
+    genomic allele carries only an ``NC_`` chromosome accession, so it resolves to VEP's
+    cross-transcript ``most_severe`` headline — deliberately, not as a gap. Alleles are deduplicated
+    and content-addressed, so one genomic allele is shared across every score set that maps to it;
+    there is no single "assay transcript" to attribute to it, and borrowing the coding transcript from
+    one arbitrary pairing would be less faithful than the transcript-agnostic ``most_severe`` call.
+    ``most_severe`` is the honest reconstruction for a genomic allele, and its
+    ``consequence_source='most_severe'`` records that provenance so consumers can tell it apart from a
+    transcript-matched call.
+    """
+    if row.level == SequenceLevel.protein.value:
+        return None
+
+    hgvs = row.hgvs_c or row.hgvs_g
+    if not hgvs:
+        return None
+
+    return VepInput(hgvs=hgvs)
 
 
 @with_pipeline_management
 async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutionOutcome:
-    """Populate VEP functional consequence predictions for all mapped variants in a ScoreSet.
+    """Link deduplicated alleles to their VEP molecular consequence.
 
-    This function retrieves all mapped variants with a populated hgvs_assay_level field for a given
-    ScoreSet and submits them to the Ensembl VEP API in configurable batches. It handles fallback
-    to the Variant Recoder API for variants that cannot be processed by VEP directly.
+    Runs over the score set's current coding and genomic alleles (authoritative and RT-derived),
+    resolves each against its own transcript via the shared kernel (with a Variant Recoder fallback),
+    and stores the consequence plus its resolution provenance in a valid-time
+    :class:`VepAlleleConsequence`, superseding only on a changed headline term. Protein alleles are not
+    submitted — their consequence is carried by the coding alleles reverse translation enumerates.
+
+    Wild-type controls (an input describing no sequence change) are resolved to a ``reference_identical``
+    consequence via a best-effort UTA transcript-reference port, so a control is stored distinctly rather
+    than dropped as a no-result. If UTA is unavailable the run proceeds without that label (those alleles
+    fall back to absent); see :func:`_reference_source_for_vep`.
 
     Job Parameters:
-        - score_set_id (int): The ID of the ScoreSet containing mapped variants.
+        - score_set_id (int): The ID of the ScoreSet whose alleles to process.
         - correlation_id (str): Correlation ID for tracing requests across services.
+        - force (bool, optional): Bypass the current-release/resolver skip and re-query every eligible
+          allele. The linker still supersedes only on a headline-term change, so a forced re-run of
+          unchanged data writes no new rows. Use for re-ingestion or to heal suspected corruption. A
+          resolution-rule change no longer needs force: it bumps RESOLVER_VERSION, which the skip keys
+          on, so those alleles re-query on the next ordinary run.
 
     Args:
         ctx (dict): The job context dictionary.
@@ -52,7 +190,9 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         job_manager (JobManager): Manager for job lifecycle and DB operations.
 
     Returns:
-        JobExecutionOutcome: Outcome with counts of processed, successful, and failed variants.
+        JobExecutionOutcome: outcome with per-allele created/preexisting/absent/errored counts, plus
+        ``retained_on_absence_count`` — preexisting alleles whose consequence was kept because VEP
+        returned nothing this run (a genuine-disappearance signal, surfaced in the job metadata).
     """
     job = job_manager.get_job()
 
@@ -62,6 +202,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
     # Safely ignore mypy warnings here, as params were checked above.
     score_set = job_manager.db.scalars(select(ScoreSet).where(ScoreSet.id == job.job_params["score_set_id"])).one()  # type: ignore
     correlation_id = job.job_params["correlation_id"]  # type: ignore
+    force = bool(job.job_params.get("force", False))  # type: ignore[union-attr]
 
     job_manager.save_to_context(
         {
@@ -71,348 +212,208 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             "correlation_id": correlation_id,
         }
     )
-    job_manager.update_progress(0, 100, "Starting VEP population.")
-    logger.info(msg="Started VEP population", extra=job_manager.logging_context())
+    job_manager.update_progress(0, 100, "Starting VEP consequence linkage.")
+    logger.info(msg="Started VEP consequence linkage", extra=job_manager.logging_context())
 
-    mapped_variants = job_manager.db.scalars(
-        select(MappedVariant)
-        .join(Variant)
-        .where(
-            Variant.score_set_id == score_set.id,
-            MappedVariant.current.is_(True),
-            MappedVariant.post_mapped.isnot(None),
-        )
-    ).all()
+    # One work-unit per eligible allele (payload = a transcript-aware VepInput; protein alleles and
+    # alleles without HGVS are skipped). Events are allele-keyed, so each allele records its own event.
+    allele_inputs = group_alleles_for_annotation(
+        get_alleles_for_score_set(job_manager.db, score_set.id),
+        payload=_vep_input_for_allele,
+    )
 
-    if not mapped_variants:
+    annotation_counts: Counter[str] = Counter(
+        {
+            "created_allele_count": 0,
+            "preexisting_allele_count": 0,
+            "absent_allele_count": 0,
+            "errored_allele_count": 0,
+            # A subset of preexisting: alleles that kept a prior consequence because VEP returned nothing
+            # this run. Surfaced in the job outcome so a genuine-disappearance pattern is visible without
+            # digging through logs (see VepLinkVerdict.RETAINED_ON_ABSENCE).
+            "retained_on_absence_count": 0,
+        }
+    )
+
+    num_alleles_with_hgvs = len(allele_inputs)
+    job_manager.save_to_context({"num_alleles_to_link_vep": num_alleles_with_hgvs})
+
+    if not allele_inputs:
         logger.warning(
-            msg=f"No mapped variants found for score set {score_set.urn}. Skipped VEP population.",
+            msg="No current coding/genomic alleles with HGVS were found for this score set. Skipping VEP linkage (nothing to do).",
             extra=job_manager.logging_context(),
         )
         job_manager.db.flush()
-        return JobExecutionOutcome.succeeded(
-            data={
-                "variants_processed": 0,
-                "variants_with_consequences": 0,
-                "variants_without_consequences": 0,
-                "variants_recoder_failed": 0,
-            }
+        return JobExecutionOutcome.succeeded(data=dict(annotation_counts))
+
+    all_allele_ids = set(allele_inputs.keys())
+
+    # The Ensembl release version-keys the run (coordinated software + transcript set + vocabulary). It
+    # is load-bearing for the skip below, so a failure here aborts the job rather than mis-versioning
+    # writes (the exception propagates to the job decorators).
+    ensembl_release = await get_ensembl_release()
+    job_manager.save_to_context({"ensembl_release": ensembl_release})
+
+    def alleles_at_current_release(allele_ids: set[int]) -> set[int]:
+        """Allele ids (within the given set) holding a live VEP consequence at the current Ensembl release
+        *and* the current resolver version — both axes must match to count as up to date."""
+        if not allele_ids:
+            return set()
+        return set(
+            job_manager.db.scalars(
+                select(VepAlleleConsequence.allele_id)
+                .where(VepAlleleConsequence.allele_id.in_(allele_ids))
+                .where(VepAlleleConsequence.current)
+                .where(VepAlleleConsequence.functional_consequence.isnot(None))
+                .where(VepAlleleConsequence.source_version == ensembl_release)
+                # A resolution-rule change bumps RESOLVER_VERSION without an Ensembl release bump; gating
+                # on both axes re-queries those alleles automatically instead of them looking current
+                # forever. A NULL resolver_version (pre-column row) never matches and so is re-queried.
+                .where(VepAlleleConsequence.resolver_version == RESOLVER_VERSION)
+            ).all()
         )
 
-    job_manager.save_to_context({"total_variants_to_process": len(mapped_variants)})
-    logger.info(
-        msg=f"Found {len(mapped_variants)} mapped variants for VEP processing",
-        extra=job_manager.logging_context(),
+    # Skip alleles already resolved at the current Ensembl release AND resolver version (they cannot
+    # change without one of those bumping). force re-queries all regardless — for re-ingestion or to heal
+    # suspected corruption. The linker still supersedes only on a value change, so a forced (or
+    # resolver-bumped) no-op advances the version in place and writes no new history row.
+    already_current = set() if force else alleles_at_current_release(all_allele_ids)
+    inputs_by_allele = {aid: allele_inputs[aid] for aid in allele_inputs if aid not in already_current}
+    # HGVS alone identifies a unique resolution question here: this job never sets VepInput.transcript
+    # (a coding allele's transcript rides inside its c. HGVS; a genomic allele is transcript-agnostic —
+    # see _vep_input_for_allele), and resolve_consequences re-keys its result by HGVS to match. If this
+    # job ever passes explicit transcripts, both this dedup key and that return keying must become
+    # (hgvs, transcript), or same-HGVS/different-transcript inputs collapse into one.
+    unique_inputs = list({i.hgvs: i for i in inputs_by_allele.values()}.values())
+    job_manager.save_to_context(
+        {
+            "num_alleles_already_current": len(already_current),
+            "num_hgvs_to_query": len(unique_inputs),
+            "force": force,
+        }
     )
 
-    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
-
-    mapped_variants_by_id = {mv.id: mv for mv in mapped_variants}
-
-    # Extract HGVS strings; skip and annotate variants that have none.
-    hgvs_and_mapped_variant_id_pairs: list[tuple[str, int]] = []
-
-    for mapped_variant in mapped_variants:
-        if not mapped_variant.hgvs_assay_level:
-            annotation_manager.add_annotation(
-                variant_id=mapped_variant.variant_id,  # type: ignore
-                annotation_type=AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
-                status=AnnotationStatus.SKIPPED,
-                failure_category=AnnotationFailureCategory.MISSING_IDENTIFIER,
-                annotation_data={"error_message": "Mapped variant does not have an associated HGVS string."},
-            )
-            logger.debug("Mapped variant does not have an associated HGVS string.", extra=job_manager.logging_context())
-            continue
-
-        hgvs_and_mapped_variant_id_pairs.append((mapped_variant.hgvs_assay_level, mapped_variant.id))  # type: ignore
-
-    batches = list(batched(hgvs_and_mapped_variant_id_pairs, _VEP_BATCH_SIZE))
-
-    job_manager.save_to_context({"vep_batches": len(batches)})
-    logger.debug(
-        msg=f"Prepared {len(batches)} VEP batches ({_VEP_BATCH_SIZE} variants/batch)",
-        extra=job_manager.logging_context(),
-    )
-
-    # --- Phase 1: Initial VEP pass ---
-    all_consequences: dict[str, str] = {}
-    all_missing_hgvs: set[str] = set()
-
-    for batch_idx, batch in enumerate(batches):
-        logger.debug(
-            msg=f"Processing VEP batch {batch_idx + 1}/{len(batches)}",
-            extra=job_manager.logging_context(),
-        )
-
-        hgvs_strings, mapped_variant_ids = map(list, zip(*batch))  # type: ignore
-
-        consequences = await get_functional_consequence(hgvs_strings)
-        logger.debug(
-            msg=f"Received consequences for {len(consequences)} variants in VEP batch {batch_idx + 1}",
-            extra=job_manager.logging_context(),
-        )
-
-        # Only store variants where VEP returned an actual consequence string. A None value
-        # means VEP knew the variant but couldn't classify it — treat that the same as absent
-        # and route to Recoder so we have the best chance of getting a consequence.
-        hit_consequences = {h: c for h, c in consequences.items() if c is not None}
-        all_consequences.update(hit_consequences)
-
-        missing_hgvs = set(hgvs_strings) - set(hit_consequences.keys())
-        for hgvs, mapped_variant_id in zip(hgvs_strings, mapped_variant_ids):
-            if hgvs in missing_hgvs:
-                all_missing_hgvs.add(hgvs)
-
-        progress_pct = int((batch_idx + 1) / len(batches) * 33)
-        job_manager.save_to_context(
-            {
-                "initial_vep_batches_processed": batch_idx + 1,
-                "missing_hgvs_count": len(all_missing_hgvs),
-            }
-        )
-        job_manager.update_progress(
-            progress_pct,
-            100,
-            f"Processed initial VEP batch {batch_idx + 1}/{len(batches)}",
-        )
-
-    logger.info(
-        msg=f"Completed initial VEP processing. {len(all_missing_hgvs)} variants require Variant Recoder fallback.",
-        extra=job_manager.logging_context(),
-    )
-
-    # --- Phase 2: Variant Recoder fallback for HGVS strings VEP could not resolve ---
-    hgvs_to_genomic: dict[str, list[str]] = {}
-    recoder_missing_hgvs: set[str] = set()
-
-    if all_missing_hgvs:
-        logger.info(
-            msg=f"Running Variant Recoder for {len(all_missing_hgvs)} HGVS strings",
-            extra=job_manager.logging_context(),
-        )
-
-        recoder_batch_list = list(batched(list(all_missing_hgvs), _RECODER_BATCH_SIZE))
-
-        logger.debug(
-            msg=f"Running {len(recoder_batch_list)} Variant Recoder batches with concurrency {_RECODER_CONCURRENCY}",
-            extra=job_manager.logging_context(),
-        )
-
-        semaphore = asyncio.Semaphore(_RECODER_CONCURRENCY)
-        completed_recoder_batches = 0
-
-        async def _recoder_with_semaphore(batch: list[str], batch_idx: int, total: int) -> dict[str, list[str]]:
-            nonlocal completed_recoder_batches
-            async with semaphore:
-                logger.debug(
-                    msg=f"Starting Variant Recoder batch {batch_idx + 1}/{total} ({len(batch)} HGVS strings)",
-                    extra=job_manager.logging_context(),
-                )
-                result = await run_variant_recoder(batch)
-                completed_recoder_batches += 1
-                logger.debug(
-                    msg=f"Completed Variant Recoder batch {completed_recoder_batches}/{total} ({len(result)} variants recoded)",
-                    extra=job_manager.logging_context(),
-                )
-                progress_pct = 33 + int(completed_recoder_batches / total * 33)
+    verdicts: dict[int, VepLinkVerdict] = {}
+    errored_allele_ids: set[int] = set()
+    if unique_inputs:
+        # The shared orchestration exposes no per-input progress hook, so resolve in chunks and report
+        # between them. Progress is emitted here on the coroutine, not from inside resolve_consequences:
+        # that runs on an executor thread and the progress commit writes this job's (non-thread-safe) DB
+        # session. Chunk-level granularity is the resolution; finer would require a kernel progress hook.
+        job_manager.update_progress(10, 100, f"Resolving VEP consequences for {len(unique_inputs)} HGVS strings.")
+        resolutions_by_hgvs: dict[str, ConsequenceResolution] = {}
+        chunks = list(batched(unique_inputs, _RESOLUTION_CHUNK_SIZE))
+        # A no-change control (an explicit c.= form, or a delins whose bases equal the transcript's own)
+        # is not a VEP-resolvable variant; the reference port lets it resolve to REFERENCE_IDENTICAL
+        # instead of vanishing into ABSENT. Best-effort: a missing/down UTA just disables that label.
+        with _reference_source_for_vep(job_manager) as reference:
+            for chunk_idx, chunk in enumerate(chunks):
+                resolutions_by_hgvs.update(await resolve_consequences(list(chunk), reference=reference))
                 job_manager.update_progress(
-                    progress_pct,
+                    10 + int((chunk_idx + 1) / len(chunks) * 85),
                     100,
-                    f"Completed Variant Recoder batch {completed_recoder_batches}/{total}",
+                    f"Resolved VEP consequences for batch {chunk_idx + 1}/{len(chunks)}.",
                 )
-                return result
 
-        total_recoder_batches = len(recoder_batch_list)
-        recoder_results = await asyncio.gather(
-            *[
-                _recoder_with_semaphore(list(recoder_batch), idx, total_recoder_batches)
-                for idx, recoder_batch in enumerate(recoder_batch_list)
-            ],
-            return_exceptions=True,
+        # Every queried input gets a resolution. An allele missing a resolution is treated as genuinely empty
+        # and never a failure. This ensures a dropped input can only under-report, never overwrite a held consequence.
+        resolution_by_allele = {
+            aid: resolutions_by_hgvs.get(inp.hgvs)
+            or ConsequenceResolution(input=inp, outcome=ConsequenceOutcome.ABSENT)
+            for aid, inp in inputs_by_allele.items()
+        }
+
+        # Alleles whose VEP/Recoder request failed: unknown, not a negative — kept distinct from a genuine
+        # empty. Never linked, since that would overwrite a held consequence with a failure.
+        errored_allele_ids = {
+            aid for aid, res in resolution_by_allele.items() if res.outcome is ConsequenceOutcome.ERRORED
+        }
+        linkable = {
+            aid: res for aid, res in resolution_by_allele.items() if res.outcome is not ConsequenceOutcome.ERRORED
+        }
+        verdicts = link_vep_consequences_to_alleles(
+            job_manager.db, linkable, source_version=ensembl_release, access_date=date.today()
         )
-
-        successful_batches = sum(1 for r in recoder_results if not isinstance(r, Exception))
-
-        first_exception = next((r for r in recoder_results if isinstance(r, Exception)), None)
-        if first_exception is not None:
-            logger.error(
-                msg=f"Variant Recoder error ({successful_batches}/{total_recoder_batches} batches succeeded): {str(first_exception)}",
-                extra=job_manager.logging_context(),
-            )
-            raise first_exception
-
-        for result in recoder_results:
-            hgvs_to_genomic.update(result)  # type: ignore[arg-type]
-
-        job_manager.save_to_context(
-            {
-                "variant_recoder_batches_processed": len(recoder_batch_list),
-                "recoded_variants_count": len(hgvs_to_genomic),
-            }
-        )
+        job_manager.db.flush()
+    else:
         logger.info(
-            msg=f"Completed Variant Recoder processing. {len(hgvs_to_genomic)} variants successfully recoded.",
+            msg="All eligible alleles are already resolved at the current Ensembl release; skipping VEP query.",
             extra=job_manager.logging_context(),
         )
+        job_manager.update_progress(99, 100, "All alleles already current at this Ensembl release.")
 
-        # --- Phase 3: VEP pass on the recoded genomic HGVS strings ---
-        # hgvs_to_genomic maps original HGVS → list[str]; flatten to a deduplicated list of
-        # genomic strings before batching with VEP.
-        all_recoded_genomic_hgvs = list({g for genomic_list in hgvs_to_genomic.values() for g in genomic_list})
-        recoded_vep_batch_list = list(batched(all_recoded_genomic_hgvs, _VEP_BATCH_SIZE))
-        all_recoded_consequences: dict[str, str | None] = {}
-
-        for recoded_vep_batch_idx, recoded_vep_batch in enumerate(recoded_vep_batch_list):
-            logger.debug(
-                msg=f"Processing recoded HGVS VEP batch {recoded_vep_batch_idx + 1}/{len(recoded_vep_batch_list)}",
-                extra=job_manager.logging_context(),
+    annotation_manager = AnnotationStatusManager(
+        job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
+    )
+    for allele_id, vep_input in allele_inputs.items():
+        verdict = verdicts.get(allele_id)
+        if verdict is VepLinkVerdict.CREATED:
+            annotation_counts["created_allele_count"] += 1
+            _annotate_vep(
+                annotation_manager,
+                allele_id,
+                Disposition.PRESENT,
+                EventReason.CREATED,
+                source_version=ensembl_release,
+                metadata={"hgvs": vep_input.hgvs},
             )
 
-            recoded_vep_consequences = await get_functional_consequence(recoded_vep_batch)
-            all_recoded_consequences.update(recoded_vep_consequences)
-
-            progress_pct = 66 + int((recoded_vep_batch_idx + 1) / len(recoded_vep_batch_list) * 33)
-            job_manager.save_to_context(
-                {
-                    "recoded_vep_batches_processed": recoded_vep_batch_idx + 1,
-                    "recoded_consequences_count": len(all_recoded_consequences),
-                }
+        elif allele_id in already_current or verdict in (
+            VepLinkVerdict.UNCHANGED,
+            VepLinkVerdict.RETAINED_ON_ABSENCE,
+        ):
+            # The allele still has a live consequence, so its status is preexisting either way. When it
+            # was retained despite VEP finding nothing this run, also tally it separately for the outcome.
+            annotation_counts["preexisting_allele_count"] += 1
+            if verdict is VepLinkVerdict.RETAINED_ON_ABSENCE:
+                annotation_counts["retained_on_absence_count"] += 1
+            _annotate_vep(
+                annotation_manager,
+                allele_id,
+                Disposition.PRESENT,
+                EventReason.PREEXISTING,
+                source_version=ensembl_release,
+                metadata={"hgvs": vep_input.hgvs},
             )
-            job_manager.update_progress(
-                progress_pct,
-                100,
-                f"Processed recoded VEP batch {recoded_vep_batch_idx + 1}/{len(recoded_vep_batch_list)}",
+
+        elif allele_id in errored_allele_ids:
+            annotation_counts["errored_allele_count"] += 1
+            _annotate_vep(
+                annotation_manager,
+                allele_id,
+                Disposition.FAILED,
+                EventReason.API_ERROR,
+                source_version=ensembl_release,
+                error_message="The VEP/Variant Recoder request for this allele failed; result unknown.",
+                metadata={"hgvs": vep_input.hgvs},
             )
 
-        logger.info(
-            msg=f"Completed recoded VEP processing. {len(all_recoded_consequences)} recoded consequences retrieved.",
-            extra=job_manager.logging_context(),
-        )
-
-        # Map most-severe consequence from recoded genomic HGVS back to the original HGVS.
-        for original_hgvs, recoded_hgvs_list in hgvs_to_genomic.items():
-            recoded_consequences_for_variant = [
-                c for recoded_hgvs in recoded_hgvs_list if (c := all_recoded_consequences.get(recoded_hgvs))
-            ]
-
-            if recoded_consequences_for_variant:
-                most_severe = next(
-                    (c for c in VEP_CONSEQUENCES if c in recoded_consequences_for_variant),
-                    None,
-                )
-                if most_severe:
-                    all_consequences[original_hgvs] = most_severe
-                    logger.debug(
-                        msg=f"Selected most severe consequence '{most_severe}' for {original_hgvs}",
-                        extra=job_manager.logging_context(),
-                    )
-            else:
-                logger.debug(
-                    msg=f"Could not retrieve functional consequences for any recoded variants of {original_hgvs}",
-                    extra=job_manager.logging_context(),
-                )
-
-        recoder_missing_hgvs = all_missing_hgvs - set(hgvs_to_genomic.keys())
-
-    # --- Phase 4: Annotate outcomes and update mapped variants in a single pass ---
-
-    # HGVS strings that went through both VEP passes but still have no consequence.
-    all_processed_hgvs = {h for h, _ in hgvs_and_mapped_variant_id_pairs}
-    vep_failed_hgvs = all_processed_hgvs - set(all_consequences.keys()) - recoder_missing_hgvs
-
-    variants_processed = 0
-    variants_with_consequences = 0
-    variants_without_consequences = 0
-    variants_recoder_failed = 0
-
-    for hgvs_string, mapped_variant_id in hgvs_and_mapped_variant_id_pairs:
-        mapped_variant = mapped_variants_by_id.get(mapped_variant_id)  # type: ignore
-        if mapped_variant is None:
-            continue
-
-        consequence = all_consequences.get(hgvs_string)
-        if consequence:
-            mapped_variant.vep_functional_consequence = consequence
-            mapped_variant.vep_access_date = date.today()
-            job_manager.db.add(mapped_variant)
-            annotation_manager.add_annotation(
-                variant_id=mapped_variant.variant_id,  # type: ignore
-                annotation_type=AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
-                status=AnnotationStatus.SUCCESS,
-                annotation_data={"annotation_metadata": {"functional_consequence": consequence}},
-            )
-            variants_with_consequences += 1
-            logger.debug(
-                msg=f"Set consequence '{consequence}' for mapped variant {mapped_variant_id} (HGVS: {hgvs_string})",
-                extra=job_manager.logging_context(),
-            )
-        elif hgvs_string in vep_failed_hgvs:
-            annotation_manager.add_annotation(
-                variant_id=mapped_variant.variant_id,  # type: ignore
-                annotation_type=AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
-                status=AnnotationStatus.FAILED,
-                failure_category=AnnotationFailureCategory.EXTERNAL_REFERENCE_NOT_FOUND,
-                annotation_data={
-                    "error_message": "VEP could not determine a functional consequence for this variant, even after Variant Recoder fallback.",
-                },
-            )
-            variants_without_consequences += 1
-            logger.debug(
-                msg=f"Recorded VEP failure for mapped_variant_id {mapped_variant_id} (HGVS: {hgvs_string})",
-                extra=job_manager.logging_context(),
-            )
-        elif hgvs_string in recoder_missing_hgvs:
-            annotation_manager.add_annotation(
-                variant_id=mapped_variant.variant_id,  # type: ignore
-                annotation_type=AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
-                status=AnnotationStatus.FAILED,
-                failure_category=AnnotationFailureCategory.EXTERNAL_REFERENCE_NOT_FOUND,
-                annotation_data={
-                    "error_message": "Variant Recoder could not recode this HGVS string to a genomic equivalent.",
-                },
-            )
-            variants_recoder_failed += 1
-            logger.debug(
-                msg=f"Recorded Variant Recoder failure for mapped_variant_id {mapped_variant_id} (HGVS: {hgvs_string})",
-                extra=job_manager.logging_context(),
-            )
         else:
-            annotation_manager.add_annotation(
-                variant_id=mapped_variant.variant_id,  # type: ignore
-                annotation_type=AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
-                status=AnnotationStatus.FAILED,
-                failure_category=AnnotationFailureCategory.UNKNOWN,
-                annotation_data={
-                    "error_message": "Variant was not classified by any VEP outcome branch. This is a bug.",
-                },
+            annotation_counts["absent_allele_count"] += 1
+            _annotate_vep(
+                annotation_manager,
+                allele_id,
+                Disposition.ABSENT,
+                EventReason.NO_RECORD,
+                source_version=ensembl_release,
+                error_message="VEP found no functional consequence for this allele, even after Variant Recoder fallback.",
+                metadata={"hgvs": vep_input.hgvs},
             )
-            variants_without_consequences += 1
-            logger.warning(
-                msg=f"Unexpected state: mapped_variant_id {mapped_variant_id} (HGVS: {hgvs_string}) was not classified by any outcome branch.",
-                extra=job_manager.logging_context(),
-            )
-
-        variants_processed += 1
 
     annotation_manager.flush()
-    job_manager.db.flush()
 
+    outcome_data = dict(annotation_counts)
+    job_manager.save_to_context(outcome_data)
     job_manager.update_progress(
         100,
         100,
-        f"Completed VEP functional consequence prediction for {variants_with_consequences}/{variants_processed} variants.",
+        (
+            f"Completed VEP linkage: {annotation_counts['created_allele_count'] + annotation_counts['preexisting_allele_count']} linked, "
+            f"{annotation_counts['absent_allele_count']} absent (no result), "
+            f"{annotation_counts['errored_allele_count']} errored, "
+            f"{annotation_counts['retained_on_absence_count']} retained despite no result this run."
+        ),
     )
-    logger.info(
-        msg=f"Completed VEP prediction: {variants_with_consequences} with consequences, {variants_without_consequences} without, {variants_recoder_failed} recoder failed",
-        extra=job_manager.logging_context(),
-    )
-
+    logger.info(msg="Done linking VEP consequences to alleles.", extra=job_manager.logging_context())
     job_manager.db.flush()
-    return JobExecutionOutcome.succeeded(
-        data={
-            "variants_processed": variants_processed,
-            "variants_with_consequences": variants_with_consequences,
-            "variants_without_consequences": variants_without_consequences,
-            "variants_recoder_failed": variants_recoder_failed,
-        }
-    )
+    return JobExecutionOutcome.succeeded(data=outcome_data)

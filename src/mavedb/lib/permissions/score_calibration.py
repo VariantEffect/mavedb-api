@@ -1,9 +1,12 @@
+from dataclasses import dataclass
 from typing import Optional
 
 from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.models import PermissionResponse
+from mavedb.lib.permissions.score_set import has_permission as score_set_has_permission
 from mavedb.lib.permissions.utils import deny_action_for_entity, roles_permitted
+from mavedb.lib.permissions.viewer import Viewer
 from mavedb.lib.types.authentication import UserData
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.score_calibration import ScoreCalibration
@@ -78,6 +81,20 @@ def has_permission(user_data: Optional[UserData], entity: ScoreCalibration, acti
     )
 
 
+@dataclass(frozen=True)
+class ScoreCalibrationViewer(Viewer[ScoreCalibration]):
+    """The audience a calibration-bearing export is being built for.
+
+    Needed wherever a read fans out to calibrations, because a calibration's READ rule is stricter than its
+    score set's: publishing a score set does not publish its calibrations, and reading one does not entitle
+    a caller to read its private calibrations.
+    """
+
+    @staticmethod
+    def _has_permission(user_data: Optional[UserData], entity: ScoreCalibration, action: Action) -> PermissionResponse:
+        return has_permission(user_data, entity, action)
+
+
 def _handle_read_action(
     user_data: Optional[UserData],
     entity: ScoreCalibration,
@@ -89,9 +106,12 @@ def _handle_read_action(
     """
     Handle READ action permission check for ScoreCalibration entities.
 
-    ScoreCalibrations are generally readable by anyone who can access the
-    associated ScoreSet, as they provide important contextual information
-    about the score data.
+    TODO(#876) - Separates the readability concern by adding the notion of a separate
+    calibration method. For now, A ScoreCalibration is never readable by a user who
+    cannot read its ScoreSet, because the calibration variant routes return the score
+    set's variants and scores. Among users who can read the ScoreSet, published
+    calibrations are readable by all and private calibrations only by their owner,
+    contributors (for investigator-provided calibrations), and admins.
 
     Args:
         user_data: The user's authentication data.
@@ -104,6 +124,10 @@ def _handle_read_action(
     Returns:
         PermissionResponse: Permission result with appropriate HTTP status.
     """
+    # Deny as not found so the calibrations of an unreadable score set are not acknowledged.
+    if not score_set_has_permission(user_data, entity.score_set, Action.READ).permitted:
+        return deny_action_for_entity(entity, True, user_data, False, "score calibration")
+
     ## Allow read access under the following conditions:
     # Any user may read a ScoreCalibration if it is not private.
     if not private:

@@ -9,6 +9,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict
+from urllib.parse import quote
 
 import requests
 from filelock import FileLock
@@ -17,6 +18,7 @@ from requests.adapters import HTTPAdapter
 from mavedb.lib.clinvar.constants import (
     CLINVAR_CACHE_DIR,
     CLINVAR_FIELDS_TO_KEEP,
+    CLINVAR_VARIATION_URL,
     NCBI_REQUEST_HEADERS,
     NCBI_RETRY_STRATEGY,
     TSV_VARIANT_ARCHIVE_BASE_URL,
@@ -26,6 +28,11 @@ _FIELDS_HASH = hashlib.sha256("|".join(CLINVAR_FIELDS_TO_KEEP).encode()).hexdige
 """Short hash of the kept fields, embedded in the cache filename so that adding/removing fields automatically invalidates stale caches. This ensures that if we change which fields we keep from the ClinVar TSV, we won't accidentally use old cached data that doesn't have the new fields."""
 
 logger = logging.getLogger(__name__)
+
+
+def clinvar_variation_url(variation_id: str) -> str:
+    """Link to a ClinVar variation record. Mirrors ``clinvarVariationUrl`` in the UI's ``src/lib/clinvar-controls.ts``."""
+    return f"{CLINVAR_VARIATION_URL}/{quote(variation_id, safe='')}/"
 
 
 def _ncbi_session() -> requests.Session:
@@ -175,8 +182,11 @@ def _fetch_parse_and_cache(
             # as a list (which would be 1.5–2 GB for a modern TSV).
             with gzip.open(filename=buf, mode="rt") as f:
                 reader = csv.DictReader(f, delimiter="\t")  # type: ignore
+                # row.get (not row[field]) so a field absent from an older archival TSV schema yields
+                # None for that row rather than raising and discarding the whole version's parse.
                 data: Dict[str, Dict[str, str]] = {
-                    str(row["#AlleleID"]): {field: row[field] for field in CLINVAR_FIELDS_TO_KEEP} for row in reader
+                    str(row["#AlleleID"]): {field: row.get(field) for field in CLINVAR_FIELDS_TO_KEEP}  # type: ignore[misc]
+                    for row in reader
                 }
         finally:
             csv.field_size_limit(default_csv_field_size_limit)

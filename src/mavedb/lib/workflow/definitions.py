@@ -21,6 +21,16 @@ def annotation_pipeline_job_definitions(
     )
     return [
         {
+            "key": "reverse_translate_variants_for_score_set",
+            "function": "reverse_translate_variants_for_score_set",
+            "type": JobType.MAPPED_VARIANT_ANNOTATION,
+            "params": {
+                "correlation_id": None,  # Required param to be filled in at runtime
+                "score_set_id": None,  # Required param to be filled in at runtime
+            },
+            "dependencies": mapping_dep,
+        },
+        {
             "key": "submit_score_set_mappings_to_car",
             "function": "submit_score_set_mappings_to_car",
             "type": JobType.MAPPED_VARIANT_ANNOTATION,
@@ -29,7 +39,8 @@ def annotation_pipeline_job_definitions(
                 "score_set_id": None,  # Required param to be filled in at runtime
                 "updater_id": None,  # Required param to be filled in at runtime
             },
-            "dependencies": mapping_dep,
+            "optional_params": {"force_reregister": False},  # Resubmit alleles that already hold a CAID
+            "dependencies": [("reverse_translate_variants_for_score_set", DependencyType.SUCCESS_REQUIRED)],
         },
         {
             "key": "warm_clingen_cache",
@@ -87,16 +98,6 @@ def annotation_pipeline_job_definitions(
             "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
         },
         {
-            "key": "populate_hgvs_for_score_set",
-            "function": "populate_hgvs_for_score_set",
-            "type": JobType.MAPPED_VARIANT_ANNOTATION,
-            "params": {
-                "correlation_id": None,  # Required param to be filled in at runtime
-                "score_set_id": None,  # Required param to be filled in at runtime
-            },
-            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
-        },
-        {
             "key": "populate_vep_for_score_set",
             "function": "populate_vep_for_score_set",
             "type": JobType.MAPPED_VARIANT_ANNOTATION,
@@ -104,17 +105,7 @@ def annotation_pipeline_job_definitions(
                 "correlation_id": None,  # Required param to be filled in at runtime
                 "score_set_id": None,  # Required param to be filled in at runtime
             },
-            "dependencies": [("submit_score_set_mappings_to_car", DependencyType.SUCCESS_REQUIRED)],
-        },
-        {
-            "key": "populate_variant_translations_for_score_set",
-            "function": "populate_variant_translations_for_score_set",
-            "type": JobType.MAPPED_VARIANT_ANNOTATION,
-            "params": {
-                "correlation_id": None,  # Required param to be filled in at runtime
-                "score_set_id": None,  # Required param to be filled in at runtime
-            },
-            "dependencies": [("warm_clingen_cache", DependencyType.SUCCESS_REQUIRED)],
+            "dependencies": [("reverse_translate_variants_for_score_set", DependencyType.SUCCESS_REQUIRED)],
         },
     ]
 
