@@ -530,8 +530,8 @@ def test_create_experiment_that_keyword_gene_ontology_has_valid_code(client, set
         "keywords": [
             {
                 "keyword": {
-                    "key": "Phenotypic Assay Mechanism",
-                    "label": "Label",
+                    "key": "Molecular Mechanism Assessed",
+                    "label": "Sodium channel activity",
                     "code": "GO:1234567",
                     "special": False,
                     "description": "Description",
@@ -543,8 +543,8 @@ def test_create_experiment_that_keyword_gene_ontology_has_valid_code(client, set
     response = client.post("/api/v1/experiments/", json=experiment)
     assert response.status_code == 200
     response_data = response.json()
-    assert response_data["keywords"][0]["keyword"]["key"] == "Phenotypic Assay Mechanism"
-    assert response_data["keywords"][0]["keyword"]["label"] == "Label"
+    assert response_data["keywords"][0]["keyword"]["key"] == "Molecular Mechanism Assessed"
+    assert response_data["keywords"][0]["keyword"]["label"] == "Sodium channel activity"
     assert response_data["keywords"][0]["keyword"]["code"] == "GO:1234567"
 
 
@@ -553,7 +553,7 @@ def test_create_experiment_that_keyword_gene_ontology_is_other_without_code(clie
         "keywords": [
             {
                 "keyword": {
-                    "key": "Phenotypic Assay Mechanism",
+                    "key": "Molecular Mechanism Assessed",
                     "label": "Other",
                     "code": None,
                     "description": "Description",
@@ -566,17 +566,60 @@ def test_create_experiment_that_keyword_gene_ontology_is_other_without_code(clie
     response = client.post("/api/v1/experiments/", json=experiment)
     assert response.status_code == 200
     response_data = response.json()
-    assert response_data["keywords"][0]["keyword"]["key"] == "Phenotypic Assay Mechanism"
+    assert response_data["keywords"][0]["keyword"]["key"] == "Molecular Mechanism Assessed"
     assert response_data["keywords"][0]["keyword"]["label"] == "Other"
 
 
 # TODO(#511) Re-enable the Gene Ontology code requirement.
+# def test_create_experiment_that_keywords_has_multiple_molecular_mechanism_assessed_labels(client, setup_router_db):
+#     valid_keywords = {
+#         "keywords": [
+#             {
+#                 "keyword": {
+#                     "key": "Molecular Mechanism Assessed",
+#                     "label": "Sodium channel activity",
+#                     "code": "GO:1234567",
+#                     "special": False,
+#                     "description": "Description",
+#                 },
+#             },
+#             {
+#                 "keyword": {
+#                     "key": "Molecular Mechanism Assessed",
+#                     "label": "Calcium-mediated signaling",
+#                     "code": "GO:1134567",
+#                     "special": False,
+#                     "description": "Description",
+#                 },
+#             }
+#         ],
+#     }
+#     experiment = {**TEST_MINIMAL_EXPERIMENT, **valid_keywords}
+#     response = client.post("/api/v1/experiments/", json=experiment)
+#     assert response.status_code == 200
+#     response_data = response.json()
+#     assert len(response_data["keywords"]) == 2
+#     labels = {kw["keyword"]["label"] for kw in response_data["keywords"]}
+#     codes = {kw["keyword"]["code"] for kw in response_data["keywords"]}
+#     keys = {kw["keyword"]["key"] for kw in response_data["keywords"]}
+#
+#     assert keys == {"Molecular Mechanism Assessed"}
+#     assert labels == {
+#         "Sodium channel activity",
+#         "Calcium-mediated signaling",
+#     }
+#     assert codes == {
+#         "GO:1234567",
+#         "GO:1134567",
+#     }
+
+
 # def test_cannot_create_experiment_that_keyword_has_an_invalid_code(client, setup_router_db):
 #     invalid_keyword = {
 #         "keywords": [
 #             {
 #                 "keyword": {
-#                     "key": "Phenotypic Assay Mechanism",
+#                     "key": "Molecular Mechanism Assessed",
 #                     "label": "Label",
 #                     "code": "invalid",
 #                     "description": "Description",
