@@ -121,7 +121,7 @@ def calibration_can_annotate(calibration: ScoreCalibration) -> bool:
 def calibration_namespace_entries(calibrations: Iterable[ScoreCalibration]) -> list[AvailableCsvNamespaceEntry]:
     """Build labeled entries for calibrations, named by title so a picker can identify them.
 
-    Research-use-only calibrations (labelled with a prefix) and rangeless ones are offered but excluded
+    Research-use-only calibrations (flagged for a picker to tag) and rangeless ones are offered but excluded
     from the default selection.
     """
     entries = []
@@ -134,7 +134,7 @@ def calibration_namespace_entries(calibrations: Iterable[ScoreCalibration]) -> l
         entries.append(
             AvailableCsvNamespaceEntry(
                 namespace=calibration_namespace_for_urn(str(calibration.urn)),
-                label=f"Research Use Only: {title}" if research_use_only else title,
+                label=title,
                 group=CsvNamespaceGroup.CALIBRATION,
                 score_set=calibration.score_set,
                 research_use_only=research_use_only,

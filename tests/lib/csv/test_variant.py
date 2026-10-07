@@ -372,7 +372,8 @@ class TestGetVariantCsv:
             if entry.namespace == CALIBRATION_NS_1
         )
 
-        assert entry.label == "Research Use Only: Provisional Calibration"
+        assert entry.label == "Provisional Calibration"
+        assert entry.research_use_only is True
         assert entry.selected_by_default is False
 
     def test_research_use_only_calibration_is_not_in_the_default_download(
@@ -915,7 +916,8 @@ class TestComputeAvailableCsvNamespaces:
             if entry.namespace == CALIBRATION_NS_1
         )
 
-        assert entry.label == "Research Use Only: Provisional Calibration"
+        assert entry.label == "Provisional Calibration"
+        assert entry.research_use_only is True
         assert entry.selected_by_default is False
         # Reported in its own right, not left to be inferred from the label or from the unchecked box:
         # this is the one reason for unchecking that decides whether the data may be published.
