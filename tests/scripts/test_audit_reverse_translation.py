@@ -4,6 +4,11 @@ from datetime import datetime, timezone
 
 import pytest
 
+arq = pytest.importorskip("arq")
+cdot = pytest.importorskip("cdot")
+fastapi = pytest.importorskip("fastapi")
+biocommons = pytest.importorskip("biocommons")
+bioutils = pytest.importorskip("bioutils")
 pytest.importorskip("ga4gh.vrs")
 
 from mavedb.lib.seqrepo import SequenceNotFoundError
