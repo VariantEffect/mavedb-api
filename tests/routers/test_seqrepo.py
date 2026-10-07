@@ -130,3 +130,12 @@ def test_get_versions(client):
     resp = client.get("/api/v1/seqrepo/version")
     assert resp.status_code == 200
     assert isinstance(resp.json(), dict)
+
+
+# The shared SeqRepo holds the target sequences of unpublished score sets, so lookups must not match by
+# wildcard or digest prefix.
+@pytest.mark.parametrize("path", ["sequence/{alias}", "metadata/{alias}"])
+@pytest.mark.parametrize("alias", ["ga4gh:SQ.%25", "MD5:%25", "%25", "0123456789"])
+def test_lookup_does_not_match_wildcards_or_digest_prefixes(client, path, alias):
+    resp = client.get(f"/api/v1/seqrepo/{path.format(alias=alias)}")
+    assert resp.status_code == 404

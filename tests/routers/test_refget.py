@@ -66,6 +66,15 @@ def test_get_metadata_not_found(client):
     assert "Sequence not found" in resp.text
 
 
+# The shared SeqRepo holds the target sequences of unpublished score sets, so lookups must not match by
+# wildcard or digest prefix.
+@pytest.mark.parametrize("path", ["{alias}", "{alias}/metadata"])
+@pytest.mark.parametrize("alias", ["ga4gh:SQ.%25", "MD5:%25", "%25", "0123456789"])
+def test_get_sequence_does_not_match_wildcards_or_digest_prefixes(client, path, alias):
+    resp = client.get(f"/api/v1/refget/sequence/{path.format(alias=alias)}")
+    assert resp.status_code == 404
+
+
 @pytest.mark.parametrize("entry", TEST_SEQREPO_INITIAL_STATE)
 def test_get_sequence_success(client, entry):
     alias = list(entry.keys())[0]

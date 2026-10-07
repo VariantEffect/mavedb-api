@@ -11,7 +11,7 @@ from binascii import unhexlify, hexlify
 
 # TODO (https://github.com/VariantEffect/mavedb-api/issues/354). We need pydantic upgraded to use this package.
 # from ga4gh.core.identifiers import is_ga4gh_identifier, CURIE_NAMESPACE as ga4gh_namespace
-from typing import Generator, Optional, Union
+from typing import Generator, Optional
 
 from biocommons.seqrepo import SeqRepo, __version__ as seqrepo_dep_version
 from bioutils.accessions import infer_namespaces
@@ -41,13 +41,15 @@ def get_sequence_ids(sr: SeqRepo, query: str) -> list[str]:
 
     The query may be:
       * A fully-qualified sequence alias (e.g., VMC:0123 or refseq:NM_01234.5)
-      * A digest or digest prefix from VMC, TRUNC512, or MD5
+      * A complete MD5 or TRUNC512 hex digest
       * A sequence accession (without namespace)
 
-    The first match will be returned.
+    The first match will be returned. Matching is exact: the shared SeqRepo holds the target sequences of
+    unpublished score sets, so neither digest prefixes nor SQL wildcards may be used to enumerate it.
     """
 
     nsa_options = _generate_nsa_options(query)
+    aliases: list[dict] = []
     for ns, a in nsa_options:
         aliases = list(sr.aliases.find_aliases(namespace=ns, alias=a))
         if aliases:
@@ -80,7 +82,7 @@ def resolve_refget(sr: SeqRepo, accession: str) -> str:
     return f"SQ.{seq_ids[0]}"
 
 
-def _generate_nsa_options(query: str) -> Union[list[tuple[str, ...]], list[tuple[None, str]]]:
+def _generate_nsa_options(query: str) -> list[tuple[Optional[str], str]]:
     """
     >>> _generate_nsa_options("NM_000551.3")
     [('refseq', 'NM_000551.3')]
@@ -94,20 +96,25 @@ def _generate_nsa_options(query: str) -> Union[list[tuple[str, ...]], list[tuple
     >> _generate_nsa_options("SQ.test")
     [('ga4gh', 'test')]
 
-    >>> _generate_nsa_options("01234abcde")
-    [('MD5', '01234abcde%'), ('VMC', 'GS_ASNKvN4=%')]
+    >>> _generate_nsa_options("0123456789abcdef0123456789abcdef")
+    [('MD5', '0123456789abcdef0123456789abcdef')]
+
+    >>> _generate_nsa_options("NM_%")
+    []
 
     """
+    # SeqRepo switches to a LIKE comparison whenever an argument contains "%".
+    if "%" in query:
+        return []
 
     if ":" in query:
         # interpret as fully-qualified identifier
-        nsa_options = [tuple(query.split(sep=":", maxsplit=1))]
-        return nsa_options
+        namespace, alias = query.split(sep=":", maxsplit=1)
+        return [(namespace, alias)]
 
     namespaces = infer_namespaces(query)
     if namespaces:
-        nsa_options = [(ns, query) for ns in namespaces]
-        return nsa_options
+        return [(ns, query) for ns in namespaces]
 
     # TODO (https://github.com/VariantEffect/mavedb-api/issues/354). We need pydantic upgraded to use this package.
     # if ga4gh, try ga4gh. GA4GH only accepts identifiers with a namespace prefix,
@@ -116,13 +123,12 @@ def _generate_nsa_options(query: str) -> Union[list[tuple[str, ...]], list[tuple
     #     nsa_options = [("ga4gh", query)]
     #     return nsa_options
 
-    # if hex, try MD5
-    if re.match(r"^(?:[0-9A-Fa-f]{8,})$", query):
-        nsa_options = [("MD5", query + "%")]
-        # TRUNC512 isn't in seqrepo; synthesize equivalent VMC
-        id_b64u = hex_to_base64url(query)
-        nsa_options += [("VMC", "GS_" + id_b64u + "%")]
-        return nsa_options
+    # A complete MD5 (32 hex characters) or TRUNC512 (48) digest. TRUNC512 isn't in SeqRepo; synthesize the
+    # equivalent VMC alias.
+    if re.fullmatch(r"[0-9A-Fa-f]{32}", query):
+        return [("MD5", query.lower())]
+    if re.fullmatch(r"[0-9A-Fa-f]{48}", query):
+        return [("VMC", "GS_" + hex_to_base64url(query))]
 
     return [(None, query)]
 
