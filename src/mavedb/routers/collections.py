@@ -241,11 +241,16 @@ async def create_collection(
         score_set_associations = []
         for position, score_set_urn in enumerate(item_create.score_set_urns or []):
             score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one()
+            # A record the caller may not read is reported as missing, so membership can't probe for it.
+            if not has_permission(user_data, score_set, Action.READ).permitted:
+                raise NoResultFound()
             score_set_associations.append(CollectionScoreSetAssociation(score_set=score_set, position=position))
 
         experiment_associations = []
         for position, experiment_urn in enumerate(item_create.experiment_urns or []):
             experiment = db.scalars(select(Experiment).where(Experiment.urn == experiment_urn)).one()
+            if not has_permission(user_data, experiment, Action.READ).permitted:
+                raise NoResultFound()
             experiment_associations.append(CollectionExperimentAssociation(experiment=experiment, position=position))
 
     except NoResultFound as e:
@@ -345,6 +350,13 @@ async def update_collection(
             # Build new ordered associations
             for position, score_set_urn in enumerate(item_update.score_set_urns):
                 score_set = db.scalars(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).one()
+                # Only new members are checked, so existing members the caller can't see survive a reorder.
+                # A new member the caller may not read is reported as missing.
+                if (
+                    score_set_urn not in current_urns
+                    and not has_permission(user_data, score_set, Action.READ).permitted
+                ):
+                    raise NoResultFound()
                 item.score_set_associations.append(
                     CollectionScoreSetAssociation(score_set=score_set, position=position)
                 )
@@ -372,6 +384,11 @@ async def update_collection(
             # Build new ordered associations
             for position, experiment_urn in enumerate(item_update.experiment_urns):
                 experiment = db.scalars(select(Experiment).where(Experiment.urn == experiment_urn)).one()
+                if (
+                    experiment_urn not in current_urns
+                    and not has_permission(user_data, experiment, Action.READ).permitted
+                ):
+                    raise NoResultFound()
                 item.experiment_associations.append(
                     CollectionExperimentAssociation(experiment=experiment, position=position)
                 )
@@ -450,7 +467,8 @@ async def add_score_set_to_collection(
         raise HTTPException(status_code=404, detail=f"collection with URN '{collection_urn}' not found")
 
     score_set = db.execute(select(ScoreSet).where(ScoreSet.urn == body.score_set_urn)).scalars().one_or_none()
-    if not score_set:
+    # A score set the caller may not read is reported as missing, so this route can't probe for one.
+    if not score_set or not has_permission(user_data, score_set, Action.READ).permitted:
         logger.info(
             msg="Failed to add score set to collection; The requested score set does not exist.",
             extra=logging_context(),
@@ -608,7 +626,8 @@ async def add_experiment_to_collection(
         raise HTTPException(status_code=404, detail=f"collection with URN '{collection_urn}' not found")
 
     experiment = db.execute(select(Experiment).where(Experiment.urn == body.experiment_urn)).scalars().one_or_none()
-    if not experiment:
+    # An experiment the caller may not read is reported as missing, so this route can't probe for one.
+    if not experiment or not has_permission(user_data, experiment, Action.READ).permitted:
         logger.info(
             msg="Failed to add experiment to collection; The requested experiment does not exist.",
             extra=logging_context(),
