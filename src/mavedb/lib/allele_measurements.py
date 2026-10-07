@@ -39,6 +39,7 @@ from typing import Optional
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, aliased, joinedload
 
+from mavedb.lib.alleles import readable_score_set_ids_by_allele
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.score_calibrations import calibration_preference_key, classification_evidence_strength
@@ -179,11 +180,17 @@ def _ordering_key(measurement: AlleleMeasurement, published_date: Optional[date]
     )
 
 
-def _resolve_protein_apex(db: Session, anchor_ids: list[int], *, as_of: Optional[datetime]) -> _ProteinApex:
+def _resolve_protein_apex(
+    db: Session, anchor_ids: list[int], *, as_of: Optional[datetime], score_set_ids: set[int]
+) -> _ProteinApex:
     """The protein consequence(s) co-membered with the nt ``anchor_ids`` via a shared live record.
 
     The single site the apex is resolved, so its cardinality (see :class:`_ProteinApex`) is measured
     rather than being a silent side effect of the union. Reads ``clingen_allele_id`` to count PAIDs.
+
+    Only records of ``score_set_ids`` are followed. A protein consequence that only an unreadable score
+    set's mapping produced would otherwise pull in public measurements of that protein change, disclosing
+    the private one.
     """
     anchor_link = aliased(MappingRecordAllele)
     rows = db.execute(
@@ -191,6 +198,7 @@ def _resolve_protein_apex(db: Session, anchor_ids: list[int], *, as_of: Optional
         .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
         .join(anchor_link, anchor_link.mapping_record_id == MappingRecordAllele.mapping_record_id)
         .where(anchor_link.allele_id.in_(anchor_ids))
+        .where(anchor_link.score_set_id.in_(score_set_ids))
         .where(anchor_link.live_at(as_of))
         .where(MappingRecordAllele.live_at(as_of))
         .where(Allele.level == SequenceLevel.protein.value)
@@ -219,8 +227,14 @@ def get_allele_measurements(
     members. A PA query returns its ``direct`` protein measurements and their ``nucleotide_encoding`` encodings.
     """
     anchor = db.execute(select(Allele.id, Allele.level).where(Allele.clingen_allele_id == clingen_allele_id)).all()
+
+    # An allele only the caller's unreadable score sets link is treated as absent, as on GET /alleles.
+    readable_by_allele = readable_score_set_ids_by_allele(db, user_data, [row.id for row in anchor])
+    anchor = [row for row in anchor if row.id in readable_by_allele]
     if not anchor:
         return []
+
+    readable_score_set_ids: set[int] = set().union(*readable_by_allele.values())
 
     anchor_ids = [row.id for row in anchor]
     entry_is_protein = any(row.level == SequenceLevel.protein.value for row in anchor)
@@ -230,7 +244,7 @@ def get_allele_measurements(
     # the calculation should be deterministic.
     apex: Optional[_ProteinApex] = None
     if not entry_is_protein:
-        apex = _resolve_protein_apex(db, anchor_ids, as_of=as_of)
+        apex = _resolve_protein_apex(db, anchor_ids, as_of=as_of, score_set_ids=readable_score_set_ids)
         anchor_ids += apex.allele_ids
 
         # Warn if multiple distinct protein apexes were resolved for this CA.

@@ -262,7 +262,7 @@ def test_resolve_protein_apex_single(session, setup_lib_db_with_score_set):
     _link(session, r, nt, is_authoritative=True)
     _link(session, r, prot)
 
-    apex = _resolve_protein_apex(session, [nt.id], as_of=None)
+    apex = _resolve_protein_apex(session, [nt.id], as_of=None, score_set_ids={score_set.id})
     assert apex.allele_ids == [prot.id]
     assert apex.caids == ["PA9"]
     assert apex.unregistered == 0
@@ -279,7 +279,7 @@ def test_resolve_protein_apex_unregistered(session, setup_lib_db_with_score_set)
     _link(session, r, nt, is_authoritative=True)
     _link(session, r, prot)
 
-    apex = _resolve_protein_apex(session, [nt.id], as_of=None)
+    apex = _resolve_protein_apex(session, [nt.id], as_of=None, score_set_ids={score_set.id})
     assert apex.allele_ids == [prot.id]
     assert apex.caids == []
     assert apex.unregistered == 1
@@ -394,6 +394,41 @@ def test_private_score_set_measurement_excluded(session, setup_lib_db_with_score
 
     result = get_allele_measurements(session, "CA123", user_data=_user_data(session))  # TEST_USER
     assert {m.variant_urn for m in result} == {visible.urn}
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("ca_also_measured_publicly", [False, True])
+def test_protein_consequence_reached_only_through_unreadable_score_set_is_withheld(
+    session, setup_lib_db_with_score_set, ca_also_measured_publicly
+):
+    """A protein consequence that only an unreadable score set's mapping links to the CA must not pull in
+    public measurements of that protein change: they would disclose the private record."""
+    private = setup_lib_db_with_score_set  # private, owned by TEST_USER
+    public = _second_score_set(session, private, "urn:mavedb:00000002-a-1", private=False)
+    nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
+    prot = _allele(session, "prot-P", level="protein", clingen_allele_id="PA9")
+
+    # The private score set's reverse translation is the only record linking CA123 to PA9.
+    private_measured = _variant(session, private, 1, data={"score_data": {"score": -2.0}}, hgvs_nt="c.1A>T")
+    private_record = _record(session, private_measured, assay_level="cdna")
+    _link(session, private_record, nt, is_authoritative=True)
+    _link(session, private_record, prot)
+
+    # A public protein assay of PA9, with no reverse translation of its own.
+    public_protein = _variant(session, public, 1, data={"score_data": {"score": 1.0}}, hgvs_pro="p.Met1Leu")
+    _link(session, _record(session, public_protein, assay_level="protein"), prot, is_authoritative=True)
+
+    expected: set[str] = set()
+    if ca_also_measured_publicly:
+        # CA123 is itself readable through the public set, but that record doesn't reach PA9.
+        public_nt = _variant(session, public, 2, data={"score_data": {"score": 0.5}}, hgvs_nt="c.1A>T")
+        _link(session, _record(session, public_nt, assay_level="cdna"), nt, is_authoritative=True)
+        expected = {public_nt.urn}
+
+    with request_cycle_context({}):
+        result = get_allele_measurements(session, "CA123", user_data=None)
+
+    assert {m.variant_urn for m in result} == expected
 
 
 @pytest.mark.integration
