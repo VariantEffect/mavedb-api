@@ -1,6 +1,9 @@
 # ruff: noqa: E402
 
 import pytest
+
+pytest.importorskip("psycopg2")
+
 import requests
 
 from mavedb.lib.identifiers import find_generic_article
