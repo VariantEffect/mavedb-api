@@ -6282,6 +6282,18 @@ def test_publish_returns_the_owners_own_private_calibration(
     assert [c["urn"] for c in (published.get("scoreCalibrations") or [])] == [calibration["urn"]]
 
 
+def test_patch_with_invalid_data_on_unreadable_score_set_is_404(session, client, setup_router_db):
+    """Validation errors echo the stored record, so a caller who may not update the score set must be
+    refused before validation: a 422 here would confirm that a private score set exists."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    change_ownership(session, score_set["urn"], ScoreSetDbModel)
+
+    response = client.patch(f"/api/v1/score-sets-with-variants/{score_set['urn']}", data={"title": json.dumps(None)})
+
+    assert response.status_code == 404
+
+
 def test_meta_analyses_are_listed_only_to_callers_who_may_read_them(
     session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides, extra_user_app_overrides
 ):

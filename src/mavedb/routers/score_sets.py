@@ -2552,19 +2552,22 @@ async def update_score_set_with_variants(
     # get existing item from db
     existing_item = db.query(ScoreSet).filter(ScoreSet.urn == urn).one_or_none()
 
-    # merge existing item data with item_update data to validate against ScoreSetUpdate
-
-    if existing_item:
-        existing_item_data = score_set.ScoreSet.model_validate(existing_item).model_dump()
-        updated_data = {**existing_item_data, **item_update_partial.model_dump(exclude_unset=True)}
-        try:
-            score_set.ScoreSetUpdate.model_validate(updated_data)
-        except ValidationError as e:
-            # format as fastapi request validation error
-            raise RequestValidationError(errors=e.errors())
-    else:
+    if not existing_item:
         logger.info(msg="Failed to update score set; The requested score set does not exist.", extra=logging_context())
         raise HTTPException(status_code=404, detail=f"score set with URN '{urn}' not found")
+
+    # Before validation, whose errors echo the existing record's values: a caller who may not update this
+    # score set must not learn anything about it, including that it exists.
+    assert_permission(user_data, existing_item, Action.UPDATE)
+
+    # merge existing item data with item_update data to validate against ScoreSetUpdate
+    existing_item_data = score_set.ScoreSet.model_validate(existing_item).model_dump()
+    updated_data = {**existing_item_data, **item_update_partial.model_dump(exclude_unset=True)}
+    try:
+        score_set.ScoreSetUpdate.model_validate(updated_data)
+    except ValidationError as e:
+        # format as fastapi request validation error
+        raise RequestValidationError(errors=e.errors())
 
     existing_score_columns_metadata = (existing_item.dataset_columns or {}).get("score_columns_metadata", {})
     existing_count_columns_metadata = (existing_item.dataset_columns or {}).get("count_columns_metadata", {})
