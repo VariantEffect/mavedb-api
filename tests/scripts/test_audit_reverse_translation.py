@@ -7,7 +7,10 @@ import pytest
 pytest.importorskip("ga4gh.vrs")
 
 from mavedb.lib.seqrepo import SequenceNotFoundError
+from sqlalchemy import select
+
 from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.variant import Variant
 from mavedb.scripts.audit_reverse_translation import (
     ERROR,
@@ -112,6 +115,36 @@ class TestSqlChecks:
         assert finding.count == 1
         assert finding.samples[0]["hgvs"] == "NM_000002.1:c.5A>G"
 
+    def test_reports_a_measured_indel_outside_the_groups_as_info_not_error(self, session, make_score_set):
+        # A deletion straddling codons 261/262 changes the protein as deleting codon 262 does, but is a
+        # different DNA change, so RT's codon-aligned candidates do not include it.
+        score_set, (variant,) = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000011-a-1", 1)
+        deletion = {
+            "type": "Allele",
+            "location": {"type": "SequenceLocation", "start": 67611951, "end": 67611954},
+            "state": {"type": "LiteralSequenceExpression", "sequence": ""},
+        }
+        seed_mapping_record(
+            session,
+            variant,
+            alleles=[
+                AlleleSpec(
+                    digest="measured",
+                    level="genomic",
+                    is_authoritative=True,
+                    hgvs_g="NC_000016.10:g.67611952_67611954del",
+                    post_mapped=deletion,
+                ),
+                AlleleSpec(digest="rt-c", level="cdna", hgvs_c="NM_006565.4:c.784_786del", projection_group=0),
+                AlleleSpec(
+                    digest="rt-g", level="genomic", hgvs_g="NC_000016.10:g.67611953_67611955del", projection_group=0
+                ),
+            ],
+        )
+
+        assert _count(session, "measured_allele_outside_projection_group", [score_set.id]).count == 0
+        assert _count(session, "measured_indel_outside_projection_group", [score_set.id]).count == 1
+
     def test_flags_an_accession_whose_alleles_carry_two_refgets(self, session, make_score_set):
         score_set, variants = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000003-a-1", 2)
         for n, (variant, refget) in enumerate(zip(variants, ("SQ.ncbi", "SQ.cdot")), start=1):
@@ -161,6 +194,37 @@ class TestSqlChecks:
             )
 
         assert _count(session, "clingen_allele_id_on_twin_alleles", [score_set.id]).count == flagged
+
+    def test_reports_a_twin_on_a_retired_allele_as_info_not_error(self, session, make_score_set):
+        score_set, variants = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000010-a-1", 2)
+        records = [
+            seed_mapping_record(
+                session,
+                variant,
+                alleles=[
+                    AlleleSpec(
+                        digest=f"caid-{n}",
+                        level="genomic",
+                        is_authoritative=True,
+                        hgvs_g=expression,
+                        clingen_allele_id="CA999",
+                    )
+                ],
+            )
+            for n, (variant, expression) in enumerate(
+                zip(variants, ("NC_000007.14:g.3043839CA=", "NC_000007.14:g.2947765_2947766delinsCA")), start=1
+            )
+        ]
+        retired_at = datetime.now(timezone.utc)
+        records[0].valid_to = retired_at
+        for link in session.scalars(
+            select(MappingRecordAllele).where(MappingRecordAllele.mapping_record_id == records[0].id)
+        ):
+            link.valid_to = retired_at
+        session.commit()
+
+        assert _count(session, "clingen_allele_id_on_twin_alleles", [score_set.id]).count == 0
+        assert _count(session, "clingen_allele_id_on_retired_twin", [score_set.id]).count == 1
 
     def test_flags_a_projection_group_with_one_member(self, session, make_score_set):
         score_set, (variant,) = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000005-a-1", 1)

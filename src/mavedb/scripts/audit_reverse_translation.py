@@ -80,6 +80,36 @@ class SqlCheck:
     scoped: bool = True
 
 
+# An allele some live mapping record links to.
+_ALLELE_IS_LIVE = "EXISTS (SELECT 1 FROM mapping_record_alleles ll WHERE ll.allele_id = a.id AND ll.valid_to IS NULL)"
+
+# An allele whose state is longer or shorter than the span it replaces. An allele with a non-numeric
+# (imprecise) or unreadable location counts as length-preserving, so it stays under the error-level check.
+# CASE, not AND, guards the casts: Postgres does not promise to evaluate AND operands in order.
+_LENGTH_CHANGING = """coalesce(
+    CASE WHEN jsonb_typeof(a.post_mapped #> '{location,start}') = 'number'
+              AND jsonb_typeof(a.post_mapped #> '{location,end}') = 'number'
+         THEN (a.post_mapped #>> '{location,end}')::int - (a.post_mapped #>> '{location,start}')::int
+              <> coalesce(length(a.post_mapped #>> '{state,sequence}'), (a.post_mapped #>> '{state,length}')::int)
+    END,
+    false
+)"""
+
+_MEASURED_OUTSIDE_GROUP_SQL = """
+    SELECT auth.mapping_record_id, auth.allele_id, a.level, coalesce(a.hgvs_g, a.hgvs_c) AS hgvs
+    FROM mapping_record_alleles auth
+    JOIN alleles a ON a.id = auth.allele_id
+    WHERE auth.is_authoritative AND auth.valid_to IS NULL AND auth.projection_group IS NULL
+      AND a.level IN ('cdna', 'genomic')
+      AND {length_condition}
+      {auth_filter}
+      AND EXISTS (SELECT 1 FROM mapping_record_alleles d
+                  JOIN alleles da ON da.id = d.allele_id
+                  WHERE d.mapping_record_id = auth.mapping_record_id
+                    AND NOT d.is_authoritative AND d.valid_to IS NULL
+                    AND da.level IN ('cdna', 'genomic'))
+"""
+
 SQL_CHECKS: tuple[SqlCheck, ...] = (
     SqlCheck(
         name="accession_with_multiple_refgets",
@@ -126,16 +156,32 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
         name="clingen_allele_id_on_twin_alleles",
         severity=ERROR,
         description=(
-            "One ClinGen allele id sits on more than one allele on the same accession, so two writers built one "
+            "One ClinGen allele id sits on more than one live allele on the same accession, so two writers built one "
             "change differently. A CA/PA id spans reference sequences, so the same id across accessions is expected."
         ),
-        sql="""
+        sql=f"""
             SELECT a.clingen_allele_id, split_part(coalesce(a.hgvs_g, a.hgvs_c, a.hgvs_p), ':', 1) AS accession,
                    count(*) AS alleles, array_agg(coalesce(a.hgvs_g, a.hgvs_c, a.hgvs_p) ORDER BY a.id) AS hgvs
             FROM alleles a
-            WHERE a.clingen_allele_id IS NOT NULL {allele_filter}
+            WHERE a.clingen_allele_id IS NOT NULL AND {_ALLELE_IS_LIVE} {{allele_filter}}
             GROUP BY 1, 2
             HAVING count(*) > 1
+        """,
+    ),
+    SqlCheck(
+        name="clingen_allele_id_on_retired_twin",
+        severity=INFO,
+        description=(
+            "A ClinGen allele id shared with an allele no live record links to. Re-registration only submits live "
+            "alleles, so a superseded allele keeps the id it had, including a legacy id copied by variant URN."
+        ),
+        sql=f"""
+            SELECT a.clingen_allele_id, split_part(coalesce(a.hgvs_g, a.hgvs_c, a.hgvs_p), ':', 1) AS accession,
+                   count(*) AS alleles, array_agg(coalesce(a.hgvs_g, a.hgvs_c, a.hgvs_p) ORDER BY a.id) AS hgvs
+            FROM alleles a
+            WHERE a.clingen_allele_id IS NOT NULL {{allele_filter}}
+            GROUP BY 1, 2
+            HAVING count(*) > 1 AND count(*) FILTER (WHERE {_ALLELE_IS_LIVE}) <= 1
         """,
     ),
     SqlCheck(
@@ -169,21 +215,19 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
         severity=ERROR,
         description=(
             "RT attached derived nucleotide alleles to a record, but the measured nucleotide allele is in no "
-            "projection group: the fold-in missed it, so its convergent siblings read as projections."
+            "projection group: the fold-in missed it, so its convergent siblings read as projections. Only "
+            "length-preserving changes, which RT's codon-level candidates always include."
         ),
-        sql="""
-            SELECT auth.mapping_record_id, auth.allele_id, a.level, coalesce(a.hgvs_g, a.hgvs_c) AS hgvs
-            FROM mapping_record_alleles auth
-            JOIN alleles a ON a.id = auth.allele_id
-            WHERE auth.is_authoritative AND auth.valid_to IS NULL AND auth.projection_group IS NULL
-              AND a.level IN ('cdna', 'genomic')
-              {auth_filter}
-              AND EXISTS (SELECT 1 FROM mapping_record_alleles d
-                          JOIN alleles da ON da.id = d.allele_id
-                          WHERE d.mapping_record_id = auth.mapping_record_id
-                            AND NOT d.is_authoritative AND d.valid_to IS NULL
-                            AND da.level IN ('cdna', 'genomic'))
-        """,
+        sql=_MEASURED_OUTSIDE_GROUP_SQL.replace("{length_condition}", f"NOT {_LENGTH_CHANGING}"),
+    ),
+    SqlCheck(
+        name="measured_indel_outside_projection_group",
+        severity=INFO,
+        description=(
+            "A measured indel in no projection group. Expected when the indel is not codon-aligned: it changes the "
+            "protein the same way as a codon-aligned candidate but is a different DNA change, so RT does not list it."
+        ),
+        sql=_MEASURED_OUTSIDE_GROUP_SQL.replace("{length_condition}", _LENGTH_CHANGING),
     ),
     SqlCheck(
         name="malformed_projection_group",
