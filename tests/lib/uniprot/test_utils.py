@@ -1,6 +1,6 @@
 import pytest
 
-from mavedb.lib.uniprot.utils import infer_db_name_from_sequence_accession
+from mavedb.lib.uniprot.utils import id_mapping_query_accession, infer_db_name_from_sequence_accession
 from tests.helpers.constants import (
     VALID_CHR_ACCESSION,
     VALID_NT_ACCESSION,
@@ -47,3 +47,23 @@ def test_infer_db_name_from_non_refseq_accession():
 def test_infer_db_name_from_sequence_accession_empty_string():
     with pytest.raises(NotImplementedError):
         infer_db_name_from_sequence_accession("")
+
+
+def test_id_mapping_query_accession_strips_refseq_nucleotide_version():
+    assert id_mapping_query_accession("NM_002878.4", "RefSeq_Nucleotide") == "NM_002878"
+
+
+def test_id_mapping_query_accession_unversioned_refseq_nucleotide_unchanged():
+    assert id_mapping_query_accession("NM_002878", "RefSeq_Nucleotide") == "NM_002878"
+
+
+@pytest.mark.parametrize(
+    "accession, from_db",
+    [
+        ("NP_002869.3", "RefSeq_Protein"),
+        ("ENST00000345365.11", "Ensembl_Transcript"),
+        ("ENSP00000338790.6", "Ensembl_Protein"),
+    ],
+)
+def test_id_mapping_query_accession_keeps_version_for_other_databases(accession, from_db):
+    assert id_mapping_query_accession(accession, from_db) == accession
