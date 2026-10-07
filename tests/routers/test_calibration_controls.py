@@ -106,24 +106,6 @@ def _attach_control(session, calibration_urn, controls_not_phi):
 
 
 @pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
-@pytest.mark.parametrize("controls_not_phi", [None, False])
-def test_cannot_publish_calibration_with_controls_when_phi_not_affirmed(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, controls_not_phi
-):
-    calibration = _create_private_calibration(client, session, data_provider, data_files)
-    _attach_control(session, calibration["urn"], controls_not_phi=controls_not_phi)
-
-    response = client.post(f"/api/v1/score-calibrations/{calibration['urn']}/publish")
-
-    assert response.status_code == 422
-    assert "protected health information" in response.json()["detail"].lower()
-
-    # The gate must not have published the calibration.
-    refreshed = session.query(CalibrationDbModel).where(CalibrationDbModel.urn == calibration["urn"]).one()
-    assert refreshed.private is True
-
-
-@pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
 def test_can_publish_calibration_with_controls_when_phi_affirmed(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
@@ -161,7 +143,8 @@ def test_can_publish_calibration_without_controls_regardless_of_phi_flag(
 
 def _create_with_controls(client, score_set_urn, controls, **extra):
     response = client.post(
-        "/api/v1/score-calibrations/", json=_calibration_payload(score_set_urn, controls=controls, **extra)
+        "/api/v1/score-calibrations/",
+        json=_calibration_payload(score_set_urn, controls=controls, **{"controlsNotPhi": True, **extra}),
     )
     assert response.status_code == 200, response.text
     return response.json()
@@ -197,7 +180,7 @@ def test_create_calibration_with_controls_file(
 
     response = client.post(
         "/api/v1/score-calibrations/",
-        data={"calibration_json": json.dumps(_calibration_payload(score_set["urn"]))},
+        data={"calibration_json": json.dumps(_calibration_payload(score_set["urn"], controlsNotPhi=True))},
         files={"controls_file": ("controls.csv", csv, "text/csv")},
     )
 
@@ -279,7 +262,9 @@ def test_modify_replaces_controls(client, setup_router_db, mock_publication_fetc
     response = client.put(
         f"/api/v1/score-calibrations/{calibration['urn']}",
         json=_calibration_payload(
-            score_set["urn"], controls=[{"variantUrn": variant_urns[1], "clinicalStatus": "benign"}]
+            score_set["urn"],
+            controls=[{"variantUrn": variant_urns[1], "clinicalStatus": "benign"}],
+            controlsNotPhi=True,
         ),
     )
 
@@ -327,19 +312,15 @@ def test_modify_without_controls_leaves_them_unchanged(
 
 
 @pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
-def test_modify_controls_without_affirmation_resets_phi_flag(
+def test_cannot_replace_controls_without_reaffirming(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
     score_set, variant_urns = _score_set_with_variant_urns(client, session, data_provider, data_files)
     calibration = _create_with_controls(
-        client,
-        score_set["urn"],
-        [{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}],
-        controlsNotPhi=True,
+        client, score_set["urn"], [{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}]
     )
-    assert calibration["controlsNotPhi"] is True
 
-    # Changing controls without re-affirming invalidates the prior affirmation.
+    # The prior affirmation covered the old controls, not the new ones.
     response = client.put(
         f"/api/v1/score-calibrations/{calibration['urn']}",
         json=_calibration_payload(
@@ -347,8 +328,12 @@ def test_modify_controls_without_affirmation_resets_phi_flag(
         ),
     )
 
-    assert response.status_code == 200, response.text
-    assert response.json()["controlsNotPhi"] is None
+    assert response.status_code == 422
+    assert "protected health information" in str(response.json()["detail"]).lower()
+
+    refreshed = session.query(CalibrationDbModel).where(CalibrationDbModel.urn == calibration["urn"]).one()
+    assert refreshed.controls_not_phi is True
+    assert [control.variant.urn for control in refreshed.controls] == [variant_urns[0]]
 
 
 @pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
@@ -360,7 +345,7 @@ def test_modify_controls_with_affirmation_keeps_phi_flag(
         client, score_set["urn"], [{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}]
     )
 
-    # Affirming in the same request that changes controls keeps the flag set.
+    # Re-affirming in the same request that changes controls keeps the flag set.
     response = client.put(
         f"/api/v1/score-calibrations/{calibration['urn']}",
         json=_calibration_payload(
@@ -375,16 +360,120 @@ def test_modify_controls_with_affirmation_keeps_phi_flag(
 
 
 ###########################################################
-# PHI re-affirmation invariant on published calibrations
+# PHI affirmation invariant: controls are stored only while affirmed
 ###########################################################
+
+
+@pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
+@pytest.mark.parametrize("controls_not_phi", [None, False])
+def test_cannot_create_calibration_with_inline_controls_without_phi_affirmation(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, controls_not_phi
+):
+    score_set, variant_urns = _score_set_with_variant_urns(client, session, data_provider, data_files)
+
+    response = client.post(
+        "/api/v1/score-calibrations/",
+        json=_calibration_payload(
+            score_set["urn"],
+            controls=[{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}],
+            controlsNotPhi=controls_not_phi,
+        ),
+    )
+
+    assert response.status_code == 422
+    assert "protected health information" in str(response.json()["detail"]).lower()
+    assert session.scalars(select(CalibrationControl)).all() == []
+
+
+@pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
+def test_cannot_create_calibration_with_controls_file_without_phi_affirmation(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    score_set, variant_urns = _score_set_with_variant_urns(client, session, data_provider, data_files)
+    csv = f"{CONTROLS_CSV_HEADER}\n{variant_urns[0]},pathogenic\n"
+
+    response = client.post(
+        "/api/v1/score-calibrations/",
+        data={"calibration_json": json.dumps(_calibration_payload(score_set["urn"]))},
+        files={"controls_file": ("controls.csv", csv, "text/csv")},
+    )
+
+    assert response.status_code == 422
+    assert "protected health information" in str(response.json()["detail"]).lower()
+    assert session.scalars(select(CalibrationControl)).all() == []
+
+
+@pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
+def test_can_create_calibration_without_controls_or_phi_affirmation(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    score_set, _ = _score_set_with_variant_urns(client, session, data_provider, data_files)
+
+    response = client.post("/api/v1/score-calibrations/", json=_calibration_payload(score_set["urn"]))
+
+    assert response.status_code == 200, response.text
+    assert response.json()["controlsNotPhi"] is None
+
+
+@pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
+@pytest.mark.parametrize("controls_not_phi", [None, False])
+def test_withdrawing_phi_affirmation_deletes_controls(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, controls_not_phi
+):
+    score_set, variant_urns = _score_set_with_variant_urns(client, session, data_provider, data_files)
+    calibration = _create_with_controls(
+        client,
+        score_set["urn"],
+        [
+            {"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"},
+            {"variantUrn": variant_urns[1], "clinicalStatus": "benign"},
+        ],
+    )
+
+    response = client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json=_calibration_payload(score_set["urn"], controlsNotPhi=controls_not_phi),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["controls"] == []
+    assert response.json()["controlsNotPhi"] is controls_not_phi
+    assert session.scalars(select(CalibrationControl)).all() == []
+
+
+@pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
+def test_cannot_submit_controls_while_withdrawing_phi_affirmation(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    score_set, variant_urns = _score_set_with_variant_urns(client, session, data_provider, data_files)
+    calibration = _create_with_controls(
+        client, score_set["urn"], [{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}]
+    )
+
+    response = client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json=_calibration_payload(
+            score_set["urn"],
+            controls=[{"variantUrn": variant_urns[1], "clinicalStatus": "benign"}],
+            controlsNotPhi=False,
+        ),
+    )
+
+    assert response.status_code == 422
+    assert "protected health information" in str(response.json()["detail"]).lower()
+
+    # A rejected update stages nothing: the original controls and affirmation stand.
+    refreshed = session.query(CalibrationDbModel).where(CalibrationDbModel.urn == calibration["urn"]).one()
+    assert refreshed.controls_not_phi is True
+    assert [control.variant.urn for control in refreshed.controls] == [variant_urns[0]]
 
 
 @pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
 def test_create_calibration_ignores_client_supplied_private_field(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
-    # The create schema has no `private` field — creation always starts private, and publishing
-    # (which independently gates PHI-bearing controls) is the only path to making one public.
+    # The create schema has no `private` field — creation always starts private, and publishing is the
+    # only path to making one public.
     score_set, variant_urns = _score_set_with_variant_urns(client, session, data_provider, data_files)
 
     response = client.post(
@@ -393,6 +482,7 @@ def test_create_calibration_ignores_client_supplied_private_field(
             **_calibration_payload(score_set["urn"]),
             "private": False,
             "controls": [{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}],
+            "controlsNotPhi": True,
         },
     )
 
@@ -419,7 +509,7 @@ def test_cannot_add_controls_to_published_calibration_without_phi_affirmation_as
         )
 
     assert response.status_code == 422
-    assert "protected health information" in response.json()["detail"].lower()
+    assert "protected health information" in str(response.json()["detail"]).lower()
 
     # The gate must not have attached the controls.
     refreshed = session.query(CalibrationDbModel).where(CalibrationDbModel.urn == calibration["urn"]).one()
@@ -464,8 +554,7 @@ def test_cannot_replace_controls_on_published_calibration_without_reaffirming_as
     )
     publish_test_score_calibration_via_client(client, calibration["urn"])
 
-    # Replacing controls invalidates the prior affirmation just as it does on a private calibration,
-    # so an admin who doesn't re-affirm in the same request must be rejected here too.
+    # The invariant holds for published calibrations and for admins alike.
     with DependencyOverrider(admin_app_overrides):
         response = client.put(
             f"/api/v1/score-calibrations/{calibration['urn']}",
@@ -475,7 +564,7 @@ def test_cannot_replace_controls_on_published_calibration_without_reaffirming_as
         )
 
     assert response.status_code == 422
-    assert "protected health information" in response.json()["detail"].lower()
+    assert "protected health information" in str(response.json()["detail"]).lower()
 
     # The gate must not have replaced the controls or reset the affirmation.
     refreshed = session.query(CalibrationDbModel).where(CalibrationDbModel.urn == calibration["urn"]).one()
@@ -484,27 +573,24 @@ def test_cannot_replace_controls_on_published_calibration_without_reaffirming_as
 
 
 @pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
-def test_cannot_decline_phi_affirmation_on_published_calibration_with_existing_controls_as_admin(
+def test_withdrawing_phi_affirmation_on_published_calibration_deletes_controls_as_admin(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
 ):
     score_set, variant_urns = _score_set_with_variant_urns(client, session, data_provider, data_files)
     calibration = _create_with_controls(
-        client,
-        score_set["urn"],
-        [{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}],
-        controlsNotPhi=True,
+        client, score_set["urn"], [{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}]
     )
     publish_test_score_calibration_via_client(client, calibration["urn"])
 
-    # Controls are left unchanged; only the affirmation is walked back to False.
     with DependencyOverrider(admin_app_overrides):
         response = client.put(
             f"/api/v1/score-calibrations/{calibration['urn']}",
             json=_calibration_payload(score_set["urn"], controlsNotPhi=False),
         )
 
-    assert response.status_code == 422
-    assert "protected health information" in response.json()["detail"].lower()
+    assert response.status_code == 200, response.text
+    assert response.json()["private"] is False
+    assert response.json()["controls"] == []
 
 
 @pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])

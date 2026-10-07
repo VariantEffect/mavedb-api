@@ -48,9 +48,9 @@ class ScoreCalibration(Base):
     disease_term_id = Column(Integer, ForeignKey("mondo_terms.id"), nullable=False, index=True)
     disease_term: Mapped["MondoTerm"] = relationship("MondoTerm")
 
-    # Submitter's affirmation that the control data contains no PHI. Tristate on purpose: # None = not yet addressed,
-    # False = explicitly declined, True = affirmed. Publishing a calibration that has controls is gated on this being
-    # True (see #752).
+    # Submitter's affirmation that the control data contains no PHI. Tristate on purpose: None = not yet addressed,
+    # False = explicitly declined, True = affirmed. Controls may be stored only while this is True; withdrawing it
+    # deletes them (see lib.score_calibrations.require_phi_affirmation, #752).
     controls_not_phi = Column(Boolean, nullable=True)
 
     functional_classifications: Mapped[list["ScoreCalibrationFunctionalClassification"]] = relationship(

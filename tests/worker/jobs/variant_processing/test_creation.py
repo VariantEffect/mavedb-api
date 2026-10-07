@@ -1454,7 +1454,7 @@ class TestCreateVariantsForScoreSetCalibrationRelinking:
         session.refresh(calibration)
         assert calibration.controls_not_phi is True
 
-    async def test_controls_absent_from_new_upload_are_dropped_and_reset_phi_affirmation(
+    async def test_controls_absent_from_new_upload_are_dropped_and_keep_phi_affirmation(
         self,
         session,
         with_independent_processing_runs,
@@ -1516,13 +1516,12 @@ class TestCreateVariantsForScoreSetCalibrationRelinking:
         assert len(controls) == 1
         assert controls[0].variant_id == new_variants["c.1A>T"].id
 
-        # A control set that lost a member is no longer the one the submitter affirmed as PHI-free.
+        # The surviving controls are a subset of the affirmed set, so the affirmation still covers them.
         session.refresh(calibration)
-        assert calibration.controls_not_phi is None
+        assert calibration.controls_not_phi is True
 
         assert recorded_context["calibration_controls_relinked"] == 1
         assert recorded_context["calibration_controls_dropped"] == 1
-        assert recorded_context["calibrations_pending_phi_reaffirmation"] == [calibration.id]
 
     async def test_range_based_classification_membership_is_rebinned_against_new_scores(
         self,

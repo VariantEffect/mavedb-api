@@ -69,9 +69,6 @@ class CalibrationVariantRelinkReport:
     classifications_rebinned: int = 0
     classification_members_rebinned: int = 0
 
-    # Calibrations whose ``controls_not_phi`` affirmation was cleared because a control was dropped.
-    calibrations_pending_phi_reaffirmation: list[int] = field(default_factory=list)
-
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable summary suitable for a job's logging context."""
         return {
@@ -81,5 +78,4 @@ class CalibrationVariantRelinkReport:
             "calibration_classification_members_dropped": self.classification_members_dropped,
             "calibration_classifications_rebinned": self.classifications_rebinned,
             "calibration_classification_members_rebinned": self.classification_members_rebinned,
-            "calibrations_pending_phi_reaffirmation": list(self.calibrations_pending_phi_reaffirmation),
         }

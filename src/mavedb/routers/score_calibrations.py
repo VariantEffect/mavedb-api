@@ -323,7 +323,8 @@ async def create_score_calibration_route(
     The `controls_file` parameter accepts a CSV of calibration controls with a variant column
     (one of `variant_urn`, `hgvs_nt`, `hgvs_pro`) and a `clinical_status` column (`pathogenic` or
     `benign`, case-insensitive). Controls may be supplied either via this file or inline in
-    `calibration_json`, but not both.
+    `calibration_json`, but not both. Controls are accepted only with `controls_not_phi: true`, the
+    submitter's affirmation that they contain no protected health information (PHI).
 
     ## Response
     Returns the created score calibration with its generated URN and associated score set information.
@@ -520,6 +521,10 @@ async def modify_score_calibration_route(
     Controls may be supplied either via this file or inline in `calibration_json`, but not both;
     omitting both leaves existing controls unchanged.
 
+    Controls are stored only while `controls_not_phi` is true. New controls must be submitted with
+    `controls_not_phi: true` in the same request; setting it to false or null without new controls
+    deletes the existing controls.
+
     ## Response
     Returns the updated score calibration with all modifications applied and any new
     classification data from the uploaded file.
@@ -618,22 +623,6 @@ async def modify_score_calibration_route(
         raise HTTPException(
             status_code=422,
             detail=[{"loc": e.custom_loc or ["body"], "msg": str(e), "type": "value_error"}],
-        )
-
-    # A public calibration may not carry unacknowledged controls, on this route the same as at
-    # publish time. controls_not_phi is tristate: only True clears the gate — None (unaddressed) and
-    # False (declined) both block. Only meaningful when controls exist.
-    if (
-        not updated_calibration.private
-        and updated_calibration.controls
-        and updated_calibration.controls_not_phi is not True
-    ):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "This calibration has controls that have not been affirmed to be free of protected health "
-                "information (PHI). Set controls_not_phi to true."
-            ),
         )
 
     db.commit()
@@ -822,19 +811,6 @@ def publish_score_calibration_route(
     if not item.private:
         logger.debug("The requested score calibration is already public", extra=logging_context())
         return item
-
-    # Control data must be affirmed free of PHI before it can be made public. The affirmation is only
-    # meaningful when controls exist, so zero-control calibrations publish regardless. controls_not_phi
-    # is tristate: only True clears the gate — None (unaddressed) and False (declined) both block.
-    if item.controls and item.controls_not_phi is not True:
-        logger.debug("Calibration controls have not been affirmed free of PHI", extra=logging_context())
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "This calibration has controls that have not been affirmed to be free of protected health "
-                "information (PHI). Set controls_not_phi to true before publishing."
-            ),
-        )
 
     if item.score_set.private:
         logger.debug(

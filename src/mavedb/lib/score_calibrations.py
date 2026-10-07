@@ -131,6 +131,23 @@ def validate_calibration_controls_in_score_set(
     return [control.variant_urn for control in controls]
 
 
+def require_phi_affirmation(has_controls: bool, controls_not_phi: Optional[bool]) -> None:
+    """Reject a calibration state that would store controls without a PHI affirmation.
+
+    A calibration may hold controls only while ``controls_not_phi`` is ``True``; ``None`` (unaddressed)
+    and ``False`` (declined) both block. Call this before staging any write that sets either side.
+
+    Raises:
+        ValidationError: If ``has_controls`` and the affirmation is not ``True``.
+    """
+    if has_controls and controls_not_phi is not True:
+        raise ValidationError(
+            "Calibration controls cannot be saved until they are affirmed to be free of protected health "
+            "information (PHI). Set controls_not_phi to true.",
+            custom_loc=["body", "controlsNotPhi"],
+        )
+
+
 def build_calibration_controls(
     db: Session,
     score_set: ScoreSet,
@@ -446,6 +463,9 @@ async def create_score_calibration_in_score_set(
     if not calibration_create.score_set_urn:
         raise ValueError("score_set_urn must be provided to create a score calibration within a score set.")
 
+    submitted_controls = getattr(calibration_create, "controls", None)
+    require_phi_affirmation(bool(submitted_controls), getattr(calibration_create, "controls_not_phi", None))
+
     containing_score_set = db.query(ScoreSet).where(ScoreSet.urn == calibration_create.score_set_urn).one()
     calibration = await _create_score_calibration(db, calibration_create, user, variant_classes, containing_score_set)
 
@@ -457,9 +477,7 @@ async def create_score_calibration_in_score_set(
     else:
         calibration.investigator_provided = False
 
-    calibration.controls = build_calibration_controls(
-        db, containing_score_set, getattr(calibration_create, "controls", None), user
-    )
+    calibration.controls = build_calibration_controls(db, containing_score_set, submitted_controls, user)
 
     db.add(calibration)
     return calibration
@@ -613,6 +631,24 @@ async def modify_score_calibration(
 
     containing_score_set = db.query(ScoreSet).where(ScoreSet.urn == calibration_update.score_set_urn).one()
 
+    # Replace semantics: a provided controls list (even empty) replaces all existing controls, while None
+    # leaves them untouched. Re-acknowledgment: an explicit controls_not_phi in the request always wins;
+    # otherwise replacing the controls invalidates the prior affirmation, while leaving them preserves it.
+    # Resolved up front so a rejected update stages nothing.
+    submitted_controls = getattr(calibration_update, "controls", None)
+    if "controls_not_phi" in calibration_update.model_fields_set:
+        controls_not_phi = calibration_update.controls_not_phi
+    elif submitted_controls is not None:
+        controls_not_phi = None
+    else:
+        controls_not_phi = calibration.controls_not_phi
+
+    # Withdrawing the affirmation removes the controls stored under it.
+    if controls_not_phi is not True and submitted_controls is None:
+        submitted_controls = []
+
+    require_phi_affirmation(bool(submitted_controls), controls_not_phi)
+
     relation_sources = (
         (ScoreCalibrationRelation.threshold, calibration_update.threshold_sources or []),
         (ScoreCalibrationRelation.evidence, calibration_update.evidence_sources or []),
@@ -689,9 +725,6 @@ async def modify_score_calibration(
         db.add(persisted_functional_range)
         calibration.functional_classifications.append(persisted_functional_range)
 
-    # Replace semantics: a provided controls list (even empty) replaces all existing controls, while
-    # None leaves them untouched.
-    submitted_controls = getattr(calibration_update, "controls", None)
     if submitted_controls is not None:
         for control in list(calibration.controls):
             db.delete(control)
@@ -699,12 +732,7 @@ async def modify_score_calibration(
         db.flush()
         calibration.controls = build_calibration_controls(db, containing_score_set, submitted_controls, user)
 
-    # Re-acknowledgment: an explicit controls_not_phi in the request always wins; otherwise, replacing the
-    # controls invalidates any prior affirmation, while leaving the controls untouched preserves it.
-    if "controls_not_phi" in calibration_update.model_fields_set:
-        calibration.controls_not_phi = calibration_update.controls_not_phi
-    elif submitted_controls is not None:
-        calibration.controls_not_phi = None
+    calibration.controls_not_phi = controls_not_phi
 
     db.add(calibration)
     return calibration
@@ -1168,11 +1196,9 @@ def restore_calibration_variant_links(
     A classification always has exactly one of ``range`` or ``class_`` set (enforced by the view
     models), so every classification falls squarely into one branch or the other.
 
-    Dropping a control changes the control set the submitter affirmed as free of protected health
-    information, so ``controls_not_phi`` is reset to ``None`` on that calibration — the same
-    re-acknowledgment rule applied when controls are replaced through the API (see
-    :func:`modify_score_calibration`). A calibration whose controls all relink keeps its affirmation.
-    Re-binning does not reset it: bin membership carries no clinical annotation and so no PHI.
+    ``controls_not_phi`` is left as it was. The relinked controls are a subset of the set the
+    submitter affirmed, so the affirmation still covers them, and controls may only be stored while it
+    holds (see :func:`require_phi_affirmation`).
 
     Changes are staged on the session; the caller commits.
 
@@ -1220,6 +1246,7 @@ def restore_calibration_variant_links(
         for control in snapshot.controls:
             control_variant = variants_by_identity.get(control.identity)
             if control_variant is None:
+                # Dropping leaves controls_not_phi untouched; the survivors are still covered by it.
                 dropped_controls += 1
                 continue
 
@@ -1263,10 +1290,6 @@ def restore_calibration_variant_links(
             db.add(classification)
 
         report.classification_members_dropped += dropped_members
-
-        if dropped_controls:
-            calibration.controls_not_phi = None
-            report.calibrations_pending_phi_reaffirmation.append(calibration_id)
 
         # Re-binning is the expected mechanical consequence of new scores, so it does not count as an
         # edit. Losing a hand-entered reference does.
