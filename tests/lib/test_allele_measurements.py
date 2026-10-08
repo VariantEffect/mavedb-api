@@ -525,17 +525,60 @@ def test_research_use_only_classification_absent_when_a_preferred_call_exists(se
 
 
 @pytest.mark.integration
+def test_research_use_only_classification_absent_when_a_clinical_calibration_leaves_the_variant_unclassified(
+    session, setup_lib_db_with_score_set
+):
+    """A non-RUO calibration that doesn't classify the variant still blocks the RUO fallback: the clinical
+    calibration's silence is its answer."""
+    score_set = setup_lib_db_with_score_set
+    nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
+    variant = _variant(session, score_set, 1, data={"score_data": {"score": 1.0}})
+    other = _variant(session, score_set, 2, data={"score_data": {"score": 1.0}})
+    _link(session, _record(session, variant, assay_level="cdna"), nt, is_authoritative=True)
+
+    _calibration(session, score_set, variants=[variant], primary=False, oddspaths_ratio=1000.0, research_use_only=True)
+    _calibration(session, score_set, variants=[other], primary=True, oddspaths_ratio=2.0)
+
+    result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
+
+    assert result[0].preferred_classification is None
+    assert result[0].research_use_only_classification is None
+
+
+@pytest.mark.integration
+def test_research_use_only_classification_falls_back_past_an_unreadable_clinical_calibration(
+    session, setup_lib_db_with_score_set
+):
+    """A non-RUO calibration the caller can't read doesn't count, so the RUO fallback still shows."""
+    public = _second_score_set(session, setup_lib_db_with_score_set, "urn:mavedb:00000002-a-1", private=False)
+    nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
+    variant = _variant(session, public, 1, data={"score_data": {"score": 1.0}})
+    _link(session, _record(session, variant, assay_level="cdna"), nt, is_authoritative=True)
+
+    _calibration(session, public, variants=[variant], primary=False, oddspaths_ratio=1000.0, research_use_only=True)
+    _calibration(session, public, variants=[variant], primary=False, oddspaths_ratio=2.0, private=True)
+
+    result = get_allele_measurements(session, "CA123", user_data=None)
+
+    assert result[0].preferred_classification is None
+    assert result[0].research_use_only_classification.oddspaths_ratio == 1000.0
+
+
+@pytest.mark.integration
 def test_research_use_only_classification_does_not_rank(session, setup_lib_db_with_score_set):
     """A measurement carrying only an RUO call ranks as unclassified: below one with a non-RUO call, however
     strong the RUO evidence."""
     score_set = setup_lib_db_with_score_set
+    ruo_score_set = _second_score_set(session, score_set, "urn:mavedb:00000001-a-2", private=False)
     nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
-    ruo_only = _variant(session, score_set, 1, data={"score_data": {"score": 1.0}})
+    ruo_only = _variant(session, ruo_score_set, 1, data={"score_data": {"score": 1.0}})
     classified = _variant(session, score_set, 2, data={"score_data": {"score": 1.0}})
     _link(session, _record(session, ruo_only, assay_level="cdna"), nt, is_authoritative=True)
     _link(session, _record(session, classified, assay_level="cdna"), nt, is_authoritative=True)
 
-    _calibration(session, score_set, variants=[ruo_only], primary=False, oddspaths_ratio=1000.0, research_use_only=True)
+    _calibration(
+        session, ruo_score_set, variants=[ruo_only], primary=False, oddspaths_ratio=1000.0, research_use_only=True
+    )
     _calibration(session, score_set, variants=[classified], primary=False, oddspaths_ratio=2.0)
 
     result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
