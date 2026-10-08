@@ -74,11 +74,11 @@ class MeasurementRelationship(str, Enum):
 class AlleleMeasurement:
     """One measurement in the query's equivalence class.
 
-    ``assay_level`` is the sequence level at which this measurement was assayed. ``preferred_classification``
-    is the readable classification the UI will default to; it never comes from a research-use-only calibration,
-    so ranking and any consumer treating it as clinical evidence can rely on that. ``research_use_only_classification``
-    is a display-only fallback: the RUO pick, set only when the score set has no readable non-RUO calibration at
-    all. A non-RUO calibration that leaves this variant unclassified is a call in itself and is not overridden.
+    ``assay_level`` is the sequence level at which this measurement was assayed. ``classification`` is the
+    readable call for this variant. It comes from a non-RUO calibration unless the caller opted into research-use-only
+    calls and the score set has no readable non-RUO calibration with functional classifications; then it may come
+    from an RUO calibration, and ``classification_is_research_use_only`` says so. A non-RUO calibration that leaves
+    this variant unclassified is a call in itself and is not overridden.
     """
 
     variant_urn: str
@@ -89,8 +89,8 @@ class AlleleMeasurement:
     submitted_hgvs: Optional[str]
     score_set_urn: str
     score_set_title: str
-    preferred_classification: Optional[ScoreCalibrationFunctionalClassification]
-    research_use_only_classification: Optional[ScoreCalibrationFunctionalClassification]
+    classification: Optional[ScoreCalibrationFunctionalClassification]
+    classification_is_research_use_only: bool
     is_current: bool
     superseded_by_score_set: Optional[str]
 
@@ -154,9 +154,15 @@ def _preferred_classification(
 
 
 def _has_readable_clinical_calibration(score_set: ScoreSet, *, user_data: Optional[UserData]) -> bool:
-    """Whether the score set has any non-RUO calibration the caller can read, classifying this variant or not."""
+    """Whether the score set has any non-RUO calibration the caller can read, classifying this variant or not.
+
+    A calibration without functional classifications (one that only records controls or a baseline score) can't
+    classify any variant, so its silence is no answer and it doesn't count.
+    """
     return any(
-        not calibration.research_use_only and has_permission(user_data, calibration, Action.READ).permitted
+        not calibration.research_use_only
+        and calibration.functional_classifications
+        and has_permission(user_data, calibration, Action.READ).permitted
         for calibration in score_set.score_calibrations
     )
 
@@ -179,12 +185,16 @@ def _assay_fact_count(score_set: ScoreSet) -> int:
 
 def _ordering_key(measurement: AlleleMeasurement, published_date: Optional[date], assay_fact_count: int) -> tuple:
     """Sort: current before superseded; direct before related; strongest evidence (pathogenic wins ties)
-    first; most assay facts provided first; newest-published first; then URN for a stable tiebreak."""
-    magnitude, direction = classification_evidence_strength(measurement.preferred_classification)
+    first; most assay facts provided first; newest-published first; then URN for a stable tiebreak.
+
+    Only non-RUO calls rank, so opting into research-use-only calls never reorders the list.
+    """
+    clinical = None if measurement.classification_is_research_use_only else measurement.classification
+    magnitude, direction = classification_evidence_strength(clinical)
     return (
         0 if measurement.is_current else 1,
         0 if measurement.relationship == MeasurementRelationship.direct else 1,
-        0 if measurement.preferred_classification is not None else 1,
+        0 if clinical is not None else 1,
         -magnitude,
         direction,
         -assay_fact_count,
@@ -231,10 +241,12 @@ def get_allele_measurements(
     *,
     user_data: Optional[UserData],
     include_superseded: bool = False,
+    include_research_use_only: bool = False,
     as_of: Optional[datetime] = None,
 ) -> list[AlleleMeasurement]:
     """The measurements in ``clingen_allele_id``'s equivalence class, or ``[]`` if it resolves to no live
-    record.
+    record. ``include_research_use_only`` lets a research-use-only call stand in where the score set has no
+    readable clinical calibration (see :class:`AlleleMeasurement`).
 
     A CA query returns ``direct`` measurements, its ``protein_consequence``, and the ``nucleotide_encoding``
     members. A PA query returns its ``direct`` protein measurements and their ``nucleotide_encoding`` encodings.
@@ -357,9 +369,14 @@ def get_allele_measurements(
                 apex_only_unresolved_count += 1
 
         assay_level = SequenceLevel(record.assay_level) if record.assay_level else None
-        preferred = _preferred_classification(db, variant, user_data=user_data)
-        if score_set.id not in clinically_calibrated:
-            clinically_calibrated[score_set.id] = _has_readable_clinical_calibration(score_set, user_data=user_data)
+        classification = _preferred_classification(db, variant, user_data=user_data)
+        classification_is_research_use_only = False
+        if include_research_use_only and classification is None:
+            if score_set.id not in clinically_calibrated:
+                clinically_calibrated[score_set.id] = _has_readable_clinical_calibration(score_set, user_data=user_data)
+            if not clinically_calibrated[score_set.id]:
+                classification = _preferred_classification(db, variant, user_data=user_data, research_use_only=True)
+                classification_is_research_use_only = classification is not None
 
         measurement = AlleleMeasurement(
             variant_urn=variant.urn or "",
@@ -370,12 +387,8 @@ def get_allele_measurements(
             submitted_hgvs=variant.hgvs_pro if assay_level == SequenceLevel.protein.value else variant.hgvs_nt,
             score_set_urn=score_set.urn or "",
             score_set_title=score_set.title or "",
-            preferred_classification=preferred,
-            research_use_only_classification=(
-                _preferred_classification(db, variant, user_data=user_data, research_use_only=True)
-                if not clinically_calibrated[score_set.id]
-                else None
-            ),
+            classification=classification,
+            classification_is_research_use_only=classification_is_research_use_only,
             is_current=is_current,
             superseded_by_score_set=superseding.urn if superseding is not None else None,
         )

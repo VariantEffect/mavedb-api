@@ -4,7 +4,7 @@
 
 Exercise the HTTP surface: the equivalence-class list serializes and validates, the ``as_of``
 content-time is echoed in ``X-As-Of``, an unknown id is an empty list (not a 404), superseded
-measurements are opt-in, a private score set's measurement never leaks, and the response body's
+measurements and research-use-only calls are opt-in, a private score set's measurement never leaks, and the response body's
 order reflects the ranked sort (current-then-superseded, direct-then-related, newest-published, urn).
 """
 
@@ -18,12 +18,17 @@ fastapi = pytest.importorskip("fastapi")
 
 from sqlalchemy import select
 
+from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.score_calibration import ScoreCalibration
+from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.models.user import User
 from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.allele_measurement import AlleleMeasurement
+from tests.helpers.constants import TEST_USER
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import create_seq_score_set_with_variants
@@ -79,6 +84,47 @@ def test_measurements_serialize(client, session, data_provider, data_files, setu
     assert body[0]["isCurrent"] is True
     assert "supersededByScoreSet" not in body[0]  # dropped by exclude_none when current
     assert response.headers["X-As-Of"] == "current"
+
+
+def test_research_use_only_call_is_opt_in(client, session, data_provider, data_files, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    urn = f"{score_set['urn']}#1"
+    _seed_cdna_measurement(session, urn)
+
+    user = session.scalar(select(User).where(User.username == TEST_USER["username"]))
+    calibration = ScoreCalibration(
+        score_set_id=session.scalar(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set["urn"])),
+        title="Research calibration",
+        primary=False,
+        private=False,
+        research_use_only=True,
+        disease_term=get_generic_disease_term(session),
+        created_by_id=user.id,
+        modified_by_id=user.id,
+    )
+    session.add(calibration)
+    session.commit()
+    classification = ScoreCalibrationFunctionalClassification(
+        calibration_id=calibration.id,
+        label="abnormal",
+        functional_classification="abnormal",
+        range=[None, 0.0],
+        inclusive_lower_bound=False,
+    )
+    classification.variants = [session.scalar(select(VariantDbModel).where(VariantDbModel.urn == urn))]
+    session.add(classification)
+    session.commit()
+
+    default = client.get("/api/v1/clingen-alleles/CA123/measurements").json()
+    assert "classification" not in default[0]
+    assert default[0]["classificationIsResearchUseOnly"] is False
+
+    opted = client.get("/api/v1/clingen-alleles/CA123/measurements", params={"include_research_use_only": True}).json()
+    assert opted[0]["classification"]["functionalClassification"] == "abnormal"
+    assert opted[0]["classificationIsResearchUseOnly"] is True
 
 
 def test_unknown_clingen_id_returns_empty_list(client, setup_router_db):

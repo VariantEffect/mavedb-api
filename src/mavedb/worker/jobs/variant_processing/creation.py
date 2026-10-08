@@ -17,6 +17,7 @@ from mavedb.lib.score_calibrations import (
     restore_calibration_variant_links,
     snapshot_calibration_variant_links,
 )
+from mavedb.lib.score_distribution import summarize_variant_data
 from mavedb.lib.score_sets import columns_for_dataset, create_variants, create_variants_data
 from mavedb.lib.types.score_calibrations import CalibrationVariantLinkSnapshot
 from mavedb.lib.types.workflow import JobExecutionOutcome
@@ -225,6 +226,7 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
             job_manager.db.refresh(score_set)
 
         variants_data = create_variants_data(validated_scores, validated_counts, None)
+        score_set.score_distribution = summarize_variant_data(variant["data"] for variant in variants_data)
         create_variants(job_manager.db, score_set, variants_data)
 
         # Scoped to the replacement path above: only links the delete broke need re-establishing, so a

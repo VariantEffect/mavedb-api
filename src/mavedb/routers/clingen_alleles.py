@@ -50,6 +50,14 @@ def get_clingen_allele_measurements(
             "measurements are a deliberate power-user / citation path, never surfaced by discovery."
         ),
     ),
+    include_research_use_only: bool = Query(
+        default=False,
+        description=(
+            "Let a call from a research-use-only calibration stand in when the score set has no readable "
+            "calibration that is not research use only. Such calls set classificationIsResearchUseOnly and are "
+            "not clinical evidence. Default false; ordering never uses them."
+        ),
+    ),
     as_of: Optional[datetime] = Query(
         default=None,
         description=(
@@ -72,6 +80,7 @@ def get_clingen_allele_measurements(
             "requested_resource": clingen_allele_id,
             "as_of": as_of,
             "include_superseded": include_superseded,
+            "include_research_use_only": include_research_use_only,
         }
     )
     response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
@@ -81,5 +90,6 @@ def get_clingen_allele_measurements(
         clingen_allele_id,
         user_data=user_data,
         include_superseded=include_superseded,
+        include_research_use_only=include_research_use_only,
         as_of=as_of,
     )

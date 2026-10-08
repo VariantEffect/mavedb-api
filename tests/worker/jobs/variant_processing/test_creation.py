@@ -6,7 +6,7 @@ pytest.importorskip("arq")
 
 import math
 from datetime import date, timedelta
-from unittest.mock import ANY, MagicMock, call, patch
+from unittest.mock import ANY, call, patch
 
 from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.models.annotation_event import AnnotationEvent
@@ -79,7 +79,7 @@ class TestCreateVariantsForScoreSetUnit:
             ),
             patch(
                 "mavedb.worker.jobs.variant_processing.creation.create_variants_data",
-                return_value=[MagicMock(spec=Variant)],
+                return_value=[{"data": {"score_data": {"score": 1.0}}}],
             ),
             patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
         ):
@@ -163,7 +163,7 @@ class TestCreateVariantsForScoreSetUnit:
             ),
             patch(
                 "mavedb.worker.jobs.variant_processing.creation.create_variants_data",
-                return_value=[MagicMock(spec=Variant)],
+                return_value=[{"data": {"score_data": {"score": 1.0}}}],
             ),
             patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
         ):
@@ -280,7 +280,7 @@ class TestCreateVariantsForScoreSetUnit:
             ),
             patch(
                 "mavedb.worker.jobs.variant_processing.creation.create_variants_data",
-                return_value=[MagicMock(spec=Variant)],
+                return_value=[{"data": {"score_data": {"score": 1.0}}}],
             ),
             patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
         ):
@@ -352,7 +352,7 @@ class TestCreateVariantsForScoreSetUnit:
             ),
             patch(
                 "mavedb.worker.jobs.variant_processing.creation.create_variants_data",
-                return_value=[MagicMock(spec=Variant)],
+                return_value=[{"data": {"score_data": {"score": 1.0}}}],
             ),
             patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
         ):
@@ -401,7 +401,7 @@ class TestCreateVariantsForScoreSetUnit:
             ),
             patch(
                 "mavedb.worker.jobs.variant_processing.creation.create_variants_data",
-                return_value=[MagicMock(spec=Variant)],
+                return_value=[{"data": {"score_data": {"score": 1.0}}}],
             ),
             patch("mavedb.worker.jobs.variant_processing.creation.create_variants", return_value=None),
         ):
@@ -545,6 +545,12 @@ class TestCreateVariantsForScoreSetIntegration:
         assert sample_score_set.num_variants == len(created_variants)
         assert sample_score_set.processing_state == ProcessingState.success
         assert sample_score_set.mapping_state == MappingState.queued
+
+        distribution = sample_score_set.score_distribution
+        assert distribution is not None
+        assert sum(distribution["counts"]) + distribution["null_count"] == len(created_variants)
+        assert distribution["min"] == sample_score_dataframe["score"].min()
+        assert distribution["max"] == sample_score_dataframe["score"].max()
 
         # Verify that the created variants have expected data
         for variant in created_variants:
@@ -702,6 +708,10 @@ class TestCreateVariantsForScoreSetIntegration:
 
         replaced_variants = session.query(Variant).filter(Variant.score_set_id == sample_score_set.id).all()
         assert len(replaced_variants) == sample_score_dataframe.shape[0]
+
+        session.refresh(sample_score_set)
+        assert sample_score_set.score_distribution["min"] == updated_score_dataframe["score"].min()
+        assert sample_score_set.score_distribution["max"] == updated_score_dataframe["score"].max()
 
         # Verify that the variants have been replaced with updated data
         for variant in replaced_variants:
@@ -953,6 +963,55 @@ class TestCreateVariantsForScoreSetIntegration:
             .one()
         )
         assert job_run.status == JobStatus.ERRORED
+
+    async def test_create_variants_for_score_set_keeps_score_distribution_when_creation_fails(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_populated_domain_data,
+        mock_worker_ctx,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        sample_score_set,
+        sample_independent_variant_creation_run,
+    ):
+        with (
+            patch.object(mock_s3_client, "download_fileobj", return_value=None),
+            patch(
+                "mavedb.worker.jobs.variant_processing.creation.pd.read_csv",
+                side_effect=[sample_score_dataframe, sample_count_dataframe],
+            ),
+        ):
+            await create_variants_for_score_set(mock_worker_ctx, sample_independent_variant_creation_run.id)
+
+        session.refresh(sample_score_set)
+        initial_distribution = sample_score_set.score_distribution
+        assert initial_distribution is not None
+
+        sample_independent_variant_creation_run.status = JobStatus.PENDING
+        session.commit()
+
+        # The new scores change the summary, which is assigned before the variant insert fails.
+        updated_score_dataframe = sample_score_dataframe.copy()
+        updated_score_dataframe["score"] += 10
+        with (
+            patch.object(mock_s3_client, "download_fileobj", return_value=None),
+            patch(
+                "mavedb.worker.jobs.variant_processing.creation.pd.read_csv",
+                side_effect=[updated_score_dataframe, sample_count_dataframe],
+            ),
+            patch(
+                "mavedb.worker.jobs.variant_processing.creation.create_variants",
+                side_effect=Exception("Generic exception during variant creation"),
+            ),
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error"),
+        ):
+            await create_variants_for_score_set(mock_worker_ctx, sample_independent_variant_creation_run.id)
+
+        session.refresh(sample_score_set)
+        assert sample_score_set.processing_state == ProcessingState.failed
+        assert sample_score_set.score_distribution == initial_distribution
 
     ## Pipeline failure workflow
 

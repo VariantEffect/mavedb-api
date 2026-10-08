@@ -23,6 +23,7 @@ from mavedb.lib.annotation.annotate import variant_study_result
 from mavedb.lib.csv import build_limiter
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.exceptions import NonexistentOrcidUserError
+from mavedb.lib.score_distribution import summarize_scores
 from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
 from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
@@ -890,6 +891,22 @@ def test_get_own_private_score_set(client, setup_router_db):
     assert sorted(expected_response.keys()) == sorted(response_data.keys())
     for key in expected_response:
         assert (key, expected_response[key]) == (key, response_data[key])
+
+
+def test_get_score_set_serves_stored_score_distribution(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    assert "scoreDistribution" not in client.get(f"/api/v1/score-sets/{score_set['urn']}").json()
+
+    item = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    item.score_distribution = summarize_scores([-1.0, 0.5, 2.0, None])
+    session.commit()
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+    assert response.status_code == 200
+    distribution = response.json()["scoreDistribution"]
+    assert (distribution["min"], distribution["max"], distribution["nullCount"]) == (-1.0, 2.0, 1)
+    assert sum(distribution["counts"]) == 3
 
 
 def test_cannot_get_other_user_private_score_set(session, client, setup_router_db):
