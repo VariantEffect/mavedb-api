@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from mavedb.lib.validation.constants.general import (
+    accession_column,
     guide_sequence_column,
     hgvs_nt_column,
     hgvs_pro_column,
@@ -386,6 +387,32 @@ class TestColumnNames(DfTestCase):
                 kind="counts",
                 is_base_editor=False,
             )
+
+    def test_column_named_accession_is_rejected_scores(self):
+        with self.assertRaises(ValidationError):
+            validate_column_names(
+                self.dataframe.rename(columns={"extra": accession_column}), kind="scores", is_base_editor=False
+            )
+
+    def test_column_named_accession_is_rejected_counts(self):
+        with self.assertRaises(ValidationError):
+            validate_column_names(
+                self.dataframe.drop([required_score_column], axis=1).rename(columns={"extra": accession_column}),
+                kind="counts",
+                is_base_editor=False,
+            )
+
+    def test_column_named_accession_is_rejected_case_insensitively(self):
+        with self.assertRaises(ValidationError):
+            validate_column_names(
+                self.dataframe.rename(columns={"extra": accession_column.upper()}),
+                kind="scores",
+                is_base_editor=False,
+            )
+
+    def test_hgvs_columns_are_still_accepted_alongside_accession_rejection(self):
+        """The accession rejection must not collide with the HGVS columns, which are always present."""
+        validate_column_names(self.dataframe, kind="scores", is_base_editor=False)
 
     # Written without @pytest.mark.parametrize. See: https://pytest.org/en/7.4.x/how-to/unittest.html#pytest-features-in-unittest-testcase-subclasses
     def test_invalid_column_names_scores(self):

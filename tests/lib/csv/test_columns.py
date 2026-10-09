@@ -101,6 +101,18 @@ class TestVariantToCsvRowNullHandling:
             "count2": "5",
         }
 
+    def test_investigator_column_named_accession_is_namespaced_even_when_unnamespaced(self):
+        """A score column named `accession` must not collide with core's own `accession` column.
+
+        Headers (``assemble_csv_headers``) and row keys (here) share the same ``_format_column_key``
+        decision, so asserting it here is enough to cover both.
+        """
+        variant = MockVariant(urn="urn:mavedb:00000001-a-1#1", data={"score_data": {"accession": "sample-42"}})
+
+        row = variant_to_csv_row(variant, {"core": ["accession"], "scores": ["accession"]}, namespaced=False)
+
+        assert row == {"accession": "urn:mavedb:00000001-a-1#1", "scores.accession": "sample-42"}
+
 
 # ---------------------------------------------------------------------------
 # TestVariantToCsvRowUnrecognizedKey
@@ -415,6 +427,24 @@ def test_plan_csv_columns_reference_hgvs_namespace_populates_columns():
             {"core": ["accession"], "clinvar.2024_01": ["clinical_significance"]},
             False,
             ["accession", "clinvar.2024_01.clinical_significance"],
+        ),
+        # An investigator column named `accession` collides with the core column of the same name, so it
+        # is forced under its namespace even though un-namespaced output would otherwise strip the prefix.
+        (
+            {"core": ["accession", "hgvs_nt"], "scores": ["score", "accession"]},
+            False,
+            ["accession", "hgvs_nt", "score", "scores.accession"],
+        ),
+        (
+            {"core": ["accession"], "counts": ["count1", "accession"]},
+            False,
+            ["accession", "count1", "counts.accession"],
+        ),
+        # `scores_custom` emits under `scores`, same as its non-colliding columns would.
+        (
+            {"core": ["accession"], "scores_custom": ["accession"]},
+            False,
+            ["accession", "scores.accession"],
         ),
         # Mixed: respects insertion order
         (

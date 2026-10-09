@@ -7,7 +7,12 @@ from typing import Callable, Optional
 
 from mavedb.lib.csv.namespaces import CALIBRATION_NS_PATTERN, CLINVAR_NS_PATTERN, CsvNamespace
 from mavedb.lib.mave.constants import REQUIRED_SCORE_COLUMN
-from mavedb.lib.validation.constants.general import hgvs_nt_column, hgvs_pro_column, hgvs_splice_column
+from mavedb.lib.validation.constants.general import (
+    accession_column,
+    hgvs_nt_column,
+    hgvs_pro_column,
+    hgvs_splice_column,
+)
 from mavedb.models.variant import Variant
 
 
@@ -142,7 +147,7 @@ _NAMESPACE_SPECS: dict[str, CsvNamespaceSpec] = {
     CORE_NAMESPACE: CsvNamespaceSpec(
         source=RowSource.VARIANT,
         resolvers={
-            "accession": attrgetter("urn"),
+            accession_column: attrgetter("urn"),
             hgvs_nt_column: attrgetter(hgvs_nt_column),
             hgvs_splice_column: attrgetter(hgvs_splice_column),
             hgvs_pro_column: attrgetter(hgvs_pro_column),

@@ -5,6 +5,7 @@ import pandas as pd
 
 from mavedb.lib.exceptions import MixedTargetError
 from mavedb.lib.validation.constants.general import (
+    accession_column,
     guide_sequence_column,
     hgvs_nt_column,
     hgvs_pro_column,
@@ -340,6 +341,9 @@ def validate_column_names(df: pd.DataFrame, kind: str, is_base_editor: bool) -> 
 
     if len(columns) != len(set(columns)):
         raise ValidationError("duplicate column names are not allowed (this check is case insensitive)")
+
+    if accession_column in columns:
+        raise ValidationError(f"'{accession_column}' is a reserved column name (this check is case insensitive)")
 
     if is_base_editor:
         msg = "dataframes for base editor data must also define the '{0}' column"
