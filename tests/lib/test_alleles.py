@@ -1,7 +1,7 @@
 # ruff: noqa: E402
 """Integration tests for the record-scoped allele-link query backing Cat-VRS transit.
 
-``get_live_record_allele_links`` stays within one variant's own live ``MappingRecord`` — unlike
+``get_live_record_allele_links`` stays within each variant's own live ``MappingRecord`` — unlike
 ``get_allele_translations``, which takes the cross-record union an anchor allele can belong to. These
 tests pin that scoping, the ValidTime live/retired filtering, and the ``as_of`` reconstruction.
 """
@@ -70,6 +70,12 @@ def _digests(links):
     return {link.allele.vrs_digest for link in links}
 
 
+def _links(session, variant_id, **kwargs):
+    """One variant's live links through the batched loader; empty when it has no live record."""
+    entry = get_live_record_allele_links(session, [variant_id], **kwargs).get(variant_id)
+    return entry.links if entry is not None else []
+
+
 @pytest.mark.integration
 def test_returns_live_links_with_alleles(session, setup_lib_db_with_score_set):
     """The variant's live record yields its authoritative + derived links, each allele eagerly loaded."""
@@ -81,7 +87,7 @@ def test_returns_live_links_with_alleles(session, setup_lib_db_with_score_set):
     _link(session, record, authoritative, is_authoritative=True)
     _link(session, record, derived, is_authoritative=False)
 
-    links = get_live_record_allele_links(session, variant.id)
+    links = _links(session, variant.id)
 
     assert _digests(links) == {"auth", "deriv"}
     # Exactly one authoritative (the defining allele); the eager-loaded allele is reachable.
@@ -90,7 +96,7 @@ def test_returns_live_links_with_alleles(session, setup_lib_db_with_score_set):
 
 @pytest.mark.integration
 def test_no_mapping_record_returns_empty(session, setup_lib_db_with_score_set):
-    assert get_live_record_allele_links(session, 1) == []
+    assert get_live_record_allele_links(session, [1]) == {}
 
 
 @pytest.mark.integration
@@ -105,7 +111,7 @@ def test_excludes_a_retired_link(session, setup_lib_db_with_score_set):
     retired.retire(at=T1)
     session.commit()
 
-    assert _digests(get_live_record_allele_links(session, variant.id)) == {"live"}
+    assert _digests(_links(session, variant.id)) == {"live"}
 
 
 @pytest.mark.integration
@@ -123,7 +129,7 @@ def test_excludes_a_superseded_record(session, setup_lib_db_with_score_set):
     new_record = _record(session, variant, valid_from=T1)
     _link(session, new_record, new_allele, is_authoritative=True, valid_from=T1)
 
-    assert _digests(get_live_record_allele_links(session, variant.id)) == {"new"}
+    assert _digests(_links(session, variant.id)) == {"new"}
 
 
 @pytest.mark.integration
@@ -146,7 +152,7 @@ def test_record_scoped_not_cross_record_union(session, setup_lib_db_with_score_s
     _link(session, record_b, only_b)
 
     # Variant A's record sees the shared allele and its own member, never variant B's.
-    assert _digests(get_live_record_allele_links(session, variant_a.id)) == {"shared", "only_a"}
+    assert _digests(_links(session, variant_a.id)) == {"shared", "only_a"}
 
 
 @pytest.mark.integration
@@ -165,8 +171,28 @@ def test_as_of_returns_the_historical_link_set(session, setup_lib_db_with_score_
     _link(session, new_record, current_allele, is_authoritative=True, valid_from=T1)
 
     # Inside the old window: the historical set.
-    assert _digests(get_live_record_allele_links(session, variant.id, as_of=T0)) == {"past"}
-    assert _digests(get_live_record_allele_links(session, variant.id, as_of=T1 - timedelta(days=1))) == {"past"}
+    assert _digests(_links(session, variant.id, as_of=T0)) == {"past"}
+    assert _digests(_links(session, variant.id, as_of=T1 - timedelta(days=1))) == {"past"}
     # At/after the handoff and current: the new set.
-    assert _digests(get_live_record_allele_links(session, variant.id, as_of=T2)) == {"current"}
-    assert _digests(get_live_record_allele_links(session, variant.id)) == {"current"}
+    assert _digests(_links(session, variant.id, as_of=T2)) == {"current"}
+    assert _digests(_links(session, variant.id)) == {"current"}
+
+
+@pytest.mark.integration
+def test_one_call_returns_each_variants_own_record_and_links(session, setup_lib_db_with_score_set):
+    """The batched form keys each variant to its own record and links, and omits a variant with none."""
+    score_set = setup_lib_db_with_score_set
+    variant_a = _variant(session, score_set, 1)
+    variant_b = _variant(session, score_set, 2)
+    unmapped = _variant(session, score_set, 3)
+    record_a = _record(session, variant_a)
+    record_b = _record(session, variant_b)
+    _link(session, record_a, _allele(session, "a"), is_authoritative=True)
+    _link(session, record_b, _allele(session, "b"), is_authoritative=True)
+
+    result = get_live_record_allele_links(session, [variant_a.id, variant_b.id, unmapped.id])
+
+    assert set(result) == {variant_a.id, variant_b.id}
+    assert result[variant_a.id].record.id == record_a.id
+    assert _digests(result[variant_a.id].links) == {"a"}
+    assert _digests(result[variant_b.id].links) == {"b"}

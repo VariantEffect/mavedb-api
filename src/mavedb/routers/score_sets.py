@@ -24,14 +24,14 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.data_providers.services import CSV_UPLOAD_S3_BUCKET_NAME, s3_client
 from mavedb.db.timeouts import allow_long_statements
+from mavedb.lib.alleles import with_chunk_inputs
 from mavedb.lib.annotation.annotate import (
     variant_functional_impact_statement,
     variant_pathogenicity_statement,
     variant_study_result,
 )
 from mavedb.lib.annotation.conformance import serialize_annotation
-from mavedb.lib.annotation.context import variant_annotation_context
-from mavedb.lib.deprecation import MAPPED_VARIANT_SUNSET, deprecation_headers, record_deprecated_usage
+from mavedb.lib.annotation.context import AnnotationContextInputs, load_annotation_context_inputs
 from mavedb.lib.annotation.exceptions import EXPECTED_ABSENCE_EXCEPTIONS
 from mavedb.lib.authorization import (
     get_current_user,
@@ -40,6 +40,7 @@ from mavedb.lib.authorization import (
     require_current_user_with_email,
 )
 from mavedb.lib.clinical_controls import get_clinical_control_options, get_clinical_controls_with_variant_urns
+from mavedb.lib.collections import readable_official_collections
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.csv.build_limiter import csv_build_slot, rows_to_build
 from mavedb.lib.csv.columns import variants_to_csv_rows
@@ -51,6 +52,7 @@ from mavedb.lib.csv.deprecated_params import (
 )
 from mavedb.lib.csv.namespaces import CSV_NAMESPACES_PARAM_DESCRIPTION, CsvNamespaceStr
 from mavedb.lib.csv.score_set import available_score_set_csv_namespaces, get_score_set_variants_as_csv
+from mavedb.lib.deprecation import MAPPED_VARIANT_SUNSET, deprecation_headers, record_deprecated_usage
 from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.gnomad import get_gnomad_variants_with_variant_urns
@@ -66,7 +68,6 @@ from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.score_calibrations import create_score_calibration
 from mavedb.lib.score_set_variants import get_lean_score_set_variants
-from mavedb.lib.collections import readable_official_collections
 from mavedb.lib.score_sets import (
     csv_data_to_df,
     fetch_score_set_search_filter_options,
@@ -84,14 +85,14 @@ from mavedb.lib.target_genes import find_or_create_target_gene_by_accession, fin
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.urn_redirects import record_urn_redirect
-from mavedb.lib.validation.exceptions import ValidationError as MaveDBValidationError
 from mavedb.lib.urns import (
     generate_experiment_set_urn,
     generate_experiment_urn,
     generate_score_set_urn,
     lock_urn_assignment,
 )
-from mavedb.lib.variant_detail import get_variant_detail
+from mavedb.lib.validation.exceptions import ValidationError as MaveDBValidationError
+from mavedb.lib.variant_detail import load_variant_detail_inputs
 from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
@@ -1018,21 +1019,20 @@ def _stream_score_set_variant_details(
 ):
     """Serialize the whole-set variant-detail export as NDJSON — one :class:`VariantDetail` per line.
 
-    Assembles each variant's detail envelope (the flat assay fields + ``preMapped``/``postMapped`` VRS
-    pair + the spec-pure GA4GH CategoricalVariant + the digest-keyed VEP/gnomAD/ClinVar annotation map)
-    one at a time, so a large score set streams rather than building every envelope up front.
-    ``superseding_score_set`` / ``visible_calibration_ids`` are resolved once for the whole set and
-    threaded into every per-variant build.
+    Each variant's detail envelope (the flat assay fields + ``preMapped``/``postMapped`` VRS pair + the
+    spec-pure GA4GH CategoricalVariant + the digest-keyed VEP/gnomAD/ClinVar annotation map) is assembled
+    from inputs loaded a chunk of variants at a time, so a large score set streams in a fixed number of
+    queries per chunk rather than building every envelope up front. ``superseding_score_set`` /
+    ``visible_calibration_ids`` are resolved once for the whole set.
     """
-    for variant in variants:
-        detail = get_variant_detail(
-            db,
-            variant,
-            superseding_score_set=superseding_score_set,
-            visible_calibration_ids=visible_calibration_ids,
-            as_of=as_of,
-        )
-        # get_variant_detail returns the lib transit dataclass; coerce it through the view model.
+    for variant, inputs in with_chunk_inputs(
+        variants,
+        lambda chunk: load_variant_detail_inputs(
+            db, chunk, visible_calibration_ids=visible_calibration_ids, as_of=as_of
+        ),
+    ):
+        detail = inputs.detail_for(variant, superseding_score_set=superseding_score_set)
+        # detail_for returns the lib transit dataclass; coerce it through the view model.
         # exclude_none=False keeps a stable key set per line for programmatic consumers.
         yield VariantDetail.model_validate(detail).model_dump_json(by_alias=True, exclude_none=False) + "\n"
 
@@ -1442,7 +1442,7 @@ def get_score_set_counts_csv(
 
 
 def _annotation_stream_record(
-    db, variant, annotation_function, as_of=None
+    inputs: AnnotationContextInputs, variant, annotation_function
 ) -> tuple[dict, Literal["annotated", "unannotated", "errored"]]:
     """
     Build the NDJSON record for one variant, and classify its outcome.
@@ -1462,7 +1462,7 @@ def _annotation_stream_record(
     variant_urn = variant.urn
 
     try:
-        context = variant_annotation_context(db, variant, as_of=as_of)
+        context = inputs.context_for(variant)
         annotation = annotation_function(context) if context is not None else None
         annotation_data = serialize_annotation(annotation) if annotation else None
     except EXPECTED_ABSENCE_EXCEPTIONS:
@@ -1510,8 +1510,10 @@ def _stream_generated_annotations(db, variants, annotation_function, as_of=None)
     outcome_counts = {"annotated": 0, "unannotated": 0, "errored": 0}
     logger.info(f"Starting streaming processing of {total_variants} variants")
 
-    for variant in variants:
-        result, outcome = _annotation_stream_record(db, variant, annotation_function, as_of=as_of)
+    for variant, inputs in with_chunk_inputs(
+        variants, lambda chunk: load_annotation_context_inputs(db, chunk, as_of=as_of)
+    ):
+        result, outcome = _annotation_stream_record(inputs, variant, annotation_function)
         outcome_counts[outcome] += 1
 
         yield json.dumps(result, default=str) + "\n"

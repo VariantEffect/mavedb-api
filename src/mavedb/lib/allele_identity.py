@@ -36,8 +36,8 @@ Two consequences that make the split load-bearing rather than tidy:
    Attempting to encode that on a molecular-relationship axis would misstate what the molecule does.
 
 Today's one-to-one mapping between the two vocabularies is **a fact about today's pipeline, not about
-these axes. Never infer one from the other.** They are emitted together by
-``variant_detail._derivation_for`` and ``allele_detail._member_label``, the single source of truth.
+these axes. Never infer one from the other.** They are emitted together by ``cat_vrs.member_label``, the
+single source of truth for every view.
 """
 
 from dataclasses import dataclass

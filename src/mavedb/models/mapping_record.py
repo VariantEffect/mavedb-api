@@ -22,7 +22,7 @@ class MappingRecord(ValidTime, Base):
 
     id: Mapped[int] = Column(Integer, primary_key=True)
 
-    variant_id = Column(Integer, nullable=False)
+    variant_id: Mapped[int] = Column(Integer, nullable=False)
     # Denormalized from the variant so an RLS policy can check the score set directly; delegating
     # through variants costs ~700 ms per lookup at production size (#833). The composite foreign key
     # below keeps it equal to the variant's score set.

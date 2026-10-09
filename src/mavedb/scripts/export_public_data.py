@@ -31,9 +31,9 @@ from sqlalchemy.orm import Session, joinedload, lazyload
 
 from mavedb.lib.annotation.annotate import variant_highest_level_annotation
 from mavedb.lib.annotation.conformance import serialize_annotation
-from mavedb.lib.annotation.context import variant_annotation_context
+from mavedb.lib.annotation.context import load_annotation_context_inputs
 from mavedb.lib.allele_annotations import get_allele_cross_references
-from mavedb.lib.alleles import get_live_record_allele_links
+from mavedb.lib.alleles import get_live_record_allele_links, with_chunk_inputs
 from mavedb.lib.cat_vrs import build_categorical_variant
 from mavedb.lib.csv.entries import score_sets_have_current_mappings
 from mavedb.lib.csv.namespaces import CsvNamespace
@@ -208,8 +208,10 @@ def va_ndjson(db: Session, score_set: ScoreSet, principal: Principal) -> str:
     VA-Spec layer.
     """
     lines = []
-    for variant in get_annotatable_variants(db, score_set):
-        context = variant_annotation_context(db, variant)
+    for variant, inputs in with_chunk_inputs(
+        get_annotatable_variants(db, score_set), lambda chunk: load_annotation_context_inputs(db, chunk)
+    ):
+        context = inputs.context_for(variant)
         annotation = variant_highest_level_annotation(context, principal=principal) if context is not None else None
         record = {
             "variant_urn": variant.urn,
@@ -236,18 +238,23 @@ def vrs_ndjson(db: Session, score_set: ScoreSet) -> str:
     calibration-derived.
     """
     lines = []
-    for variant in get_annotatable_variants(db, score_set):
-        links = get_live_record_allele_links(db, variant.id)
+
+    def load(chunk):
+        record_links = get_live_record_allele_links(db, [variant.id for variant in chunk])
+        alleles = [link.allele for entry in record_links.values() for link in entry.links]
+        return record_links, get_allele_cross_references(db, alleles)
+
+    for variant, (record_links, cross_references) in with_chunk_inputs(get_annotatable_variants(db, score_set), load):
+        entry = record_links.get(variant.id)
+        links = entry.links if entry is not None else []
         authoritative = next((link.allele for link in links if link.is_authoritative), None)
-        record = next((link.mapping_record for link in links), None)
-        cross_references = get_allele_cross_references(db, [link.allele for link in links])
         transit = build_categorical_variant(links, name=variant.urn or "", cross_references=cross_references)
 
         lines.append(
             json.dumps(
                 {
                     "variant_urn": variant.urn,
-                    "pre_mapped": record.pre_mapped if record is not None else None,
+                    "pre_mapped": entry.record.pre_mapped if entry is not None else None,
                     "post_mapped": authoritative.post_mapped if authoritative is not None else None,
                     "categorical_variant": (
                         transit.categorical_variant.model_dump(mode="json", exclude_none=True)

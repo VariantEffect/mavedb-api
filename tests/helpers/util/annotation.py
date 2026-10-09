@@ -33,7 +33,8 @@ from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 class AlleleSpec:
     """One allele on a mapping record, plus the annotations that hang off it.
 
-    Digests are the allele's identity in the serving layer, so they must be distinct within a test.
+    Digests are the allele's identity in the serving layer: a digest already seeded reuses that allele, so give
+    a shared allele's annotations on one spec only.
     ``clinvar_control_ids`` / ``gnomad_variant_ids`` reference rows seeded elsewhere (the router
     fixtures seed ClinVar controls with ids 1 and 2); each id becomes a live link on this allele.
     """
@@ -89,18 +90,22 @@ def seed_mapping_record(
     session.add(record)
     session.commit()
 
+    # Alleles are deduplicated by digest, so one seeded under the same digest before is reused (an allele
+    # several records share, like a protein consequence).
     for spec in alleles:
-        allele = Allele(
-            vrs_digest=spec.digest,
-            level=spec.level,
-            clingen_allele_id=spec.clingen_allele_id,
-            hgvs_c=spec.hgvs_c,
-            hgvs_p=spec.hgvs_p,
-            hgvs_g=spec.hgvs_g,
-            post_mapped=spec.post_mapped if spec.post_mapped is not None else {"type": "Allele"},
-        )
-        session.add(allele)
-        session.commit()
+        allele = session.scalar(select(Allele).where(Allele.vrs_digest == spec.digest))
+        if allele is None:
+            allele = Allele(
+                vrs_digest=spec.digest,
+                level=spec.level,
+                clingen_allele_id=spec.clingen_allele_id,
+                hgvs_c=spec.hgvs_c,
+                hgvs_p=spec.hgvs_p,
+                hgvs_g=spec.hgvs_g,
+                post_mapped=spec.post_mapped if spec.post_mapped is not None else {"type": "Allele"},
+            )
+            session.add(allele)
+            session.commit()
 
         links: list[Any] = [
             MappingRecordAllele(

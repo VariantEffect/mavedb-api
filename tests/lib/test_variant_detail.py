@@ -16,7 +16,10 @@ import pytest
 
 pytest.importorskip("psycopg2")
 
-from mavedb.lib.variant_detail import get_variant_detail
+from mavedb.lib.annotation.context import load_annotation_context_inputs, variant_annotation_context
+from mavedb.lib.allele_detail import get_allele_detail
+from mavedb.lib.allele_identity import AlleleDerivation
+from mavedb.lib.variant_detail import get_variant_detail, load_variant_detail_inputs
 from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.models.allele import Allele
 from mavedb.models.clinical_control import ClinvarControl
@@ -31,6 +34,7 @@ from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 from tests.helpers.constants import TEST_MINIMAL_VARIANT, TEST_USER
+from tests.helpers.util.query_plan import captured_statements
 
 # A spec-valid post_mapped VRS Allele — the Cat-VRS builder hydrates this, so it must parse.
 _VALID_DIGEST = "0123456789abcdefghijABCDEFGHIJ_-"
@@ -457,3 +461,94 @@ def test_superseded_variant_self_describes(session, setup_lib_db_with_score_set)
 
     assert detail.is_current is False
     assert detail.superseded_by_score_set == "urn:mavedb:00000001-a-2"
+
+
+def _seed_mapped_variants(session, score_set, count):
+    """``count`` coding-measured variants, each with a genomic projection, a protein apex shared by all of
+    them, VEP on the measured allele, and membership in one primary calibration's classification."""
+    protein = _allele(session, "shared-prot", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr")
+    variants = []
+    for index in range(count):
+        variant = _variant(session, score_set, index + 1, data={"score_data": {"score": float(index)}})
+        record = _record(session, variant, hgvs_assay_level=f"NM_000546.6:c.{1216 + index}G>A")
+        measured = _allele(session, f"cdna-{index}", level="cdna", hgvs_c=f"NM_000546.6:c.{1216 + index}G>A")
+        genomic = _allele(session, f"gen-{index}", level="genomic", hgvs_g=f"NC_000017.11:g.{7676154 + index}C>T")
+        _link(session, record, measured, is_authoritative=True, projection_group=0)
+        _link(session, record, genomic, projection_group=0)
+        _link(session, record, protein)
+        _vep(session, measured, "missense_variant")
+        variants.append(variant)
+    _calibration(session, score_set, primary=True, classifications=[("abnormal", variants)])
+    return variants
+
+
+@pytest.mark.integration
+def test_batched_details_equal_single_variant_details(session, setup_lib_db_with_score_set):
+    """A chunk's envelopes are identical to building each variant on its own, unmapped variants included."""
+    score_set = setup_lib_db_with_score_set
+    variants = [*_seed_mapped_variants(session, score_set, 3), _variant(session, score_set, 99)]
+
+    inputs = load_variant_detail_inputs(session, variants)
+
+    for variant in variants:
+        assert inputs.detail_for(variant) == get_variant_detail(session, variant)
+
+
+@pytest.mark.integration
+def test_batched_contexts_equal_single_variant_contexts(session, setup_lib_db_with_score_set):
+    """A chunk's annotation contexts are identical to building each variant on its own."""
+    score_set = setup_lib_db_with_score_set
+    variants = [*_seed_mapped_variants(session, score_set, 3), _variant(session, score_set, 99)]
+
+    inputs = load_annotation_context_inputs(session, variants)
+
+    for variant in variants:
+        assert inputs.context_for(variant) == variant_annotation_context(session, variant)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "load", [load_variant_detail_inputs, load_annotation_context_inputs], ids=["detail", "annotation_context"]
+)
+def test_batched_loads_run_a_fixed_number_of_queries(session, setup_lib_db_with_score_set, load):
+    """Loading a chunk costs the same number of queries however many variants it holds."""
+    score_set = setup_lib_db_with_score_set
+    variants = _seed_mapped_variants(session, score_set, 6)
+    # Seeding commits, which expires the variants; reload them so only the loader's own queries are counted.
+    for variant in variants:
+        session.refresh(variant)
+
+    with captured_statements(session) as one:
+        load(session, variants[:1])
+    with captured_statements(session) as six:
+        load(session, variants)
+
+    assert len(six) == len(one)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("measured_group", [0, None], ids=["folded", "fold_in_missed"])
+def test_variant_and_allele_detail_label_members_alike(session, setup_lib_db_with_score_set, measured_group):
+    """Both views label each member relative to the measured allele through one function, so they agree,
+    including when the measured allele has no projection group and an ungrouped member sits beside it."""
+    score_set = setup_lib_db_with_score_set
+    variant = _variant(session, score_set, 1)
+    record = _record(session, variant)
+    measured = _allele(session, "measured", level="cdna", hgvs_c="NM_000546.6:c.1216G>A")
+    twin = _allele(session, "twin", level="genomic", hgvs_g="NC_000017.11:g.7676154C>T")
+    ungrouped = _allele(session, "ungrouped", level="genomic", hgvs_g="NC_000017.11:g.7676160C>T")
+    convergent = _allele(session, "convergent", level="cdna", hgvs_c="NM_000546.6:c.1218C>T")
+    protein = _allele(session, "protein", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr")
+    _link(session, record, measured, is_authoritative=True, projection_group=measured_group)
+    _link(session, record, twin, projection_group=0)
+    _link(session, record, ungrouped)
+    _link(session, record, convergent, projection_group=1)
+    _link(session, record, protein)
+
+    variant_alleles = get_variant_detail(session, variant).alleles
+    allele_alleles = get_allele_detail(session, measured, focus_digests={"measured"}).alleles
+
+    labels = {digest: (identity.relation, identity.derivation) for digest, identity in variant_alleles.items()}
+    assert labels == {digest: (identity.relation, identity.derivation) for digest, identity in allele_alleles.items()}
+    assert labels["ungrouped"] == ("co_encodes", AlleleDerivation.CONVERGENT)
+    assert labels["twin"][0] == ("coordinate_representation_of" if measured_group == 0 else "co_encodes")

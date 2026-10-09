@@ -42,7 +42,11 @@ from sqlalchemy.orm import Session, aliased, joinedload
 from mavedb.lib.alleles import readable_score_set_ids_by_allele
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, has_permission
-from mavedb.lib.score_calibrations import calibration_preference_key, classification_evidence_strength
+from mavedb.lib.score_calibrations import (
+    calibration_preference_key,
+    classification_evidence_strength,
+    classifications_by_variant,
+)
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.variants import variant_score
 from mavedb.models.allele import Allele
@@ -53,9 +57,6 @@ from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
-from mavedb.models.score_calibration_functional_classification_variant_association import (
-    score_calibration_functional_classification_variants_association_table as classification_variants,
-)
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 
@@ -113,9 +114,13 @@ class _ProteinApex:
 
 
 def _preferred_classification(
-    db: Session, variant: Variant, *, user_data: Optional[UserData], research_use_only: bool = False
+    classifications: list[tuple[ScoreCalibrationFunctionalClassification, ScoreCalibration]],
+    *,
+    user_data: Optional[UserData],
+    research_use_only: bool = False,
 ) -> Optional[ScoreCalibrationFunctionalClassification]:
-    """The variant's preferred *readable* functional classification, or ``None``.
+    """The variant's preferred *readable* functional classification among ``classifications`` (its
+    classification/calibration pairs, from :func:`classifications_by_variant`), or ``None``.
 
     Mirrors the UI's calibration cascade — ``primary`` then ``investigator_provided``, strongest evidence
     within a tier, then ``id`` for determinism. Calibrations the caller can't read are skipped rather than
@@ -126,17 +131,9 @@ def _preferred_classification(
     """
     candidates = [
         (classification, calibration)
-        for classification, calibration in db.execute(
-            select(ScoreCalibrationFunctionalClassification, ScoreCalibration)
-            .join(
-                classification_variants,
-                classification_variants.c.functional_classification_id == ScoreCalibrationFunctionalClassification.id,
-            )
-            .join(ScoreCalibration, ScoreCalibration.id == ScoreCalibrationFunctionalClassification.calibration_id)
-            .where(classification_variants.c.variant_id == variant.id)
-            .where(ScoreCalibration.research_use_only.is_(research_use_only))
-        ).all()
-        if has_permission(user_data, calibration, Action.READ).permitted
+        for classification, calibration in classifications
+        if calibration.research_use_only is research_use_only
+        and has_permission(user_data, calibration, Action.READ).permitted
     ]
     if not candidates:
         return None
@@ -328,12 +325,17 @@ def get_allele_measurements(
                 joinedload(Variant.score_set)
                 .joinedload(ScoreSet.experiment)
                 .selectinload(Experiment.keyword_objs)
-                .joinedload(ExperimentControlledKeywordAssociation.controlled_keyword)
+                .joinedload(ExperimentControlledKeywordAssociation.controlled_keyword),
+                # Read per measurement below; loaded once per score set rather than lazily per row.
+                joinedload(Variant.score_set).selectinload(ScoreSet.score_calibrations),
+                joinedload(Variant.score_set).selectinload(ScoreSet.superseding_score_set),
             )
         )
         .tuples()
         .all()
     )
+
+    classifications = classifications_by_variant(db, [variant.id for _, variant, _ in rows])
 
     measurements: list[tuple[AlleleMeasurement, Optional[date], int]] = []
     clinically_calibrated: dict[int, bool] = {}
@@ -369,13 +371,16 @@ def get_allele_measurements(
                 apex_only_unresolved_count += 1
 
         assay_level = SequenceLevel(record.assay_level) if record.assay_level else None
-        classification = _preferred_classification(db, variant, user_data=user_data)
+        variant_classifications = classifications.get(variant.id, [])
+        classification = _preferred_classification(variant_classifications, user_data=user_data)
         classification_is_research_use_only = False
         if include_research_use_only and classification is None:
             if score_set.id not in clinically_calibrated:
                 clinically_calibrated[score_set.id] = _has_readable_clinical_calibration(score_set, user_data=user_data)
             if not clinically_calibrated[score_set.id]:
-                classification = _preferred_classification(db, variant, user_data=user_data, research_use_only=True)
+                classification = _preferred_classification(
+                    variant_classifications, user_data=user_data, research_use_only=True
+                )
                 classification_is_research_use_only = classification is not None
 
         measurement = AlleleMeasurement(

@@ -8,20 +8,40 @@ nucleotide layers, the protein allele carries a distinct PA, so the link graph i
 ties all three together.
 """
 
-from collections.abc import Collection
+from collections.abc import Callable, Collection, Iterator, Sequence
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.types.authentication import UserData
+from mavedb.lib.utils import batched
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
+
+
+# How many variants a whole-set builder loads per round of batched queries. Bounds both the size of each
+# query's IN list (a variant's record links can fan out to dozens of reverse-translation members) and the
+# number of ORM rows held at once.
+VARIANT_CHUNK_SIZE = 500
+
+VariantT = TypeVar("VariantT")
+InputsT = TypeVar("InputsT")
+
+
+@dataclass(frozen=True)
+class LiveRecordLinks:
+    """A variant's live (or as-of) ``MappingRecord`` and that record's live ``MappingRecordAllele`` links,
+    each with its ``allele`` eagerly loaded."""
+
+    record: MappingRecord
+    links: list[MappingRecordAllele]
 
 
 def readable_score_set_ids_by_allele(
@@ -52,36 +72,53 @@ def readable_score_set_ids_by_allele(
     return by_allele
 
 
+def with_chunk_inputs(
+    variants: Sequence[VariantT], load: Callable[[Sequence[VariantT]], InputsT]
+) -> Iterator[tuple[VariantT, InputsT]]:
+    """Pair each variant with the inputs ``load`` builds for its chunk, one :data:`VARIANT_CHUNK_SIZE` chunk at
+    a time, so a whole-set builder runs a fixed number of queries per chunk rather than per variant."""
+    for chunk in batched(variants, VARIANT_CHUNK_SIZE):
+        inputs = load(chunk)
+        for variant in chunk:
+            yield variant, inputs
+
+
 def get_live_record_allele_links(
-    db: Session, variant_id: int, *, as_of: Optional[datetime] = None
-) -> list[MappingRecordAllele]:
-    """Return the live ``MappingRecordAllele`` links of a variant's single live ``MappingRecord``,
-    each with its ``allele`` eagerly loaded and its ``is_authoritative`` flag.
+    db: Session, variant_ids: Collection[int], *, as_of: Optional[datetime] = None
+) -> dict[int, LiveRecordLinks]:
+    """Return each variant's live ``MappingRecord`` and its live allele links, keyed by variant id.
 
-    This is **record-scoped**, deliberately unlike :func:`get_allele_translations`: it stays within
-    one variant's own mapping record rather than taking the cross-record union an anchor allele can
-    belong to. That scope is what the per-variant Cat-VRS transit needs — the variant's measured
-    (authoritative) allele as the defining representation and exactly its co-linked members, not the
-    equivalence class assembled from every record that happens to share a deduplicated allele.
+    Two queries whatever the number of variants, so whole-set builders load a chunk of variants at a time
+    rather than one variant per round trip. A variant with no live record is absent from the result.
 
-    Temporal: defaults to the currently-live record and links (``valid_to IS NULL``). ``as_of``
-    applies the same half-open predicate to both the record and the links, so the set is evaluated at
-    one instant. Returns ``[]`` when the variant has no live record.
+    This is **record-scoped**, deliberately unlike :func:`get_allele_translations`: it stays within each
+    variant's own mapping record rather than taking the cross-record union an anchor allele can belong to.
+    That scope is what the per-variant Cat-VRS transit needs — the variant's measured (authoritative)
+    allele as the defining representation and exactly its co-linked members, not the equivalence class
+    assembled from every record that happens to share a deduplicated allele.
+
+    Temporal: defaults to the currently-live records and links (``valid_to IS NULL``). ``as_of`` applies
+    the same half-open predicate to both, so each set is evaluated at one instant.
     """
-    record_id = db.scalar(
-        select(MappingRecord.id).where(MappingRecord.variant_id == variant_id).where(MappingRecord.live_at(as_of))
-    )
-    if record_id is None:
-        return []
+    if not variant_ids:
+        return {}
 
-    return list(
-        db.scalars(
-            select(MappingRecordAllele)
-            .where(MappingRecordAllele.mapping_record_id == record_id)
-            .where(MappingRecordAllele.live_at(as_of))
-            .options(joinedload(MappingRecordAllele.allele))
-        ).all()
-    )
+    records = db.scalars(
+        select(MappingRecord).where(MappingRecord.variant_id.in_(variant_ids)).where(MappingRecord.live_at(as_of))
+    ).all()
+    if not records:
+        return {}
+
+    links_by_record: dict[int, list[MappingRecordAllele]] = {record.id: [] for record in records}
+    for link in db.scalars(
+        select(MappingRecordAllele)
+        .where(MappingRecordAllele.mapping_record_id.in_(links_by_record))
+        .where(MappingRecordAllele.live_at(as_of))
+        .options(joinedload(MappingRecordAllele.allele))
+    ):
+        links_by_record[link.mapping_record_id].append(link)
+
+    return {record.variant_id: LiveRecordLinks(record, links_by_record[record.id]) for record in records}
 
 
 def find_variants_by_vrs_identifier(
@@ -107,6 +144,8 @@ def find_variants_by_vrs_identifier(
         .where(Allele.vrs_digest == identifier)
         .where(MappingRecordAllele.live_at(as_of))
         .where(MappingRecord.live_at(as_of))
+        # Callers check read permission on each match's score set; load them here rather than one per match.
+        .options(joinedload(Variant.score_set))
     )
 
     return [(row[0], row[1]) for row in db.execute(stmt).unique().all()]

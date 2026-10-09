@@ -8,7 +8,7 @@ from datetime import date, datetime, timezone
 from io import StringIO
 import threading
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import jsonschema
 import pytest
@@ -5859,13 +5859,27 @@ def stream_variant():
 
 
 def _record_for(variant, annotation_function, context=_STUB_CONTEXT):
-    """Drive one stream record with the context factory stubbed out.
+    """Drive one stream record with the chunk's loaded inputs stubbed out.
 
-    ``context`` is what the factory returns; pass None for the variant whose mapping substrate yields
-    nothing to annotate.
+    ``context`` is what the inputs build for the variant; pass None for the variant whose mapping substrate
+    yields nothing to annotate.
     """
-    with patch("mavedb.routers.score_sets.variant_annotation_context", return_value=context):
-        return _annotation_stream_record(MagicMock(), variant, annotation_function)
+    return _annotation_stream_record(SimpleNamespace(context_for=lambda _: context), variant, annotation_function)
+
+
+def test_annotation_stream_record_reports_a_context_build_failure_as_an_error(stream_variant):
+    """Contexts are built per variant from a chunk's loaded inputs, so one variant failing to build stays
+    that variant's error record rather than ending the stream."""
+
+    def _broken(_):
+        raise ValueError("Unsupported VRS state type")
+
+    record, outcome = _annotation_stream_record(
+        SimpleNamespace(context_for=_broken), stream_variant, lambda ctx: _StubAnnotation()
+    )
+
+    assert outcome == "errored"
+    assert record["error"] == {"type": "ValueError", "detail": "Unsupported VRS state type"}
 
 
 def test_annotation_stream_record_serializes_a_successful_annotation(stream_variant):
