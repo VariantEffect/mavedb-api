@@ -307,7 +307,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
 
         assert isinstance(result, JobExecutionOutcome)
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 0, "failed": 0, "skipped": 0, "alleles_created": 0}
+        assert result.data == {"translated": 0, "failed": 0, "skipped": 0, "alleles_created": 0, "fold_in_missed": 0}
 
         # No candidate alleles, links, or annotations were produced.
         assert session.query(Allele).count() == 0
@@ -412,7 +412,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0}
+        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0, "fold_in_missed": 0}
         assert _non_authoritative_links(session) == []
 
         events = _cross_level_events(session, sample_score_set.id, reason="cis_phased_unsupported")
@@ -464,7 +464,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
 
         # The transcript resolved via the fallback, so the variant translated instead of skipping.
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 2}
+        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 2, "fold_in_missed": 1}
 
     async def test_creates_genomic_and_coding_candidate_alleles(
         self,
@@ -503,7 +503,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 2}
+        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 2, "fold_in_missed": 1}
 
         # Two non-authoritative links were created, both for our one mapping record.
         non_auth_links = _non_authoritative_links(session)
@@ -535,7 +535,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert events[0].disposition == "present"
         # The event metadata carries the paired projection pair shape, not the removed flat lists.
         assert events[0].event_metadata["candidates"] == [
-            {"hgvs_c": c_candidate, "hgvs_g": g_candidate, "variant_type": None}
+            {"hgvs_c": c_candidate, "hgvs_g": g_candidate, "variant_type": None, "projection_group": 0}
         ]
 
     async def test_transcript_is_queryable_via_derived_expression(
@@ -677,7 +677,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 2}
+        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 2, "fold_in_missed": 1}
 
         block_allele = session.query(Allele).filter(Allele.vrs_digest == "ga4gh:CPB.block").one()
         assert block_allele.level == SequenceLevel.genomic.value
@@ -727,7 +727,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 1}
+        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 1, "fold_in_missed": 1}
         non_auth_links = _non_authoritative_links(session)
         assert len(non_auth_links) == 1
         assert non_auth_links[0].projection_group == 0
@@ -779,7 +779,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert result.status == JobStatus.SUCCEEDED
         # Only the genomic sibling is a newly created derived allele; the coding member folds into
         # the existing authoritative link rather than creating a second link/allele.
-        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 1}
+        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 1, "fold_in_missed": 0}
 
         record = _record_for(session, variant.id)
         auth_link = _authoritative_link(session, record.id)
@@ -798,6 +798,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert {link.is_authoritative for link in group_links} == {True, False}
         assert auth_link.allele.vrs_digest == CANONICAL_AUTHORITATIVE_DIGEST
         assert derived_links[0].allele.vrs_digest == "ga4gh:VA.genomic"
+        assert _cross_level_events(session, sample_score_set.id)[0].event_metadata["fold_in_missed"] is False
 
     async def test_authoritative_fold_in_when_measured_at_genomic_level(
         self,
@@ -840,7 +841,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 1}
+        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 1, "fold_in_missed": 0}
 
         record = _record_for(session, variant.id)
         auth_link = _authoritative_link(session, record.id)
@@ -849,6 +850,47 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert [link.projection_group for link in derived_links] == [0]
         assert auth_link.allele.vrs_digest == CANONICAL_AUTHORITATIVE_DIGEST
         assert derived_links[0].allele.vrs_digest == "ga4gh:VA.coding"
+
+    async def test_measured_allele_matching_no_candidate_is_flagged_as_a_missed_fold_in(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+    ):
+        """Nucleotide assay whose measured allele has a different digest from every RT candidate: the
+        authoritative link stays ungrouped, and the run counts the miss and flags it on the variant's event."""
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn=f"{sample_score_set.urn}#11",
+            hgvs_nt="NM_000000.1:c.1A>G",
+            hgvs_pro="NP_000000.1:p.Met1Val",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        await _map_variants(session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set)
+
+        assay_hgvs = "NM_000000.1:c.1A>G"
+        c_candidate = "NM_000001.1:c.5A>G"
+        g_sibling = "NC_000001.11:g.1000A>G"
+        construct = fake_construct({assay_hgvs: [(c_candidate, g_sibling)]})
+        # The coding member is the measured change, but it identifies differently from the stored allele.
+        translate = fake_translate({c_candidate: "ga4gh:VA.divergent", g_sibling: "ga4gh:VA.genomic"})
+
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", construct),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", translate),
+        ):
+            result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 2, "fold_in_missed": 1}
+        assert _authoritative_link(session, _record_for(session, variant.id).id).projection_group is None
+        assert _cross_level_events(session, sample_score_set.id)[0].event_metadata["fold_in_missed"] is True
 
     async def test_projection_failed_candidate_is_a_one_member_group(
         self,
@@ -894,7 +936,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 3}
+        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 3, "fold_in_missed": 1}
 
         non_auth_links = _non_authoritative_links(session)
         groups: dict[int, set[str]] = {}
@@ -954,7 +996,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 6}
+        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 6, "fold_in_missed": 0}
 
         record = _record_for(session, variant.id)
         # The protein authoritative allele is not part of any pair: its group stays NULL.
@@ -1058,6 +1100,112 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         events = _cross_level_events(session, sample_score_set.id)
         assert len(events) == 2
         assert max(events, key=lambda e: e.id).disposition == "present"
+
+    @pytest.mark.parametrize(
+        "rerun_pairs, rerun_unavailable, expected_group, regrouped, derived_groups",
+        [
+            # The measured allele's pair moves to a new position: the ids are swapped so its link keeps group 0.
+            (
+                [("NM_000001.1:c.9C>T", "NC_000001.11:g.1004C>T"), ("NM_000001.1:c.5A>G", None)],
+                False,
+                0,
+                False,
+                {1},
+            ),
+            # The measured allele no longer folds in: its prior group would name an unrelated pair.
+            ([("NM_000001.1:c.9C>T", "NC_000001.11:g.1004C>T")], False, None, True, {0}),
+            # Same fold-in as before: the link is left alone rather than re-versioned.
+            ([("NM_000001.1:c.5A>G", None)], False, 0, False, set()),
+            # UTA unavailable: the record's prior links, its group included, are still this run's answer.
+            ([], True, 0, False, set()),
+        ],
+    )
+    async def test_rerun_supersedes_the_authoritative_link_when_its_group_changes(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+        rerun_pairs,
+        rerun_unavailable,
+        expected_group,
+        regrouped,
+        derived_groups,
+    ):
+        """Group ids only pair links within one run, so a rerun that skips re-mapping must not leave the measured
+        allele holding a group that now names another pair. A run renumbers to keep the link's group where the
+        measured allele still folds in, and otherwise supersedes the link under the run's timestamp, keeping the
+        old group readable through ``as_of``."""
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn=f"{sample_score_set.urn}#11",
+            hgvs_nt="NM_000000.1:c.1A>G",
+            hgvs_pro="NP_000000.1:p.Met1Val",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        await _map_variants(session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set)
+
+        assay_hgvs = "NM_000000.1:c.1A>G"
+        measured_candidate = "NM_000001.1:c.5A>G"
+        translate = fake_translate({measured_candidate: CANONICAL_AUTHORITATIVE_DIGEST})
+        with (
+            patch(
+                f"{RT_MODULE}.construct_equivalent_variants", fake_construct({assay_hgvs: [(measured_candidate, None)]})
+            ),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", translate),
+        ):
+            first = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+        assert first.status == JobStatus.SUCCEEDED
+
+        record = _record_for(session, variant.id)
+        assert _authoritative_link(session, record.id).projection_group == 0
+
+        rerun = JobRun(
+            urn="test:reverse_translate_variants_for_score_set:rerun",
+            job_type="reverse_translate_variants_for_score_set",
+            job_function="reverse_translate_variants_for_score_set",
+            max_retries=3,
+            retry_count=0,
+            job_params=dict(sample_independent_reverse_translation_run.job_params),
+        )
+        session.add(rerun)
+        session.commit()
+
+        second_construct = (
+            fake_construct({}, upstream_unavailable_by_hgvs={assay_hgvs: "could not connect to server"})
+            if rerun_unavailable
+            else fake_construct({assay_hgvs: rerun_pairs})
+        )
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", second_construct),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", translate),
+        ):
+            await _reverse_translate(session, mock_worker_ctx, rerun)
+
+        versions = (
+            session.query(MappingRecordAllele)
+            .filter(
+                MappingRecordAllele.mapping_record_id == record.id,
+                MappingRecordAllele.is_authoritative.is_(True),
+            )
+            .order_by(MappingRecordAllele.id)
+            .all()
+        )
+        live = _authoritative_link(session, record.id)
+        assert live.projection_group == expected_group
+        # The mapping job's link (group NULL) plus the first run's version (group 0), and one more if regrouped.
+        assert len(versions) == (3 if regrouped else 2)
+        prior = versions[-2]
+        assert prior.projection_group == (0 if regrouped else None)
+        assert prior.valid_to == live.valid_from
+        assert live.allele_id == prior.allele_id
+        live_derived = [link for link in _non_authoritative_links(session) if link.valid_to is None]
+        assert {link.projection_group for link in live_derived} == derived_groups
 
     @pytest.mark.parametrize(
         "rerun_outcome, keeps_prior_link",
@@ -1178,7 +1326,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.FAILED
-        assert result.data == {"translated": 0, "failed": 1, "skipped": 0, "alleles_created": 0}
+        assert result.data == {"translated": 0, "failed": 1, "skipped": 0, "alleles_created": 0, "fold_in_missed": 0}
 
         assert _non_authoritative_links(session) == []
         failed_events = _cross_level_events(session, sample_score_set.id, disposition="failed")
@@ -1231,7 +1379,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 1, "failed": 1, "skipped": 0, "alleles_created": 1}
+        assert result.data == {"translated": 1, "failed": 1, "skipped": 0, "alleles_created": 1, "fold_in_missed": 1}
 
         assert len(_cross_level_events(session, sample_score_set.id, disposition="present")) == 1
         assert len(_cross_level_events(session, sample_score_set.id, disposition="failed")) == 1
@@ -1278,7 +1426,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
 
         # A whole score set of non-translatable variants is a benign no-op, not a job failure.
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0}
+        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0, "fold_in_missed": 0}
 
         # No alleles/links, and no failed event at all.
         assert _non_authoritative_links(session) == []
@@ -1331,7 +1479,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 1, "failed": 1, "skipped": 1, "alleles_created": 1}
+        assert result.data == {"translated": 1, "failed": 1, "skipped": 1, "alleles_created": 1, "fold_in_missed": 1}
 
         # The genuine error is FAILED with reason translation_error — distinct from the benign skip.
         failed = _cross_level_events(session, sample_score_set.id, disposition="failed")
@@ -1380,7 +1528,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 1, "failed": 1, "skipped": 0, "alleles_created": 1}
+        assert result.data == {"translated": 1, "failed": 1, "skipped": 0, "alleles_created": 1, "fold_in_missed": 1}
 
         failed = _cross_level_events(session, sample_score_set.id, disposition="failed")
         assert len(failed) == 1
@@ -1427,7 +1575,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 1}
+        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 1, "fold_in_missed": 1}
         assert len(_non_authoritative_links(session)) == 1
 
         events = _cross_level_events(session, sample_score_set.id, disposition="present")
@@ -1470,7 +1618,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.FAILED
-        assert result.data == {"translated": 0, "failed": 1, "skipped": 0, "alleles_created": 0}
+        assert result.data == {"translated": 0, "failed": 1, "skipped": 0, "alleles_created": 0, "fold_in_missed": 0}
         assert _non_authoritative_links(session) == []
 
         failed_events = _cross_level_events(session, sample_score_set.id, disposition="failed")
@@ -1517,7 +1665,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0}
+        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0, "fold_in_missed": 0}
 
         # No translation attempted: no candidate alleles or links, and the variant is
         # recorded as SKIPPED rather than FAILED.
@@ -1575,7 +1723,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 2}
+        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 2, "fold_in_missed": 1}
         events = _cross_level_events(session, sample_score_set.id)
         assert events and all(e.disposition == "present" for e in events)
 
@@ -1702,7 +1850,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         ):
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
-        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0}
+        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0, "fold_in_missed": 0}
         skipped = _cross_level_events(session, sample_score_set.id, reason="transcript_unresolved")
         assert len(skipped) == 1
         assert skipped[0].disposition == "failed"
@@ -1740,7 +1888,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         ):
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
-        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0}
+        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0, "fold_in_missed": 0}
         skipped = _cross_level_events(session, sample_score_set.id, reason="transcript_unresolved")
         assert len(skipped) == 1
         assert skipped[0].disposition == "failed"
@@ -1780,7 +1928,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         ):
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
-        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0}
+        assert result.data == {"translated": 0, "failed": 0, "skipped": 1, "alleles_created": 0, "fold_in_missed": 0}
         skipped = _cross_level_events(session, sample_score_set.id, reason="no_coding_transcript")
         assert len(skipped) == 1
         assert skipped[0].disposition == "absent"
@@ -1930,6 +2078,6 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
 
         assert result.status == JobStatus.SUCCEEDED
-        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 1}
+        assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 1, "fold_in_missed": 0}
         # The NP_ accession was resolved to its NM_ transcript and passed as the hint.
         assert captured_hints == {assay_hgvs: "NM_000111.1"}

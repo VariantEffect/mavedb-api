@@ -12,8 +12,10 @@ each one projection pair (a coding candidate and its deterministic genomic proje
 links of a projection pair with a shared per-record ``projection_group`` id; the protein
 apex is shared across all projection pairs and carries no group. Where a projection pair member
 equals the record's authoritative (measured) allele, its group is folded onto the
-existing authoritative link rather than duplicated, so the canonical c/g projection
-is resolvable from the authoritative allele's group downstream.
+authoritative link rather than duplicated, so the canonical c/g projection
+is resolvable from the authoritative allele's group downstream. An authoritative link
+whose group changes is superseded rather than updated, so ``as_of`` reads keep the
+group that was live at the time.
 """
 
 import asyncio
@@ -25,8 +27,8 @@ from datetime import date
 from typing import Any, Callable, NamedTuple, Sequence
 
 from ga4gh.vrs.extras.translator import AlleleTranslator
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session, joinedload
 from variant_annotation import __version__ as variant_annotation_version
 from variant_annotation.lib.accessions import looks_like_refseq_protein_accession
 from variant_annotation.lib.translation import construct_equivalent_variants
@@ -43,7 +45,7 @@ from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variant_translations import get_or_create_allele
 from mavedb.lib.vrs_utils import translate_hgvs_to_variation, verify_allele_refget
 from mavedb.models.allele import Allele as AlleleDbModel
-from mavedb.models.enums.sequence_level import SequenceLevel
+from mavedb.models.enums.sequence_level import NUCLEOTIDE_LEVELS, SequenceLevel
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
@@ -278,7 +280,15 @@ async def reverse_translate_variants_for_score_set(
         .all()
     )
 
-    annotation_counts: Counter[str] = Counter({"translated": 0, "failed": 0, "skipped": 0, "alleles_created": 0})
+    annotation_counts: Counter[str] = Counter(
+        {
+            "translated": 0,
+            "failed": 0,
+            "skipped": 0,
+            "alleles_created": 0,
+            "fold_in_missed": 0,
+        }
+    )
 
     if not rows:
         logger.warning(
@@ -410,14 +420,11 @@ async def reverse_translate_variants_for_score_set(
     # superseded atomically — retire and insert share a timestamp with no gap.
     new_links: list[MappingRecordAllele] = []
 
-    # The live authoritative links for the current records, keyed by (record_id, allele_id).
-    # Held as ORM objects (not a bare pair set) because the authoritative fold-in updates them in
-    # place: when an RT candidate's allele equals a record's authoritative (measured) allele, that
-    # link already exists (is_authoritative=True, projection_group NULL, written by the mapping job)
-    # and uq_mapping_record_alleles_live forbids a derived duplicate — so the candidate's group is
-    # stamped onto this existing link instead of inserting a new one. Modifying the loaded object
-    # emits an UPDATE on flush; supersede_live_where at the end only retires derived links, leaving
-    # the authoritative link (and its freshly stamped group) intact.
+    # The live authoritative links for the current records, keyed by (record_id, allele_id). When an
+    # RT candidate's allele equals a record's authoritative (measured) allele, that link already exists
+    # and uq_mapping_record_alleles_live forbids a derived duplicate, so the candidate's group is
+    # recorded in folded_groups instead. After the loop, each link whose group changed is superseded by
+    # a copy carrying the new one.
     authoritative_links: dict[tuple[int, int], MappingRecordAllele] = {
         (link.mapping_record_id, link.allele_id): link
         for link in job_manager.db.scalars(
@@ -425,12 +432,20 @@ async def reverse_translate_variants_for_score_set(
             .where(MappingRecordAllele.is_authoritative.is_(True))
             .where(MappingRecordAllele.current)
             .where(MappingRecordAllele.mapping_record_id.in_(current_record_ids))
+            .options(joinedload(MappingRecordAllele.allele))
         ).all()
     }
+    # record_id -> the projection group this run folded onto its authoritative allele, and the group its
+    # authoritative link already holds.
+    folded_groups: dict[int, int | None] = {}
+    prior_groups = {record_id: link.projection_group for (record_id, _), link in authoritative_links.items()}
+    measured_alleles = {record_id: link.allele for (record_id, _), link in authoritative_links.items()}
 
     for result in results:
         rec, variant = variant_input_map[id(result.input)]
         candidate_count = 0
+        record_links_start = len(new_links)
+        linked_nucleotide = False
 
         # Equivalence generation may surface the same VRS object more than once.
         # Dedup by vrs_digest per mapping record to avoid duplicate links.
@@ -440,10 +455,10 @@ async def reverse_translate_variants_for_score_set(
         # Flatten the projection pairs into a work list of (hgvs, level, field, projection_group) members,
         # preserving the coding↔genomic pairing the library emits. Each ProjectionPair's coding and
         # genomic members share the pair's per-record group id — its index in the equivalence class
-        # (0..N-1). hgvs_c is always present (the pair key); hgvs_g is None when the c→g projection
-        # failed, yielding a well-formed one-member (coding only) group rather than a desync. The
-        # group id is assigned once per pair here, so the two members are guaranteed to carry the
-        # same id even though they translate and link independently below.
+        # (0..N-1), until the fold-in renumbering below. hgvs_c is always present (the pair key); hgvs_g
+        # is None when the c→g projection failed, yielding a well-formed one-member (coding only) group
+        # rather than a desync. The group id is assigned once per pair here, so the two members are
+        # guaranteed to carry the same id even though they translate and link independently below.
         members: list[tuple[str, SequenceLevel, str, int | None]] = []
         for group_id, pair in enumerate(result.projection_pairs):
             members.append((pair.hgvs_c, SequenceLevel.cdna, "hgvs_c", group_id))
@@ -492,12 +507,10 @@ async def reverse_translate_variants_for_score_set(
             allele = get_or_create_allele(job_manager.db, draft_allele)
             job_manager.db.flush()
 
-            authoritative_link = authoritative_links.get((rec.id, allele.id))
-            if authoritative_link is not None:
-                # Authoritative fold-in: this member is the record's measured allele, already
-                # linked authoritatively. Stamp it's projection group to preserve the c↔g pairing,
-                # and skip creating a new derived link.
-                authoritative_link.projection_group = projection_group
+            # Authoritative fold-in: this member is the record's measured allele, already linked
+            # authoritatively. Keep its group to preserve the c↔g pairing; no derived link.
+            if (rec.id, allele.id) in authoritative_links:
+                folded_groups[rec.id] = projection_group
                 continue
 
             new_links.append(
@@ -510,18 +523,48 @@ async def reverse_translate_variants_for_score_set(
                 )
             )
             candidate_count += 1
+            linked_nucleotide |= level in NUCLEOTIDE_LEVELS
+
+        # Group ids only pair links within this record, so when the measured allele folds into a different
+        # position than the group its link already holds, swap the two ids rather than supersede the link.
+        folded, prior = folded_groups.get(rec.id), prior_groups.get(rec.id)
+        renumber: dict[int | None, int | None] = (
+            {folded: prior, prior: folded} if folded is not None and prior is not None and folded != prior else {}
+        )
+        for link in new_links[record_links_start:]:
+            link.projection_group = renumber.get(link.projection_group, link.projection_group)
+        if renumber:
+            folded_groups[rec.id] = prior
+
+        # A nucleotide measured allele that RT linked nucleotide siblings to but never folded in has no projection
+        # partner, so serving labels every sibling convergent. Expected for an indel RT's codon-level candidates
+        # can't express; otherwise the mapper and RT produced different VRS objects for one change.
+        measured_allele = measured_alleles.get(rec.id)
+        fold_in_missed = (
+            linked_nucleotide
+            and rec.id not in folded_groups
+            and measured_allele is not None
+            and measured_allele.level in NUCLEOTIDE_LEVELS
+        )
+        annotation_counts["fold_in_missed"] += fold_in_missed
 
         annotation_counts["alleles_created"] += candidate_count
         annotation_metadata = {
             "hgvs_input": result.input.hgvs,
-            # Serializable projection of the projection pairs (the pairing the links now encode).
+            # Serializable projection of the projection pairs and the group each one's links carry.
             "candidates": [
-                {"hgvs_c": pair.hgvs_c, "hgvs_g": pair.hgvs_g, "variant_type": pair.variant_type}
-                for pair in result.projection_pairs
+                {
+                    "hgvs_c": pair.hgvs_c,
+                    "hgvs_g": pair.hgvs_g,
+                    "variant_type": pair.variant_type,
+                    "projection_group": renumber.get(position, position),
+                }
+                for position, pair in enumerate(result.projection_pairs)
             ],
             "hgvs_p": result.hgvs_p,
             "alleles_created": candidate_count,
             "failed_candidates": failed_candidates,
+            "fold_in_missed": fold_in_missed,
         }
 
         # No translatable candidates and failures mean the variant failed reverse translation. No
@@ -550,19 +593,42 @@ async def reverse_translate_variants_for_score_set(
     # its inputs are unchanged since the run that produced them, so they are still that run's answer.
     # Every other outcome, including a skip or a failed translation, is this run's answer and replaces
     # the prior set.
-    unavailable_record_ids = [
+    unavailable_record_ids = {
         variant_input_map[id(error.input)][0].id
         for error in errors
         if error.reason is TranslationErrorReason.UPSTREAM_UNAVAILABLE
-    ]
+    }
 
-    # Supersede prior live derived links atomically.
+    # An authoritative link takes this run's fold-in group, or NULL when nothing folded in. Group ids
+    # are positions in this run's pair list, so a group left from a prior run would name an unrelated
+    # pair. Records whose links are kept (unavailable) keep their group too.
+    regrouped_link_ids: list[int] = []
+    for (record_id, _), link in authoritative_links.items():
+        group = folded_groups.get(record_id)
+        if record_id in unavailable_record_ids or link.projection_group == group:
+            continue
+
+        regrouped_link_ids.append(link.id)
+        new_links.append(
+            MappingRecordAllele(
+                mapping_record_id=link.mapping_record_id,
+                score_set_id=link.score_set_id,
+                allele_id=link.allele_id,
+                is_authoritative=True,
+                projection_group=group,
+            )
+        )
+
+    # Supersede prior live derived links, and the regrouped authoritative links, under one timestamp.
     # TODO#765: re-runs retire and recreate the whole derived set because re-mapping re-mints
     # records; idempotent records would allow unchanged links to stay live.
     MappingRecordAllele.supersede_live_where(
         job_manager.db,
         new_links,
-        MappingRecordAllele.is_authoritative.is_(False),
+        or_(
+            MappingRecordAllele.is_authoritative.is_(False),
+            MappingRecordAllele.id.in_(regrouped_link_ids),
+        ),
         MappingRecordAllele.mapping_record_id.in_(current_record_ids),
         MappingRecordAllele.mapping_record_id.not_in(unavailable_record_ids),
     )
@@ -639,6 +705,15 @@ async def reverse_translate_variants_for_score_set(
         extra=job_manager.logging_context(),
     )
     job_manager.db.flush()
+
+    if annotation_counts["fold_in_missed"]:
+        logger.warning(
+            msg=(
+                f"{annotation_counts['fold_in_missed']} measured alleles matched none of their reverse translation "
+                "candidates; their events carry fold_in_missed in metadata."
+            ),
+            extra=job_manager.logging_context(),
+        )
 
     if annotation_counts["translated"] == 0 and annotation_counts["failed"] > 0:
         logger.error(
