@@ -394,6 +394,40 @@ class TestRefreshClinvarControlsUnit:
         assert by_allele[authoritative_allele.id].disposition == Disposition.ABSENT
         assert by_allele[authoritative_allele.id].reason == EventReason.NO_RECORD
 
+    async def test_checkpoints_progress_within_a_version(
+        self,
+        mock_worker_ctx,
+        session,
+        with_refresh_clinvar_controls_job,
+        sample_refresh_clinvar_controls_job_run,
+        setup_rt_derived_allele_with_caid,
+    ):
+        """A version with many uncached ClinGen lookups keeps the stall reaper's heartbeat fresh."""
+        manager = JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id)
+
+        with (
+            patch("mavedb.worker.jobs.external_services.clinvar.CLINVAR_PROGRESS_EVERY_ALLELES", 1),
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
+                return_value=None,
+            ),
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
+            ),
+            patch.object(manager, "update_progress", wraps=manager.update_progress) as update_progress,
+        ):
+            result = await refresh_clinvar_controls(
+                mock_worker_ctx, sample_refresh_clinvar_controls_job_run.id, manager
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+        within_version = [call.args[2] for call in update_progress.call_args_list if "alleles." in call.args[2]]
+        assert within_version == [
+            "Processing ClinVar version 01_2026 (1/1): 1/2 alleles.",
+            "Processing ClinVar version 01_2026 (1/1): 2/2 alleles.",
+        ]
+
     async def test_idempotent_rerun_skips_and_does_not_duplicate(
         self,
         mock_worker_ctx,

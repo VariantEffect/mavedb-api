@@ -38,6 +38,9 @@ from mavedb.worker.lib.managers.job_manager import JobManager
 
 logger = logging.getLogger(__name__)
 
+# Alleles between progress checkpoints within a version. The first version of a run can fetch
+# thousands of uncached ClinGen lookups; without checkpoints the stall reaper cancels it at 30 min.
+CLINVAR_PROGRESS_EVERY_ALLELES = 500
 # ClinVar archived data starts from February 2015, then January of each
 # subsequent year. This list is used to generate the date range for refreshing.
 CLINVAR_START_YEAR = 2015
@@ -208,7 +211,15 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
         annotation_manager = AnnotationStatusManager(
             job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
         )
-        for allele_id, caid in allele_data.items():
+        for allele_index, (allele_id, caid) in enumerate(allele_data.items(), start=1):
+            if allele_index % CLINVAR_PROGRESS_EVERY_ALLELES == 0:
+                job_manager.update_progress(
+                    int((version_index + allele_index / len(allele_data)) / len(versions) * 100),
+                    100,
+                    f"Processing ClinVar version {clinvar_version} ({version_index + 1}/{len(versions)}): "
+                    f"{allele_index}/{len(allele_data)} alleles.",
+                )
+
             # ClinVar is a nucleotide-level database, skip any protein level alleles.
             if allele_levels.get(allele_id) == SequenceLevel.protein.value:
                 annotation_counts["skipped_link_count"] += 1
