@@ -5,6 +5,7 @@ import io
 from unittest.mock import Mock
 
 from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
+from tests.helpers.util.query_plan import captured_statements
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from unittest.mock import patch
@@ -13,7 +14,6 @@ import pytest
 
 pytest.importorskip("psycopg2")
 
-from sqlalchemy import event
 
 from mavedb.lib.csv.namespaces import calibration_namespace_for_urn, is_valid_csv_namespace
 from mavedb.lib.csv.score_set import available_score_set_csv_namespaces, get_score_set_variants_as_csv
@@ -776,17 +776,9 @@ class TestGetVariantCsv:
         _add_pathogenicity_calibration(session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="First")
         _add_pathogenicity_calibration(session, variant.score_set, [], urn=CALIBRATION_URN_2, title="Second")
 
-        statements: list[str] = []
-
-        def record(conn, cursor, statement, parameters, context, executemany):
-            statements.append(statement)
-
-        bind = session.get_bind()
-        event.listen(bind, "before_cursor_execute", record)
-        try:
+        with captured_statements(session) as captured:
             get_variant_csv(session, variant.urn)
-        finally:
-            event.remove(bind, "before_cursor_execute", record)
+        statements = [statement for statement, _ in captured]
 
         collection_loads = [
             statement
@@ -808,17 +800,9 @@ class TestGetVariantCsv:
         variant = setup_lib_db_with_mapped_variant.variant
         _add_pathogenicity_calibration(session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="First")
 
-        statements: list[str] = []
-
-        def record(conn, cursor, statement, parameters, context, executemany):
-            statements.append(statement)
-
-        bind = session.get_bind()
-        event.listen(bind, "before_cursor_execute", record)
-        try:
+        with captured_statements(session) as captured:
             available_variant_csv_namespaces(session, variant.urn)
-        finally:
-            event.remove(bind, "before_cursor_execute", record)
+        statements = [statement for statement, _ in captured]
 
         calibration_scans = [
             statement

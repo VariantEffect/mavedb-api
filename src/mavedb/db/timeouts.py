@@ -13,7 +13,7 @@ from sqlalchemy import event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from mavedb.lib.logging.context import logging_context
+from mavedb.lib.logging.context import increment_logging_context, logging_context
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +67,13 @@ def allow_long_statements(db: Session, seconds: int = CSV_STATEMENT_TIMEOUT_SECO
     db.execute(text("SELECT set_config('statement_timeout', :ms, true)"), {"ms": str(seconds * 1000)})
 
 
-def log_slow_statements(engine: Engine, threshold_seconds: float) -> None:
-    """Log any statement on ``engine`` that runs longer than ``threshold_seconds``, including ones that error.
+def observe_statements(engine: Engine, threshold_seconds: float) -> None:
+    """Count each request's statements on ``engine``, and log any statement slower than ``threshold_seconds``.
 
-    A statement cancelled by ``statement_timeout`` is logged too, since those are the ones worth tuning.
+    The count lands in the request's canonical log as ``db_statement_count``, so a route whose query count
+    grows with its data shows up on real data, where test fixtures are too small to show it.
+
+    A slow statement cancelled by ``statement_timeout`` is logged too, since those are the ones worth tuning.
     Logs the duration and the start of the SQL text, never the bound parameters, which can hold user data.
     """
 
@@ -87,6 +90,7 @@ def log_slow_statements(engine: Engine, threshold_seconds: float) -> None:
 
     @event.listens_for(engine, "before_cursor_execute")
     def _start_timer(_conn, _cursor, _statement, _parameters, context, _executemany):
+        increment_logging_context("db_statement_count")
         setattr(context, _STARTED_AT_ATTR, time.perf_counter())
 
     @event.listens_for(engine, "after_cursor_execute")
