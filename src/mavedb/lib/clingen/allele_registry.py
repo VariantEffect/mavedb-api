@@ -49,6 +49,23 @@ async def get_clingen_allele_data(clingen_allele_id: str) -> Optional[dict]:
     return response.json()
 
 
+async def refresh_clingen_allele_data_expiry(clingen_allele_id: str) -> bool:
+    """Restart the cache expiry of an allele's ClinGen data.
+
+    A cache hit leaves the expiry set when the entry was written. Data a sibling score set cached
+    nearly a day earlier can therefore expire minutes after a warming step reads it, and the jobs
+    the warming step exists for find the cache cold.
+
+    Args:
+        clingen_allele_id: ClinGen allele ID whose cached data to keep (e.g., CA123456).
+
+    Returns:
+        True if the entry was cached and its expiry restarted, False if it was not cached.
+    """
+    key = clingen_cache_key_builder(get_clingen_allele_data, clingen_allele_id)
+    return await get_clingen_allele_data.cache.expire(key, CACHE_TTL_SECONDS)  # type: ignore[attr-defined]
+
+
 async def get_canonical_pa_ids(clingen_allele_id: str) -> list[str]:
     """Retrieve canonical PA IDs from the ClinGen API for a given ClinGen allele ID.
 
