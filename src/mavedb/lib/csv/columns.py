@@ -59,6 +59,15 @@ def _value_or_na(value: Any, na_rep: str = NA_VALUE) -> str:
     return str(value)
 
 
+_CORE_COLUMN_NAMES = frozenset(namespace_spec(CORE_NAMESPACE).columns({}))  # type: ignore[union-attr]
+"""Core's own column names, so an investigator column of the same name can still be told apart.
+
+In practice only ``accession`` can collide: upload strips the HGVS columns out of the investigator's own
+score and count data (``create_variants_data`` in ``lib/score_sets.py``) before it is ever stored, so
+they never reach this module as a dataset column.
+"""
+
+
 def _format_column_key(namespace: str, column_key: str, namespaced: bool = False) -> str:
     """Shared key-formatting logic used by both header assembly and row assembly."""
     # Always namespaced regardless of the caller's preference: the release or calibration URN is what
@@ -69,7 +78,9 @@ def _format_column_key(namespace: str, column_key: str, namespaced: bool = False
     if namespace == CORE_NAMESPACE:  # core is never namespaced
         return column_key
 
-    if namespaced:
+    # Forced even for un-namespaced output: a dataset column sharing a core column's name would otherwise
+    # collide with it once the prefix is stripped. The core column itself keeps its bare name.
+    if namespaced or column_key in _CORE_COLUMN_NAMES:
         spec = namespace_spec(namespace)
         prefix = spec.emit_under if spec is not None and spec.emit_under is not None else namespace
         return f"{prefix}.{column_key}"
@@ -108,6 +119,10 @@ def plan_csv_columns(dataset_columns: dict, namespaces: list[str]) -> CsvColumnP
 
 def assemble_csv_headers(namespaced_columns: dict[str, list[str]], namespaced: bool = False) -> list[str]:
     """Build the flat column-header list from the namespace dict.
+
+    A dataset column named the same as a core column (only ``accession`` can happen in practice) keeps its
+    namespace prefix even in un-namespaced output, so it reads as e.g. ``scores.accession`` rather than
+    colliding with the bare ``accession`` core column.
 
     Raises:
         ValueError: if two namespaces resolve to the same header. Un-namespaced output strips the prefix

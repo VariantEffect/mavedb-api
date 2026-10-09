@@ -22,6 +22,7 @@ from mavedb.lib.csv.variant import (
     available_variant_csv_namespaces,
     get_variant_csv,
 )
+from mavedb.lib.exceptions import NonexistentIdentifierError
 from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
@@ -301,6 +302,18 @@ class TestGetVariantCsv:
     def test_unknown_urn_raises(self, session, setup_lib_db_with_mapped_variant):
         with pytest.raises(ValueError, match="not found"):
             get_variant_csv(session, "urn:mavedb:00000001-a-1#999")
+
+    def test_unknown_urn_raises_nonexistent_identifier_error(self, session, setup_lib_db_with_mapped_variant):
+        """Raised as ``NonexistentIdentifierError`` specifically, which the app maps to a 404 response
+        rather than letting a deleted-mid-request variant fall through to a 500."""
+        with pytest.raises(NonexistentIdentifierError, match="not found"):
+            get_variant_csv(session, "urn:mavedb:00000001-a-1#999")
+
+    def test_available_namespaces_unknown_urn_raises_nonexistent_identifier_error(
+        self, session, setup_lib_db_with_mapped_variant
+    ):
+        with pytest.raises(NonexistentIdentifierError, match="not found"):
+            available_variant_csv_namespaces(session, "urn:mavedb:00000001-a-1#999")
 
     def test_no_calibration_yields_no_calibration_columns(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant

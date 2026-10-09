@@ -36,6 +36,7 @@ hgvs_nt_column = "hgvs_nt"
 hgvs_splice_column = "hgvs_splice"
 hgvs_pro_column = "hgvs_pro"
 guide_sequence_column = "guide_sequence"
+accession_column = "accession"
 hgvs_columns = sorted([hgvs_nt_column, hgvs_pro_column, hgvs_splice_column])
 meta_data = "meta_data"
 score_columns = "score_columns"
