@@ -1,7 +1,10 @@
+import json
+import logging
 import os
 from typing import Mapping, Optional, Union
 
 import eutils  # type: ignore
+import requests
 from eutils import EutilsNCBIError  # type: ignore
 from eutils._internal.xmlfacades.pubmedarticle import PubmedArticle  # type: ignore
 from eutils._internal.xmlfacades.pubmedarticleset import PubmedArticleSet  # type: ignore
@@ -22,6 +25,8 @@ from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.uniprot_identifier import UniprotIdentifier
 from mavedb.models.uniprot_offset import UniprotOffset
+
+logger = logging.getLogger(__name__)
 
 # XXX these classes all have an "identifier" attribute but there's no superclass
 # to unify them ...
@@ -313,6 +318,7 @@ async def find_generic_article(
 
     # When we are not provided a db name, we must try to match the provided identifier to a
     # publication from each one of our accepted databases.
+    last_fetch_error: Optional[Exception] = None
     for publication_db, identifier_valid in identifier_valid_for(identifier).items():
         if identifier_valid:
             existing_publication = db.execute(
@@ -322,7 +328,19 @@ async def find_generic_article(
             ).scalar_one_or_none()
 
             if not existing_publication:
-                external_publication = await db_specific_fetches[publication_db](identifier)
+                try:
+                    external_publication = await db_specific_fetches[publication_db](identifier)
+                except (json.JSONDecodeError, requests.exceptions.RequestException) as exc:
+                    logger.warning(
+                        "Failed to fetch identifier %r from %s while fanning out over candidate databases.",
+                        identifier,
+                        publication_db,
+                        exc_info=True,
+                    )
+
+                    external_publication = None
+                    last_fetch_error = exc
+
                 found_articles[publication_db] = (
                     ExternalPublication(identifier, publication_db, external_publication)
                     if external_publication
@@ -330,6 +348,9 @@ async def find_generic_article(
                 )
             else:
                 found_articles[publication_db] = existing_publication
+
+    if last_fetch_error is not None and not any(found_articles.values()):
+        raise last_fetch_error
 
     return found_articles
 
