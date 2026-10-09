@@ -77,7 +77,8 @@ class AlleleMeasurement:
     ``assay_level`` is the sequence level at which this measurement was assayed. ``preferred_classification``
     is the readable classification the UI will default to; it never comes from a research-use-only calibration,
     so ranking and any consumer treating it as clinical evidence can rely on that. ``research_use_only_classification``
-    is a display-only fallback: the RUO pick, set only when ``preferred_classification`` is ``None``.
+    is a display-only fallback: the RUO pick, set only when the score set has no readable non-RUO calibration at
+    all. A non-RUO calibration that leaves this variant unclassified is a call in itself and is not overridden.
     """
 
     variant_urn: str
@@ -152,9 +153,21 @@ def _preferred_classification(
     return min(candidates, key=preference)[0]
 
 
+def _has_readable_clinical_calibration(score_set: ScoreSet, *, user_data: Optional[UserData]) -> bool:
+    """Whether the score set has any non-RUO calibration the caller can read, classifying this variant or not."""
+    return any(
+        not calibration.research_use_only and has_permission(user_data, calibration, Action.READ).permitted
+        for calibration in score_set.score_calibrations
+    )
+
+
 # Experiment keywords shown on the variant page's measurement table; how many are filled in breaks evidence ties.
 ASSAY_FACT_KEYWORD_KEYS = frozenset(
-    {"Phenotypic Assay Method", "Molecular Mechanism Assessed", "Phenotypic Assay Model System"}
+    {
+        "Phenotypic Assay Method",
+        "Molecular Mechanism Assessed",
+        "Phenotypic Assay Model System",
+    }
 )
 
 
@@ -311,6 +324,7 @@ def get_allele_measurements(
     )
 
     measurements: list[tuple[AlleleMeasurement, Optional[date], int]] = []
+    clinically_calibrated: dict[int, bool] = {}
     protein_consequence_count = 0
     apex_only_unresolved_count = 0
     for record, variant, measured_allele in rows:
@@ -344,6 +358,9 @@ def get_allele_measurements(
 
         assay_level = SequenceLevel(record.assay_level) if record.assay_level else None
         preferred = _preferred_classification(db, variant, user_data=user_data)
+        if score_set.id not in clinically_calibrated:
+            clinically_calibrated[score_set.id] = _has_readable_clinical_calibration(score_set, user_data=user_data)
+
         measurement = AlleleMeasurement(
             variant_urn=variant.urn or "",
             score=variant_score(variant),
@@ -356,7 +373,7 @@ def get_allele_measurements(
             preferred_classification=preferred,
             research_use_only_classification=(
                 _preferred_classification(db, variant, user_data=user_data, research_use_only=True)
-                if preferred is None
+                if not clinically_calibrated[score_set.id]
                 else None
             ),
             is_current=is_current,
