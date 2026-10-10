@@ -11,6 +11,7 @@ import pytest
 pytest.importorskip("arq")
 
 import re
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, PropertyMock, patch
 
 from arq import ArqRedis
@@ -1347,6 +1348,28 @@ class TestJobProgressUpdateIntegration:
         assert job.progress_current == 50
         assert job.progress_total == 100
         assert job.progress_message == "Halfway done"
+
+    def test_update_progress_bumps_progress_updated_at_heartbeat(
+        self, session, arq_redis, with_populated_job_data, sample_job_run
+    ):
+        """Committing a progress update refreshes progress_updated_at via onupdate=now().
+
+        This is the liveness heartbeat the stalled-job sweeper reads: it must advance on every
+        committing progress checkpoint with no explicit code in the job.
+        """
+
+        manager = JobManager(session, arq_redis, sample_job_run.id)
+
+        # Pin the heartbeat to a stale value so the bump is unambiguous.
+        stale = datetime.now(timezone.utc) - timedelta(hours=1)
+        job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
+        job.progress_updated_at = stale
+        session.commit()
+
+        manager.update_progress(10, 100, "tick", commit=True)  # commit triggers the UPDATE + onupdate
+
+        job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
+        assert job.progress_updated_at > stale
 
     def test_update_progress_success_does_not_overwrite_old_message_when_no_new_message_is_provided(
         self, session, arq_redis, with_populated_job_data, sample_job_run

@@ -234,6 +234,12 @@ def _handle_set_scores_action(
     Only owners, contributors, and admins can modify the scores data within
     a ScoreSet. This is a critical operation that affects the scientific data.
 
+    Publishing freezes that data: a published score set's scores are the record other work cites, and
+    re-uploading them would silently change results already in circulation, along with anything
+    derived from the variants they create (mappings, and the bin membership of any calibration built
+    on the score set). Corrections to published data go through a superseding score set instead.
+    Admins keep the ability as an operational escape hatch, mirroring DELETE.
+
     Args:
         user_data: The user's authentication data.
         entity: The ScoreSet entity whose scores are being modified.
@@ -246,11 +252,11 @@ def _handle_set_scores_action(
         PermissionResponse: Permission result with appropriate HTTP status.
     """
     ## Allow set scores access under the following conditions:
-    # The owner or contributors may set scores.
-    if user_is_owner or user_is_contributor:
-        return PermissionResponse(True)
-    # Users with these specific roles may set scores.
+    # Users with these specific roles may set scores on any score set.
     if roles_permitted(active_roles, [UserRole.admin]):
+        return PermissionResponse(True)
+    # The owner or contributors may set scores only while the score set is still private.
+    if (user_is_owner or user_is_contributor) and private:
         return PermissionResponse(True)
 
     return deny_action_for_entity(entity, private, user_data, user_is_contributor or user_is_owner, "score set")

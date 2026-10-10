@@ -8,6 +8,7 @@ import requests
 
 from mavedb.lib.clinvar.constants import CLINVAR_FIELDS_TO_KEEP
 from mavedb.lib.clinvar.utils import (
+    clinvar_variation_url,
     fetch_clinvar_variant_data,
     validate_clinvar_variant_summary_date,
 )
@@ -240,3 +241,8 @@ class TestFetchClinvarVariantData:
         assert not stale_file.exists()
         pkl_files = list(tmp_path.glob("variant_summary_2020-10.parsed.*.pkl"))
         assert len(pkl_files) == 1
+
+
+@pytest.mark.unit
+def test_clinvar_variation_url_links_the_variation_record():
+    assert clinvar_variation_url("376654") == "https://www.ncbi.nlm.nih.gov/clinvar/variation/376654/"

@@ -4,17 +4,69 @@ import pytest
 
 pytest.importorskip("arq")
 
+from datetime import date
 from unittest.mock import AsyncMock, patch
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
+from mavedb.models.allele import Allele
 from mavedb.models.enums.job_pipeline import JobStatus
-from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.mapping_record import MappingRecord
+from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.worker.jobs.external_services.clingen_cache import warm_clingen_cache
 from mavedb.worker.lib.managers.job_manager import JobManager
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
+
+
+def _make_allele_with_caid(
+    session, score_set_id: int, variant_number: int, caid: str | None, vrs_digest: str
+) -> Allele:
+    """Create a Variant → MappingRecord → Allele chain and return the Allele.
+
+    get_alleles_for_score_set joins: Allele ← MappingRecordAllele (current) ← MappingRecord (current) ← Variant.
+    Leaving valid_to=NULL on MappingRecord and MappingRecordAllele makes them current.
+    """
+    variant = Variant(
+        urn=f"{session.get(ScoreSet, score_set_id).urn}#{variant_number}",
+        score_set_id=score_set_id,
+        hgvs_nt="NM_000000.1:c.1A>G",
+        hgvs_pro="NP_000000.1:p.Met1Val",
+        data={},
+    )
+    session.add(variant)
+    session.flush()
+
+    allele = Allele(
+        vrs_digest=vrs_digest,
+        level="genomic",
+        post_mapped={"type": "Allele", "location": {"sequenceReference": {"refgetAccession": vrs_digest}}},
+        clingen_allele_id=caid,
+    )
+    session.add(allele)
+    session.flush()
+
+    mapping_record = MappingRecord(
+        variant_id=variant.id,
+        score_set_id=variant.score_set_id,
+        assay_level="genomic",
+        mapping_api_version="1.0.0",
+        mapped_date=date.today(),
+    )
+    session.add(mapping_record)
+    session.flush()
+
+    link = MappingRecordAllele(
+        mapping_record_id=mapping_record.id,
+        score_set_id=mapping_record.score_set_id,
+        allele_id=allele.id,
+        is_authoritative=True,
+    )
+    session.add(link)
+    session.flush()
+
+    return allele
 
 
 @pytest.mark.unit
@@ -49,32 +101,28 @@ class TestWarmClingenCacheUnit:
         """Job calls get_clingen_allele_data for each distinct allele ID."""
         score_set = session.get(ScoreSet, sample_warm_clingen_cache_job_run.job_params["score_set_id"])
 
-        # Create two variants with the same CAID — should only warm once (distinct)
-        for i, caid in enumerate(["CA111111", "CA222222", "CA111111"]):
-            variant = Variant(
-                urn=f"urn:variant:warm-test-{i}",
-                score_set_id=score_set.id,
-                hgvs_nt=f"NM_000000.1:c.{i + 1}A>G",
-                hgvs_pro=f"NP_000000.1:p.Met{i + 1}Val",
-                data={},
-            )
-            session.add(variant)
-            session.commit()
-            mapped_variant = MappedVariant(
-                variant_id=variant.id,
-                clingen_allele_id=caid,
-                current=True,
-                mapped_date="2024-01-01T00:00:00Z",
-                mapping_api_version="1.0.0",
-            )
-            session.add(mapped_variant)
-            session.commit()
+        # Three variants, two sharing the same CAID — should only warm 2 distinct IDs.
+        # Two separate allele rows are needed (different VRS digests) to get 2 distinct CAIDs.
+        _make_allele_with_caid(session, score_set.id, 11, "CA111111", "digest-warm-0")
+        _make_allele_with_caid(session, score_set.id, 12, "CA222222", "digest-warm-1")
+        # Third variant points to same allele as first (same CAID CA111111 via a fresh allele row
+        # with the same digest — but since get_alleles_for_score_set returns per-variant rows and
+        # caid dedup happens in the warmer, we can share the digest).
+        _make_allele_with_caid(session, score_set.id, 13, "CA111111", "digest-warm-2")
+        session.commit()
 
         mock_get_allele_data = AsyncMock(return_value={"some": "data"})
+        mock_refresh_expiry = AsyncMock(return_value=True)
 
-        with patch(
-            "mavedb.worker.jobs.external_services.clingen_cache.get_clingen_allele_data",
-            mock_get_allele_data,
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen_cache.get_clingen_allele_data",
+                mock_get_allele_data,
+            ),
+            patch(
+                "mavedb.worker.jobs.external_services.clingen_cache.refresh_clingen_allele_data_expiry",
+                mock_refresh_expiry,
+            ),
         ):
             result = await warm_clingen_cache(
                 mock_worker_ctx,
@@ -83,6 +131,8 @@ class TestWarmClingenCacheUnit:
             )
 
         assert result.status == JobStatus.SUCCEEDED
+        # A hit keeps its first writer's expiry, so every warmed entry's expiry is restarted.
+        assert {call.args[0] for call in mock_refresh_expiry.call_args_list} == {"CA111111", "CA222222"}
         # Should be called exactly 2 times (CA111111 and CA222222, deduplicated)
         assert mock_get_allele_data.call_count == 2
         called_ids = {call.args[0] for call in mock_get_allele_data.call_args_list}
@@ -100,24 +150,8 @@ class TestWarmClingenCacheUnit:
 
         caids = ["CA333333", None, "CA-MULTI-001,CA-MULTI-002"]
         for i, caid in enumerate(caids):
-            variant = Variant(
-                urn=f"urn:variant:warm-filter-{i}",
-                score_set_id=score_set.id,
-                hgvs_nt=f"NM_000000.1:c.{i + 10}A>G",
-                hgvs_pro=f"NP_000000.1:p.Met{i + 10}Val",
-                data={},
-            )
-            session.add(variant)
-            session.commit()
-            mapped_variant = MappedVariant(
-                variant_id=variant.id,
-                clingen_allele_id=caid,
-                current=True,
-                mapped_date="2024-01-01T00:00:00Z",
-                mapping_api_version="1.0.0",
-            )
-            session.add(mapped_variant)
-            session.commit()
+            _make_allele_with_caid(session, score_set.id, 100 + i, caid, f"digest-filter-{i}")
+        session.commit()
 
         mock_get_allele_data = AsyncMock(return_value={"some": "data"})
 
@@ -147,24 +181,8 @@ class TestWarmClingenCacheUnit:
         score_set = session.get(ScoreSet, sample_warm_clingen_cache_job_run.job_params["score_set_id"])
 
         for i, caid in enumerate(["CA444444", "CA555555"]):
-            variant = Variant(
-                urn=f"urn:variant:warm-fail-{i}",
-                score_set_id=score_set.id,
-                hgvs_nt=f"NM_000000.1:c.{i + 20}A>G",
-                hgvs_pro=f"NP_000000.1:p.Met{i + 20}Val",
-                data={},
-            )
-            session.add(variant)
-            session.commit()
-            mapped_variant = MappedVariant(
-                variant_id=variant.id,
-                clingen_allele_id=caid,
-                current=True,
-                mapped_date="2024-01-01T00:00:00Z",
-                mapping_api_version="1.0.0",
-            )
-            session.add(mapped_variant)
-            session.commit()
+            _make_allele_with_caid(session, score_set.id, 100 + i, caid, f"digest-fail-{i}")
+        session.commit()
 
         # First call raises, second succeeds
         mock_get_allele_data = AsyncMock(
@@ -192,36 +210,80 @@ class TestWarmClingenCacheUnit:
         with_warm_clingen_cache_job,
         sample_warm_clingen_cache_job_run,
     ):
-        """Job only fetches allele IDs from current (not superseded) mapped variants."""
+        """Job only fetches allele IDs from current (not superseded) mapping records."""
         score_set = session.get(ScoreSet, sample_warm_clingen_cache_job_run.job_params["score_set_id"])
 
         variant = Variant(
-            urn="urn:variant:warm-current-test",
+            urn=f"{score_set.urn}#11",
             score_set_id=score_set.id,
             hgvs_nt="NM_000000.1:c.30A>G",
             hgvs_pro="NP_000000.1:p.Met30Val",
             data={},
         )
         session.add(variant)
-        session.commit()
+        session.flush()
 
-        # Non-current mapped variant should be ignored
-        old_mv = MappedVariant(
-            variant_id=variant.id,
+        # Superseded allele (MappingRecord with valid_to set — not current)
+        old_allele = Allele(
+            vrs_digest="digest-old-mv",
+            level="genomic",
+            post_mapped={"type": "Allele"},
             clingen_allele_id="CA666666",
-            current=False,
-            mapped_date="2023-01-01T00:00:00Z",
-            mapping_api_version="0.9.0",
         )
-        # Current mapped variant should be included
-        current_mv = MappedVariant(
+        session.add(old_allele)
+        session.flush()
+
+        from datetime import datetime, timezone
+
+        old_mapping_record = MappingRecord(
             variant_id=variant.id,
-            clingen_allele_id="CA777777",
-            current=True,
-            mapped_date="2024-01-01T00:00:00Z",
-            mapping_api_version="1.0.0",
+            score_set_id=variant.score_set_id,
+            assay_level="genomic",
+            mapping_api_version="0.9.0",
+            mapped_date=date(2023, 1, 1),
         )
-        session.add_all([old_mv, current_mv])
+        # Close this record so it is non-current (valid_to set)
+        old_mapping_record.valid_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        session.add(old_mapping_record)
+        session.flush()
+
+        old_link = MappingRecordAllele(
+            mapping_record_id=old_mapping_record.id,
+            score_set_id=old_mapping_record.score_set_id,
+            allele_id=old_allele.id,
+            is_authoritative=True,
+        )
+        old_link.valid_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        session.add(old_link)
+        session.flush()
+
+        # Current allele (MappingRecord with valid_to=NULL — current)
+        current_allele = Allele(
+            vrs_digest="digest-current-mv",
+            level="genomic",
+            post_mapped={"type": "Allele"},
+            clingen_allele_id="CA777777",
+        )
+        session.add(current_allele)
+        session.flush()
+
+        current_mapping_record = MappingRecord(
+            variant_id=variant.id,
+            score_set_id=variant.score_set_id,
+            assay_level="genomic",
+            mapping_api_version="1.0.0",
+            mapped_date=date.today(),
+        )
+        session.add(current_mapping_record)
+        session.flush()
+
+        current_link = MappingRecordAllele(
+            mapping_record_id=current_mapping_record.id,
+            score_set_id=current_mapping_record.score_set_id,
+            allele_id=current_allele.id,
+            is_authoritative=True,
+        )
+        session.add(current_link)
         session.commit()
 
         mock_get_allele_data = AsyncMock(return_value={"some": "data"})

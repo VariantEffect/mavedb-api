@@ -17,7 +17,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from mavedb.lib.mapping import extract_ids_from_post_mapped_metadata
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.uniprot.id_mapping import UniProtIDMappingAPI
-from mavedb.lib.uniprot.utils import infer_db_name_from_sequence_accession
+from mavedb.lib.uniprot.utils import id_mapping_query_accession, infer_db_name_from_sequence_accession
 from mavedb.models.enums.job_pipeline import FailureCategory
 from mavedb.models.job_dependency import JobDependency
 from mavedb.models.score_set import ScoreSet
@@ -123,8 +123,9 @@ async def submit_uniprot_mapping_jobs_for_score_set(
             )
             continue
 
-        ac_to_map = acs[0]
-        from_db = infer_db_name_from_sequence_accession(ac_to_map)
+        from_db = infer_db_name_from_sequence_accession(acs[0])
+        # Store the submitted form: polling matches results by the accession UniProt echoes back.
+        ac_to_map = id_mapping_query_accession(acs[0], from_db)
         spawned_job = uniprot_api.submit_id_mapping(from_db, "UniProtKB", [ac_to_map])  # type: ignore
 
         # Explicitly cast ints to strs in mapping job keys. These are converted to strings internally

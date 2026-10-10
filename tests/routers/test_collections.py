@@ -1116,3 +1116,33 @@ def test_only_users_who_can_add_users_see_the_full_roster(
         assert orcids["admins"] == [TEST_USER["username"]]
         assert orcids["editors"] == []
         assert orcids["viewers"] == []
+
+
+@pytest.mark.parametrize("route", ["add", "create", "update"])
+def test_cannot_add_unreadable_score_set_to_own_collection(
+    session, client, setup_router_db, extra_user_app_overrides, route
+):
+    """Adding another user's private score set to your own collection reports it as missing, so membership
+    can neither probe for private records nor attach them."""
+    experiment = create_experiment(client)
+    private_score_set = create_seq_score_set(client, experiment["urn"])
+
+    with DependencyOverrider(extra_user_app_overrides):
+        if route == "create":
+            response = client.post(
+                "/api/v1/collections/", json={**TEST_COLLECTION, "score_set_urns": [private_score_set["urn"]]}
+            )
+        else:
+            collection = create_collection(client)
+            if route == "add":
+                response = client.post(
+                    f"/api/v1/collections/{collection['urn']}/score-sets",
+                    json={"score_set_urn": private_score_set["urn"]},
+                )
+            else:
+                response = client.patch(
+                    f"/api/v1/collections/{collection['urn']}", json={"score_set_urns": [private_score_set["urn"]]}
+                )
+
+    assert response.status_code == 404
+    assert session.query(CollectionScoreSetAssociation).count() == 0

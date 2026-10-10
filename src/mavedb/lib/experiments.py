@@ -5,6 +5,7 @@ from sqlalchemy import func, not_, or_
 from sqlalchemy.orm import Session
 
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.collections import readable_official_collections
 from mavedb.lib.permissions import Action
 from mavedb.lib.score_sets import find_superseded_score_set_tail
 from mavedb.lib.types.authentication import UserData
@@ -137,6 +138,10 @@ def enrich_experiment_with_num_score_sets(
     """
     Validate and update the number of score set in experiment. The superseded score set is excluded.
     Data structure: experiment{score_set_urns, num_score_sets}
+
+    Also narrows the experiment's official collections to what the caller may read. Every route that returns
+    an ``Experiment`` view model must build it here; serializing the ORM experiment directly lists every
+    score set URN and every collection, private ones included.
     """
     filter_superseded_score_set_tails = [
         find_superseded_score_set_tail(score_set, Action.READ, user_data) for score_set in item_update.score_sets
@@ -153,6 +158,7 @@ def enrich_experiment_with_num_score_sets(
         update={
             "num_score_sets": len(filtered_score_set_urns),
             "score_set_urns": filtered_score_set_urns,
+            "official_collections": readable_official_collections(user_data, item_update.official_collections),
         }
     )
     return updated_experiment

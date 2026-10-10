@@ -23,7 +23,10 @@ class PopulatedRawContextMiddleware(RawContextMiddleware):
         ctx: dict[str, Any] = {}
 
         ctx["request_ns"] = time.time_ns()
-        ctx["path"] = request.url.path
+        # The ASGI scope rather than request.url.path, which truncates at a '#'. Starlette builds
+        # request.url by re-parsing, so a variant URN's '#' opens a fragment there and the variant
+        # number and sub-resource are dropped: three /variants routes all logged the same path.
+        ctx["path"] = request.scope["path"]
 
         if isinstance(request, Request):
             ctx["method"] = request.method
@@ -58,6 +61,12 @@ def save_to_logging_context(ctx: dict) -> dict:
         context[k] = v
 
     return context.data
+
+
+def increment_logging_context(key: str, by: int = 1) -> None:
+    """Add ``by`` to a counter in the request's logging context. A no-op outside a request (worker, scripts)."""
+    if context.exists():
+        context[key] = context.get(key, 0) + by
 
 
 def logging_context() -> dict:

@@ -1,9 +1,8 @@
 import pytest
+from sqlalchemy import text
+from sqlalchemy.orm import sessionmaker
 
-from mavedb.lib.urns import score_set_urn_sort_key, variant_urn_sort_key
-
-pytestmark = pytest.mark.unit
-
+from mavedb.lib.urns import lock_urn_assignment, score_set_urn_sort_key, variant_urn_sort_key
 
 # ---------------------------------------------------------------------------
 # Each of these pairs is one a lexical sort gets wrong. They are the reason the keys exist, so they are
@@ -12,6 +11,7 @@ pytestmark = pytest.mark.unit
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.unit
 class TestScoreSetUrnSortKey:
     def test_unpadded_score_set_number_orders_numerically(self):
         urns = ["urn:mavedb:00000001-a-10", "urn:mavedb:00000001-a-2"]
@@ -66,6 +66,7 @@ class TestScoreSetUrnSortKey:
         assert sorted(urns, key=score_set_urn_sort_key) == ["tmp:a", "tmp:b", "tmp:c"]
 
 
+@pytest.mark.unit
 class TestVariantUrnSortKey:
     def test_unpadded_variant_number_orders_numerically(self):
         urns = [f"urn:mavedb:00000001-a-1#{n}" for n in (2, 10, 1)]
@@ -97,3 +98,28 @@ class TestVariantUrnSortKey:
         numbered = "urn:mavedb:00000001-a-1#1"
 
         assert sorted([urn, numbered], key=variant_urn_sort_key) == [numbered, urn]
+
+
+@pytest.mark.integration
+class TestLockUrnAssignment:
+    @staticmethod
+    def _other_session_can_take_lock(session) -> bool:
+        other = sessionmaker(bind=session.get_bind())()
+        try:
+            return other.execute(text("SELECT pg_try_advisory_xact_lock(hashtext('mavedb.urn_assignment'))")).scalar()
+        finally:
+            other.rollback()
+            other.close()
+
+    def test_lock_excludes_other_sessions_until_commit(self, session):
+        lock_urn_assignment(session)
+        assert self._other_session_can_take_lock(session) is False
+
+        session.commit()
+        assert self._other_session_can_take_lock(session) is True
+
+    def test_lock_is_released_on_rollback(self, session):
+        lock_urn_assignment(session)
+        session.rollback()
+
+        assert self._other_session_can_take_lock(session) is True

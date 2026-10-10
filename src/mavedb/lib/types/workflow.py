@@ -75,6 +75,7 @@ class JobDefinition(TypedDict):
     type: str
     function: str
     params: dict[str, Any]
+    optional_params: NotRequired[dict[str, Any]]
     dependencies: list[tuple[str, DependencyType]]
     retry_delay_seconds: NotRequired[int]
 

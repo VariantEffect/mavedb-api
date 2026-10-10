@@ -1,3 +1,5 @@
+import re
+
 import idutils
 
 from mavedb.lib.validation.constants.identifier import valid_dbnames
@@ -52,6 +54,9 @@ def validate_ensembl_identifier(identifier: str):
     """
     Validates whether the identifier is a valid Ensembl identifier.
 
+    Ensembl stable IDs may carry a version suffix (e.g. ``ENSP00000369497.3``), which
+    ``idutils.is_ensembl`` does not accept; strip it before validating the stable ID.
+
     Parameters
     __________
     identifier : str
@@ -62,7 +67,8 @@ def validate_ensembl_identifier(identifier: str):
     ValidationError
         If the identifier is not a valid Ensembl identifier.
     """
-    if not idutils.is_ensembl(identifier):
+    base_identifier = re.sub(r"\.\d+$", "", identifier)
+    if not idutils.is_ensembl(base_identifier):
         raise ValidationError(f"'{identifier}' is not a valid Ensembl accession.")
 
 

@@ -7,7 +7,29 @@ treat membership as optional.
 """
 
 from datetime import datetime
+from enum import Enum
 from typing import Any, Optional, TypedDict
+
+
+class MappingOutcome(str, Enum):
+    """Per-record outcome stamped by dcd-mapping on every emitted score annotation.
+
+    Mirrors ``dcd_mapping.schemas.MappingOutcome``. Lets a benign absence of a VRS allele
+    be told apart from a genuine failure -- a distinction ``error_message`` alone cannot
+    make (benign outcomes leave it ``None``). ``MAPPED`` is a success; ``INTRONIC`` and
+    ``NO_PROTEIN_CONSEQUENCE`` are benign skips (no allele, not failures); ``FAILED`` is the
+    only genuine failure.
+    """
+
+    MAPPED = "mapped"
+    INTRONIC = "intronic"
+    NO_PROTEIN_CONSEQUENCE = "no_protein_consequence"
+    FAILED = "failed"
+
+    @property
+    def is_benign_absence(self) -> bool:
+        """True for outcomes that legitimately produce no allele yet are not failures."""
+        return self in (MappingOutcome.INTRONIC, MappingOutcome.NO_PROTEIN_CONSEQUENCE)
 
 
 class GeneInfo(TypedDict, total=False):
