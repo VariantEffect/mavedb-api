@@ -3,10 +3,14 @@ Audit the allele graph that mapping and reverse translation (RT) write.
 
 Usage:
 ```
-python3 -m mavedb.scripts.audit_reverse_translation invariants [--score-set URN ...] [--skip-seqrepo]
-python3 -m mavedb.scripts.audit_reverse_translation outcomes [--score-set URN ...] [--max-failed-pct 5]
-python3 -m mavedb.scripts.audit_reverse_translation round-trip [--score-set URN ...] [--per-score-set 50]
+python3 -m mavedb.scripts.audit_reverse_translation invariants [SCOPE] [--skip-seqrepo]
+python3 -m mavedb.scripts.audit_reverse_translation outcomes [SCOPE] [--max-failed-pct 5]
+python3 -m mavedb.scripts.audit_reverse_translation round-trip [SCOPE] [--per-score-set 50]
 ```
+
+SCOPE is any of `--score-set URN` (repeatable), `--collection URN` and `--translated-since YYYY-MM-DD`, which
+intersect. `--translated-since` keeps only score sets every variant of which RT reached on or after the date, so
+findings left by an older pipeline drop out. Unscoped, every check covers the whole database.
 
 Each check guards a property the serving layer assumes but no constraint enforces. The class of bug
 this exists for is the NM_007294.3 refget divergence: the mapper and RT built the same variant on two
@@ -32,16 +36,17 @@ import re
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Callable, Optional, Sequence
 
 import asyncclick as click
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from mavedb.lib.hgvs import strip_protein_prediction_parens
 from mavedb.lib.seqrepo import AmbiguousSequenceError, SequenceNotFoundError, resolve_refget
 from mavedb.lib.vrs_utils import CANONICAL_ACCESSION_PREFIXES, identify_variation, translate_hgvs_to_variation
-from mavedb.models.score_set import ScoreSet
+from mavedb.scripts.audit_scope import resolve_scope, scope_options
 from mavedb.scripts.environment import script_environment, with_database_session
 
 logger = logging.getLogger(__name__)
@@ -95,20 +100,59 @@ _LENGTH_CHANGING = """coalesce(
     false
 )"""
 
+# The live candidates RT linked to the measured allele's record, on its own level and sequence, span this
+# interval. RT's candidates for one protein change all sit inside the codon it changes.
+_CANDIDATE_SPAN_SQL = """
+    LEFT JOIN LATERAL (
+        SELECT min(CASE WHEN jsonb_typeof(da.post_mapped #> '{location,start}') = 'number'
+                        THEN (da.post_mapped #>> '{location,start}')::int END) AS candidate_start,
+               max(CASE WHEN jsonb_typeof(da.post_mapped #> '{location,end}') = 'number'
+                        THEN (da.post_mapped #>> '{location,end}')::int END) AS candidate_end
+        FROM mapping_record_alleles d
+        JOIN alleles da ON da.id = d.allele_id
+        WHERE d.mapping_record_id = auth.mapping_record_id AND NOT d.is_authoritative AND d.valid_to IS NULL
+          AND da.level = a.level
+          AND da.post_mapped #>> '{location,sequenceReference,refgetAccession}'
+              = a.post_mapped #>> '{location,sequenceReference,refgetAccession}'
+    ) span ON true
+"""
+
+# A reference-identical allele (g.=, c.=). RT lists the alternative codons for a synonymous change, never the
+# reference codon itself, so such an allele cannot fold in.
+_REFERENCE_IDENTICAL = "coalesce(a.hgvs_g, a.hgvs_c) LIKE '%='"
+
+# A measured allele reaching past every candidate's span changes a base outside the codon RT targeted. With no
+# candidate on its level and sequence, or an unreadable location, it counts as inside.
+_BEYOND_CANDIDATES = """coalesce(
+    CASE WHEN jsonb_typeof(a.post_mapped #> '{location,start}') = 'number'
+              AND jsonb_typeof(a.post_mapped #> '{location,end}') = 'number'
+         THEN (a.post_mapped #>> '{location,start}')::int < span.candidate_start
+              OR (a.post_mapped #>> '{location,end}')::int > span.candidate_end
+    END,
+    false
+)"""
+
 _MEASURED_OUTSIDE_GROUP_SQL = """
     SELECT auth.mapping_record_id, auth.allele_id, a.level, coalesce(a.hgvs_g, a.hgvs_c) AS hgvs
     FROM mapping_record_alleles auth
     JOIN alleles a ON a.id = auth.allele_id
+    {candidate_span}
     WHERE auth.is_authoritative AND auth.valid_to IS NULL AND auth.projection_group IS NULL
       AND a.level IN ('cdna', 'genomic')
-      AND {length_condition}
+      AND {condition}
       {auth_filter}
       AND EXISTS (SELECT 1 FROM mapping_record_alleles d
                   JOIN alleles da ON da.id = d.allele_id
                   WHERE d.mapping_record_id = auth.mapping_record_id
                     AND NOT d.is_authoritative AND d.valid_to IS NULL
                     AND da.level IN ('cdna', 'genomic'))
-"""
+""".replace("{candidate_span}", _CANDIDATE_SPAN_SQL)
+
+
+def _measured_outside_group(condition: str) -> str:
+    """The measured-allele-outside-projection-group query, restricted to alleles matching ``condition``."""
+    return _MEASURED_OUTSIDE_GROUP_SQL.replace("{condition}", condition)
+
 
 SQL_CHECKS: tuple[SqlCheck, ...] = (
     SqlCheck(
@@ -216,9 +260,31 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
         description=(
             "RT attached derived nucleotide alleles to a record, but the measured nucleotide allele is in no "
             "projection group: the fold-in missed it, so serving labels every sibling convergent, its own c/g "
-            "twin included. Only length-preserving changes, which RT's codon-level candidates always include."
+            "twin included. Only length-preserving changes inside the codon RT targeted, which its candidates "
+            "always include."
         ),
-        sql=_MEASURED_OUTSIDE_GROUP_SQL.replace("{length_condition}", f"NOT {_LENGTH_CHANGING}"),
+        sql=_measured_outside_group(
+            f"NOT {_LENGTH_CHANGING} AND NOT {_REFERENCE_IDENTICAL} AND NOT {_BEYOND_CANDIDATES}"
+        ),
+    ),
+    SqlCheck(
+        name="measured_allele_beyond_rt_codon",
+        severity=INFO,
+        description=(
+            "A measured change in no projection group that reaches outside the codon RT targeted, such as a "
+            "multi-base change straddling two codons. RT lists only single-codon changes, so it cannot fold in. "
+            "Many in one score set can mean its nucleotide variants sit out of frame with its protein variants."
+        ),
+        sql=_measured_outside_group(f"NOT {_LENGTH_CHANGING} AND NOT {_REFERENCE_IDENTICAL} AND {_BEYOND_CANDIDATES}"),
+    ),
+    SqlCheck(
+        name="measured_reference_allele_outside_projection_group",
+        severity=INFO,
+        description=(
+            "A measured reference-identical allele (g.=, c.=) in no projection group. Expected: RT lists the "
+            "alternative codons for a synonymous change, never the reference codon."
+        ),
+        sql=_measured_outside_group(_REFERENCE_IDENTICAL),
     ),
     SqlCheck(
         name="measured_indel_outside_projection_group",
@@ -227,15 +293,16 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
             "A measured indel in no projection group. Expected when the indel is not codon-aligned: it changes the "
             "protein the same way as a codon-aligned candidate but is a different DNA change, so RT does not list it."
         ),
-        sql=_MEASURED_OUTSIDE_GROUP_SQL.replace("{length_condition}", _LENGTH_CHANGING),
+        sql=_measured_outside_group(f"{_LENGTH_CHANGING} AND NOT {_REFERENCE_IDENTICAL}"),
     ),
     SqlCheck(
         name="malformed_projection_group",
         severity=WARNING,
         description=(
-            "A live projection group is not exactly one cdna allele and one genomic allele. A member RT could not "
-            "translate leaves a group of one; the variant's cross_level_translation event lists it under "
-            "failed_candidates with the error."
+            "A live projection group is not exactly one cdna allele and one genomic allele. Either the library could "
+            "not project the coding candidate to the genome (its entry under candidates in the variant's "
+            "cross_level_translation event has no hgvs_g), or a member failed VRS translation (listed under "
+            "failed_candidates with the error)."
         ),
         sql="""
             SELECT l.mapping_record_id, l.projection_group, count(*) AS members,
@@ -400,34 +467,21 @@ def report(findings: Sequence[Finding]) -> int:
     return sum(1 for finding in findings if finding.severity == ERROR and finding.count)
 
 
-def _score_set_ids(db: Session, urns: Sequence[str]) -> Optional[list[int]]:
-    """Resolve ``--score-set`` URNs to ids, or ``None`` when the audit is unscoped."""
-    if not urns:
-        return None
-
-    found: dict[str, int] = {
-        urn: id for urn, id in db.execute(select(ScoreSet.urn, ScoreSet.id).where(ScoreSet.urn.in_(urns))).all() if urn
-    }
-    missing = sorted(set(urns) - set(found))
-    if missing:
-        raise click.BadParameter(f"No score set with URN: {', '.join(missing)}", param_hint="--score-set")
-
-    return list(found.values())
-
-
-score_set_option = click.option(
-    "--score-set", "urns", multiple=True, help="Restrict the audit to this score set. Repeatable."
-)
-
-
 @script_environment.command()
-@score_set_option
+@scope_options
 @click.option("--samples", type=int, default=5, show_default=True, help="Violating rows to print per check.")
 @click.option("--skip-seqrepo", is_flag=True, help="Skip the refget comparison, which needs the SeqRepo mount.")
 @with_database_session
-def invariants(db: Session, urns: tuple[str, ...], samples: int, skip_seqrepo: bool) -> None:
+def invariants(
+    db: Session,
+    urns: tuple[str, ...],
+    collection: Optional[str],
+    translated_since: Optional[datetime],
+    samples: int,
+    skip_seqrepo: bool,
+) -> None:
     """Check the structural invariants of the mapping and reverse-translation allele graph."""
-    score_set_ids = _score_set_ids(db, urns)
+    score_set_ids = resolve_scope(db, urns, collection, translated_since)
 
     findings: list[Finding] = []
     for check in SQL_CHECKS:
@@ -492,7 +546,7 @@ def collect_outcomes(rows: Sequence[tuple[str, str, str, int]]) -> list[ScoreSet
 
 
 @script_environment.command()
-@score_set_option
+@scope_options
 @click.option(
     "--max-failed-pct",
     type=float,
@@ -501,9 +555,15 @@ def collect_outcomes(rows: Sequence[tuple[str, str, str, int]]) -> list[ScoreSet
     help="Flag score sets where more than this share of variants failed RT.",
 )
 @with_database_session
-def outcomes(db: Session, urns: tuple[str, ...], max_failed_pct: float) -> None:
+def outcomes(
+    db: Session,
+    urns: tuple[str, ...],
+    collection: Optional[str],
+    translated_since: Optional[datetime],
+    max_failed_pct: float,
+) -> None:
     """Summarize the latest reverse-translation result per variant, by score set."""
-    score_set_ids = _score_set_ids(db, urns)
+    score_set_ids = resolve_scope(db, urns, collection, translated_since)
     event_filter = "AND e.score_set_id = ANY(:score_set_ids)" if score_set_ids is not None else ""
     params = {"score_set_ids": score_set_ids} if score_set_ids is not None else {}
 
@@ -658,7 +718,7 @@ def round_trip_pair(
 
 
 @script_environment.command()
-@score_set_option
+@scope_options
 @click.option(
     "--per-score-set",
     type=int,
@@ -668,14 +728,21 @@ def round_trip_pair(
 )
 @click.option("--samples", type=int, default=10, show_default=True, help="Rows to print per disagreeing outcome.")
 @with_database_session
-def round_trip(db: Session, urns: tuple[str, ...], per_score_set: int, samples: int) -> None:
+def round_trip(
+    db: Session,
+    urns: tuple[str, ...],
+    collection: Optional[str],
+    translated_since: Optional[datetime],
+    per_score_set: int,
+    samples: int,
+) -> None:
     """Re-translate sampled projection pairs and check they identify as the alleles RT stored."""
     from ga4gh.vrs.extras.translator import AlleleTranslator
 
     from mavedb.data_providers.services import cdot_rest, seqrepo_data_proxy
     from mavedb.worker.lib.translation_ports import WorkerCoordinateTranslator
 
-    score_set_ids = _score_set_ids(db, urns)
+    score_set_ids = resolve_scope(db, urns, collection, translated_since)
     link_filter = "AND l.score_set_id = ANY(:score_set_ids)" if score_set_ids is not None else ""
     params: dict[str, Any] = {"per_score_set": per_score_set}
     if score_set_ids is not None:

@@ -150,6 +150,72 @@ class TestSqlChecks:
         assert _count(session, "measured_allele_outside_projection_group", [score_set.id]).count == 0
         assert _count(session, "measured_indel_outside_projection_group", [score_set.id]).count == 1
 
+    def test_reports_a_change_straddling_two_codons_as_info_not_error(self, session, make_score_set):
+        # c.135_137delinsTGC changes the third base of codon 45 and the second of codon 46; RT's candidates for
+        # p.Val46Ala sit inside codon 46 (g.95025144_95025146) only.
+        score_set, (variant,) = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000013-a-1", 1)
+
+        def located(start, end, sequence):
+            return {
+                "type": "Allele",
+                "location": {
+                    "type": "SequenceLocation",
+                    "sequenceReference": {"refgetAccession": "SQ.genome"},
+                    "start": start,
+                    "end": end,
+                },
+                "state": {"type": "LiteralSequenceExpression", "sequence": sequence},
+            }
+
+        seed_mapping_record(
+            session,
+            variant,
+            alleles=[
+                AlleleSpec(
+                    digest="measured",
+                    level="genomic",
+                    is_authoritative=True,
+                    hgvs_g="NC_000008.11:g.95025143_95025145delinsTGC",
+                    post_mapped=located(95025142, 95025145, "TGC"),
+                ),
+                AlleleSpec(digest="rt-c", level="cdna", hgvs_c="NM_152416.4:c.137T>C", projection_group=0),
+                AlleleSpec(
+                    digest="rt-g",
+                    level="genomic",
+                    hgvs_g="NC_000008.11:g.95025145T>C",
+                    projection_group=0,
+                    post_mapped=located(95025144, 95025145, "C"),
+                ),
+                AlleleSpec(
+                    digest="rt-g-2",
+                    level="genomic",
+                    hgvs_g="NC_000008.11:g.95025145_95025146delinsCA",
+                    projection_group=1,
+                    post_mapped=located(95025144, 95025146, "CA"),
+                ),
+            ],
+        )
+
+        assert _count(session, "measured_allele_outside_projection_group", [score_set.id]).count == 0
+        assert _count(session, "measured_allele_beyond_rt_codon", [score_set.id]).count == 1
+
+    def test_reports_a_reference_identical_allele_as_info_not_error(self, session, make_score_set):
+        score_set, (variant,) = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000014-a-1", 1)
+        seed_mapping_record(
+            session,
+            variant,
+            alleles=[
+                AlleleSpec(
+                    digest="measured", level="genomic", is_authoritative=True, hgvs_g="NC_000011.10:g.102114338T="
+                ),
+                AlleleSpec(digest="rt-c", level="cdna", hgvs_c="NM_001130145.3:c.519G>A", projection_group=0),
+                AlleleSpec(digest="rt-g", level="genomic", hgvs_g="NC_000011.10:g.102114338T>A", projection_group=0),
+            ],
+        )
+
+        assert _count(session, "measured_allele_outside_projection_group", [score_set.id]).count == 0
+        assert _count(session, "measured_reference_allele_outside_projection_group", [score_set.id]).count == 1
+
     def test_flags_an_accession_whose_alleles_carry_two_refgets(self, session, make_score_set):
         score_set, variants = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000003-a-1", 2)
         for n, (variant, refget) in enumerate(zip(variants, ("SQ.ncbi", "SQ.cdot")), start=1):
