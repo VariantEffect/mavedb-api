@@ -10,13 +10,14 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
+from starlette_context import context, request_cycle_context
 
 from mavedb.db import timeouts
 from mavedb.db.timeouts import (
     CSV_STATEMENT_TIMEOUT_SECONDS,
     allow_long_statements,
     apply_api_timeouts,
-    log_slow_statements,
+    observe_statements,
 )
 
 
@@ -75,9 +76,9 @@ class TestApplyApiTimeouts:
 
 
 @pytest.mark.unit
-class TestLogSlowStatements:
+class TestObserveStatements:
     def test_logs_a_slow_statement_without_its_parameters(self, session, engine, caplog):
-        log_slow_statements(engine, threshold_seconds=0.05)
+        observe_statements(engine, threshold_seconds=0.05)
 
         with caplog.at_level(logging.WARNING, logger="mavedb.db.timeouts"):
             session.execute(text("SELECT pg_sleep(0.1), :secret"), {"secret": "hunter2"})
@@ -87,15 +88,30 @@ class TestLogSlowStatements:
         assert not any("hunter2" in message for message in messages)
 
     def test_does_not_log_a_fast_statement(self, session, engine, caplog):
-        log_slow_statements(engine, threshold_seconds=5)
+        observe_statements(engine, threshold_seconds=5)
 
         with caplog.at_level(logging.WARNING, logger="mavedb.db.timeouts"):
             session.execute(text("SELECT 1"))
 
         assert not caplog.records
 
+    def test_counts_each_statement_in_the_request_context(self, session, engine):
+        observe_statements(engine, threshold_seconds=5)
+
+        with request_cycle_context({}):
+            session.execute(text("SELECT 1"))
+            session.execute(text("SELECT 2"))
+            assert context["db_statement_count"] == 2
+
+    def test_counting_outside_a_request_is_a_no_op(self, session, engine):
+        observe_statements(engine, threshold_seconds=5)
+
+        session.execute(text("SELECT 1"))
+
+        assert not context.exists()
+
     def test_logs_a_statement_cancelled_by_the_timeout(self, session, engine, caplog):
-        log_slow_statements(engine, threshold_seconds=0.05)
+        observe_statements(engine, threshold_seconds=0.05)
         session.execute(text("SET LOCAL statement_timeout = '100ms'"))
 
         with caplog.at_level(logging.WARNING, logger="mavedb.db.timeouts"):

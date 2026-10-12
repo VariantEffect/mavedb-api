@@ -22,6 +22,7 @@ from ga4gh.vrs.models import Allele as VrsAllele
 from ga4gh.vrs.models import CisPhasedBlock
 
 from mavedb.lib.allele_annotations import AlleleCrossReferences
+from mavedb.lib.allele_identity import AlleleDerivation
 from mavedb.lib.clingen.allele_registry import clingen_allele_url
 from mavedb.lib.clinvar.utils import clinvar_variation_url
 from mavedb.lib.gnomad import gnomad_variant_url
@@ -65,8 +66,8 @@ class CatVrsRelation(str, Enum):
     COORDINATE_REPRESENTATION_OF = "coordinate_representation_of"
     # defining is nt; member is the protein consequence. Consequence, no independent score.
     TRANSLATION_OF = "translation_of"
-    # defining is nt; member is a *convergent encoding* — an nt allele in a different projection group that
-    # encodes the same protein consequence as the measured change.
+    # defining is nt; member is a *convergent encoding* — an nt allele not paired with the measured change that
+    # encodes the same protein consequence.
     CO_ENCODES = "co_encodes"
 
 
@@ -94,72 +95,46 @@ class CategoricalVariantTransit:
 
     categorical_variant: CategoricalVariant
     mode: CatVrsMode
-    member_relations: dict[str, CatVrsRelation]
-    """vrs_digest keyed dict encoding digest: relation for the member -> defining relationship.
-    Excludes the defining allele itself.
+
+
+def is_projection_partner(member_group: Optional[int], *, focus_group: Optional[int]) -> bool:
+    """Whether a member is the focus allele's own c↔g projection: the two share a projection group.
+
+    A member or focus with no group can't be shown to pair, so it counts as no projection. That includes a
+    measured allele RT's fold-in missed (``fold_in_missed`` on its ``cross_level_translation`` event), whose
+    own twin then reads as a convergent encoding: under-claiming one exact match rather than presenting
+    distinct encodings, and their ClinVar/gnomAD records, as the measured change.
     """
+    return member_group is not None and member_group == focus_group
 
 
-def is_convergent_encoding(
-    member_level: Optional[str], member_group: Optional[int], *, defining_group: Optional[int]
-) -> bool:
-    """Whether a projection-mode member is a *convergent encoding* of the measured change.
+def member_label(
+    focus_level: Optional[str], member_level: Optional[str], *, is_projection: bool
+) -> tuple[Optional[CatVrsRelation], Optional[AlleleDerivation]]:
+    """A member allele's ``(relation, derivation)`` relative to the focus allele, ``(None, None)`` for none.
 
-    Concretely:
-    - The defining (measured) allele is nt (genomic or cdna).
-    - The member is nt (genomic or cdna).
-    - The member is in a different projection group than the defining (measured) allele.
+    The single source of both axes for every view (Cat-VRS, variant detail, allele detail), so they cannot
+    label the same pair differently. ``is_projection`` is whether the member is the focus's own c↔g pair
+    (:func:`is_projection_partner` within a record).
+
+    - Protein focus: every nucleotide member ``encodes`` it, a reverse-translation ``candidate``.
+    - Nucleotide focus: the protein consequence is its ``translation_of`` and its pair its
+      ``coordinate_representation_of``, both deterministic ``projection``s; any other nucleotide member
+      ``co_encodes`` the consequence, a distinct ``convergent`` change.
     """
-    return (
-        member_level in NUCLEOTIDE_LEVELS
-        and member_group is not None
-        and defining_group is not None
-        and member_group != defining_group
-    )
+    if focus_level == SequenceLevel.protein.value:
+        if member_level in NUCLEOTIDE_LEVELS:
+            return CatVrsRelation.ENCODES, AlleleDerivation.CANDIDATE
+        return None, None
 
-
-def _relation_for(
-    defining_level: Optional[str],
-    member_level: Optional[str],
-    *,
-    defining_group: Optional[int] = None,
-    member_group: Optional[int] = None,
-) -> Optional[CatVrsRelation]:
-    """Derive the member -> defining relation from the two levels, or None for the defining itself.
-
-    Star model: every member relates to the single defining allele, so the relation depends only on the
-    (defining, member) level pair. Note that in projection mode relation also depends on whether the nt
-    member shares the measured change's ``projection_group`` (its projection) or lives in another group
-    (a convergent encoding).
-    """
-    # Protein measured. Every nt member encodes it, the protein member is the defining. Grouping is irrelevant.
-    if defining_level == SequenceLevel.protein.value:
-        return CatVrsRelation.ENCODES if member_level in NUCLEOTIDE_LEVELS else None
-
-    # Nt measured (genomic or cdna).
     if member_level == SequenceLevel.protein.value:
-        return CatVrsRelation.TRANSLATION_OF
+        return CatVrsRelation.TRANSLATION_OF, AlleleDerivation.PROJECTION
     if member_level in NUCLEOTIDE_LEVELS:
-        if is_convergent_encoding(member_level, member_group, defining_group=defining_group):
-            return CatVrsRelation.CO_ENCODES
-        return CatVrsRelation.COORDINATE_REPRESENTATION_OF
+        if is_projection:
+            return CatVrsRelation.COORDINATE_REPRESENTATION_OF, AlleleDerivation.PROJECTION
+        return CatVrsRelation.CO_ENCODES, AlleleDerivation.CONVERGENT
 
-    # Unreachable in practice. Levels are constrained by the DB and the mapping job.
-    return None  # pragma: no cover
-
-
-def _is_precise_projection_member(
-    member_level: Optional[str], member_group: Optional[int], *, defining_group: Optional[int]
-) -> bool:
-    """In projection mode, whether a member is a *precise* representation of the measured change.
-
-    True for the protein consequence (the apex, shared by the whole equivalence class) and the measured
-    change's own projection. False for convergent encodings in other projection groups.
-    """
-    if member_level == SequenceLevel.protein.value:
-        return True
-
-    return not is_convergent_encoding(member_level, member_group, defining_group=defining_group)
+    return None, None
 
 
 def _relation_concept(relation: CatVrsRelation) -> MappableConcept:
@@ -269,13 +244,12 @@ def categorical_member_links(
         if link is defining_link:
             continue
 
-        if (
-            mode is CatVrsMode.PROJECTION
-            and not include_convergent
-            and not _is_precise_projection_member(
-                link.allele.level, link.projection_group, defining_group=defining_link.projection_group
-            )
-        ):
+        relation, _ = member_label(
+            defining_link.allele.level,
+            link.allele.level,
+            is_projection=is_projection_partner(link.projection_group, focus_group=defining_link.projection_group),
+        )
+        if mode is CatVrsMode.PROJECTION and not include_convergent and relation is CatVrsRelation.CO_ENCODES:
             continue
 
         members.append(link)
@@ -324,8 +298,8 @@ def build_categorical_variant(
       - ``True`` (default; the detail envelope): the encodings are kept as members wearing the
         :attr:`CatVrsRelation.CO_ENCODES` relation, so the object is the full closure. The measured change's
         projection and protein consequence stay ``coordinate_representation_of`` / ``translation_of``.
-      - ``False`` (the VA-Spec subject): the encodings are dropped (see :func:`_is_precise_projection_member`)
-        and only the measured change's precise projection and protein consequence remain.
+      - ``False`` (the VA-Spec subject): the encodings are dropped (see :func:`member_label`) and only the
+        measured change's precise projection and protein consequence remain.
 
     ``mappings`` cross-references the included members' external records (see :func:`_external_mappings`).
     CAIDs come from the alleles themselves; gnomAD and ClinVar identifiers come from ``cross_references``,
@@ -357,7 +331,6 @@ def build_categorical_variant(
 
     members: list[VrsAllele | CisPhasedBlock | iriReference] = [defining_vrs]
     mapped_members: list[tuple[Allele, Optional[CatVrsRelation]]] = [(defining_allele, None)]
-    member_relations: dict[str, CatVrsRelation] = {}
     relations_present: dict[CatVrsRelation, None] = {}  # insertion-ordered set of relation kinds
 
     for link in other_links:
@@ -375,16 +348,13 @@ def build_categorical_variant(
             continue
 
         members.append(member_vrs)
-        relation = _relation_for(
+        relation, _ = member_label(
             defining_level,
             allele.level,
-            defining_group=defining_link.projection_group,
-            member_group=link.projection_group,
+            is_projection=is_projection_partner(link.projection_group, focus_group=defining_link.projection_group),
         )
         if relation is not None:
             mapped_members.append((allele, relation))
-        if relation is not None and allele.vrs_digest is not None:
-            member_relations[allele.vrs_digest] = relation
             relations_present[relation] = None
 
     # The defining allele anchors the DefiningAlleleConstraint. Cat-VRS 1.0.0 requires a bare
@@ -409,5 +379,4 @@ def build_categorical_variant(
     return CategoricalVariantTransit(
         categorical_variant=categorical_variant,
         mode=mode,
-        member_relations=member_relations,
     )

@@ -38,6 +38,7 @@ from mavedb.view_models.score_calibration import (
     ScoreCalibration,
     ScoreCalibrationCreate,
 )
+from mavedb.view_models.score_distribution import ScoreDistribution
 from mavedb.view_models.score_set_dataset_columns import DatasetColumns, SavedDatasetColumns
 from mavedb.view_models.target_gene import (
     SavedTargetGene,
@@ -439,6 +440,7 @@ class ScoreSet(SavedScoreSet):
     mapping_errors: Optional[dict] = None
     score_calibrations: Optional[Sequence[ScoreCalibration]] = None  # type: ignore[assignment]
     dataset_columns: Optional[DatasetColumns] = None  # type: ignore[assignment]
+    score_distribution: Optional[ScoreDistribution] = None
 
 
 class ScoreSetWithVariants(ScoreSet):

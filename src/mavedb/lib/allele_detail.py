@@ -33,12 +33,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.allele_annotations import AlleleAnnotations, get_allele_annotations
-from mavedb.lib.allele_identity import AlleleDerivation, AlleleIdentity
+from mavedb.lib.allele_identity import AlleleIdentity
 from mavedb.lib.alleles import get_allele_translations
-from mavedb.lib.cat_vrs import CatVrsRelation
+from mavedb.lib.cat_vrs import member_label
 from mavedb.lib.vrs import vrs_object_from_mapped_variant
 from mavedb.models.allele import Allele
-from mavedb.models.enums.sequence_level import NUCLEOTIDE_LEVELS, SequenceLevel
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 
 
@@ -120,34 +120,6 @@ def _focus_projection_pairs(
     return pairs
 
 
-def _member_label(
-    *, focus_is_protein: bool, member_level: Optional[str], is_projection: bool
-) -> tuple[Optional[CatVrsRelation], Optional[AlleleDerivation]]:
-    """The (relation, derivation) for a non-focus member, read *relative to the focus*.
-
-    - **protein focus** → every nt member is a reverse-translation ``candidate`` that ``encodes`` it.
-    - **nt focus** → The protein consequence is ``translation_of`` (a deterministic ``projection`` of the focus).
-      The focus's projection partner is ``coordinate_representation_of`` (also a deterministic ``projection``).
-      Any other nt is a convergent encoding: ``co_encodes`` and ``convergent`` (a distinct change which shares the
-      ultimate protein consequence of the focus).
-    """
-    if focus_is_protein:
-        if member_level in NUCLEOTIDE_LEVELS:
-            return CatVrsRelation.ENCODES, AlleleDerivation.CANDIDATE
-
-        return None, None
-
-    if member_level == SequenceLevel.protein.value:
-        return CatVrsRelation.TRANSLATION_OF, AlleleDerivation.PROJECTION
-    if member_level in NUCLEOTIDE_LEVELS:
-        if is_projection:
-            return CatVrsRelation.COORDINATE_REPRESENTATION_OF, AlleleDerivation.PROJECTION
-
-        return CatVrsRelation.CO_ENCODES, AlleleDerivation.CONVERGENT
-
-    return None, None
-
-
 def get_allele_detail(
     db: Session,
     focus: Allele,
@@ -162,14 +134,19 @@ def get_allele_detail(
     a by-digest fetch, or the (genomic + coding) representations of a CAID for a by-CAID fetch. The
     equivalence class is every allele co-linked to a live record touching the ``focus``
     (:func:`get_allele_translations`). An orphan allele falls back to ``focus`` alone. Non-focus members
-    are labelled by :func:`_member_label`. ``score_set_ids``, when given, restricts the equivalence
+    are labelled by :func:`~mavedb.lib.cat_vrs.member_label`. ``score_set_ids``, when given, restricts the equivalence
     class and projection pairing to records of those score sets.
     """
     equivalence_class = get_allele_translations(db, focus.id, as_of=as_of, score_set_ids=score_set_ids) or [focus]
     annotations = get_allele_annotations(db, equivalence_class, as_of=as_of)
 
     focus_alleles = [a for a in equivalence_class if a.vrs_digest in focus_digests] or [focus]
-    focus_is_protein = any(a.level == SequenceLevel.protein.value for a in focus_alleles)
+    # A PAID focuses the protein allele; a CAID or digest focuses nucleotide allele(s).
+    focus_level = (
+        SequenceLevel.protein.value
+        if any(a.level == SequenceLevel.protein.value for a in focus_alleles)
+        else focus_alleles[0].level
+    )
 
     pairs = _focus_projection_pairs(db, focus_alleles, as_of=as_of, score_set_ids=score_set_ids)
     # The focus's projection(s) that are not themselves focus (for a CAID fetch the projection pair is
@@ -186,11 +163,7 @@ def get_allele_detail(
         # members have no relation or derivation relative to themselves.
         relation, derivation = None, None
         if digest not in focus_digests:
-            rel, der = _member_label(
-                focus_is_protein=focus_is_protein,
-                member_level=member.level,
-                is_projection=digest in projection_digests,
-            )
+            rel, der = member_label(focus_level, member.level, is_projection=digest in projection_digests)
             relation = rel.value if rel is not None else None
             derivation = der
 

@@ -14,7 +14,9 @@ from mavedb.lib.clingen.allele_registry import (
     get_canonical_pa_ids,
     get_clingen_allele_data,
     get_matching_registered_ca_ids,
+    refresh_clingen_allele_data_expiry,
 )
+from mavedb.lib.clingen.cache import CACHE_TTL_SECONDS
 
 
 @pytest.mark.unit
@@ -453,6 +455,32 @@ class TestCachingBehavior:
         assert result1 == ["PA99999"]
         assert result2 == "888888"
         assert mock_request.call_count == 1  # Only one API call for both functions
+
+
+@pytest.mark.unit
+@mock.patch("mavedb.lib.clingen.allele_registry.requests.get")
+class TestRefreshClingenAlleleDataExpiry:
+    @pytest.mark.asyncio
+    async def test_restarts_the_expiry_of_cached_data(self, mock_request, clear_cache):
+        mock_response = mock.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"@id": "CA_TTL"}
+        mock_request.return_value = mock_response
+        await get_clingen_allele_data("CA_TTL")
+
+        with mock.patch.object(
+            get_clingen_allele_data.cache,  # type: ignore[attr-defined]
+            "expire",
+            wraps=get_clingen_allele_data.cache.expire,  # type: ignore[attr-defined]
+        ) as expire:
+            assert await refresh_clingen_allele_data_expiry("CA_TTL") is True
+
+        expire.assert_awaited_once_with("v1:get_clingen_allele_data:CA_TTL", CACHE_TTL_SECONDS)
+
+    @pytest.mark.asyncio
+    async def test_reports_uncached_data(self, mock_request, clear_cache):
+        assert await refresh_clingen_allele_data_expiry("CA_NOT_CACHED") is False
+        mock_request.assert_not_called()
 
 
 @pytest.mark.unit

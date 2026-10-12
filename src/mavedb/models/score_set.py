@@ -101,6 +101,8 @@ class ScoreSet(Base):
         nullable=True,
     )
     processing_errors = Column(JSONB, nullable=True)
+    # Binned summary for small distribution charts; see mavedb.lib.score_distribution. Null until computed.
+    score_distribution = Column(JSONB, nullable=True)
     data_usage_policy = Column(String, nullable=True)
 
     num_variants = Column(Integer, nullable=False, default=0)
@@ -124,7 +126,14 @@ class ScoreSet(Base):
     # TODO Standardize on US or GB spelling for licenc/se.
     licence_id = Column(Integer, ForeignKey("licenses.id"), index=True, nullable=False)
     license: Mapped["License"] = relationship("License")
-    superseded_score_set_id = Column("replaces_id", Integer, ForeignKey("scoresets.id"), index=True, nullable=True, unique=True,)
+    superseded_score_set_id = Column(
+        "replaces_id",
+        Integer,
+        ForeignKey("scoresets.id"),
+        index=True,
+        nullable=True,
+        unique=True,
+    )
     superseded_score_set: Mapped[Optional["ScoreSet"]] = relationship(
         "ScoreSet",
         uselist=False,

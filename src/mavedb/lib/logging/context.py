@@ -63,6 +63,12 @@ def save_to_logging_context(ctx: dict) -> dict:
     return context.data
 
 
+def increment_logging_context(key: str, by: int = 1) -> None:
+    """Add ``by`` to a counter in the request's logging context. A no-op outside a request (worker, scripts)."""
+    if context.exists():
+        context[key] = context.get(key, 0) + by
+
+
 def logging_context() -> dict:
     if not context.exists():
         logger.debug("Could not access logging context. Context does not exist.")

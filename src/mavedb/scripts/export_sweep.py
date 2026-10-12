@@ -43,7 +43,8 @@ from mavedb.lib.annotation.annotate import (
     variant_study_result,
 )
 from mavedb.lib.annotation.conformance import AnnotationRoundTripError, round_trip_annotation
-from mavedb.lib.annotation.context import VariantAnnotationContext, variant_annotation_context
+from mavedb.lib.alleles import with_chunk_inputs
+from mavedb.lib.annotation.context import VariantAnnotationContext, load_annotation_context_inputs
 from mavedb.lib.annotation.exceptions import EXPECTED_ABSENCE_EXCEPTIONS
 from mavedb.lib.csv.score_set import available_score_set_csv_namespaces, get_score_set_variants_as_csv
 from mavedb.lib.permissions.principal import Principal
@@ -153,9 +154,9 @@ def sweep_annotation_surface(
 ) -> SurfaceResult:
     """Attempt one annotation surface across every annotatable variant of one score set.
 
-    The context is built per variant per surface, rather than once and reused, because that is what the
-    streaming endpoints do per request — a defect in context construction is a defect in what the API
-    serves, and the sweep only sees it by taking the same path.
+    The contexts are loaded a chunk at a time and built per variant per surface, rather than once and reused,
+    because that is what the streaming endpoints do per request — a defect in context construction is a defect
+    in what the API serves, and the sweep only sees it by taking the same path.
 
     Nothing raises out of here. A sweep that aborted on the first bad variant would report the corpus as
     far healthier than it is.
@@ -166,11 +167,11 @@ def sweep_annotation_surface(
         variants_attempted=len(variants),
     )
 
-    for variant in variants:
+    for variant, inputs in with_chunk_inputs(variants, lambda chunk: load_annotation_context_inputs(db, chunk)):
         variant_urn = getattr(variant, "urn", "") or ""
 
         try:
-            context = variant_annotation_context(db, variant)
+            context = inputs.context_for(variant)
             annotation = annotate(context) if context is not None else None
         except EXPECTED_ABSENCE_EXCEPTIONS:
             # An expected absence, drawn from the same definition the streaming endpoints use so the two

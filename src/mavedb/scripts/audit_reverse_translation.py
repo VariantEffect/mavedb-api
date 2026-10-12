@@ -215,8 +215,8 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
         severity=ERROR,
         description=(
             "RT attached derived nucleotide alleles to a record, but the measured nucleotide allele is in no "
-            "projection group: the fold-in missed it, so its convergent siblings read as projections. Only "
-            "length-preserving changes, which RT's codon-level candidates always include."
+            "projection group: the fold-in missed it, so serving labels every sibling convergent, its own c/g "
+            "twin included. Only length-preserving changes, which RT's codon-level candidates always include."
         ),
         sql=_MEASURED_OUTSIDE_GROUP_SQL.replace("{length_condition}", f"NOT {_LENGTH_CHANGING}"),
     ),

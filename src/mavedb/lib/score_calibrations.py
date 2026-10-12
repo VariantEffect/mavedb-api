@@ -236,6 +236,29 @@ def classification_evidence_strength(
     return (0.0, 2)
 
 
+def classifications_by_variant(
+    db: Session, variant_ids: Sequence[int]
+) -> dict[int, list[tuple[ScoreCalibrationFunctionalClassification, ScoreCalibration]]]:
+    """Each variant's functional classifications with their calibrations, in one query for all of
+    ``variant_ids``. Unordered and unfiltered: callers apply their own visibility rule and preference."""
+    if not variant_ids:
+        return {}
+
+    association = score_calibration_functional_classification_variants_association_table
+    rows = db.execute(
+        select(association.c.variant_id, ScoreCalibrationFunctionalClassification, ScoreCalibration)
+        .join(association, association.c.functional_classification_id == ScoreCalibrationFunctionalClassification.id)
+        .join(ScoreCalibration, ScoreCalibration.id == ScoreCalibrationFunctionalClassification.calibration_id)
+        .where(association.c.variant_id.in_(variant_ids))
+    ).tuples()
+
+    by_variant: dict[int, list[tuple[ScoreCalibrationFunctionalClassification, ScoreCalibration]]] = {}
+    for variant_id, classification, calibration in rows:
+        by_variant.setdefault(variant_id, []).append((classification, calibration))
+
+    return by_variant
+
+
 def create_functional_classification(
     db: Session,
     functional_range_create: Union[

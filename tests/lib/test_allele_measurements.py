@@ -445,11 +445,11 @@ def test_calibration_gate_withholds_classification(session, setup_lib_db_with_sc
 
     anonymous = get_allele_measurements(session, "CA123", user_data=None)
     assert len(anonymous) == 1
-    assert anonymous[0].preferred_classification is None
+    assert anonymous[0].classification is None
 
     owner = get_allele_measurements(session, "CA123", user_data=_user_data(session))
-    assert owner[0].preferred_classification is not None
-    assert owner[0].preferred_classification.functional_classification.value == "abnormal"
+    assert owner[0].classification is not None
+    assert owner[0].classification.functional_classification.value == "abnormal"
 
 
 @pytest.mark.integration
@@ -468,7 +468,7 @@ def test_preferred_classification_cascade_beats_strength(session, setup_lib_db_w
     result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
 
     # Investigator-provided (weakest) is chosen over the stronger non-RUO and RUO calibrations.
-    assert result[0].preferred_classification.oddspaths_ratio == 2.0
+    assert result[0].classification.oddspaths_ratio == 2.0
 
 
 @pytest.mark.integration
@@ -484,7 +484,7 @@ def test_preferred_classification_strongest_within_tier(session, setup_lib_db_wi
 
     result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
 
-    assert result[0].preferred_classification.oddspaths_ratio == 100.0
+    assert result[0].classification.oddspaths_ratio == 100.0
 
 
 @pytest.mark.integration
@@ -500,15 +500,17 @@ def test_research_use_only_calibrations_are_excluded(session, setup_lib_db_with_
     _calibration(session, score_set, variants=[variant], primary=False, oddspaths_ratio=1000.0, research_use_only=True)
 
     result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
+    assert result[0].classification is None
 
-    assert result[0].preferred_classification is None
-    # The RUO pick is still surfaced for display, by the same cascade (strongest evidence within the tier).
-    assert result[0].research_use_only_classification.oddspaths_ratio == 1000.0
+    # Opted in, the RUO pick stands in, by the same cascade (strongest evidence within the tier).
+    opted = get_allele_measurements(session, "CA123", user_data=_user_data(session), include_research_use_only=True)
+    assert opted[0].classification.oddspaths_ratio == 1000.0
+    assert opted[0].classification_is_research_use_only
 
 
 @pytest.mark.integration
 def test_research_use_only_classification_absent_when_a_preferred_call_exists(session, setup_lib_db_with_score_set):
-    """The RUO fallback is display-only: with any non-RUO call present it stays empty, even when the RUO call
+    """The RUO fallback never displaces a non-RUO call, even when the RUO call
     is stronger."""
     score_set = setup_lib_db_with_score_set
     nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
@@ -518,10 +520,10 @@ def test_research_use_only_classification_absent_when_a_preferred_call_exists(se
     _calibration(session, score_set, variants=[variant], primary=False, oddspaths_ratio=1000.0, research_use_only=True)
     _calibration(session, score_set, variants=[variant], primary=False, oddspaths_ratio=2.0)
 
-    result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
+    result = get_allele_measurements(session, "CA123", user_data=_user_data(session), include_research_use_only=True)
 
-    assert result[0].preferred_classification.oddspaths_ratio == 2.0
-    assert result[0].research_use_only_classification is None
+    assert result[0].classification.oddspaths_ratio == 2.0
+    assert not result[0].classification_is_research_use_only
 
 
 @pytest.mark.integration
@@ -539,10 +541,33 @@ def test_research_use_only_classification_absent_when_a_clinical_calibration_lea
     _calibration(session, score_set, variants=[variant], primary=False, oddspaths_ratio=1000.0, research_use_only=True)
     _calibration(session, score_set, variants=[other], primary=True, oddspaths_ratio=2.0)
 
-    result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
+    result = get_allele_measurements(session, "CA123", user_data=_user_data(session), include_research_use_only=True)
 
-    assert result[0].preferred_classification is None
-    assert result[0].research_use_only_classification is None
+    assert result[0].classification is None
+
+
+@pytest.mark.integration
+def test_research_use_only_classification_falls_back_past_a_clinical_calibration_without_classifications(
+    session, setup_lib_db_with_score_set
+):
+    """A non-RUO calibration with no functional classifications can't classify anything, so it doesn't block the
+    RUO fallback."""
+    score_set = setup_lib_db_with_score_set
+    nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
+    variant = _variant(session, score_set, 1, data={"score_data": {"score": 1.0}})
+    _link(session, _record(session, variant, assay_level="cdna"), nt, is_authoritative=True)
+
+    _calibration(session, score_set, variants=[variant], primary=False, oddspaths_ratio=1000.0, research_use_only=True)
+    empty = _calibration(session, score_set, variants=[], primary=True)
+    for classification in empty.functional_classifications:
+        session.delete(classification)
+    session.commit()
+    session.refresh(score_set)
+
+    result = get_allele_measurements(session, "CA123", user_data=_user_data(session), include_research_use_only=True)
+
+    assert result[0].classification.oddspaths_ratio == 1000.0
+    assert result[0].classification_is_research_use_only
 
 
 @pytest.mark.integration
@@ -558,10 +583,10 @@ def test_research_use_only_classification_falls_back_past_an_unreadable_clinical
     _calibration(session, public, variants=[variant], primary=False, oddspaths_ratio=1000.0, research_use_only=True)
     _calibration(session, public, variants=[variant], primary=False, oddspaths_ratio=2.0, private=True)
 
-    result = get_allele_measurements(session, "CA123", user_data=None)
+    result = get_allele_measurements(session, "CA123", user_data=None, include_research_use_only=True)
 
-    assert result[0].preferred_classification is None
-    assert result[0].research_use_only_classification.oddspaths_ratio == 1000.0
+    assert result[0].classification.oddspaths_ratio == 1000.0
+    assert result[0].classification_is_research_use_only
 
 
 @pytest.mark.integration
@@ -581,10 +606,10 @@ def test_research_use_only_classification_does_not_rank(session, setup_lib_db_wi
     )
     _calibration(session, score_set, variants=[classified], primary=False, oddspaths_ratio=2.0)
 
-    result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
+    result = get_allele_measurements(session, "CA123", user_data=_user_data(session), include_research_use_only=True)
 
     assert [m.variant_urn for m in result] == [classified.urn, ruo_only.urn]
-    assert result[1].research_use_only_classification is not None
+    assert result[1].classification_is_research_use_only
 
 
 @pytest.mark.integration
@@ -680,8 +705,8 @@ def _measurement(urn, *, relationship=MeasurementRelationship.direct, classifica
         submitted_hgvs=None,
         score_set_urn="",
         score_set_title="",
-        preferred_classification=classification,
-        research_use_only_classification=None,
+        classification=classification,
+        classification_is_research_use_only=False,
         is_current=is_current,
         superseded_by_score_set=None,
     )

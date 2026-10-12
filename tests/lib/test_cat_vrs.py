@@ -14,6 +14,7 @@ from ga4gh.cat_vrs.models import CategoricalVariant, DefiningAlleleConstraint
 from ga4gh.cat_vrs.relations import Relation
 from ga4gh.core.models import Relation as MappingRelation
 
+from mavedb.lib.allele_identity import AlleleDerivation
 from mavedb.lib.cat_vrs import (
     _SPEC_EQUIVALENT,
     _relation_concept,
@@ -21,6 +22,8 @@ from mavedb.lib.cat_vrs import (
     CatVrsRelation,
     build_categorical_variant,
     categorical_member_links,
+    is_projection_partner,
+    member_label,
 )
 from mavedb.lib.allele_annotations import AlleleCrossReferences, GnomadReference
 from mavedb.models.allele import Allele
@@ -79,6 +82,46 @@ def _link(
     return MappingRecordAllele(is_authoritative=is_authoritative, allele=allele, projection_group=projection_group)
 
 
+def _member_digests(links, *, include_convergent=True):
+    """The digests of the links a categorical variant draws its members from."""
+    return {link.allele.vrs_digest for link in categorical_member_links(links, include_convergent=include_convergent)}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "focus_level, member_level, is_projection, expected",
+    [
+        ("protein", "cdna", False, (CatVrsRelation.ENCODES, AlleleDerivation.CANDIDATE)),
+        ("protein", "genomic", True, (CatVrsRelation.ENCODES, AlleleDerivation.CANDIDATE)),
+        ("protein", "protein", False, (None, None)),
+        ("cdna", "protein", False, (CatVrsRelation.TRANSLATION_OF, AlleleDerivation.PROJECTION)),
+        ("cdna", "genomic", True, (CatVrsRelation.COORDINATE_REPRESENTATION_OF, AlleleDerivation.PROJECTION)),
+        ("genomic", "cdna", True, (CatVrsRelation.COORDINATE_REPRESENTATION_OF, AlleleDerivation.PROJECTION)),
+        ("cdna", "cdna", False, (CatVrsRelation.CO_ENCODES, AlleleDerivation.CONVERGENT)),
+        ("genomic", "genomic", False, (CatVrsRelation.CO_ENCODES, AlleleDerivation.CONVERGENT)),
+    ],
+)
+def test_member_label(focus_level, member_level, is_projection, expected):
+    """Every view labels a member from this one function, relative to the focus allele."""
+    assert member_label(focus_level, member_level, is_projection=is_projection) == expected
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "member_group, focus_group, expected",
+    [
+        (0, 0, True),
+        (1, 0, False),
+        # Ungrouped either side can't be shown to pair: a pre-RT link, or a measured allele the fold-in missed.
+        (None, 0, False),
+        (0, None, False),
+        (None, None, False),
+    ],
+)
+def test_is_projection_partner(member_group, focus_group, expected):
+    assert is_projection_partner(member_group, focus_group=focus_group) is expected
+
+
 @pytest.mark.unit
 def test_mode_2_protein_measured_reverse_translation():
     """Protein measured: defining is the protein allele; both nt members `encodes` it (star model)."""
@@ -92,11 +135,6 @@ def test_mode_2_protein_measured_reverse_translation():
     assert transit is not None
 
     assert transit.mode == CatVrsMode.REVERSE_TRANSLATION
-    # Per-member relations exclude the defining allele; both nt siblings encode the protein.
-    assert transit.member_relations == {
-        "cdna": CatVrsRelation.ENCODES,
-        "gen": CatVrsRelation.ENCODES,
-    }
 
     cv = transit.categorical_variant
     assert isinstance(cv, CategoricalVariant)
@@ -122,10 +160,6 @@ def test_mode_1_coding_measured_projection():
     assert transit is not None
 
     assert transit.mode == CatVrsMode.PROJECTION
-    assert transit.member_relations == {
-        "gen": CatVrsRelation.COORDINATE_REPRESENTATION_OF,
-        "prot": CatVrsRelation.TRANSLATION_OF,
-    }
 
     constraint = transit.categorical_variant.constraints[0].root
     codes = {str(r.primaryCoding.code.root) for r in constraint.relations}
@@ -150,14 +184,6 @@ def test_mode_1_projection_includes_sibling_encoders():
     transit = build_categorical_variant(links, name="urn:mavedb:test#2b")
     assert transit is not None
 
-    # The coordinate partner + protein consequence keep their faithful relations; the two cousins ride as
-    # co_encodes (distinct, unmeasured synonymous variants).
-    assert transit.member_relations == {
-        "gen": CatVrsRelation.COORDINATE_REPRESENTATION_OF,
-        "prot": CatVrsRelation.TRANSLATION_OF,
-        "sibling_cdna": CatVrsRelation.CO_ENCODES,
-        "sibling_gen": CatVrsRelation.CO_ENCODES,
-    }
     # members = defining cdna + gen partner + protein apex + the two cousins (full closure).
     assert len(transit.categorical_variant.members) == 5
     # The distinct relation kinds surface on the constraint, including co_encodes.
@@ -183,10 +209,7 @@ def test_mode_1_projection_narrow_object_drops_sibling_encoders():
     assert transit is not None
 
     # Only the measured change's coordinate partner + the protein consequence; the cousins are excluded.
-    assert transit.member_relations == {
-        "gen": CatVrsRelation.COORDINATE_REPRESENTATION_OF,
-        "prot": CatVrsRelation.TRANSLATION_OF,
-    }
+    assert _member_digests(links, include_convergent=False) == {"cdna", "gen", "prot"}
     # members = defining cdna + gen partner + protein apex (the two cousins are dropped).
     assert len(transit.categorical_variant.members) == 3
 
@@ -207,13 +230,8 @@ def test_mode_2_reverse_translation_keeps_the_full_encoder_class():
     assert transit is not None
 
     assert transit.mode == CatVrsMode.REVERSE_TRANSLATION
-    # All four nt encoders `encodes` the defining protein; none dropped.
-    assert transit.member_relations == {
-        "cdna_a": CatVrsRelation.ENCODES,
-        "gen_a": CatVrsRelation.ENCODES,
-        "cdna_b": CatVrsRelation.ENCODES,
-        "gen_b": CatVrsRelation.ENCODES,
-    }
+    # All four nt encoders stay, even in the narrow object; none dropped.
+    assert _member_digests(links, include_convergent=False) == {"prot", "cdna_a", "gen_a", "cdna_b", "gen_b"}
     assert len(transit.categorical_variant.members) == 5
 
 
@@ -267,8 +285,7 @@ def test_unhydratable_member_allele_is_skipped():
     transit = build_categorical_variant(links, name="urn:mavedb:test#7")
 
     assert transit is not None
-    # The un-hydratable genomic member is excluded from both the members and the relation map.
-    assert transit.member_relations == {"good": CatVrsRelation.ENCODES}
+    # The un-hydratable genomic member is excluded from the members.
     assert len(transit.categorical_variant.members) == 2
 
 
@@ -338,6 +355,36 @@ def test_narrow_object_omits_mappings_for_dropped_convergent_encodings():
 
     assert transit is not None
     assert _mappings(transit) == {(_GNOMAD, "1-100-A-G"): MappingRelation.EXACT_MATCH}
+
+
+@pytest.mark.unit
+def test_unfolded_measured_allele_treats_every_grouped_member_as_convergent():
+    """A measured nt allele RT's fold-in missed has no group, so no member can be shown to be its projection.
+    Every grouped nt member is co_encodes rather than a coordinate representation, its records are
+    relatedMatch, and the VA subject keeps only the protein consequence."""
+    links = [
+        _link(level="genomic", digest="gen", is_authoritative=True, caid="CA1"),
+        _link(level="cdna", digest="twin_cdna", is_authoritative=False, projection_group=0, caid="CA1"),
+        _link(level="cdna", digest="sibling_cdna", is_authoritative=False, projection_group=1, caid="CA2"),
+        _link(level="genomic", digest="sibling_gen", is_authoritative=False, projection_group=1, caid="CA2"),
+        _link(level="protein", digest="prot", is_authoritative=False, caid="PA1"),
+    ]
+    references = {"gen": _clinvar("100"), "sibling_gen": _clinvar("200")}
+
+    wide = build_categorical_variant(links, name="urn:mavedb:test#unfolded", cross_references=references)
+    narrow = build_categorical_variant(
+        links, name="urn:mavedb:test#unfolded", include_convergent=False, cross_references=references
+    )
+
+    assert wide is not None and narrow is not None
+    assert _mappings(wide) == {
+        (_CLINGEN, "CA1"): MappingRelation.EXACT_MATCH,
+        (_CLINVAR, "100"): MappingRelation.EXACT_MATCH,
+        (_CLINGEN, "CA2"): MappingRelation.RELATED_MATCH,
+        (_CLINVAR, "200"): MappingRelation.RELATED_MATCH,
+        (_CLINGEN, "PA1"): MappingRelation.RELATED_MATCH,
+    }
+    assert _member_digests(links, include_convergent=False) == {"gen", "prot"}
 
 
 @pytest.mark.unit

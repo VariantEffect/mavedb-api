@@ -112,7 +112,7 @@ def mock_worker_variant_insertion(
     )
     variants = create_variants_data(scores, counts, None)
     num_variants = create_variants(db, item, variants)
-    assert num_variants == 3
+    assert num_variants == len(scores)
 
     item.processing_state = ProcessingState.success
     item.dataset_columns = DatasetColumnsCreate(

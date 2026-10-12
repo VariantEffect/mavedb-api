@@ -14,7 +14,7 @@ import logging
 
 from sqlalchemy import select
 
-from mavedb.lib.clingen.allele_registry import get_clingen_allele_data
+from mavedb.lib.clingen.allele_registry import get_clingen_allele_data, refresh_clingen_allele_data_expiry
 from mavedb.lib.clingen.alleles import get_alleles_for_score_set
 from mavedb.lib.clingen.constants import CLINGEN_CACHE_WARMING_CONCURRENCY
 from mavedb.lib.types.workflow import JobExecutionOutcome
@@ -74,13 +74,15 @@ async def warm_clingen_cache(ctx: dict, job_id: int, job_manager: JobManager) ->
         return JobExecutionOutcome.succeeded(data={"warmed": 0, "failed": 0})
 
     # Fetch alleles concurrently up to CLINGEN_CACHE_WARMING_CONCURRENCY in-flight at a time.
-    # get_clingen_allele_data() is decorated with @cached, so each call populates Redis.
+    # get_clingen_allele_data() is decorated with @cached, so each call populates Redis. A hit keeps
+    # the expiry its first writer set, so restart it: the downstream jobs need it warm, not just present.
     semaphore = asyncio.Semaphore(CLINGEN_CACHE_WARMING_CONCURRENCY)
 
     async def fetch_one(allele_id: str) -> tuple[str, bool, BaseException | None]:
         async with semaphore:
             try:
                 await get_clingen_allele_data(allele_id)
+                await refresh_clingen_allele_data_expiry(allele_id)
                 return allele_id, True, None
             except Exception as exc:
                 return allele_id, False, exc

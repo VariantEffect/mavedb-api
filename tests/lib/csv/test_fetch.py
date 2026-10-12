@@ -6,26 +6,19 @@ import pytest
 
 pytest.importorskip("psycopg2")
 
-from sqlalchemy import event, text
+from sqlalchemy import text
 
 from mavedb.lib.csv.columns import plan_csv_columns
 from mavedb.lib.csv.fetch import fetch_variant_csv_data
+from tests.helpers.util.query_plan import captured_statements
 
 VARIANT_NUMBER_INDEX = "ix_variants_scoreset_number"
 
 
 def _captured_variant_query(session, namespaces, start=None, limit=None):
     """Run the score set CSV fetch and return the statement and parameters it sent for the variant rows."""
-    captured = []
-    engine = session.get_bind()
-
-    def capture(_conn, _cursor, statement, parameters, _context, _executemany):
-        if "FROM variants" in statement and not captured:
-            captured.append((statement, parameters))
-
-    event.listen(engine, "before_cursor_execute", capture)
-    try:
-        plan = plan_csv_columns({"score_columns": ["score"]}, namespaces)
+    plan = plan_csv_columns({"score_columns": ["score"]}, namespaces)
+    with captured_statements(session) as captured:
         fetch_variant_csv_data(
             session,
             plan.namespaced_columns,
@@ -34,10 +27,8 @@ def _captured_variant_query(session, namespaces, start=None, limit=None):
             start=start,
             limit=limit,
         )
-    finally:
-        event.remove(engine, "before_cursor_execute", capture)
 
-    return captured[0]
+    return next((statement, parameters) for statement, parameters in captured if "FROM variants" in statement)
 
 
 @pytest.mark.unit

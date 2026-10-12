@@ -112,10 +112,17 @@ class TestWarmClingenCacheUnit:
         session.commit()
 
         mock_get_allele_data = AsyncMock(return_value={"some": "data"})
+        mock_refresh_expiry = AsyncMock(return_value=True)
 
-        with patch(
-            "mavedb.worker.jobs.external_services.clingen_cache.get_clingen_allele_data",
-            mock_get_allele_data,
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen_cache.get_clingen_allele_data",
+                mock_get_allele_data,
+            ),
+            patch(
+                "mavedb.worker.jobs.external_services.clingen_cache.refresh_clingen_allele_data_expiry",
+                mock_refresh_expiry,
+            ),
         ):
             result = await warm_clingen_cache(
                 mock_worker_ctx,
@@ -124,6 +131,8 @@ class TestWarmClingenCacheUnit:
             )
 
         assert result.status == JobStatus.SUCCEEDED
+        # A hit keeps its first writer's expiry, so every warmed entry's expiry is restarted.
+        assert {call.args[0] for call in mock_refresh_expiry.call_args_list} == {"CA111111", "CA222222"}
         # Should be called exactly 2 times (CA111111 and CA222222, deduplicated)
         assert mock_get_allele_data.call_count == 2
         called_ids = {call.args[0] for call in mock_get_allele_data.call_args_list}

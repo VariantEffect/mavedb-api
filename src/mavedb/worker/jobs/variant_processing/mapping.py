@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 # delegating opaque work; the real fix is for the mapper to report progress (or to chunk the call).
 # See worker/best_practices.md, "Long external delegations". TODO: replace with real mapping progress.
 MAP_PROGRESS_KEEPALIVE_SECONDS = 300  # heartbeat cadence; must stay well under PROGRESS_STALL_MINUTES (30m)
-MAP_BUDGET_BASE_SECONDS = 30 * 60  # floor: overhead + small sets
+MAP_BUDGET_BASE_SECONDS = 60 * 60  # floor: two dcd-mapping BLAT runs (BLAT_TIMEOUT_SECONDS, 20 min each) + overhead
 MAP_BUDGET_PER_VARIANT_SECONDS = 1.0  # ~3x the observed ~0.3 s/variant map throughput, as slack
 MAP_BUDGET_MAX_SECONDS = 22 * 60 * 60  # ceiling: stay under the 23.5h stall backstop / 24h ARQ ceiling
 
