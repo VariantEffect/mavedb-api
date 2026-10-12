@@ -1,5 +1,6 @@
 # ruff: noqa: E402
 
+import sqlite3
 from datetime import datetime, timezone
 
 import pytest
@@ -21,6 +22,7 @@ from mavedb.scripts.audit_reverse_translation import (
     ERROR,
     SQL_CHECKS,
     ProjectionPair,
+    check_foreign_refget_aliases,
     check_refgets_against_seqrepo,
     collect_outcomes,
     round_trip_pair,
@@ -520,3 +522,25 @@ class TestCollectOutcomes:
         assert outcomes[0].failed_pct == 50.0
         assert outcomes[0].failure_reasons.most_common(1) == [("translation_failed", 30)]
         assert outcomes[1].total == 100
+
+
+class TestForeignRefgetAliases:
+    def test_flags_a_ga4gh_alias_that_is_not_the_sequences_own_digest(self):
+        db = sqlite3.connect(":memory:")
+        db.execute(
+            "CREATE TABLE seqalias (seqalias_id INTEGER, seq_id TEXT, alias TEXT, namespace TEXT, added TEXT, is_current INTEGER)"
+        )
+        db.executemany(
+            "INSERT INTO seqalias VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (1, "j1QR", "GS_j1QR", "VMC", "2017-07-19", 1),
+                (2, "j1QR", "GS__KAVUS", "VMC", "2026-10-02", 1),
+                (3, "j1QR", "NP_001346945.1", "NCBI", "2018-08-21", 1),
+                (4, "JtEW", "GS_jqmY", "VMC", "2026-10-08", 0),
+            ],
+        )
+
+        finding = check_foreign_refget_aliases(db, samples=5)
+
+        assert finding.count == 1
+        assert finding.samples[0]["alias"] == "GS__KAVUS"

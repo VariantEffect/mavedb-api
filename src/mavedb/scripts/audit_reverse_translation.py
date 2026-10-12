@@ -18,7 +18,7 @@ sequences, both digests were internally consistent, every existing check passed,
 silently read as projections.
 
 `invariants` runs the structural checks in SQL, plus a comparison of every stored refget against
-SeqRepo. `outcomes` rolls the latest RT result per variant up by score set, so an outlier score set
+SeqRepo and a scan of SeqRepo for sequences carrying a ga4gh alias other than their own digest. `outcomes` rolls the latest RT result per variant up by score set, so an outlier score set
 stands out. `round-trip` re-translates a sample of projection pairs with the same coordinate mapper RT
 uses and checks that each pair and its protein apex identify as the same VRS alleles RT stored.
 
@@ -33,6 +33,7 @@ translation and is paced by it.
 import json
 import logging
 import re
+import sqlite3
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -454,6 +455,36 @@ def check_refgets_against_seqrepo(
     ]
 
 
+# SeqRepo stores each ga4gh alias in its VMC namespace as ``GS_<digest>``. A sequence's only correct ga4gh
+# alias is its own digest; any other is current and makes refget lookups return either digest.
+FOREIGN_REFGET_ALIAS_SQL = """
+    SELECT seqalias_id, seq_id, alias, added
+    FROM seqalias
+    WHERE namespace = 'VMC' AND is_current = 1 AND alias != 'GS_' || seq_id
+    ORDER BY added
+"""
+
+
+def check_foreign_refget_aliases(aliases_db: sqlite3.Connection, samples: int) -> Finding:
+    """Find SeqRepo sequences carrying a ga4gh alias other than their own digest.
+
+    Every lookup that turns an accession into a refget takes the first ga4gh alias of the sequence, so a
+    second one makes the answer vary between processes. Not scoped: SeqRepo is shared by every score set.
+    """
+    rows = [
+        {"seqalias_id": seqalias_id, "seq_id": seq_id, "alias": alias, "added": added}
+        for seqalias_id, seq_id, alias, added in aliases_db.execute(FOREIGN_REFGET_ALIAS_SQL)
+    ]
+    return Finding(
+        "seqrepo_foreign_refget_alias",
+        ERROR,
+        "A SeqRepo sequence carries a ga4gh alias that is not its own digest, so refget lookups for it are "
+        "nondeterministic. Retire the alias (is_current = 0) and re-map the score sets whose records use it.",
+        len(rows),
+        rows[:samples],
+    )
+
+
 def report(findings: Sequence[Finding]) -> int:
     """Log each finding with its samples and return how many error-level findings are non-zero."""
     for finding in findings:
@@ -496,6 +527,8 @@ def invariants(
         sr = seqrepo()
         logger.info("running refget_disagrees_with_seqrepo")
         findings.extend(check_refgets_against_seqrepo(db, lambda acc: resolve_refget(sr, acc), score_set_ids, samples))
+        logger.info("running seqrepo_foreign_refget_alias")
+        findings.append(check_foreign_refget_aliases(sr.aliases._db, samples))
 
     if errors := report(findings):
         logger.error("%d error-level check(s) failed.", errors)
