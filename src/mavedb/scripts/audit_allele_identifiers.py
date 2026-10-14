@@ -63,6 +63,9 @@ from mavedb.scripts.environment import script_environment, with_database_session
 
 logger = logging.getLogger(__name__)
 
+# Rows are streamed in batches of this size; buffering a production-sized result set exhausts memory.
+STREAM_BATCH_SIZE = 5000
+
 
 def recomputed_identifier(post_mapped: dict[str, Any]) -> Optional[str]:
     """The identifier this document's own content implies, or ``None`` if it cannot be hydrated.
@@ -117,7 +120,7 @@ def audit(
     renames: list[tuple[Allele, str]] = []
     duplicates: list[tuple[Allele, str]] = []
 
-    for allele in db.scalars(query):
+    for allele in db.scalars(query.execution_options(yield_per=STREAM_BATCH_SIZE)):
         counts["examined"] += 1
         # post_mapped is nullable on the model, but the query above only selects rows where it isn't.
         assert allele.post_mapped is not None
@@ -198,7 +201,7 @@ def audit_pre_mapped(
     counts: Counter[str] = Counter()
     drifted: list[tuple[int, Optional[str], str]] = []
 
-    for record in db.scalars(query):
+    for record in db.scalars(query.execution_options(yield_per=STREAM_BATCH_SIZE)):
         counts["examined"] += 1
         # pre_mapped is nullable on the model, but the query above only selects rows where it isn't.
         assert record.pre_mapped is not None
@@ -252,7 +255,7 @@ def audit_locations(
     counts: Counter[str] = Counter()
     drifted: set[int] = set()
 
-    for allele in db.scalars(query):
+    for allele in db.scalars(query.execution_options(yield_per=STREAM_BATCH_SIZE)):
         counts["alleles examined"] += 1
         for path, location in _stored_locations(allele.post_mapped):
             stored = location.get("id")
