@@ -33,7 +33,6 @@ measurement.
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime
-from enum import Enum
 from typing import Optional
 
 from sqlalchemy import and_, select
@@ -50,6 +49,7 @@ from mavedb.lib.score_calibrations import (
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.variants import variant_score
 from mavedb.models.allele import Allele
+from mavedb.models.enums.measurement_relationship import MeasurementRelationship
 from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
@@ -61,14 +61,6 @@ from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 
 logger = logging.getLogger(__name__)
-
-
-class MeasurementRelationship(str, Enum):
-    """How a measurement relates to the queried ClinGen id, by the measurement's *measured* level."""
-
-    direct = "direct"  # assayed at the queried allele
-    protein_consequence = "protein_consequence"  # protein measurement of a CA's consequence
-    nucleotide_encoding = "nucleotide_encoding"  # an nt measurement of the protein apex's encoding
 
 
 @dataclass(frozen=True)

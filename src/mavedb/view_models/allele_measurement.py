@@ -7,7 +7,7 @@ The pydantic serialization boundary over the ``lib.allele_measurements`` transit
 
 from typing import Optional
 
-from mavedb.lib.allele_measurements import MeasurementRelationship
+from mavedb.models.enums.measurement_relationship import MeasurementRelationship
 from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.view_models.base.base import BaseModel
 from mavedb.view_models.score_calibration import SavedFunctionalClassification

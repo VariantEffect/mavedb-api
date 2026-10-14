@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import pytest
 
 pytest.importorskip("asyncclick")
+pytest.importorskip("psycopg2")
 
 import asyncclick as click
 
