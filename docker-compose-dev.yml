@@ -92,13 +92,13 @@ services:
       - mavedb-seqrepo-dev:/usr/local/share/seqrepo
 
   db:
-    image: postgres:14
+    image: postgres:15
     env_file:
       - settings/.env.dev
     ports:
       - "5434:5432"
     volumes:
-      - mavedb-data-dev:/var/lib/postgresql/data
+      - mavedb-data-dev-15:/var/lib/postgresql/data
 
   redis:
     image: redis:7.2.3
@@ -129,6 +129,6 @@ services:
       - mavedb-seqrepo-dev:/usr/local/share/seqrepo
 
 volumes:
-  mavedb-data-dev:
+  mavedb-data-dev-15:
   mavedb-redis-dev:
   mavedb-seqrepo-dev:

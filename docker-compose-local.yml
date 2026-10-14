@@ -44,14 +44,14 @@ services:
     restart: unless-stopped
 
   db:
-    image: postgres:14
+    image: postgres:15
     env_file:
       - settings/.env.dev
     restart: unless-stopped
     ports:
       - "5434:5432"
     volumes:
-      - mavedb-data:/var/lib/postgresql/data
+      - mavedb-data-15:/var/lib/postgresql/data
 
   redis:
     image: redis:7.2.3
@@ -68,5 +68,5 @@ services:
 #      - "5673:5672"
 
 volumes:
-  mavedb-data:
+  mavedb-data-15:
   mavedb-redis:
