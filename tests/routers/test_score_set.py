@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import jsonschema
+import pandas as pd
 import pytest
 from humps import camelize
 from sqlalchemy import select
@@ -3961,6 +3962,56 @@ def test_upload_a_non_utf8_file(session, client, setup_router_db, data_files):
         "Error decoding file: 'utf-8' codec can't decode byte 0xdd in position 10: invalid continuation byte. "
         "Ensure the file has correct values." in response_data["detail"]
     )
+
+
+def test_upload_a_malformed_scores_csv_file(session, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch(
+            "mavedb.routers.score_sets.csv_data_to_df",
+            side_effect=pd.errors.ParserError("Error tokenizing data. C error: Expected 1 fields in line 17, saw 4"),
+        ),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+    assert response.status_code == 422
+    response_data = response.json()
+    assert "Error parsing scores file:" in response_data["detail"]
+    assert "Ensure the file is a valid CSV." in response_data["detail"]
+
+
+def test_upload_a_malformed_counts_csv_file(session, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+    counts_csv_path = data_files / "scores.csv"
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        open(counts_csv_path, "rb") as counts_file,
+        patch(
+            "mavedb.routers.score_sets.csv_data_to_df",
+            side_effect=[
+                pd.read_csv(scores_csv_path),
+                pd.errors.ParserError("Error tokenizing data. C error: Expected 1 fields in line 17, saw 4"),
+            ],
+        ),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={
+                "scores_file": (scores_csv_path.name, scores_file, "text/csv"),
+                "counts_file": (counts_csv_path.name, counts_file, "text/csv"),
+            },
+        )
+    assert response.status_code == 422
+    response_data = response.json()
+    assert "Error parsing counts file:" in response_data["detail"]
+    assert "Ensure the file is a valid CSV." in response_data["detail"]
 
 
 ########################################################################################################################
