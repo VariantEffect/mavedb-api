@@ -28,7 +28,7 @@ from mavedb.scripts.audit_reverse_translation import (
     round_trip_pair,
     run_sql_check,
 )
-from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
+from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 
 CHECKS = {check.name: check for check in SQL_CHECKS}
 
@@ -54,7 +54,10 @@ def _score_set_with_variants(session, make_score_set, urn, n):
 
 
 def _healthy_record(session, variant, n):
-    """A measured cdna allele folded into its projection pair, with the genomic twin and a protein apex."""
+    """A measured cdna allele in its measured projection group, with the genomic twin and the protein apex."""
+    measured = GroupSpec(
+        hgvs_c=f"NM_000001.1:c.{n}A>G", hgvs_g=f"NC_000001.11:g.{1000 + n}A>G", hgvs_p=f"NP_000001.1:p.Lys{n}Glu"
+    )
     return seed_mapping_record(
         session,
         variant,
@@ -65,7 +68,7 @@ def _healthy_record(session, variant, n):
                 is_authoritative=True,
                 hgvs_c=f"NM_000001.1:c.{n}A>G",
                 clingen_allele_id=f"CA{n}",
-                projection_group=1,
+                group=measured,
                 post_mapped=_post_mapped("SQ.cdna"),
             ),
             AlleleSpec(
@@ -73,13 +76,14 @@ def _healthy_record(session, variant, n):
                 level="genomic",
                 hgvs_g=f"NC_000001.11:g.{1000 + n}A>G",
                 clingen_allele_id=f"CA{n}",
-                projection_group=1,
+                group=measured,
                 post_mapped=_post_mapped("SQ.genome"),
             ),
             AlleleSpec(
                 digest=f"p-{n}",
                 level="protein",
                 hgvs_p=f"NP_000001.1:p.Lys{n}Glu",
+                group=measured,
                 post_mapped=_post_mapped("SQ.protein"),
             ),
         ],
@@ -107,13 +111,14 @@ class TestSqlChecks:
 
     def test_flags_a_measured_allele_left_outside_its_projection_group(self, session, make_score_set):
         score_set, (variant,) = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000002-a-1", 1)
+        candidate = GroupSpec(hgvs_c="NM_000002.2:c.5A>G", hgvs_g="NC_000002.12:g.50A>G")
         seed_mapping_record(
             session,
             variant,
             alleles=[
                 AlleleSpec(digest="measured", level="cdna", is_authoritative=True, hgvs_c="NM_000002.1:c.5A>G"),
-                AlleleSpec(digest="rt-c", level="cdna", hgvs_c="NM_000002.2:c.5A>G", projection_group=1),
-                AlleleSpec(digest="rt-g", level="genomic", hgvs_g="NC_000002.12:g.50A>G", projection_group=1),
+                AlleleSpec(digest="rt-c", level="cdna", hgvs_c="NM_000002.2:c.5A>G", group=candidate),
+                AlleleSpec(digest="rt-g", level="genomic", hgvs_g="NC_000002.12:g.50A>G", group=candidate),
             ],
         )
 
@@ -131,6 +136,7 @@ class TestSqlChecks:
             "location": {"type": "SequenceLocation", "start": 67611951, "end": 67611954},
             "state": {"type": "LiteralSequenceExpression", "sequence": ""},
         }
+        candidate = GroupSpec(hgvs_c="NM_006565.4:c.784_786del", hgvs_g="NC_000016.10:g.67611953_67611955del")
         seed_mapping_record(
             session,
             variant,
@@ -142,9 +148,9 @@ class TestSqlChecks:
                     hgvs_g="NC_000016.10:g.67611952_67611954del",
                     post_mapped=deletion,
                 ),
-                AlleleSpec(digest="rt-c", level="cdna", hgvs_c="NM_006565.4:c.784_786del", projection_group=0),
+                AlleleSpec(digest="rt-c", level="cdna", hgvs_c="NM_006565.4:c.784_786del", group=candidate),
                 AlleleSpec(
-                    digest="rt-g", level="genomic", hgvs_g="NC_000016.10:g.67611953_67611955del", projection_group=0
+                    digest="rt-g", level="genomic", hgvs_g="NC_000016.10:g.67611953_67611955del", group=candidate
                 ),
             ],
         )
@@ -169,6 +175,7 @@ class TestSqlChecks:
                 "state": {"type": "LiteralSequenceExpression", "sequence": sequence},
             }
 
+        candidate = GroupSpec(hgvs_c="NM_152416.4:c.137T>C", hgvs_g="NC_000008.11:g.95025145T>C")
         seed_mapping_record(
             session,
             variant,
@@ -180,19 +187,19 @@ class TestSqlChecks:
                     hgvs_g="NC_000008.11:g.95025143_95025145delinsTGC",
                     post_mapped=located(95025142, 95025145, "TGC"),
                 ),
-                AlleleSpec(digest="rt-c", level="cdna", hgvs_c="NM_152416.4:c.137T>C", projection_group=0),
+                AlleleSpec(digest="rt-c", level="cdna", hgvs_c="NM_152416.4:c.137T>C", group=candidate),
                 AlleleSpec(
                     digest="rt-g",
                     level="genomic",
                     hgvs_g="NC_000008.11:g.95025145T>C",
-                    projection_group=0,
+                    group=candidate,
                     post_mapped=located(95025144, 95025145, "C"),
                 ),
                 AlleleSpec(
                     digest="rt-g-2",
                     level="genomic",
                     hgvs_g="NC_000008.11:g.95025145_95025146delinsCA",
-                    projection_group=1,
+                    group=GroupSpec(hgvs_g="NC_000008.11:g.95025145_95025146delinsCA"),
                     post_mapped=located(95025144, 95025146, "CA"),
                 ),
             ],
@@ -203,6 +210,7 @@ class TestSqlChecks:
 
     def test_reports_a_reference_identical_allele_as_info_not_error(self, session, make_score_set):
         score_set, (variant,) = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000014-a-1", 1)
+        candidate = GroupSpec(hgvs_c="NM_001130145.3:c.519G>A", hgvs_g="NC_000011.10:g.102114338T>A")
         seed_mapping_record(
             session,
             variant,
@@ -210,8 +218,8 @@ class TestSqlChecks:
                 AlleleSpec(
                     digest="measured", level="genomic", is_authoritative=True, hgvs_g="NC_000011.10:g.102114338T="
                 ),
-                AlleleSpec(digest="rt-c", level="cdna", hgvs_c="NM_001130145.3:c.519G>A", projection_group=0),
-                AlleleSpec(digest="rt-g", level="genomic", hgvs_g="NC_000011.10:g.102114338T>A", projection_group=0),
+                AlleleSpec(digest="rt-c", level="cdna", hgvs_c="NM_001130145.3:c.519G>A", group=candidate),
+                AlleleSpec(digest="rt-g", level="genomic", hgvs_g="NC_000011.10:g.102114338T>A", group=candidate),
             ],
         )
 
@@ -299,19 +307,27 @@ class TestSqlChecks:
         assert _count(session, "clingen_allele_id_on_twin_alleles", [score_set.id]).count == 0
         assert _count(session, "clingen_allele_id_on_retired_twin", [score_set.id]).count == 1
 
-    def test_flags_a_projection_group_with_one_member(self, session, make_score_set):
+    def test_flags_a_candidate_projection_group_with_one_member(self, session, make_score_set):
         score_set, (variant,) = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000005-a-1", 1)
+        measured = GroupSpec(hgvs_c="NM_000005.1:c.1A>G", hgvs_g="NC_000005.10:g.10A>G")
         seed_mapping_record(
             session,
             variant,
             alleles=[
                 AlleleSpec(
-                    digest="lonely",
+                    digest="measured",
                     level="cdna",
                     is_authoritative=True,
                     hgvs_c="NM_000005.1:c.1A>G",
-                    projection_group=1,
-                )
+                    group=measured,
+                ),
+                AlleleSpec(digest="twin", level="genomic", hgvs_g="NC_000005.10:g.10A>G", group=measured),
+                AlleleSpec(
+                    digest="lonely",
+                    level="cdna",
+                    hgvs_c="NM_000005.1:c.3A>G",
+                    group=GroupSpec(hgvs_c="NM_000005.1:c.3A>G"),
+                ),
             ],
         )
 
@@ -319,6 +335,26 @@ class TestSqlChecks:
 
         assert finding.count == 1
         assert finding.samples[0]["levels"] == "cdna"
+
+    def test_does_not_flag_a_measured_group_with_one_member(self, session, make_score_set):
+        """An intronic genomic change has no cdna allele, so its measured group holds the genomic allele alone."""
+        score_set, (variant,) = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000015-a-1", 1)
+        seed_mapping_record(
+            session,
+            variant,
+            assay_level="genomic",
+            alleles=[
+                AlleleSpec(
+                    digest="intronic",
+                    level="genomic",
+                    is_authoritative=True,
+                    hgvs_g="NC_000005.10:g.10A>G",
+                    group=GroupSpec(hgvs_c="NM_000465.4:c.123+5A>G", hgvs_g="NC_000005.10:g.10A>G"),
+                )
+            ],
+        )
+
+        assert _count(session, "malformed_projection_group", [score_set.id]).count == 0
 
     def test_flags_a_level_that_disagrees_with_the_hgvs(self, session, make_score_set):
         score_set, (variant,) = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000006-a-1", 1)
@@ -378,13 +414,13 @@ class TestSqlChecks:
             session,
             broken_variant,
             alleles=[
+                AlleleSpec(digest="b-measured", level="cdna", is_authoritative=True, hgvs_c="NM_000011.1:c.1A>G"),
                 AlleleSpec(
                     digest="b-lonely",
                     level="cdna",
-                    is_authoritative=True,
-                    hgvs_c="NM_000011.1:c.1A>G",
-                    projection_group=1,
-                )
+                    hgvs_c="NM_000011.1:c.3A>G",
+                    group=GroupSpec(hgvs_c="NM_000011.1:c.3A>G"),
+                ),
             ],
         )
 

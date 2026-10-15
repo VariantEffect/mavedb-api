@@ -23,7 +23,7 @@ from mavedb.scripts.backfill_campaign import (
     scan_legacy_readers,
 )
 from tests.helpers.constants import TEST_MINIMAL_MAPPED_VARIANT
-from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
+from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 
 
 # Pure: state classification
@@ -240,7 +240,7 @@ class TestComputeCoverage:
                     digest="sib",
                     level="cdna",
                     is_authoritative=False,
-                    projection_group=1,
+                    group=GroupSpec(),
                     vep_consequence="missense_variant",
                     clinvar_control_ids=(control.id,),
                     gnomad_variant_ids=(gnomad.id,),

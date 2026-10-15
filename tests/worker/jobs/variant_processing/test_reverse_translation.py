@@ -25,15 +25,19 @@ from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.job_run import JobRun
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.projection_group import ProjectionGroup
+from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene_mapping import TargetGeneMapping
 from mavedb.models.variant import Variant
 from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.worker.jobs.variant_processing.mapping import map_variants_for_score_set
 from mavedb.worker.jobs.variant_processing.reverse_translation import (
     _build_translation_config,
+    cdna_transcript_resolver,
     reverse_translate_variants_for_score_set,
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
+from mavedb.worker.lib.projection import project_measured_variants
 from mavedb.lib.vrs_utils import canonical_variation_document
 from tests.helpers.constants import TEST_VALID_POST_MAPPED_VRS_ALLELE
 from tests.helpers.util.setup.worker import construct_mock_mapping_output
@@ -156,12 +160,57 @@ def fake_translate(id_by_hgvs: dict, type_by_hgvs: dict | None = None, errors_by
     return _translate
 
 
+class FakeCoordinates:
+    """Deterministic stand-in for ``WorkerCoordinateTranslator``, used by the measured projection step.
+
+    The worker context's ``hdp`` is a bare mock, so the real translator would produce projection errors
+    rather than strings. Tables pin a projection per input HGVS; anything else projects to a fixed
+    placeholder so a test that doesn't care still gets a well-formed measured group.
+    """
+
+    def __init__(
+        self,
+        c_by_g: dict | None = None,
+        g_by_c: dict | None = None,
+        p_by_c: dict | None = None,
+        mane: str | None = None,
+    ):
+        self.c_by_g = c_by_g or {}
+        self.g_by_c = g_by_c or {}
+        self.p_by_c = p_by_c or {}
+        self.mane = mane
+        self.mane_lookups: list[str] = []
+
+    def g_to_c(self, g_hgvs: str, transcript: str) -> str:
+        return self.c_by_g.get(g_hgvs, f"{transcript}:c.1A>G")
+
+    def normalize(self, hgvs_string: str) -> str:
+        return hgvs_string
+
+    def c_to_g(self, c_hgvs: str) -> str:
+        return self.g_by_c.get(c_hgvs, "NC_000001.11:g.1000A>G")
+
+    def c_to_p(self, c_hgvs: str) -> str:
+        return self.p_by_c.get(c_hgvs, "NP_999999.1:p.(Met1Val)")
+
+    def mane_select_transcript(self, g_hgvs: str) -> str | None:
+        self.mane_lookups.append(g_hgvs)
+        return self.mane
+
+
 # Mapping recomputes an incoming allele's identity from its own content rather than trusting the
 # producer's `id`, so a stored authoritative allele carries this rather than the fixture's placeholder.
 # The fold-in tests below depend on the reverse-translated coding allele identifying to the same value.
 CANONICAL_AUTHORITATIVE_DIGEST = canonical_variation_document(
     TEST_VALID_POST_MAPPED_VRS_ALLELE, subject="mapping fixture"
 )[1]
+
+
+# Candidates for the rerun tests: the measured coding allele with its genomic partner, and an unrelated pair.
+MEASURED_C = "NM_000001.1:c.5A>G"
+MEASURED_PARTNER_G = "NC_000001.11:g.1000A>G"
+OTHER_C = "NM_000001.1:c.9C>T"
+OTHER_G = "NC_000001.11:g.1004C>T"
 
 
 async def _map_variants(session, mock_worker_ctx, mapping_run, score_set, with_layers=frozenset({"g", "c", "p"})):
@@ -182,11 +231,16 @@ async def _map_variants(session, mock_worker_ctx, mapping_run, score_set, with_l
     session.commit()
 
 
-async def _reverse_translate(session, mock_worker_ctx, rt_run):
+async def _reverse_translate(session, mock_worker_ctx, rt_run, coordinates=None):
     # The job opens a UTA-backed TranscriptSource to back codon_at (WtCodonMode.ALL).
     # construct_equivalent_variants is mocked in these tests, so the source is never
-    # queried -- stub the factory with a no-op context yielding a dummy client.
-    with patch(f"{RT_MODULE}.uta_transcript_source", lambda: contextlib.nullcontext(MagicMock())):
+    # queried -- stub the factory with a no-op context yielding a dummy client. The measured
+    # projection step reads the coordinate translator, so it gets a deterministic fake.
+    coordinates = coordinates or FakeCoordinates()
+    with (
+        patch(f"{RT_MODULE}.uta_transcript_source", lambda: contextlib.nullcontext(MagicMock())),
+        patch(f"{RT_MODULE}.WorkerCoordinateTranslator", lambda hdp: coordinates),
+    ):
         return await reverse_translate_variants_for_score_set(
             mock_worker_ctx,
             rt_run.id,
@@ -240,6 +294,36 @@ def _authoritative_link(session, record_id):
 
 def _record_for(session, variant_id):
     return session.query(MappingRecord).filter(MappingRecord.variant_id == variant_id).one()
+
+
+def _group(session, group_id):
+    return session.get(ProjectionGroup, group_id)
+
+
+def _measured_group(session, record_id):
+    """The projection group the record's live authoritative link points at."""
+    return _group(session, _authoritative_link(session, record_id).projection_group)
+
+
+def _live_groups(session, record_id):
+    return (
+        session.query(ProjectionGroup)
+        .filter(ProjectionGroup.mapping_record_id == record_id, ProjectionGroup.valid_to.is_(None))
+        .all()
+    )
+
+
+def _authoritative_versions(session, record_id):
+    """Every version of the record's authoritative link, oldest first."""
+    return (
+        session.query(MappingRecordAllele)
+        .filter(
+            MappingRecordAllele.mapping_record_id == record_id,
+            MappingRecordAllele.is_authoritative.is_(True),
+        )
+        .order_by(MappingRecordAllele.id)
+        .all()
+    )
 
 
 @pytest.mark.unit
@@ -466,6 +550,267 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert result.status == JobStatus.SUCCEEDED
         assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 2, "fold_in_missed": 1}
 
+    @pytest.mark.parametrize("record_has_job_run_id", [False, True])
+    async def test_legacy_record_falls_back_to_the_target_post_mapped_cdna_accession(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+        record_has_job_run_id,
+    ):
+        """Legacy mappings wrote no cdna TargetGeneMapping; their coding accession lives in the target's
+        post_mapped_metadata. A record with no job_run_id falls back to it, but a record anchored to a run
+        resolves only through that run's own cdna row, so the legacy accession never leaks into it."""
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn=f"{sample_score_set.urn}#11",
+            hgvs_nt="NC_000001.11:g.1000A>G",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        # Genomic only: no cdna TargetGeneMapping for either key to find.
+        await _map_variants(
+            session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set, with_layers={"g"}
+        )
+        target_gene = sample_score_set.target_genes[0]
+        target_gene.post_mapped_metadata = {"cdna": {"sequence_accessions": ["NM_777777.1", "NM_777778.1"]}}
+        if not record_has_job_run_id:
+            session.query(TargetGeneMapping).filter(TargetGeneMapping.target_gene_id == target_gene.id).update(
+                {TargetGeneMapping.job_run_id: None}, synchronize_session=False
+            )
+        session.commit()
+
+        record = _record_for(session, variant.id)
+        tgm = session.get(TargetGeneMapping, record.target_gene_mapping_id)
+        resolve = cdna_transcript_resolver(session, sample_score_set.id, FakeCoordinates())
+        expected = None if record_has_job_run_id else "NM_777777.1"
+        assert resolve(tgm.job_run_id, target_gene.id, tgm.mapped_date, "NC_000001.11:g.1000A>G") == expected
+
+        assay_hgvs = "NC_000001.11:g.1000A>G"
+        delegate = fake_construct({assay_hgvs: [("NM_777777.1:c.5A>G", None)]})
+        captured: dict = {}
+
+        def capturing_construct(inputs, *, transcripts, coordinates, config):
+            captured["transcripts"] = [inp.transcript for inp in inputs]
+            return delegate(inputs, transcripts=transcripts, coordinates=coordinates, config=config)
+
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", capturing_construct),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", fake_translate({})),
+        ):
+            result = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        assert result.status == JobStatus.SUCCEEDED
+        if record_has_job_run_id:
+            assert captured["transcripts"] == []
+            assert result.data["skipped"] == 1
+            assert len(_cross_level_events(session, sample_score_set.id, reason="transcript_unresolved")) == 1
+        else:
+            assert captured["transcripts"] == ["NM_777777.1"]
+            assert result.data["translated"] == 1
+
+    @pytest.mark.parametrize("record_has_job_run_id", [True, False])
+    async def test_genomic_only_target_falls_back_to_its_transcript_accession_then_mane_select(
+        self,
+        session,
+        with_independent_processing_runs,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_score_set,
+        record_has_job_run_id,
+    ):
+        """A genomic-only target has no cdna row and no legacy cdna accession. A transcript target
+        accession is used as is; otherwise a protein-coding target takes the MANE Select transcript at the
+        record's locus, looked up once per target gene."""
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn=f"{sample_score_set.urn}#11",
+            hgvs_nt="NC_000001.11:g.1000A>G",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        await _map_variants(
+            session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set, with_layers={"g"}
+        )
+        target_gene = sample_score_set.target_genes[0]
+        target_gene.category = TargetCategory.protein_coding
+        target_gene.post_mapped_metadata = {"genomic": {"sequence_accessions": ["NC_000001.11"]}}
+        if not record_has_job_run_id:
+            session.query(TargetGeneMapping).filter(TargetGeneMapping.target_gene_id == target_gene.id).update(
+                {TargetGeneMapping.job_run_id: None}, synchronize_session=False
+            )
+        session.commit()
+        record = _record_for(session, variant.id)
+        tgm = session.get(TargetGeneMapping, record.target_gene_mapping_id)
+        key = (tgm.job_run_id, target_gene.id, tgm.mapped_date)
+
+        coordinates = FakeCoordinates(mane="NM_888888.2")
+        resolve = cdna_transcript_resolver(session, sample_score_set.id, coordinates)
+        assert resolve(*key, "NC_000001.11:g.1000A>G") == "NM_888888.2"
+        assert resolve(*key, "NC_000001.11:g.1001A>G") == "NM_888888.2"
+        assert coordinates.mane_lookups == ["NC_000001.11:g.1000A>G"]
+
+        # Protein records pass no genomic HGVS and keep their NP_→NM_ lookup.
+        assert resolve(*key, None) is None
+
+        target_gene.target_accession = TargetAccession(accession="NM_999999.3", assembly="GRCh38", gene="GENE")
+        session.commit()
+        coordinates = FakeCoordinates(mane="NM_888888.2")
+        resolve = cdna_transcript_resolver(session, sample_score_set.id, coordinates)
+        assert resolve(*key, "NC_000001.11:g.1000A>G") == "NM_999999.3"
+        assert coordinates.mane_lookups == []
+
+    async def test_mane_select_is_only_looked_up_for_protein_coding_targets_and_a_bounded_number_of_times(
+        self,
+        session,
+        with_independent_processing_runs,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_score_set,
+    ):
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn=f"{sample_score_set.urn}#11",
+            hgvs_nt="NC_000001.11:g.1000A>G",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        await _map_variants(
+            session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set, with_layers={"g"}
+        )
+        target_gene = sample_score_set.target_genes[0]
+        target_gene.post_mapped_metadata = {"genomic": {"sequence_accessions": ["NC_000001.11"]}}
+        target_gene.category = TargetCategory.regulatory
+        session.commit()
+        record = _record_for(session, variant.id)
+        tgm = session.get(TargetGeneMapping, record.target_gene_mapping_id)
+        key = (tgm.job_run_id, target_gene.id, tgm.mapped_date)
+
+        coordinates = FakeCoordinates(mane="NM_888888.2")
+        resolve = cdna_transcript_resolver(session, sample_score_set.id, coordinates)
+        assert resolve(*key, "NC_000001.11:g.1000A>G") is None
+        assert coordinates.mane_lookups == []
+
+        target_gene.category = TargetCategory.protein_coding
+        session.commit()
+        coordinates = FakeCoordinates(mane=None)
+        resolve = cdna_transcript_resolver(session, sample_score_set.id, coordinates)
+        for position in range(1000, 1010):
+            assert resolve(*key, f"NC_000001.11:g.{position}A>G") is None
+        assert len(coordinates.mane_lookups) == 5
+
+    @pytest.mark.parametrize("failure", ["projection", "transcript"])
+    async def test_a_failed_projection_keeps_the_group_an_earlier_run_wrote(
+        self,
+        session,
+        with_independent_processing_runs,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_score_set,
+        failure,
+    ):
+        """A data provider outage must not erase coding and protein projections: the record keeps its group."""
+        assay_hgvs = "NC_000001.11:g.1000A>G"
+        variant = Variant(
+            score_set_id=sample_score_set.id, urn=f"{sample_score_set.urn}#11", hgvs_nt=assay_hgvs, data={}
+        )
+        session.add(variant)
+        session.commit()
+        await _map_variants(
+            session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set, with_layers={"g"}
+        )
+        record = _record_for(session, variant.id)
+
+        def resolve(*_):
+            return "NM_000001.1"
+
+        project_measured_variants(
+            session,
+            sample_score_set.id,
+            coordinates=FakeCoordinates(c_by_g={assay_hgvs: MEASURED_C}),
+            resolve_transcript=resolve,
+        )
+        session.commit()
+        written = _measured_group(session, record.id)
+        assert written.hgvs_c == MEASURED_C
+
+        class Unreachable(FakeCoordinates):
+            def g_to_c(self, g_hgvs, transcript):
+                raise ConnectionError("cdot-rest unreachable")
+
+        def unreachable_resolve(*_):
+            raise ConnectionError("cdot-rest unreachable")
+
+        counts = project_measured_variants(
+            session,
+            sample_score_set.id,
+            coordinates=Unreachable() if failure == "projection" else FakeCoordinates(),
+            resolve_transcript=resolve if failure == "projection" else unreachable_resolve,
+        )
+        session.commit()
+
+        assert counts["kept_on_error"] == 1
+        assert _measured_group(session, record.id).id == written.id
+        assert [group.id for group in _live_groups(session, record.id)] == [written.id]
+
+    async def test_untranslatable_delins_still_gets_a_measured_projection_group(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+    ):
+        """A multi-codon delins has no codon-level equivalence class, so the library returns NOT_TRANSLATABLE
+        and RT links nothing. The measured group comes from the projection step, not from RT, so the record
+        still describes its variant at the coding and protein levels."""
+        assay_hgvs = "NC_000001.11:g.1000_1005delinsTTT"
+        variant = Variant(
+            score_set_id=sample_score_set.id, urn=f"{sample_score_set.urn}#11", hgvs_nt=assay_hgvs, data={}
+        )
+        session.add(variant)
+        session.commit()
+        await _map_variants(
+            session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set, with_layers={"g", "c"}
+        )
+
+        hgvs_c = "NM_999999.1:c.4_9delinsTTT"
+        coordinates = FakeCoordinates(
+            c_by_g={assay_hgvs: hgvs_c}, p_by_c={hgvs_c: "NP_999999.1:p.(Lys2_Ala3delinsPhe)"}
+        )
+        construct = fake_construct({}, not_translatable_by_hgvs={assay_hgvs: "multi-codon delins"})
+
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", construct),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", fake_translate({})),
+        ):
+            result = await _reverse_translate(
+                session, mock_worker_ctx, sample_independent_reverse_translation_run, coordinates=coordinates
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["skipped"] == 1
+        assert _non_authoritative_links(session) == []
+
+        record = _record_for(session, variant.id)
+        measured = _measured_group(session, record.id)
+        assert measured.current
+        assert (measured.hgvs_c, measured.hgvs_g, measured.hgvs_p) == (
+            hgvs_c,
+            assay_hgvs,
+            "NP_999999.1:p.Lys2_Ala3delinsPhe",
+        )
+        assert [group.id for group in _live_groups(session, record.id)] == [measured.id]
+
     async def test_creates_genomic_and_coding_candidate_alleles(
         self,
         session,
@@ -526,16 +871,20 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         mapping_record = _record_for(session, variant.id)
         assert {link.mapping_record_id for link in non_auth_links} == {mapping_record.id}
 
-        # Both members of the single projection pair carry the same (first, index 0) group id — the
-        # coding↔genomic pairing survives the flatten that Phase B exists to stop.
-        assert {link.projection_group for link in non_auth_links} == {0}
+        # Both members of the single projection pair share one candidate group, distinct from the measured
+        # group, whose strings are the pair's own.
+        (group_id,) = {link.projection_group for link in non_auth_links}
+        assert group_id != _authoritative_link(session, mapping_record.id).projection_group
+        group = _group(session, group_id)
+        assert group.current
+        assert (group.hgvs_c, group.hgvs_g, group.hgvs_p) == (c_candidate, g_candidate, None)
 
         events = _cross_level_events(session, sample_score_set.id)
         assert len(events) == 1
         assert events[0].disposition == "present"
         # The event metadata carries the paired projection pair shape, not the removed flat lists.
         assert events[0].event_metadata["candidates"] == [
-            {"hgvs_c": c_candidate, "hgvs_g": g_candidate, "variant_type": None, "projection_group": 0}
+            {"hgvs_c": c_candidate, "hgvs_g": g_candidate, "variant_type": None, "measured": False}
         ]
 
     async def test_transcript_is_queryable_via_derived_expression(
@@ -591,8 +940,8 @@ class TestReverseTranslateVariantsForScoreSetUnit:
     ):
         """The deterministic protein consequence (``result.hgvs_p``) is emitted as the
         protein-level member of the equivalence set -- a non-authoritative ``level=protein``
-        allele linked to the record, not dropped. As the apex shared across all projection pairs it
-        belongs to no projection pair, so its link's projection_group is NULL."""
+        allele linked to the record, not dropped. It is the measured variant's own consequence, so its
+        link joins the record's measured group; each candidate group records it as its hgvs_p."""
         variant = Variant(
             score_set_id=sample_score_set.id,
             urn=f"{sample_score_set.urn}#11",
@@ -629,13 +978,17 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert protein_allele.level == SequenceLevel.protein.value
         assert protein_allele.hgvs_p == p_stripped  # stored without the prediction parens
 
-        # Linked to the record as a non-authoritative member of the equivalence set, but grouped
-        # with no pair (the apex is shared across every projection pair).
+        # Linked to the record as a non-authoritative member of the measured group.
+        record = _record_for(session, variant.id)
+        measured_group_id = _authoritative_link(session, record.id).projection_group
         protein_link = next(link for link in _non_authoritative_links(session) if link.allele_id == protein_allele.id)
-        assert protein_link.projection_group is None
-        # The coding/genomic pair is still grouped together (group 0).
+        assert protein_link.projection_group == measured_group_id
+        # The coding/genomic pair shares one candidate group, which carries the stripped consequence.
         pair_links = [link for link in _non_authoritative_links(session) if link.allele_id != protein_allele.id]
-        assert {link.projection_group for link in pair_links} == {0}
+        (pair_group_id,) = {link.projection_group for link in pair_links}
+        assert pair_group_id != measured_group_id
+        pair_group = _group(session, pair_group_id)
+        assert (pair_group.hgvs_c, pair_group.hgvs_g, pair_group.hgvs_p) == (c_candidate, g_candidate, p_stripped)
 
     async def test_cis_phased_multivariant_candidate_is_persisted_as_a_block(
         self,
@@ -687,7 +1040,9 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert block_allele.post_mapped == {"type": "CisPhasedBlock", "id": "ga4gh:CPB.block"}
 
         # The block (genomic projection) and its coding partner are one projection pair -> one group.
-        assert {link.projection_group for link in _non_authoritative_links(session)} == {0}
+        (group_id,) = {link.projection_group for link in _non_authoritative_links(session)}
+        group = _group(session, group_id)
+        assert (group.hgvs_c, group.hgvs_g) == (c_candidate, block_candidate)
 
     async def test_duplicate_candidate_digests_are_deduped_per_record(
         self,
@@ -730,7 +1085,8 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 1, "fold_in_missed": 1}
         non_auth_links = _non_authoritative_links(session)
         assert len(non_auth_links) == 1
-        assert non_auth_links[0].projection_group == 0
+        group = _group(session, non_auth_links[0].projection_group)
+        assert (group.hgvs_c, group.hgvs_g) == (c_candidate, g_candidate)
         assert session.query(Allele).filter(Allele.vrs_digest == "ga4gh:VA.shared").count() == 1
 
     async def test_authoritative_allele_is_folded_into_its_projection_group(
@@ -744,10 +1100,10 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         sample_score_set,
     ):
         """Nucleotide assay: the measured allele appears among the RT candidates (the library makes
-        no exclusions) and already has a live authoritative link (group NULL). Rather than insert a
-        forbidden derived duplicate, the job folds the pair's group onto the existing
-        authoritative link. That group then resolves to {canonical coding, canonical genomic}: the
-        authoritative allele plus its sibling projection derived in the same projection pair."""
+        no exclusions). That pair is the measured variant itself, so rather than forming a candidate
+        group its other member joins the record's measured group, which then resolves to {canonical
+        coding, canonical genomic}. The authoritative link already points at that group and is not
+        re-versioned by RT."""
         variant = Variant(
             score_set_id=sample_score_set.id,
             urn=f"{sample_score_set.urn}#11",
@@ -786,19 +1142,32 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         derived_links = _non_authoritative_links(session)
         assert len(derived_links) == 1
 
-        # The authoritative link was folded into the pair's group, and the sibling derived
-        # link shares it -- the pairing is resolvable from the authoritative allele's group.
-        assert auth_link.projection_group == 0
-        assert derived_links[0].projection_group == 0
+        # The sibling derived link joins the measured group -- the pairing is resolvable from the
+        # authoritative allele's group -- and no candidate group was created for the measured pair.
+        measured_group_id = auth_link.projection_group
+        assert measured_group_id is not None
+        assert derived_links[0].projection_group == measured_group_id
+        assert [group.id for group in _live_groups(session, record.id)] == [measured_group_id]
 
-        # group 0 resolves to {canonical c (authoritative), canonical g (projection)}: two live
+        # The measured group resolves to {canonical c (authoritative), canonical g (projection)}: two live
         # links, one authoritative and one derived.
-        group_links = [link for link in _live_links(session, record.id) if link.projection_group == 0]
+        group_links = [link for link in _live_links(session, record.id) if link.projection_group == measured_group_id]
         assert len(group_links) == 2
         assert {link.is_authoritative for link in group_links} == {True, False}
         assert auth_link.allele.vrs_digest == CANONICAL_AUTHORITATIVE_DIGEST
         assert derived_links[0].allele.vrs_digest == "ga4gh:VA.genomic"
-        assert _cross_level_events(session, sample_score_set.id)[0].event_metadata["fold_in_missed"] is False
+
+        # Only the mapping job's link and the projection step's copy exist: RT did not regroup it.
+        assert [link.projection_group for link in _authoritative_versions(session, record.id)] == [
+            None,
+            measured_group_id,
+        ]
+
+        metadata = _cross_level_events(session, sample_score_set.id)[0].event_metadata
+        assert metadata["fold_in_missed"] is False
+        assert metadata["candidates"] == [
+            {"hgvs_c": c_candidate, "hgvs_g": g_sibling, "variant_type": None, "measured": True}
+        ]
 
     async def test_authoritative_fold_in_when_measured_at_genomic_level(
         self,
@@ -811,8 +1180,8 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         sample_score_set,
     ):
         """The fold-in is symmetric in the measured level: when the genomic member of a projection pair
-        equals the record's authoritative allele, its group folds onto the authoritative link and
-        the coding sibling becomes the derived member of the same group."""
+        equals the record's authoritative allele, the coding sibling joins the measured group and no
+        candidate group is created for the pair."""
         variant = Variant(
             score_set_id=sample_score_set.id,
             urn=f"{sample_score_set.urn}#11",
@@ -846,8 +1215,10 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         record = _record_for(session, variant.id)
         auth_link = _authoritative_link(session, record.id)
         derived_links = _non_authoritative_links(session)
-        assert auth_link.projection_group == 0
-        assert [link.projection_group for link in derived_links] == [0]
+        measured_group_id = auth_link.projection_group
+        assert measured_group_id is not None
+        assert [link.projection_group for link in derived_links] == [measured_group_id]
+        assert [group.id for group in _live_groups(session, record.id)] == [measured_group_id]
         assert auth_link.allele.vrs_digest == CANONICAL_AUTHORITATIVE_DIGEST
         assert derived_links[0].allele.vrs_digest == "ga4gh:VA.coding"
 
@@ -862,7 +1233,8 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         sample_score_set,
     ):
         """Nucleotide assay whose measured allele has a different digest from every RT candidate: the
-        authoritative link stays ungrouped, and the run counts the miss and flags it on the variant's event."""
+        measured group holds only the authoritative link, both candidates form a candidate group, and the run
+        counts the miss and flags it on the variant's event."""
         variant = Variant(
             score_set_id=sample_score_set.id,
             urn=f"{sample_score_set.urn}#11",
@@ -889,7 +1261,15 @@ class TestReverseTranslateVariantsForScoreSetUnit:
 
         assert result.status == JobStatus.SUCCEEDED
         assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 2, "fold_in_missed": 1}
-        assert _authoritative_link(session, _record_for(session, variant.id).id).projection_group is None
+        record = _record_for(session, variant.id)
+        measured_group_id = _authoritative_link(session, record.id).projection_group
+        assert [
+            link.is_authoritative
+            for link in _live_links(session, record.id)
+            if link.projection_group == measured_group_id
+        ] == [True]
+        (candidate_group_id,) = {link.projection_group for link in _non_authoritative_links(session)}
+        assert candidate_group_id != measured_group_id
         assert _cross_level_events(session, sample_score_set.id)[0].event_metadata["fold_in_missed"] is True
 
     async def test_projection_failed_candidate_is_a_one_member_group(
@@ -939,17 +1319,18 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 3, "fold_in_missed": 1}
 
         non_auth_links = _non_authoritative_links(session)
-        groups: dict[int, set[str]] = {}
+        groups: dict[tuple[str, str | None], set[str]] = {}
         for link in non_auth_links:
-            groups.setdefault(link.projection_group, set()).add(link.allele.vrs_digest)
+            group = _group(session, link.projection_group)
+            groups.setdefault((group.hgvs_c, group.hgvs_g), set()).add(link.allele.vrs_digest)
 
-        # Group 0 is the full projection pair; group 1 is the projection-failed coding-only member.
+        # One group is the full projection pair; the other is the projection-failed coding-only member.
         assert groups == {
-            0: {"ga4gh:VA.coding0", "ga4gh:VA.genomic0"},
-            1: {"ga4gh:VA.coding1"},
+            (c_paired, g_paired): {"ga4gh:VA.coding0", "ga4gh:VA.genomic0"},
+            (c_orphan, None): {"ga4gh:VA.coding1"},
         }
 
-    async def test_protein_assay_leaves_authoritative_group_null_over_a_fan_out(
+    async def test_protein_assay_measured_group_holds_only_the_protein_over_a_fan_out(
         self,
         session,
         with_independent_processing_runs,
@@ -960,8 +1341,8 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         sample_score_set,
     ):
         """Protein assay: the authoritative allele is the protein itself, which appears in no
-        coding/genomic projection pair, so nothing folds in and its link's group stays NULL. The
-        ambiguous fan-out becomes N distinct groups, each a coding/genomic pair."""
+        coding/genomic projection pair, so nothing folds in and its measured group describes only
+        the protein. The ambiguous fan-out becomes N distinct candidate groups, each a coding/genomic pair."""
         variant = Variant(
             score_set_id=sample_score_set.id,
             urn=f"{sample_score_set.urn}#11",
@@ -999,18 +1380,24 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert result.data == {"translated": 1, "failed": 0, "skipped": 0, "alleles_created": 6, "fold_in_missed": 0}
 
         record = _record_for(session, variant.id)
-        # The protein authoritative allele is not part of any pair: its group stays NULL.
+        # The protein authoritative allele is not part of any pair: its measured group holds only hgvs_p and
+        # no derived link joins it.
         auth_link = _authoritative_link(session, record.id)
-        assert auth_link.projection_group is None
         assert auth_link.allele.vrs_digest == CANONICAL_AUTHORITATIVE_DIGEST
+        measured = _group(session, auth_link.projection_group)
+        assert (measured.hgvs_c, measured.hgvs_g, measured.hgvs_p) == (None, None, assay_hgvs)
 
-        # Three distinct groups, each a coding/genomic pair (two members).
-        groups: dict[int, int] = {}
+        # Three distinct candidate groups, each a coding/genomic pair (two members), with no protein
+        # consequence re-emitted.
+        groups: dict[tuple[str, str, str | None], int] = {}
         for link in _non_authoritative_links(session):
-            groups[link.projection_group] = groups.get(link.projection_group, 0) + 1
-        assert groups == {0: 2, 1: 2, 2: 2}
+            assert link.projection_group != measured.id
+            group = _group(session, link.projection_group)
+            key = (group.hgvs_c, group.hgvs_g, group.hgvs_p)
+            groups[key] = groups.get(key, 0) + 1
+        assert groups == {(hgvs_c, hgvs_g, None): 2 for hgvs_c, hgvs_g in pairs}
 
-    async def test_independent_rerun_retires_prior_links_and_regroups(
+    async def test_independent_rerun_supersedes_prior_links_and_candidate_groups(
         self,
         session,
         with_independent_processing_runs,
@@ -1020,12 +1407,11 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         sample_independent_reverse_translation_run,
         sample_score_set,
     ):
-        """An independent second run is idempotent: it retires the prior derived links (closing
-        valid_to) and writes fresh live ones (re-grouped from scratch), so the set of *current*
-        non-authoritative links is stable while the superseded links are retained as history --
-        the partial unique index on live links is never violated and no alleles are duplicated.
-        projection_group is regenerated per run; it is a within-record grouping key, not a stable
-        identity across re-maps."""
+        """An independent second run is idempotent: it retires the prior derived links and candidate
+        groups (closing valid_to) and writes fresh live ones, so the set of *current* non-authoritative
+        links is stable while the superseded rows are retained as history -- the partial unique index on
+        live links is never violated and no alleles are duplicated. The measured group, whose strings are
+        unchanged, is left alone."""
         variant = Variant(
             score_set_id=sample_score_set.id,
             urn=f"{sample_score_set.urn}#11",
@@ -1043,7 +1429,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         construct = fake_construct({assay_hgvs: [(c_candidate, g_candidate)]})
         translate = fake_translate({g_candidate: "ga4gh:VA.genomic", c_candidate: "ga4gh:VA.coding"})
 
-        # First run: two live derived links, both in group 0.
+        # First run: two live derived links sharing one candidate group.
         with (
             patch(f"{RT_MODULE}.construct_equivalent_variants", construct),
             patch(f"{RT_MODULE}.translate_hgvs_to_variation", translate),
@@ -1054,7 +1440,9 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         first_links = _non_authoritative_links(session)
         assert len(first_links) == 2
         assert all(link.valid_to is None for link in first_links)
-        assert {link.projection_group for link in first_links} == {0}
+        (first_group_id,) = {link.projection_group for link in first_links}
+        record = _record_for(session, variant.id)
+        measured_group_id = _authoritative_link(session, record.id).projection_group
 
         # Second, independent run with identical inputs.
         rerun = JobRun(
@@ -1080,11 +1468,20 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         live = [link for link in links if link.valid_to is None]
         retired = [link for link in links if link.valid_to is not None]
 
-        # The live set is stable (still exactly the two candidates, re-grouped into group 0) and the
-        # prior run's links are retained as closed history rather than deleted.
+        # The live set is stable (still exactly the two candidates, sharing a fresh candidate group) and
+        # the prior run's links and group are retained as closed history rather than deleted.
         assert len(live) == 2
         assert len(retired) == 2
-        assert {link.projection_group for link in live} == {0}
+        (second_group_id,) = {link.projection_group for link in live}
+        assert second_group_id != first_group_id
+        first_group, second_group = _group(session, first_group_id), _group(session, second_group_id)
+        assert first_group.valid_to == second_group.valid_from
+        assert (second_group.hgvs_c, second_group.hgvs_g) == (first_group.hgvs_c, first_group.hgvs_g)
+
+        # The measured group and the authoritative link pointing at it are untouched by the rerun.
+        assert _authoritative_link(session, record.id).projection_group == measured_group_id
+        assert _group(session, measured_group_id).current
+        assert len(_authoritative_versions(session, record.id)) == 2
 
         # Gap-free handoff: the prior links closed at exactly the instant the new links opened, under
         # one supersession timestamp -- so a point-in-time query never lands in a hole between runs,
@@ -1102,25 +1499,51 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert max(events, key=lambda e: e.id).disposition == "present"
 
     @pytest.mark.parametrize(
-        "rerun_pairs, rerun_unavailable, expected_group, regrouped, derived_groups",
+        "rerun_pairs, rerun_unavailable, expected_live, candidate_group_kept",
         [
-            # The measured allele's pair moves to a new position: the ids are swapped so its link keeps group 0.
+            # The measured pair moves position: its partner still joins the measured group.
             (
-                [("NM_000001.1:c.9C>T", "NC_000001.11:g.1004C>T"), ("NM_000001.1:c.5A>G", None)],
+                [(OTHER_C, OTHER_G), (MEASURED_C, MEASURED_PARTNER_G)],
                 False,
-                0,
+                {
+                    ("ga4gh:VA.partner", "measured"),
+                    ("ga4gh:VA.other_c", "candidate"),
+                    ("ga4gh:VA.other_g", "candidate"),
+                },
                 False,
-                {1},
             ),
-            # The measured allele no longer folds in: its prior group would name an unrelated pair.
-            ([("NM_000001.1:c.9C>T", "NC_000001.11:g.1004C>T")], False, None, True, {0}),
-            # Same fold-in as before: the link is left alone rather than re-versioned.
-            ([("NM_000001.1:c.5A>G", None)], False, 0, False, set()),
-            # UTA unavailable: the record's prior links, its group included, are still this run's answer.
-            ([], True, 0, False, set()),
+            # The measured allele no longer appears among the candidates: its partner leaves the measured group.
+            (
+                [(OTHER_C, OTHER_G)],
+                False,
+                {("ga4gh:VA.other_c", "candidate"), ("ga4gh:VA.other_g", "candidate")},
+                False,
+            ),
+            # Identical candidates: the candidate group is still re-minted (TODO#765), the measured group is not.
+            (
+                [(MEASURED_C, MEASURED_PARTNER_G), (OTHER_C, OTHER_G)],
+                False,
+                {
+                    ("ga4gh:VA.partner", "measured"),
+                    ("ga4gh:VA.other_c", "candidate"),
+                    ("ga4gh:VA.other_g", "candidate"),
+                },
+                False,
+            ),
+            # UTA unavailable: the record's prior links and candidate group are still this run's answer.
+            (
+                [],
+                True,
+                {
+                    ("ga4gh:VA.partner", "measured"),
+                    ("ga4gh:VA.other_c", "candidate"),
+                    ("ga4gh:VA.other_g", "candidate"),
+                },
+                True,
+            ),
         ],
     )
-    async def test_rerun_supersedes_the_authoritative_link_when_its_group_changes(
+    async def test_rerun_never_regroups_the_measured_allele(
         self,
         session,
         with_independent_processing_runs,
@@ -1131,14 +1554,13 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         sample_score_set,
         rerun_pairs,
         rerun_unavailable,
-        expected_group,
-        regrouped,
-        derived_groups,
+        expected_live,
+        candidate_group_kept,
     ):
-        """Group ids only pair links within one run, so a rerun that skips re-mapping must not leave the measured
-        allele holding a group that now names another pair. A run renumbers to keep the link's group where the
-        measured allele still folds in, and otherwise supersedes the link under the run's timestamp, keeping the
-        old group readable through ``as_of``."""
+        """The measured group belongs to the projection step, so whatever a rerun's candidates look like, the
+        authoritative link keeps pointing at the same measured group and is never re-versioned by RT. Only the
+        derived links and candidate groups are superseded, under the run's timestamp, unless the record's input
+        could not be asked about (UTA unavailable)."""
         variant = Variant(
             score_set_id=sample_score_set.id,
             urn=f"{sample_score_set.urn}#11",
@@ -1151,19 +1573,30 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         await _map_variants(session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set)
 
         assay_hgvs = "NM_000000.1:c.1A>G"
-        measured_candidate = "NM_000001.1:c.5A>G"
-        translate = fake_translate({measured_candidate: CANONICAL_AUTHORITATIVE_DIGEST})
+        translate = fake_translate(
+            {
+                MEASURED_C: CANONICAL_AUTHORITATIVE_DIGEST,
+                MEASURED_PARTNER_G: "ga4gh:VA.partner",
+                OTHER_C: "ga4gh:VA.other_c",
+                OTHER_G: "ga4gh:VA.other_g",
+            }
+        )
+        first_construct = fake_construct({assay_hgvs: [(MEASURED_C, MEASURED_PARTNER_G), (OTHER_C, OTHER_G)]})
         with (
-            patch(
-                f"{RT_MODULE}.construct_equivalent_variants", fake_construct({assay_hgvs: [(measured_candidate, None)]})
-            ),
+            patch(f"{RT_MODULE}.construct_equivalent_variants", first_construct),
             patch(f"{RT_MODULE}.translate_hgvs_to_variation", translate),
         ):
             first = await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
         assert first.status == JobStatus.SUCCEEDED
 
         record = _record_for(session, variant.id)
-        assert _authoritative_link(session, record.id).projection_group == 0
+        measured_group_id = _authoritative_link(session, record.id).projection_group
+        (first_candidate_group_id,) = {
+            link.projection_group
+            for link in _non_authoritative_links(session)
+            if link.projection_group != measured_group_id
+        }
+        first_live_ids = {link.id for link in _non_authoritative_links(session)}
 
         rerun = JobRun(
             urn="test:reverse_translate_variants_for_score_set:rerun",
@@ -1187,25 +1620,90 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         ):
             await _reverse_translate(session, mock_worker_ctx, rerun)
 
-        versions = (
-            session.query(MappingRecordAllele)
-            .filter(
-                MappingRecordAllele.mapping_record_id == record.id,
-                MappingRecordAllele.is_authoritative.is_(True),
-            )
-            .order_by(MappingRecordAllele.id)
-            .all()
-        )
-        live = _authoritative_link(session, record.id)
-        assert live.projection_group == expected_group
-        # The mapping job's link (group NULL) plus the first run's version (group 0), and one more if regrouped.
-        assert len(versions) == (3 if regrouped else 2)
-        prior = versions[-2]
-        assert prior.projection_group == (0 if regrouped else None)
-        assert prior.valid_to == live.valid_from
-        assert live.allele_id == prior.allele_id
+        # The measured group and its authoritative link are exactly as the first run's projection left them.
+        assert _authoritative_link(session, record.id).projection_group == measured_group_id
+        assert _group(session, measured_group_id).current
+        assert len(_authoritative_versions(session, record.id)) == 2
+
         live_derived = [link for link in _non_authoritative_links(session) if link.valid_to is None]
-        assert {link.projection_group for link in live_derived} == derived_groups
+        assert {
+            (link.allele.vrs_digest, "measured" if link.projection_group == measured_group_id else "candidate")
+            for link in live_derived
+        } == expected_live
+
+        first_candidate_group = _group(session, first_candidate_group_id)
+        assert first_candidate_group.current is candidate_group_kept
+        if candidate_group_kept:
+            assert {link.id for link in live_derived} == first_live_ids
+        else:
+            # Every live candidate link points at a group minted by this run, under the run's timestamp.
+            live_candidate_groups = {
+                link.projection_group for link in live_derived if link.projection_group != measured_group_id
+            }
+            assert first_candidate_group_id not in live_candidate_groups
+            assert {_group(session, group_id).valid_from for group_id in live_candidate_groups} == {
+                first_candidate_group.valid_to
+            }
+
+    async def test_a_changed_standalone_projection_detaches_the_measured_groups_rt_alleles(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+    ):
+        """Rewriting a measured group outside the reverse translation job retires the alleles RT added to it,
+        reports them as ``detached_rt_links``, and leaves candidate groups live."""
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn=f"{sample_score_set.urn}#11",
+            hgvs_nt="NM_000000.1:c.1A>G",
+            hgvs_pro="NP_000000.1:p.Met1Val",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        await _map_variants(session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set)
+
+        translate = fake_translate(
+            {
+                MEASURED_C: CANONICAL_AUTHORITATIVE_DIGEST,
+                MEASURED_PARTNER_G: "ga4gh:VA.partner",
+                OTHER_C: "ga4gh:VA.other_c",
+                OTHER_G: "ga4gh:VA.other_g",
+            }
+        )
+        construct = fake_construct({"NM_000000.1:c.1A>G": [(MEASURED_C, MEASURED_PARTNER_G), (OTHER_C, OTHER_G)]})
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", construct),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", translate),
+        ):
+            await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        record = _record_for(session, variant.id)
+        measured_group_id = _authoritative_link(session, record.id).projection_group
+        attached = [link for link in _non_authoritative_links(session) if link.projection_group == measured_group_id]
+        candidates = [link for link in _non_authoritative_links(session) if link.projection_group != measured_group_id]
+        assert attached and candidates
+
+        class Shifted(FakeCoordinates):
+            def c_to_g(self, c_hgvs):
+                return "NC_000001.11:g.2000A>G"
+
+        counts = project_measured_variants(
+            session, sample_score_set.id, coordinates=Shifted(), resolve_transcript=lambda *_: None
+        )
+        session.commit()
+
+        assert counts["detached_rt_links"] == len(attached)
+        for link in attached + candidates:
+            session.refresh(link)
+        assert all(link.valid_to is not None for link in attached)
+        assert all(link.valid_to is None for link in candidates)
+        assert not _group(session, measured_group_id).current
 
     @pytest.mark.parametrize(
         "rerun_outcome, keeps_prior_link",
@@ -1289,6 +1787,8 @@ class TestReverseTranslateVariantsForScoreSetUnit:
 
         session.refresh(down_link)
         assert (down_link.valid_to is None) is keeps_prior_link
+        # The link's candidate group shares its fate.
+        assert _group(session, down_link.projection_group).current is keeps_prior_link
         live_digests = sorted(
             link.allele.vrs_digest for link in _non_authoritative_links(session) if link.valid_to is None
         )

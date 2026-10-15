@@ -19,6 +19,7 @@ from mavedb.lib.score_set_variants import HgvsField, MappedTriple, get_lean_scor
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.projection_group import ProjectionGroup
 from mavedb.models.variant import Variant
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 from tests.helpers.constants import TEST_MINIMAL_VARIANT
@@ -76,13 +77,27 @@ def _record(session, variant, *, assay_level="cdna", hgvs_assay_level=None, vali
     return record
 
 
-def _link(session, record, allele, *, is_authoritative=True, projection_group=None, valid_from=None):
+def _group(session, record, *, hgvs_c=None, hgvs_g=None, hgvs_p=None, valid_from=None):
+    group = ProjectionGroup(
+        mapping_record_id=record.id,
+        score_set_id=record.score_set_id,
+        hgvs_c=hgvs_c,
+        hgvs_g=hgvs_g,
+        hgvs_p=hgvs_p,
+        valid_from=valid_from,
+    )
+    session.add(group)
+    session.commit()
+    return group
+
+
+def _link(session, record, allele, *, is_authoritative=True, group=None, valid_from=None):
     link = MappingRecordAllele(
         mapping_record_id=record.id,
         score_set_id=record.score_set_id,
         allele_id=allele.id,
         is_authoritative=is_authoritative,
-        projection_group=projection_group,
+        projection_group=group.id if group is not None else None,
         valid_from=valid_from,
     )
     session.add(link)
@@ -102,19 +117,24 @@ def _consequence(session, allele, value):
 @pytest.mark.integration
 def test_nucleotide_assay_measured_at_cdna(session, setup_lib_db_with_score_set):
     """Coding assay: submitted nt+pro from the variant; the mapped triple carries the measured cdna slot
-    (from the record), its projection_group genomic sibling, and the protein apex; digest/ClinGen
-    id/consequence off the authoritative allele. Each parseable string gets its block."""
+    (from the record) and the measured group's genomic and protein strings; digest/ClinGen id/consequence off
+    the authoritative allele. Each parseable string gets its block."""
     score_set = setup_lib_db_with_score_set
     variant = _variant(session, score_set, 1, score=-2.3, hgvs_nt="c.1A>T", hgvs_pro="p.Thr1Ser")
     record = _record(session, variant, assay_level="cdna", hgvs_assay_level="NM_000546.6:c.1216G>A")
     measured = _allele(session, "cdna-digest", level="cdna", clingen_allele_id="CA123")
     genomic = _allele(session, "gen-digest", level="genomic", hgvs_g="NC_000017.11:g.7676154C>T")
     protein = _allele(session, "prot-digest", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr")
-    # The measured cdna link and its genomic projection share a projection_group (the RT fold-in); the
-    # protein apex is a member of no pair (group None).
-    _link(session, record, measured, is_authoritative=True, projection_group=0)
-    _link(session, record, genomic, is_authoritative=False, projection_group=0)
-    _link(session, record, protein, is_authoritative=False)
+    measured_group = _group(
+        session,
+        record,
+        hgvs_c="NM_000546.6:c.1216G>A",
+        hgvs_g="NC_000017.11:g.7676154C>T",
+        hgvs_p="NP_000537.3:p.Ala406Thr",
+    )
+    _link(session, record, measured, is_authoritative=True, group=measured_group)
+    _link(session, record, genomic, is_authoritative=False, group=measured_group)
+    _link(session, record, protein, is_authoritative=False, group=measured_group)
     _consequence(session, measured, "missense_variant")
 
     [record_out] = get_lean_score_set_variants(session, score_set)
@@ -139,22 +159,29 @@ def test_nucleotide_assay_measured_at_cdna(session, setup_lib_db_with_score_set)
 @pytest.mark.integration
 def test_nucleotide_assay_measured_at_genomic(session, setup_lib_db_with_score_set):
     """Genomic assay: the measured slot is genomic (from the record); the cdna slot — the level-invariant
-    search key — comes off the projection_group sibling even though the assay was measured at genomic."""
+    search key — comes off the measured group even though the assay was measured at genomic."""
     score_set = setup_lib_db_with_score_set
     variant = _variant(session, score_set, 1, score=0.1, hgvs_nt="g.7676154C>T")
     record = _record(session, variant, assay_level="genomic", hgvs_assay_level="NC_000017.11:g.7676154C>T")
     measured = _allele(session, "gen-digest", level="genomic", clingen_allele_id="CA9")
     cdna = _allele(session, "cdna-digest", level="cdna", hgvs_c="NM_000546.6:c.1216G>A")
     protein = _allele(session, "prot-digest", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr")
-    _link(session, record, measured, is_authoritative=True, projection_group=0)
-    _link(session, record, cdna, is_authoritative=False, projection_group=0)
-    _link(session, record, protein, is_authoritative=False)
+    measured_group = _group(
+        session,
+        record,
+        hgvs_c="NM_000546.6:c.1216G>A",
+        hgvs_g="NC_000017.11:g.7676154C>T",
+        hgvs_p="NP_000537.3:p.Ala406Thr",
+    )
+    _link(session, record, measured, is_authoritative=True, group=measured_group)
+    _link(session, record, cdna, is_authoritative=False, group=measured_group)
+    _link(session, record, protein, is_authoritative=False, group=measured_group)
 
     [record_out] = get_lean_score_set_variants(session, score_set)
 
     assert record_out.assay_level == "genomic"
     assert record_out.assay_level_digest == "gen-digest"
-    # Measured slot is genomic (from the record); cdna (search key) comes off the sibling allele.
+    # Measured slot is genomic (from the record); cdna (search key) comes off the measured group.
     assert record_out.mapped == MappedTriple(
         genomic=HgvsField(hgvs="NC_000017.11:g.7676154C>T", position=7676154, ref="C", alt="T"),
         cdna=HgvsField(hgvs="NM_000546.6:c.1216G>A", position=1216, ref="G", alt="A"),
@@ -172,11 +199,17 @@ def test_protein_assay_serves_only_the_protein_slot(session, setup_lib_db_with_s
     measured = _allele(
         session, "prot-digest", level="protein", clingen_allele_id="PA9", hgvs_p="NP_000537.3:p.Ala406Thr"
     )
-    _link(session, record, measured, is_authoritative=True)
-    # A candidate fan-out member (cdna) with its own projection pair group — the protein authoritative link is
-    # in no group, so this candidate must NOT be pulled into the canonical triple.
+    _link(
+        session,
+        record,
+        measured,
+        is_authoritative=True,
+        group=_group(session, record, hgvs_p="NP_000537.3:p.Ala406Thr"),
+    )
+    # A candidate fan-out member (cdna) in its own candidate group must NOT be pulled into the canonical triple.
     candidate = _allele(session, "cand-digest", level="cdna", hgvs_c="NM_000546.6:c.1216G>A")
-    _link(session, record, candidate, is_authoritative=False, projection_group=0)
+    candidate_group = _group(session, record, hgvs_c="NM_000546.6:c.1216G>A")
+    _link(session, record, candidate, is_authoritative=False, group=candidate_group)
 
     [record_out] = get_lean_score_set_variants(session, score_set)
 
@@ -190,10 +223,9 @@ def test_protein_assay_serves_only_the_protein_slot(session, setup_lib_db_with_s
 
 
 @pytest.mark.integration
-def test_unpopulated_projection_group_degrades_to_a_null_sibling(session, setup_lib_db_with_score_set):
-    """Pre-reverse-translation data (no projection_group on the authoritative link): the sibling join
-    returns nothing, so the other nucleotide slot stays null — today's behavior — while the measured and
-    protein slots still populate. Still one row per variant."""
+def test_unwritten_measured_group_serves_an_empty_triple(session, setup_lib_db_with_score_set):
+    """Between mapping and the projection step the authoritative link has no group: the triple is empty,
+    even with a protein allele linked to the record. Still one row per variant."""
     score_set = setup_lib_db_with_score_set
     variant = _variant(session, score_set, 1, score=-2.3, hgvs_nt="c.1A>T")
     record = _record(session, variant, assay_level="cdna", hgvs_assay_level="NM_000546.6:c.1216G>A")
@@ -205,10 +237,25 @@ def test_unpopulated_projection_group_degrades_to_a_null_sibling(session, setup_
     [record_out] = get_lean_score_set_variants(session, score_set)
 
     assert record_out.assay_level == "cdna"
-    # Measured cdna + protein apex populate; genomic is null (no recorded sibling — graceful degradation).
+    assert record_out.mapped == MappedTriple()
+
+
+@pytest.mark.integration
+def test_genomic_assay_serves_a_coding_projection_with_no_allele(session, setup_lib_db_with_score_set):
+    """An intronic genomic change has a coding coordinate but no cdna VRS allele: the cdna slot comes off the
+    measured group's string alone, and the protein slot stays null (no consequence)."""
+    score_set = setup_lib_db_with_score_set
+    variant = _variant(session, score_set, 1, hgvs_nt="g.7676154C>T")
+    record = _record(session, variant, assay_level="genomic", hgvs_assay_level="NC_000017.11:g.7676154C>T")
+    measured = _allele(session, "gen-digest", level="genomic", hgvs_g="NC_000017.11:g.7676154C>T")
+    measured_group = _group(session, record, hgvs_c="NM_000465.4:c.123+5A>G", hgvs_g="NC_000017.11:g.7676154C>T")
+    _link(session, record, measured, is_authoritative=True, group=measured_group)
+
+    [record_out] = get_lean_score_set_variants(session, score_set)
+
     assert record_out.mapped == MappedTriple(
-        cdna=HgvsField(hgvs="NM_000546.6:c.1216G>A", position=1216, ref="G", alt="A"),
-        protein=HgvsField(hgvs="NP_000537.3:p.Ala406Thr", position=406, ref="Ala", alt="Thr"),
+        genomic=HgvsField(hgvs="NC_000017.11:g.7676154C>T", position=7676154, ref="C", alt="T"),
+        cdna=HgvsField(hgvs="NM_000465.4:c.123+5A>G"),
     )
 
 
@@ -219,7 +266,7 @@ def test_hgvs_string_rides_even_when_unparseable(session, setup_lib_db_with_scor
     variant = _variant(session, score_set, 1, hgvs_nt="NM_000546.6:c.[197A>G;472T>C]", hgvs_splice="c.122-6T>A")
     record = _record(session, variant, assay_level="cdna", hgvs_assay_level="c.76_78del")
     measured = _allele(session, "cdna-digest", level="cdna")
-    _link(session, record, measured, is_authoritative=True)
+    _link(session, record, measured, is_authoritative=True, group=_group(session, record, hgvs_c="c.76_78del"))
 
     [record_out] = get_lean_score_set_variants(session, score_set)
 
@@ -256,7 +303,9 @@ def test_no_vep_consequence_is_none(session, setup_lib_db_with_score_set):
     variant = _variant(session, score_set, 1, hgvs_nt="c.1A>T")
     record = _record(session, variant, assay_level="cdna", hgvs_assay_level="NM_000546.6:c.1216G>A")
     measured = _allele(session, "cdna-digest", level="cdna")
-    _link(session, record, measured, is_authoritative=True)
+    _link(
+        session, record, measured, is_authoritative=True, group=_group(session, record, hgvs_c="NM_000546.6:c.1216G>A")
+    )
 
     [record_out] = get_lean_score_set_variants(session, score_set)
 
@@ -286,12 +335,26 @@ def test_as_of_reconstructs_the_historical_assay_level(session, setup_lib_db_wit
 
     old_record = _record(session, variant, assay_level="cdna", hgvs_assay_level="NM_000546.6:c.1216G>A", valid_from=T0)
     old_allele = _allele(session, "old-digest", level="cdna")
-    _link(session, old_record, old_allele, is_authoritative=True, valid_from=T0)
+    _link(
+        session,
+        old_record,
+        old_allele,
+        is_authoritative=True,
+        group=_group(session, old_record, hgvs_c="NM_000546.6:c.1216G>A", valid_from=T0),
+        valid_from=T0,
+    )
     old_record.retire(session, at=T1)  # cascades to the link via __retire_cascade__
 
     new_record = _record(session, variant, assay_level="cdna", hgvs_assay_level="NM_000546.6:c.500A>T", valid_from=T1)
     new_allele = _allele(session, "new-digest", level="cdna")
-    _link(session, new_record, new_allele, is_authoritative=True, valid_from=T1)
+    _link(
+        session,
+        new_record,
+        new_allele,
+        is_authoritative=True,
+        group=_group(session, new_record, hgvs_c="NM_000546.6:c.500A>T", valid_from=T1),
+        valid_from=T1,
+    )
     session.commit()
 
     [current] = get_lean_score_set_variants(session, score_set)
@@ -323,9 +386,17 @@ def test_per_variant_lookups_cannot_become_whole_table_reads(session, setup_lib_
     measured = _allele(session, "cdna-digest", level="cdna")
     genomic = _allele(session, "gen-digest", level="genomic", hgvs_g="NC_000017.11:g.7676154C>T")
     protein = _allele(session, "prot-digest", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr")
-    _link(session, record, measured, is_authoritative=True, projection_group=0, valid_from=T0)
-    _link(session, record, genomic, is_authoritative=False, projection_group=0, valid_from=T0)
-    _link(session, record, protein, is_authoritative=False, valid_from=T0)
+    measured_group = _group(
+        session,
+        record,
+        hgvs_c="NM_000546.6:c.1216G>A",
+        hgvs_g="NC_000017.11:g.7676154C>T",
+        hgvs_p="NP_000537.3:p.Ala406Thr",
+        valid_from=T0,
+    )
+    _link(session, record, measured, is_authoritative=True, group=measured_group, valid_from=T0)
+    _link(session, record, genomic, is_authoritative=False, group=measured_group, valid_from=T0)
+    _link(session, record, protein, is_authoritative=False, group=measured_group, valid_from=T0)
 
     with captured_statements(session) as captured:
         get_lean_score_set_variants(session, score_set, as_of=as_of)

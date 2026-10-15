@@ -22,7 +22,7 @@ from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant
 from mavedb.view_models.allele_detail import AlleleDetail
 from tests.helpers.dependency_overrider import DependencyOverrider
-from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
+from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import create_seq_score_set_with_variants
 from tests.helpers.util.user import change_ownership
@@ -65,6 +65,9 @@ def _post_mapped() -> dict:
 def _seed(session, variant_urn):
     """Coding-measured record: authoritative cdna (+ClinGen CA1 +VEP), its genomic partner (also CA1),
     the protein apex, and a synonymous cousin in its own projection group."""
+    measured = GroupSpec(
+        hgvs_c="NM_000546.6:c.1216G>A", hgvs_g="NC_000017.11:g.7676154C>T", hgvs_p="NP_000537.3:p.Ala406Thr"
+    )
     seed_mapping_record(
         session,
         variant_urn,
@@ -77,7 +80,7 @@ def _seed(session, variant_urn):
                 hgvs_c="NM_000546.6:c.1216G>A",
                 post_mapped=_post_mapped(),
                 vep_consequence="missense_variant",
-                projection_group=0,
+                group=measured,
             ),
             AlleleSpec(
                 digest=GEN,
@@ -85,7 +88,7 @@ def _seed(session, variant_urn):
                 clingen_allele_id="CA1",
                 hgvs_g="NC_000017.11:g.7676154C>T",
                 post_mapped=_post_mapped(),
-                projection_group=0,
+                group=measured,
             ),
             AlleleSpec(
                 digest=PROT,
@@ -99,7 +102,7 @@ def _seed(session, variant_urn):
                 level="cdna",
                 hgvs_c="NM_000546.6:c.1218C>T",
                 post_mapped=_post_mapped(),
-                projection_group=1,
+                group=GroupSpec(hgvs_c="NM_000546.6:c.1218C>T"),
             ),
         ],
         assay_level="cdna",

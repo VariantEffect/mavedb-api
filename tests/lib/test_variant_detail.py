@@ -19,6 +19,7 @@ pytest.importorskip("psycopg2")
 from mavedb.lib.annotation.context import load_annotation_context_inputs, variant_annotation_context
 from mavedb.lib.allele_detail import get_allele_detail
 from mavedb.lib.allele_identity import AlleleDerivation
+from mavedb.lib.score_set_variants import HgvsField, MappedTriple
 from mavedb.lib.variant_detail import get_variant_detail, load_variant_detail_inputs
 from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.models.allele import Allele
@@ -28,6 +29,7 @@ from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.projection_group import ProjectionGroup
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.user import User
@@ -104,13 +106,22 @@ def _record(session, variant, *, assay_level="cdna", hgvs_assay_level=None):
     return record
 
 
-def _link(session, record, allele, *, is_authoritative=False, projection_group=None):
+def _group(session, record, *, hgvs_c=None, hgvs_g=None, hgvs_p=None):
+    group = ProjectionGroup(
+        mapping_record_id=record.id, score_set_id=record.score_set_id, hgvs_c=hgvs_c, hgvs_g=hgvs_g, hgvs_p=hgvs_p
+    )
+    session.add(group)
+    session.commit()
+    return group
+
+
+def _link(session, record, allele, *, is_authoritative=False, group=None):
     link = MappingRecordAllele(
         mapping_record_id=record.id,
         score_set_id=record.score_set_id,
         allele_id=allele.id,
         is_authoritative=is_authoritative,
-        projection_group=projection_group,
+        projection_group=group.id if group is not None else None,
     )
     session.add(link)
     session.commit()
@@ -166,15 +177,28 @@ def test_full_envelope_for_a_coding_assay(session, setup_lib_db_with_score_set):
     # A synonymous cousin: an nt encoder of the same protein consequence in a *different* projection group
     # — a distinct, unmeasured variant carried by the reverse-translation fan.
     cousin = _allele(session, "cousin-digest", level="cdna", hgvs_c="NM_000546.6:c.1218C>T")
-    # The measured cdna link and its genomic projection share a projection_group (the RT fold-in); the
-    # protein apex is in no pair (group None); the cousin is in its own group.
-    _link(session, record, measured, is_authoritative=True, projection_group=0)
-    _link(session, record, genomic, projection_group=0)
-    _link(session, record, protein)
-    _link(session, record, cousin, projection_group=1)
+    # The measured group holds the measured cdna, its genomic projection, and the protein consequence; the
+    # cousin is in its own candidate group.
+    measured_group = _group(
+        session,
+        record,
+        hgvs_c="NM_000546.6:c.1216G>A",
+        hgvs_g="NC_000017.11:g.7676154C>T",
+        hgvs_p="NP_000537.3:p.Ala406Thr",
+    )
+    _link(session, record, measured, is_authoritative=True, group=measured_group)
+    _link(session, record, genomic, group=measured_group)
+    _link(session, record, protein, group=measured_group)
+    _link(session, record, cousin, group=_group(session, record, hgvs_c="NM_000546.6:c.1218C>T"))
     _vep(session, measured, "missense_variant")
 
     detail = get_variant_detail(session, variant)
+
+    assert detail.mapped == MappedTriple(
+        cdna=HgvsField(hgvs="NM_000546.6:c.1216G>A", position=1216, ref="G", alt="A"),
+        genomic=HgvsField(hgvs="NC_000017.11:g.7676154C>T", position=7676154, ref="C", alt="T"),
+        protein=HgvsField(hgvs="NP_000537.3:p.Ala406Thr", position=406, ref="Ala", alt="Thr"),
+    )
 
     assert detail.urn == variant.urn
     assert detail.scores == {"score": -2.3}
@@ -214,10 +238,10 @@ def test_full_envelope_for_a_coding_assay(session, setup_lib_db_with_score_set):
     assert protein_identity.hgvs == "NP_000537.3:p.Ala406Thr"  # coalesced from hgvs_p
     # The protein member is a translation of the measured coding allele (member -> defining)...
     assert protein_identity.relation == "translation_of"
-    # ...and, on a nucleotide assay, is itself a deterministic projection (axes are independent) with no
-    # projection sibling (the apex is in no c/g pair).
+    # ...and, on a nucleotide assay, is itself a deterministic projection (axes are independent) that pairs
+    # with the measured allele it shares the measured group with.
     assert protein_identity.derivation == "projection"
-    assert protein_identity.projection_of is None
+    assert protein_identity.projection_of == "cdna-digest"
     # The synonymous cousin (different projection group) is a member wearing co_encodes (structural), and
     # labelled `convergent` (provenance) — a distinct, precise change that converges on the measured
     # consequence, not an ambiguous candidate and not a projection of the measured change. It pairs with
@@ -251,8 +275,9 @@ def test_protein_assay_targets_the_protein_frame(session, setup_lib_db_with_scor
     genomic = _allele(session, "gen-digest", level="genomic", hgvs_g="NC_000017.11:g.7676154C>T")
     _link(session, record, measured, is_authoritative=True)  # protein apex — group None
     # One reverse-translation projection pair: a coding candidate paired with its genomic projection.
-    _link(session, record, coding, projection_group=0)
-    _link(session, record, genomic, projection_group=0)
+    candidate_group = _group(session, record, hgvs_c="NM_000546.6:c.1216G>A", hgvs_g="NC_000017.11:g.7676154C>T")
+    _link(session, record, coding, group=candidate_group)
+    _link(session, record, genomic, group=candidate_group)
 
     detail = get_variant_detail(session, variant)
 
@@ -302,6 +327,64 @@ def test_pre_reverse_translation_data_degrades_projection_of_to_null(session, se
     assert detail.alleles["prot-digest"].projection_of is None
 
 
+@pytest.mark.integration
+def test_mapped_triple_carries_a_coding_projection_with_no_allele(session, setup_lib_db_with_score_set):
+    """An intronic genomic change has a coding coordinate but no cdna VRS allele: ``mapped`` serves the
+    measured group's hgvs_c anyway, and no protein consequence."""
+    score_set = setup_lib_db_with_score_set
+    variant = _variant(session, score_set, 1, hgvs_nt="g.7676154C>T")
+    record = _record(session, variant, assay_level="genomic", hgvs_assay_level="NC_000017.11:g.7676154C>T")
+    measured = _allele(session, "gen-digest", level="genomic", hgvs_g="NC_000017.11:g.7676154C>T")
+    measured_group = _group(
+        session, record, hgvs_c="NM_000465.4:c.123+5A>G", hgvs_g="NC_000017.11:g.7676154C>T", hgvs_p=None
+    )
+    _link(session, record, measured, is_authoritative=True, group=measured_group)
+
+    detail = get_variant_detail(session, variant)
+
+    assert detail.mapped == MappedTriple(
+        genomic=HgvsField(hgvs="NC_000017.11:g.7676154C>T", position=7676154, ref="C", alt="T"),
+        cdna=HgvsField(hgvs="NM_000465.4:c.123+5A>G"),
+    )
+    assert set(detail.alleles) == {"gen-digest"}
+    assert detail.alleles["gen-digest"].projection_of is None
+
+
+@pytest.mark.integration
+def test_protein_link_in_the_measured_group_pairs_with_the_measured_allele(session, setup_lib_db_with_score_set):
+    """The protein consequence is the part of the measurement the score describes, so it pairs with the
+    measured allele; the nucleotide pair still points at each other rather than at it."""
+    score_set = setup_lib_db_with_score_set
+    variant = _variant(session, score_set, 1, hgvs_nt="c.1216G>A")
+    record = _record(session, variant, assay_level="cdna", hgvs_assay_level="NM_000546.6:c.1216G>A")
+    measured = _allele(session, "cdna-digest", level="cdna", hgvs_c="NM_000546.6:c.1216G>A")
+    genomic = _allele(session, "gen-digest", level="genomic", hgvs_g="NC_000017.11:g.7676154C>T")
+    protein = _allele(session, "prot-digest", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr")
+    measured_group = _group(
+        session,
+        record,
+        hgvs_c="NM_000546.6:c.1216G>A",
+        hgvs_g="NC_000017.11:g.7676154C>T",
+        hgvs_p="NP_000537.3:p.Ala406Thr",
+    )
+    # Protein linked first, so a pairing that ignored level would pick it as the cdna allele's partner.
+    _link(session, record, protein, group=measured_group)
+    _link(session, record, measured, is_authoritative=True, group=measured_group)
+    _link(session, record, genomic, group=measured_group)
+
+    variant_alleles = get_variant_detail(session, variant).alleles
+    assert variant_alleles["prot-digest"].projection_of == "cdna-digest"
+    assert variant_alleles["cdna-digest"].projection_of == "gen-digest"
+    assert variant_alleles["gen-digest"].projection_of == "cdna-digest"
+
+    nucleotide_focus = get_allele_detail(session, measured, focus_digests={"cdna-digest"}).alleles
+    assert nucleotide_focus["cdna-digest"].projection_of == "gen-digest"
+    assert nucleotide_focus["gen-digest"].projection_of == "cdna-digest"
+
+    protein_focus = get_allele_detail(session, protein, focus_digests={"prot-digest"}).alleles
+    assert protein_focus["prot-digest"].projection_of == "cdna-digest"
+
+
 T0 = datetime(2020, 1, 1, tzinfo=timezone.utc)
 T1 = datetime(2021, 1, 1, tzinfo=timezone.utc)
 
@@ -335,9 +418,10 @@ def test_categorical_variant_cross_references_linked_gnomad_and_clinvar_records(
     measured = _allele(session, "cdna-digest", level="cdna", clingen_allele_id="CA123")
     genomic = _allele(session, "gen-digest", level="genomic", clingen_allele_id="CA123")
     cousin = _allele(session, "cousin-digest", level="cdna")
-    _link(session, record, measured, is_authoritative=True, projection_group=0)
-    _link(session, record, genomic, projection_group=0)
-    _link(session, record, cousin, projection_group=1)
+    measured_group = _group(session, record)
+    _link(session, record, measured, is_authoritative=True, group=measured_group)
+    _link(session, record, genomic, group=measured_group)
+    _link(session, record, cousin, group=_group(session, record))
 
     _gnomad_link(session, genomic, "17-7676154-C-T")
     _gnomad_link(session, cousin, "17-7676152-G-A")
@@ -376,11 +460,13 @@ def test_categorical_variant_mappings_follow_as_of(session, setup_lib_db_with_sc
     record = _record(session, variant, assay_level="cdna")
     measured = _allele(session, "cdna-digest", level="cdna")
     genomic = _allele(session, "gen-digest", level="genomic")
-    for link in (
-        _link(session, record, measured, is_authoritative=True, projection_group=0),
-        _link(session, record, genomic, projection_group=0),
+    measured_group = _group(session, record)
+    for row in (
+        _link(session, record, measured, is_authoritative=True, group=measured_group),
+        _link(session, record, genomic, group=measured_group),
+        measured_group,
     ):
-        link.valid_from = T0
+        row.valid_from = T0
     record.valid_from = T0
     _gnomad_link(session, genomic, "17-1-A-G", valid_from=T0).retire(at=T1)
     _gnomad_link(session, genomic, "17-1-A-T", valid_from=T1)
@@ -473,9 +559,16 @@ def _seed_mapped_variants(session, score_set, count):
         record = _record(session, variant, hgvs_assay_level=f"NM_000546.6:c.{1216 + index}G>A")
         measured = _allele(session, f"cdna-{index}", level="cdna", hgvs_c=f"NM_000546.6:c.{1216 + index}G>A")
         genomic = _allele(session, f"gen-{index}", level="genomic", hgvs_g=f"NC_000017.11:g.{7676154 + index}C>T")
-        _link(session, record, measured, is_authoritative=True, projection_group=0)
-        _link(session, record, genomic, projection_group=0)
-        _link(session, record, protein)
+        measured_group = _group(
+            session,
+            record,
+            hgvs_c=measured.hgvs_c,
+            hgvs_g=genomic.hgvs_g,
+            hgvs_p=protein.hgvs_p,
+        )
+        _link(session, record, measured, is_authoritative=True, group=measured_group)
+        _link(session, record, genomic, group=measured_group)
+        _link(session, record, protein, group=measured_group)
         _vep(session, measured, "missense_variant")
         variants.append(variant)
     _calibration(session, score_set, primary=True, classifications=[("abnormal", variants)])
@@ -527,8 +620,8 @@ def test_batched_loads_run_a_fixed_number_of_queries(session, setup_lib_db_with_
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("measured_group", [0, None], ids=["folded", "fold_in_missed"])
-def test_variant_and_allele_detail_label_members_alike(session, setup_lib_db_with_score_set, measured_group):
+@pytest.mark.parametrize("folded", [True, False], ids=["folded", "fold_in_missed"])
+def test_variant_and_allele_detail_label_members_alike(session, setup_lib_db_with_score_set, folded):
     """Both views label each member relative to the measured allele through one function, so they agree,
     including when the measured allele has no projection group and an ungrouped member sits beside it."""
     score_set = setup_lib_db_with_score_set
@@ -539,10 +632,11 @@ def test_variant_and_allele_detail_label_members_alike(session, setup_lib_db_wit
     ungrouped = _allele(session, "ungrouped", level="genomic", hgvs_g="NC_000017.11:g.7676160C>T")
     convergent = _allele(session, "convergent", level="cdna", hgvs_c="NM_000546.6:c.1218C>T")
     protein = _allele(session, "protein", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr")
-    _link(session, record, measured, is_authoritative=True, projection_group=measured_group)
-    _link(session, record, twin, projection_group=0)
+    twin_group = _group(session, record, hgvs_c=measured.hgvs_c, hgvs_g=twin.hgvs_g)
+    _link(session, record, measured, is_authoritative=True, group=twin_group if folded else None)
+    _link(session, record, twin, group=twin_group)
     _link(session, record, ungrouped)
-    _link(session, record, convergent, projection_group=1)
+    _link(session, record, convergent, group=_group(session, record, hgvs_c=convergent.hgvs_c))
     _link(session, record, protein)
 
     variant_alleles = get_variant_detail(session, variant).alleles
@@ -551,4 +645,4 @@ def test_variant_and_allele_detail_label_members_alike(session, setup_lib_db_wit
     labels = {digest: (identity.relation, identity.derivation) for digest, identity in variant_alleles.items()}
     assert labels == {digest: (identity.relation, identity.derivation) for digest, identity in allele_alleles.items()}
     assert labels["ungrouped"] == ("co_encodes", AlleleDerivation.CONVERGENT)
-    assert labels["twin"][0] == ("coordinate_representation_of" if measured_group == 0 else "co_encodes")
+    assert labels["twin"][0] == ("coordinate_representation_of" if folded else "co_encodes")

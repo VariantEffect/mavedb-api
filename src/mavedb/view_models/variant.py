@@ -10,11 +10,11 @@ from mavedb.view_models.mapped_variant import SavedMappedVariant
 
 
 class VariantVrsMatch(BaseModel):
-    """One variant whose mapping links an allele bearing the queried VRS identifier.
+    """One variant the queried VRS identifier identifies, before or after mapping.
 
-    The ``GET /variants/vrs/{identifier}`` lookup result. The ClinGen id + level ride from the matched
-    (deduplicated) allele; the URN from the variant it is linked to. Replaces the legacy MappedVariant VRS
-    lookup on the new Allele substrate (#743, item 3.5).
+    The ``GET /variants/vrs/{identifier}`` lookup result. The ClinGen id, VRS id and level ride from the
+    matched (deduplicated) allele for a post-mapped match, or from the variant's measured allele for a
+    pre-mapped match; they are null when that variant did not map.
     """
 
     variant_urn: str

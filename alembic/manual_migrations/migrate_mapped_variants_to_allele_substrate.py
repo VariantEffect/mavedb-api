@@ -54,7 +54,8 @@ What is reconstructed
   ``transcript``) NULL even when a real string was recoverable — silently starving any downstream pass
   that resolves a transcript from it.
 * **MappingRecordAllele** — one ``is_authoritative=True`` link per record on the
-  record's validity window. ``projection_group`` stays NULL (no fan-out).
+  record's validity window. ``projection_group`` stays NULL; ``mavedb.scripts.project_measured_variants``
+  writes the measured projection group afterwards.
 * **Annotation timelines** — reconstructed across *every* mapping version, not just the live one:
   ``gnomad_variants`` → ``gnomad_allele_links``, ``clinical_controls`` → ``clinvar_allele_links``,
   VEP columns → ``vep_allele_consequences``. Each mapping version's bundled annotations are captured

@@ -1,21 +1,15 @@
 """Reverse translation worker job — builds cross-level HGVS equivalence classes.
 
-For each mapped variant in a score set, calls construct_equivalent_variants from
-the variant-annotation library to produce the coding/genomic HGVS candidates
-encoding the same protein consequence, plus that protein consequence itself. Each
-candidate is written as a non-authoritative Allele row linked to the existing
-MappingRecord via MappingRecordAllele.
+First refreshes every record's measured projection group (see :mod:`mavedb.worker.lib.projection`), the
+measured variant described at each level. Then, for each mapped variant in the score set, calls
+construct_equivalent_variants from the variant-annotation library to produce the coding/genomic HGVS
+candidates encoding the same protein consequence, plus that protein consequence itself. Each candidate is
+written as a non-authoritative Allele row linked to the existing MappingRecord via MappingRecordAllele.
 
-The library returns the equivalence class as a list of ProjectionPair objects,
-each one projection pair (a coding candidate and its deterministic genomic projection
-— the same change at two levels). The job preserves that pairing by stamping both
-links of a projection pair with a shared per-record ``projection_group`` id; the protein
-apex is shared across all projection pairs and carries no group. Where a projection pair member
-equals the record's authoritative (measured) allele, its group is folded onto the
-authoritative link rather than duplicated, so the canonical c/g projection
-is resolvable from the authoritative allele's group downstream. An authoritative link
-whose group changes is superseded rather than updated, so ``as_of`` reads keep the
-group that was live at the time.
+The library returns the equivalence class as a list of ProjectionPair objects, each a coding candidate and
+its deterministic genomic projection — the same change at two levels. Each pair becomes a candidate
+ProjectionGroup row, and both of its links point at it. A pair holding the measured allele is the measured
+variant itself, so its other member joins the measured group instead; so does the protein consequence.
 """
 
 import asyncio
@@ -27,8 +21,8 @@ from datetime import date
 from typing import Any, Callable, NamedTuple, Sequence
 
 from ga4gh.vrs.extras.translator import AlleleTranslator
-from sqlalchemy import or_, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 from variant_annotation import __version__ as variant_annotation_version
 from variant_annotation.lib.accessions import looks_like_refseq_protein_accession
 from variant_annotation.lib.translation import construct_equivalent_variants
@@ -53,16 +47,21 @@ from mavedb.models.enums.job_pipeline import FailureCategory
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.projection_group import ProjectionGroup
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_gene_mapping import TargetGeneMapping
 from mavedb.models.variant import Variant
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 from mavedb.worker.lib.managers.job_manager import JobManager
+from mavedb.worker.lib.projection import project_measured_variants
 from mavedb.worker.lib.translation_ports import WorkerCoordinateTranslator, uta_transcript_source
 
 logger = logging.getLogger(__name__)
+
+TranscriptResolver = Callable[[int | None, int, date | None, str | None], str | None]
 
 # Job defaults: full coding equivalence class — every synonymous codon, indels included.
 # wt_codon_mode "all" requires include_indels=True.
@@ -74,6 +73,10 @@ _DEFAULT_TRANSLATION_CONFIG: dict[str, Any] = {
     "upstream_max_attempts": 6,
     "upstream_retry_backoff_seconds": 5.0,
 }
+
+# A protein-coding target with no MANE Select transcript at its first loci (an intergenic tile, say) is
+# given up on after this many lookups rather than queried once per record.
+_MANE_ATTEMPTS_PER_TARGET = 5
 
 
 class _TranscriptResolution(NamedTuple):
@@ -123,13 +126,29 @@ def _coding_transcripts_for_proteins(protein_accessions: set[str]) -> dict[str, 
         }
 
 
-def _cdna_transcript_resolver(db: Session, score_set_id: int) -> Callable[[int | None, int, date | None], str | None]:
-    """Return a resolver from a record's ``(job_run_id, target_gene_id, mapped_date)`` to its cdna transcript.
+def cdna_transcript_resolver(
+    db: Session, score_set_id: int, coordinates: WorkerCoordinateTranslator
+) -> TranscriptResolver:
+    """Return a resolver from a record's ``(job_run_id, target_gene_id, mapped_date, genomic_hgvs)`` to its
+    cdna transcript.
 
-    A record binds to *its own run's* cdna row via ``job_run_id``. Records with no ``job_run_id`` (pre-column,
-    or reshaped from legacy) fall back to the day-granular ``(target_gene_id, mapped_date)`` key, which cannot
-    separate two runs on one calendar day. Within either key, highest ``TargetGeneMapping.id`` wins. The two
-    lookup tables are built once per score set here and closed over, so per-record resolution is a dict hit.
+    In order:
+
+    1. The run's own cdna mapping row. A record binds to it via ``job_run_id``; records with no
+       ``job_run_id`` (pre-column, or reshaped from legacy) use the day-granular
+       ``(target_gene_id, mapped_date)`` key, which cannot separate two runs on one calendar day. Within
+       either key, highest ``TargetGeneMapping.id`` wins.
+    2. For records with no ``job_run_id``, the coding accession the legacy mapper recorded in the target's
+       ``post_mapped_metadata``: legacy mappings wrote no cdna row, and their genomic HGVS came from that
+       same run.
+    3. For genomic records, the target's own accession when it is a transcript (NM_, ENST).
+    4. For genomic records of a protein-coding target, the MANE Select transcript at the record's locus,
+       found once per target gene. Genomic-only targets (most saturation genome editing) have no other
+       transcript; this is the one the legacy ClinGen HGVS lookup reported for them.
+
+    Protein records pass no ``genomic_hgvs``, so they stop after step 2 and keep their NP_→NM_ lookup. The
+    lookup tables are built once per score set here and closed over. A failed MANE Select lookup raises
+    rather than resolving to no transcript, which would erase a coding projection an earlier run wrote.
     """
     by_job_run: dict[tuple[int, int], str | None] = {}
     by_run_date: dict[tuple[int, date | None], str | None] = {}
@@ -154,10 +173,51 @@ def _cdna_transcript_resolver(db: Session, score_set_id: int) -> Callable[[int |
             by_job_run[(job_run_id, target_gene_id)] = reference_accession
         by_run_date[(target_gene_id, mapped_date)] = reference_accession
 
-    def resolve(job_run_id: int | None, target_gene_id: int, mapped_date: date | None) -> str | None:
+    legacy_by_target_gene: dict[int, str] = {}
+    accession_by_target_gene: dict[int, str] = {}
+    protein_coding: set[int] = set()
+    for target_gene_id, metadata, category, target_accession in (
+        db.execute(
+            select(TargetGene.id, TargetGene.post_mapped_metadata, TargetGene.category, TargetAccession.accession)
+            .outerjoin(TargetAccession, TargetAccession.id == TargetGene.accession_id)
+            .where(TargetGene.score_set_id == score_set_id)
+        )
+        .tuples()
+        .all()
+    ):
+        cdna = metadata.get("cdna") if isinstance(metadata, dict) else None
+        accessions = cdna.get("sequence_accessions") if isinstance(cdna, dict) else None
+        if accessions:
+            legacy_by_target_gene[target_gene_id] = accessions[0]
+        if target_accession and target_accession.startswith(("NM_", "ENST")):
+            accession_by_target_gene[target_gene_id] = target_accession
+        if category == TargetCategory.protein_coding:
+            protein_coding.add(target_gene_id)
+
+    mane_by_target_gene: dict[int, str] = {}
+    mane_attempts: Counter[int] = Counter()
+
+    def mane_select(target_gene_id: int, genomic_hgvs: str) -> str | None:
+        if target_gene_id in mane_by_target_gene:
+            return mane_by_target_gene[target_gene_id]
+        if target_gene_id not in protein_coding or mane_attempts[target_gene_id] >= _MANE_ATTEMPTS_PER_TARGET:
+            return None
+        transcript = coordinates.mane_select_transcript(genomic_hgvs)
+        mane_attempts[target_gene_id] += 1
+        if transcript is not None:
+            mane_by_target_gene[target_gene_id] = transcript
+        return transcript
+
+    def resolve(
+        job_run_id: int | None, target_gene_id: int, mapped_date: date | None, genomic_hgvs: str | None
+    ) -> str | None:
         if job_run_id is not None:
-            return by_job_run.get((job_run_id, target_gene_id))
-        return by_run_date.get((target_gene_id, mapped_date))
+            transcript = by_job_run.get((job_run_id, target_gene_id))
+        else:
+            transcript = by_run_date.get((target_gene_id, mapped_date)) or legacy_by_target_gene.get(target_gene_id)
+        if transcript is not None or genomic_hgvs is None:
+            return transcript
+        return accession_by_target_gene.get(target_gene_id) or mane_select(target_gene_id, genomic_hgvs)
 
     return resolve
 
@@ -254,7 +314,17 @@ async def reverse_translate_variants_for_score_set(
     job_manager.update_progress(0, 100, "Starting reverse translation job.")
     logger.info(msg="Started reverse translation job.", extra=job_manager.logging_context())
 
-    resolve_cdna_transcript = _cdna_transcript_resolver(job_manager.db, score_set_id)
+    coordinates = WorkerCoordinateTranslator(ctx["hdp"])
+    resolve_cdna_transcript = cdna_transcript_resolver(job_manager.db, score_set_id, coordinates)
+
+    # The measured groups come first: candidates that match the measured variant join its group below.
+    projection_counts = project_measured_variants(
+        job_manager.db, score_set_id, coordinates=coordinates, resolve_transcript=resolve_cdna_transcript
+    )
+    logger.info(
+        msg=f"Measured projection groups: {dict(projection_counts)}.",
+        extra=job_manager.logging_context(),
+    )
 
     # Load current authoritative MappingRecords with their Variant and TargetGeneMapping. The record's own
     # TargetGeneMapping (its measured alignment) carries the run's job_run_id and mapped_date, which anchor
@@ -303,7 +373,8 @@ async def reverse_translate_variants_for_score_set(
     transcript_resolutions: list[_TranscriptResolution] = []
     protein_accessions: set[str] = set()
     for rec, variant, target_gene_id, mapped_date, record_job_run_id in rows:
-        coding_accession = resolve_cdna_transcript(record_job_run_id, target_gene_id, mapped_date)
+        genomic_hgvs = rec.hgvs_assay_level if rec.assay_level == SequenceLevel.genomic else None
+        coding_accession = resolve_cdna_transcript(record_job_run_id, target_gene_id, mapped_date, genomic_hgvs)
         protein_accession = None
         if not coding_accession and rec.hgvs_assay_level is not None:
             raw_accession = extract_accession(rec.hgvs_assay_level)
@@ -378,7 +449,6 @@ async def reverse_translate_variants_for_score_set(
 
     # construct_equivalent_variants is I/O-bound (blocks on a subprocess); run in the
     # default thread pool rather than the process pool to avoid pickling the port objects.
-    coordinates = WorkerCoordinateTranslator(ctx["hdp"])
     loop = asyncio.get_running_loop()
     job_manager.update_progress(20, 100, "Running reverse translation subprocess.")
     # WtCodonMode.ALL reads the reference codon via TranscriptSource.codon_at, so pass a
@@ -416,65 +486,43 @@ async def reverse_translate_variants_for_score_set(
         .where(MappingRecord.current.is_(True))
     )
 
-    # Defer linkage until all candidates are processed so the prior derived links can be
-    # superseded atomically — retire and insert share a timestamp with no gap.
+    # Derived links and candidate groups are deferred until every record is processed, so the prior derived
+    # set is superseded atomically: retire and insert share one timestamp.
     new_links: list[MappingRecordAllele] = []
+    new_groups: list[tuple[ProjectionGroup, list[MappingRecordAllele]]] = []
 
-    # The live authoritative links for the current records, keyed by (record_id, allele_id). When an
-    # RT candidate's allele equals a record's authoritative (measured) allele, that link already exists
-    # and uq_mapping_record_alleles_live forbids a derived duplicate, so the candidate's group is
-    # recorded in folded_groups instead. After the loop, each link whose group changed is superseded by
-    # a copy carrying the new one.
-    authoritative_links: dict[tuple[int, int], MappingRecordAllele] = {
-        (link.mapping_record_id, link.allele_id): link
+    # The live authoritative link of each current record. It points at the record's measured projection
+    # group (written by project_measured_variants above), which this job adds alleles to but never rewrites.
+    authoritative_by_record: dict[int, MappingRecordAllele] = {
+        link.mapping_record_id: link
         for link in job_manager.db.scalars(
             select(MappingRecordAllele)
             .where(MappingRecordAllele.is_authoritative.is_(True))
             .where(MappingRecordAllele.current)
             .where(MappingRecordAllele.mapping_record_id.in_(current_record_ids))
-            .options(joinedload(MappingRecordAllele.allele))
         ).all()
     }
-    # record_id -> the projection group this run folded onto its authoritative allele, and the group its
-    # authoritative link already holds.
-    folded_groups: dict[int, int | None] = {}
-    prior_groups = {record_id: link.projection_group for (record_id, _), link in authoritative_links.items()}
-    measured_alleles = {record_id: link.allele for (record_id, _), link in authoritative_links.items()}
+    seqrepo = getattr(ctx["seqrepo"], "sr", None)
 
     for result in results:
         rec, variant = variant_input_map[id(result.input)]
-        candidate_count = 0
-        record_links_start = len(new_links)
-        linked_nucleotide = False
+        authoritative = authoritative_by_record.get(rec.id)
+        measured_allele_id = authoritative.allele_id if authoritative is not None else None
+        measured_group = authoritative.projection_group if authoritative is not None else None
+        # Prediction parens (p.(Ala222Val)) are stripped before translation and storage. None for protein-assay
+        # inputs, where the protein is already the authoritative allele.
+        hgvs_p = strip_protein_prediction_parens(result.hgvs_p) if result.hgvs_p else None
 
-        # Equivalence generation may surface the same VRS object more than once.
-        # Dedup by vrs_digest per mapping record to avoid duplicate links.
+        candidate_count = 0
+        linked_nucleotide = False
+        folded_in = False
+        # Equivalence generation may surface the same VRS object more than once; link each allele once.
         seen_digests: set[str] = set()
         failed_candidates: list[dict[str, str]] = []
+        candidates_metadata: list[dict[str, Any]] = []
 
-        # Flatten the projection pairs into a work list of (hgvs, level, field, projection_group) members,
-        # preserving the coding↔genomic pairing the library emits. Each ProjectionPair's coding and
-        # genomic members share the pair's per-record group id — its index in the equivalence class
-        # (0..N-1), until the fold-in renumbering below. hgvs_c is always present (the pair key); hgvs_g
-        # is None when the c→g projection failed, yielding a well-formed one-member (coding only) group
-        # rather than a desync. The group id is assigned once per pair here, so the two members are
-        # guaranteed to carry the same id even though they translate and link independently below.
-        members: list[tuple[str, SequenceLevel, str, int | None]] = []
-        for group_id, pair in enumerate(result.projection_pairs):
-            members.append((pair.hgvs_c, SequenceLevel.cdna, "hgvs_c", group_id))
-            if pair.hgvs_g is not None:
-                members.append((pair.hgvs_g, SequenceLevel.genomic, "hgvs_g", group_id))
-
-        # The protein consequence is the apex of the equivalence set — shared across every
-        # pair, a member of none — so it carries no group (None). Prediction parens
-        # (p.(Ala222Val)) are stripped before translation and storage. None for protein-assay
-        # inputs, where the protein is already the authoritative allele.
-        if result.hgvs_p:
-            members.append((strip_protein_prediction_parens(result.hgvs_p), SequenceLevel.protein, "hgvs_p", None))
-
-        for hgvs, level, hgvs_field, projection_group in members:
-            # A candidate may not be translatable (intronic projection, malformed expression).
-            # Track per-candidate failures; a variant fails only if *all* candidates fail.
+        def translated(hgvs: str, level: SequenceLevel, hgvs_field: str) -> AlleleDbModel | None:
+            """The allele for one candidate HGVS, or None if it cannot be translated (intronic, malformed)."""
             try:
                 variation = translate_hgvs_to_variation(hgvs, allele_translator)
             except Exception as e:
@@ -483,84 +531,101 @@ async def reverse_translate_variants_for_score_set(
                     extra=job_manager.logging_context(),
                 )
                 failed_candidates.append({"hgvs": hgvs, "level": level.value, "error": str(e)})
-                continue
+                return None
 
-            # Verify that the post-mapped allele's sequence matches what SeqRepo holds for its accession.
-            if (seqrepo := getattr(ctx["seqrepo"], "sr", None)) is not None:
+            # Verify that the allele's sequence matches what SeqRepo holds for its accession.
+            if seqrepo is not None:
                 verify_allele_refget(
                     variation.model_dump(exclude_none=True), hgvs, seqrepo, subject=f"variant record {rec.id}"
                 )
 
             # translate_hgvs_to_variation identifies every variation it returns.
             assert variation.id is not None
-            if variation.id in seen_digests:
-                continue
-
-            seen_digests.add(variation.id)
-            draft_allele = AlleleDbModel(
-                vrs_digest=variation.id,
-                # exclude_none mirrors the mapper's serialization.
-                post_mapped=variation.model_dump(exclude_none=True),
-                level=level,
-                **{hgvs_field: hgvs},  # type: ignore[arg-type]
+            allele = get_or_create_allele(
+                job_manager.db,
+                AlleleDbModel(
+                    vrs_digest=variation.id,
+                    # exclude_none mirrors the mapper's serialization.
+                    post_mapped=variation.model_dump(exclude_none=True),
+                    level=level,
+                    **{hgvs_field: hgvs},  # type: ignore[arg-type]
+                ),
             )
-            allele = get_or_create_allele(job_manager.db, draft_allele)
             job_manager.db.flush()
+            return allele
 
-            # Authoritative fold-in: this member is the record's measured allele, already linked
-            # authoritatively. Keep its group to preserve the c↔g pairing; no derived link.
-            if (rec.id, allele.id) in authoritative_links:
-                folded_groups[rec.id] = projection_group
+        def link(allele: AlleleDbModel) -> MappingRecordAllele:
+            seen_digests.add(allele.vrs_digest)
+            return MappingRecordAllele(
+                mapping_record_id=rec.id, score_set_id=rec.score_set_id, allele_id=allele.id, is_authoritative=False
+            )
+
+        # Each ProjectionPair is a coding candidate and its genomic projection: the same change at two levels.
+        # hgvs_g is None when the c→g projection failed, leaving a one-member group.
+        for pair in result.projection_pairs:
+            members = [(pair.hgvs_c, SequenceLevel.cdna, "hgvs_c")]
+            if pair.hgvs_g is not None:
+                members.append((pair.hgvs_g, SequenceLevel.genomic, "hgvs_g"))
+            alleles = [
+                allele for hgvs, level, field in members if (allele := translated(hgvs, level, field)) is not None
+            ]
+            # Unseen alleles, once each: a pair's two members can identify to one VRS object.
+            fresh = list({a.vrs_digest: a for a in alleles if a.vrs_digest not in seen_digests}.values())
+
+            # A pair holding the measured allele is the measured variant itself: its other member joins the
+            # measured group rather than forming a candidate group.
+            is_measured = measured_allele_id is not None and any(a.id == measured_allele_id for a in alleles)
+            candidates_metadata.append(
+                {
+                    "hgvs_c": pair.hgvs_c,
+                    "hgvs_g": pair.hgvs_g,
+                    "variant_type": pair.variant_type,
+                    "measured": is_measured,
+                }
+            )
+            if is_measured:
+                folded_in = True
+                for allele in fresh:
+                    if allele.id != measured_allele_id:
+                        partner = link(allele)
+                        partner.projection_group = measured_group
+                        new_links.append(partner)
+                        candidate_count += 1
                 continue
 
-            new_links.append(
-                MappingRecordAllele(
+            if fresh:
+                group = ProjectionGroup(
                     mapping_record_id=rec.id,
                     score_set_id=rec.score_set_id,
-                    allele_id=allele.id,
-                    is_authoritative=False,
-                    projection_group=projection_group,
+                    hgvs_c=pair.hgvs_c,
+                    hgvs_g=pair.hgvs_g,
+                    hgvs_p=hgvs_p,
                 )
-            )
-            candidate_count += 1
-            linked_nucleotide |= level in NUCLEOTIDE_LEVELS
+                new_groups.append((group, [link(allele) for allele in fresh]))
+                candidate_count += len(fresh)
+                linked_nucleotide = True
 
-        # Group ids only pair links within this record, so when the measured allele folds into a different
-        # position than the group its link already holds, swap the two ids rather than supersede the link.
-        folded, prior = folded_groups.get(rec.id), prior_groups.get(rec.id)
-        renumber: dict[int | None, int | None] = (
-            {folded: prior, prior: folded} if folded is not None and prior is not None and folded != prior else {}
-        )
-        for link in new_links[record_links_start:]:
-            link.projection_group = renumber.get(link.projection_group, link.projection_group)
-        if renumber:
-            folded_groups[rec.id] = prior
+        # The protein consequence is the measured variant's own, so it joins the measured group.
+        if hgvs_p is not None:
+            protein = translated(hgvs_p, SequenceLevel.protein, "hgvs_p")
+            if protein is not None and protein.id != measured_allele_id and protein.vrs_digest not in seen_digests:
+                apex = link(protein)
+                apex.projection_group = measured_group
+                new_links.append(apex)
+                candidate_count += 1
 
-        # A nucleotide measured allele that RT linked nucleotide siblings to but never folded in has no projection
-        # partner, so serving labels every sibling convergent. Expected for an indel RT's codon-level candidates
-        # can't express; otherwise the mapper and RT produced different VRS objects for one change.
-        measured_allele = measured_alleles.get(rec.id)
+        # A nucleotide measured allele that RT linked candidates to but never matched: its candidates are distinct
+        # encodings of the consequence. Expected for changes RT's codon-level candidates can't express; otherwise
+        # the mapper and RT produced different VRS objects for one change.
         fold_in_missed = (
-            linked_nucleotide
-            and rec.id not in folded_groups
-            and measured_allele is not None
-            and measured_allele.level in NUCLEOTIDE_LEVELS
+            linked_nucleotide and not folded_in and authoritative is not None and rec.assay_level in NUCLEOTIDE_LEVELS
         )
         annotation_counts["fold_in_missed"] += fold_in_missed
 
         annotation_counts["alleles_created"] += candidate_count
         annotation_metadata = {
             "hgvs_input": result.input.hgvs,
-            # Serializable projection of the projection pairs and the group each one's links carry.
-            "candidates": [
-                {
-                    "hgvs_c": pair.hgvs_c,
-                    "hgvs_g": pair.hgvs_g,
-                    "variant_type": pair.variant_type,
-                    "projection_group": renumber.get(position, position),
-                }
-                for position, pair in enumerate(result.projection_pairs)
-            ],
+            "candidates": candidates_metadata,
             "hgvs_p": result.hgvs_p,
             "alleles_created": candidate_count,
             "failed_candidates": failed_candidates,
@@ -589,48 +654,49 @@ async def reverse_translate_variants_for_score_set(
                 metadata=annotation_metadata,
             )
 
-    # A record the library couldn't ask about because UTA was unavailable keeps its derived links:
-    # its inputs are unchanged since the run that produced them, so they are still that run's answer.
-    # Every other outcome, including a skip or a failed translation, is this run's answer and replaces
-    # the prior set.
+    # A record the library couldn't ask about because UTA was unavailable keeps its derived links and
+    # candidate groups: its inputs are unchanged since the run that produced them, so they are still that
+    # run's answer. Every other outcome, including a skip or a failed translation, is this run's answer and
+    # replaces the prior set.
     unavailable_record_ids = {
         variant_input_map[id(error.input)][0].id
         for error in errors
         if error.reason is TranslationErrorReason.UPSTREAM_UNAVAILABLE
     }
+    measured_group_ids = (
+        select(MappingRecordAllele.projection_group)
+        .where(MappingRecordAllele.is_authoritative.is_(True))
+        .where(MappingRecordAllele.current)
+        .where(MappingRecordAllele.projection_group.isnot(None))
+        .where(MappingRecordAllele.mapping_record_id.in_(current_record_ids))
+    )
 
-    # An authoritative link takes this run's fold-in group, or NULL when nothing folded in. Group ids
-    # are positions in this run's pair list, so a group left from a prior run would name an unrelated
-    # pair. Records whose links are kept (unavailable) keep their group too.
-    regrouped_link_ids: list[int] = []
-    for (record_id, _), link in authoritative_links.items():
-        group = folded_groups.get(record_id)
-        if record_id in unavailable_record_ids or link.projection_group == group:
-            continue
-
-        regrouped_link_ids.append(link.id)
-        new_links.append(
-            MappingRecordAllele(
-                mapping_record_id=link.mapping_record_id,
-                score_set_id=link.score_set_id,
-                allele_id=link.allele_id,
-                is_authoritative=True,
-                projection_group=group,
-            )
-        )
-
-    # Supersede prior live derived links, and the regrouped authoritative links, under one timestamp.
+    # Supersede the prior candidate groups and derived links under one timestamp. Measured groups belong to
+    # project_measured_variants and are never retired here; their derived links are, and are re-added above.
     # TODO#765: re-runs retire and recreate the whole derived set because re-mapping re-mints
     # records; idempotent records would allow unchanged links to stay live.
+    superseded_at = job_manager.db.scalar(select(func.now()))
+    ProjectionGroup.supersede_live_where(
+        job_manager.db,
+        [group for group, _ in new_groups],
+        ProjectionGroup.id.not_in(measured_group_ids),
+        ProjectionGroup.mapping_record_id.in_(current_record_ids),
+        ProjectionGroup.mapping_record_id.not_in(unavailable_record_ids),
+        at=superseded_at,
+    )
+    job_manager.db.flush()
+    for group, links in new_groups:
+        for group_link in links:
+            group_link.projection_group = group.id
+        new_links.extend(links)
+
     MappingRecordAllele.supersede_live_where(
         job_manager.db,
         new_links,
-        or_(
-            MappingRecordAllele.is_authoritative.is_(False),
-            MappingRecordAllele.id.in_(regrouped_link_ids),
-        ),
+        MappingRecordAllele.is_authoritative.is_(False),
         MappingRecordAllele.mapping_record_id.in_(current_record_ids),
         MappingRecordAllele.mapping_record_id.not_in(unavailable_record_ids),
+        at=superseded_at,
     )
 
     # The library types each error's reason: NOT_TRANSLATABLE is a benign structural gap (the

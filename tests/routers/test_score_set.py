@@ -81,7 +81,7 @@ from tests.helpers.constants import (
     VALID_VARIANT_URN,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
-from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
+from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 from tests.helpers.util.common import (
     create_failing_side_effect,
     deepcamelize,
@@ -6088,6 +6088,9 @@ def _seed_lean_mapping(session, variant_urn):
     """Give one variant a live coding-measured mapping record (with an assay-level HGVS) whose
     authoritative allele carries a digest + ClinGen id + a live VEP consequence, plus its canonical
     genomic projection sibling (shared ``projection_group``) and the protein apex — the full triple."""
+    measured = GroupSpec(
+        hgvs_c="NM_000546.6:c.1216G>A", hgvs_g="NC_000017.11:g.7676154C>T", hgvs_p="NP_000537.3:p.Ala406Thr"
+    )
     seed_mapping_record(
         session,
         variant_urn,
@@ -6100,13 +6103,13 @@ def _seed_lean_mapping(session, variant_urn):
                 is_authoritative=True,
                 clingen_allele_id="CA123",
                 vep_consequence="missense_variant",
-                projection_group=0,
+                group=measured,
             ),
             AlleleSpec(
                 digest="gen-digest",
                 level="genomic",
                 hgvs_g="NC_000017.11:g.7676154C>T",
-                projection_group=0,
+                group=measured,
             ),
             AlleleSpec(digest="prot-digest", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr"),
         ],

@@ -15,9 +15,8 @@ from mavedb.models.variant import Variant
 class CsvMappedRow:
     """The mapping-derived CSV fields for one variant, resolved from its live mapping record's
     authoritative allele (post-mapped HGVS per level, assay-level HGVS, VRS digest, VEP consequence,
-    ClinGen id). HGVS strings are already resolved to their canonical per-level form by the fetch layer
-    (see ``mavedb.lib.score_set_variants.mapped_hgvs_by_level``) — no raw VRS payload to fall back on
-    parsing here, unlike the pre-allele-graph ``MappedVariant`` substrate."""
+    ClinGen id). The per-level HGVS strings are the measured projection group's — no raw VRS payload to
+    fall back on parsing here, unlike the pre-allele-graph ``MappedVariant`` substrate."""
 
     hgvs_g: Optional[str]
     hgvs_c: Optional[str]

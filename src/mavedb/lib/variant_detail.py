@@ -23,7 +23,8 @@ from mavedb.lib.allele_identity import AlleleIdentity
 from mavedb.lib.alleles import LiveRecordLinks, get_live_record_allele_links
 from mavedb.lib.cat_vrs import build_categorical_variant, is_projection_partner, member_label
 from mavedb.lib.score_calibrations import calibration_preference_key, classifications_by_variant
-from mavedb.models.enums.sequence_level import SequenceLevel
+from mavedb.lib.score_set_variants import MappedTriple, mapped_triple
+from mavedb.models.enums.sequence_level import NUCLEOTIDE_LEVELS, SequenceLevel
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
@@ -97,6 +98,9 @@ class VariantDetail:
     # `annotations`), carrying level, HGVS, ClinGen id, and relation.
     molecular_representation: Optional[dict[str, Any]]
     mode: Optional[str]  # CatVrsMode value — projection | reverse_translation
+    # The measured variant's mapped HGVS at every level, from its measured projection group; includes
+    # levels with no allele in `alleles` (an intronic coding projection).
+    mapped: MappedTriple
     alleles: dict[str, AlleleIdentity]
 
     # External annotations, keyed by VRS digest, joined to the Cat-VRS members / the alleles sidecar.
@@ -205,6 +209,7 @@ def _assemble_variant_detail(
     # linked alleles seed the digest-keyed annotation map.
     links = record_links.links if record_links is not None else []
     authoritative = next((link for link in links if link.is_authoritative), None)
+    measured_group = authoritative.group if authoritative is not None else None
     assay_level_digest = authoritative.allele.vrs_digest if authoritative is not None else None
     clingen_allele_id = authoritative.allele.clingen_allele_id if authoritative is not None else None
 
@@ -231,12 +236,16 @@ def _assemble_variant_detail(
     # set that seeds `annotations`, so the two maps share keys). Carries level, reference-frame HGVS
     # (exactly one of hgvs_g/c/p is populated per allele), ClinGen id, and the member→defining relation.
 
-    # projection_group -> the digests sharing it, for within-record projection grouping. A link's
-    # projection is the ≤1 *other* digest in its group; the protein apex and any pre-RT link carry a
-    # NULL group, so they appear in no bucket and projection_of stays None for them.
+    # projection_group -> the nucleotide digests sharing it, for within-record c↔g pairing. A nucleotide link's
+    # projection is the ≤1 *other* nucleotide digest in its group. The protein consequence in the measured group
+    # pairs with the measured allele: it is the part of the measurement the score describes.
     group_digests: dict[int, list[str]] = {}
     for link in links:
-        if link.projection_group is not None and link.allele.vrs_digest is not None:
+        if (
+            link.projection_group is not None
+            and link.allele.vrs_digest is not None
+            and link.allele.level in NUCLEOTIDE_LEVELS
+        ):
             group_digests.setdefault(link.projection_group, []).append(link.allele.vrs_digest)
 
     # Members are labelled relative to the measured (authoritative) allele.
@@ -247,13 +256,14 @@ def _assemble_variant_detail(
     for link in links:
         allele = link.allele
 
-        # The other digest in this link's projection_group, if any (groups have ≤2 members).
         projection_of: Optional[str] = None
-        if link.projection_group is not None:
+        if link.projection_group is not None and allele.level in NUCLEOTIDE_LEVELS:
             projection_of = next(
                 (digest for digest in group_digests.get(link.projection_group, []) if digest != allele.vrs_digest),
                 None,
             )
+        elif link.projection_group is not None and link.projection_group == focus_group and authoritative is not None:
+            projection_of = authoritative.allele.vrs_digest
 
         relation, derivation = (
             (None, None)
@@ -289,6 +299,11 @@ def _assemble_variant_detail(
         post_mapped=authoritative.allele.post_mapped if authoritative is not None else None,
         molecular_representation=molecular_representation,
         mode=mode,
+        mapped=mapped_triple(
+            hgvs_c=measured_group.hgvs_c if measured_group is not None else None,
+            hgvs_g=measured_group.hgvs_g if measured_group is not None else None,
+            hgvs_p=measured_group.hgvs_p if measured_group is not None else None,
+        ),
         alleles=alleles,
         annotations=annotations,
         is_current=superseding_score_set is None,

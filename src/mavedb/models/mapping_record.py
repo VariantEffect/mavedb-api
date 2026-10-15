@@ -13,6 +13,7 @@ from mavedb.models.enums.sequence_level import SequenceLevel
 
 if TYPE_CHECKING:
     from .mapping_record_allele import MappingRecordAllele
+    from .projection_group import ProjectionGroup
     from .target_gene_mapping import TargetGeneMapping
     from .variant import Variant
 
@@ -97,9 +98,15 @@ class MappingRecord(ValidTime, Base):
         cascade="all, delete-orphan",
     )
 
-    # Retiring a record retires its live allele links too (both the authoritative link and any
-    # derived links a reverse-translation run attached). See ValidTime.__retire_cascade__.
-    __retire_cascade__ = ("allele_links",)
+    projection_groups: Mapped[list["ProjectionGroup"]] = relationship(
+        "ProjectionGroup",
+        back_populates="mapping_record",
+        cascade="all, delete-orphan",
+    )
+
+    # Retiring a record retires its live allele links and projection groups (the measured group and any
+    # candidate groups a reverse-translation run attached). See ValidTime.__retire_cascade__.
+    __retire_cascade__ = ("allele_links", "projection_groups")
 
     __table_args__ = (
         ForeignKeyConstraint(

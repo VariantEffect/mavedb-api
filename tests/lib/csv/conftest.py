@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip("psycopg2")
 
 from tests.helpers.constants import TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION
-from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
+from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 
 
 @pytest.fixture
@@ -20,9 +20,10 @@ def setup_lib_db_with_mapped_variant(session, setup_lib_db_with_variant, setup_l
     their own records, and a second live record per variant violates ``uq_mapping_records_current``.
 
     Seeded as the full g/c/p triple the CSV reconstructs from — an authoritative genomic allele, its
-    projection-group cdna sibling, and the protein apex — so a test can populate any level's HGVS by
-    setting it on that level's allele. Mirrors ``tests.helpers.util.score_set.seed_csv_substrate``.
+    projection-group cdna sibling, and the protein apex — so a test can populate a non-measured level's HGVS
+    by setting it on the measured projection group. Mirrors ``tests.helpers.util.score_set.seed_csv_substrate``.
     """
+    measured = GroupSpec(hgvs_g=TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION["hgvs_g"])
     seed_mapping_record(
         session,
         setup_lib_db_with_variant,
@@ -33,11 +34,11 @@ def setup_lib_db_with_mapped_variant(session, setup_lib_db_with_variant, setup_l
                 digest="lib-csv-genomic",
                 level="genomic",
                 is_authoritative=True,
-                projection_group=0,
+                group=measured,
                 hgvs_g=TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION["hgvs_g"],
                 vep_consequence=TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION["vep_functional_consequence"],
             ),
-            AlleleSpec(digest="lib-csv-cdna", level="cdna", projection_group=0),
+            AlleleSpec(digest="lib-csv-cdna", level="cdna", group=measured),
             AlleleSpec(digest="lib-csv-protein", level="protein"),
         ],
     )

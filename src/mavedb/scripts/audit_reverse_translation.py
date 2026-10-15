@@ -138,7 +138,11 @@ _MEASURED_OUTSIDE_GROUP_SQL = """
     FROM mapping_record_alleles auth
     JOIN alleles a ON a.id = auth.allele_id
     {candidate_span}
-    WHERE auth.is_authoritative AND auth.valid_to IS NULL AND auth.projection_group IS NULL
+    WHERE auth.is_authoritative AND auth.valid_to IS NULL
+      AND NOT EXISTS (SELECT 1 FROM mapping_record_alleles pl
+                      JOIN alleles pa ON pa.id = pl.allele_id
+                      WHERE pl.projection_group = auth.projection_group AND pl.allele_id <> auth.allele_id
+                        AND pl.valid_to IS NULL AND pa.level IN ('cdna', 'genomic'))
       AND a.level IN ('cdna', 'genomic')
       AND {condition}
       {auth_filter}
@@ -259,9 +263,9 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
         name="measured_allele_outside_projection_group",
         severity=ERROR,
         description=(
-            "RT attached derived nucleotide alleles to a record, but the measured nucleotide allele is in no "
-            "projection group: the fold-in missed it, so serving labels every sibling convergent, its own c/g "
-            "twin included. Only length-preserving changes inside the codon RT targeted, which its candidates "
+            "RT attached derived nucleotide alleles to a record, but the measured nucleotide allele has no partner "
+            "allele in its measured projection group: RT matched none of its candidates to it, so serving labels "
+            "every sibling convergent, its own c/g twin included. Only length-preserving changes inside the codon RT targeted, which its candidates "
             "always include."
         ),
         sql=_measured_outside_group(
@@ -272,7 +276,7 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
         name="measured_allele_beyond_rt_codon",
         severity=INFO,
         description=(
-            "A measured change in no projection group that reaches outside the codon RT targeted, such as a "
+            "A measured change with no partner allele that reaches outside the codon RT targeted, such as a "
             "multi-base change straddling two codons. RT lists only single-codon changes, so it cannot fold in. "
             "Many in one score set can mean its nucleotide variants sit out of frame with its protein variants."
         ),
@@ -282,7 +286,7 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
         name="measured_reference_allele_outside_projection_group",
         severity=INFO,
         description=(
-            "A measured reference-identical allele (g.=, c.=) in no projection group. Expected: RT lists the "
+            "A measured reference-identical allele (g.=, c.=) with no partner allele. Expected: RT lists the "
             "alternative codons for a synonymous change, never the reference codon."
         ),
         sql=_measured_outside_group(_REFERENCE_IDENTICAL),
@@ -291,7 +295,7 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
         name="measured_indel_outside_projection_group",
         severity=INFO,
         description=(
-            "A measured indel in no projection group. Expected when the indel is not codon-aligned: it changes the "
+            "A measured indel with no partner allele. Expected when the indel is not codon-aligned: it changes the "
             "protein the same way as a codon-aligned candidate but is a different DNA change, so RT does not list it."
         ),
         sql=_measured_outside_group(f"{_LENGTH_CHANGING} AND NOT {_REFERENCE_IDENTICAL}"),
@@ -300,7 +304,7 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
         name="malformed_projection_group",
         severity=WARNING,
         description=(
-            "A live projection group is not exactly one cdna allele and one genomic allele. Either the library could "
+            "A live candidate projection group is not exactly one cdna allele and one genomic allele. Either the library could "
             "not project the coding candidate to the genome (its entry under candidates in the variant's "
             "cross_level_translation event has no hgvs_g), or a member failed VRS translation (listed under "
             "failed_candidates with the error)."
@@ -311,6 +315,10 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
             FROM mapping_record_alleles l
             JOIN alleles a ON a.id = l.allele_id
             WHERE l.valid_to IS NULL AND l.projection_group IS NOT NULL {link_filter}
+              -- Measured groups legitimately lack an allele at a level VRS can't represent (intronic).
+              AND NOT EXISTS (SELECT 1 FROM mapping_record_alleles auth
+                              WHERE auth.projection_group = l.projection_group
+                                AND auth.is_authoritative AND auth.valid_to IS NULL)
             GROUP BY 1, 2
             HAVING string_agg(a.level, ',' ORDER BY a.level) <> 'cdna,genomic'
         """,

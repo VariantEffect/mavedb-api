@@ -24,6 +24,8 @@ from variant_annotation.lib.clients.uta import UtaClient
 UTA_MAX_ATTEMPTS = 6
 UTA_BACKOFF_SECONDS = 2.0
 
+_COMPLEMENT = str.maketrans("ACGTN", "TGCAN")
+
 
 @contextlib.contextmanager
 def uta_transcript_source() -> Generator[UtaClient]:
@@ -41,6 +43,10 @@ def uta_transcript_source() -> Generator[UtaClient]:
         yield client
 
 
+def _reverse_complement(sequence: str) -> str:
+    return sequence.translate(_COMPLEMENT)[::-1]
+
+
 class WorkerCoordinateTranslator:
     """CoordinateTranslator backed by the worker's HGVS data provider."""
 
@@ -49,13 +55,16 @@ class WorkerCoordinateTranslator:
         self._parser: Any = None
         self._mapper: Any = None
         self._literal_mapper: Any = None
+        self._normalizer: Any = None
 
     def _ensure_initialized(self) -> None:
         if self._mapper is None:
             import hgvs.assemblymapper
+            import hgvs.normalizer  # type: ignore[import-untyped]
             import hgvs.parser
 
             self._parser = hgvs.parser.Parser()
+            self._normalizer = hgvs.normalizer.Normalizer(self._hdp)
             self._mapper = hgvs.assemblymapper.AssemblyMapper(
                 self._hdp,
                 assembly_name="GRCh38",
@@ -69,6 +78,25 @@ class WorkerCoordinateTranslator:
                 normalize=False,
             )
 
+    def normalize(self, g_hgvs: str) -> str:
+        """Trim and 3'-shift a genomic variant on its reference sequence, keeping it representable in VRS.
+
+        A genomic delins that shares a base with its insertion, at an exon boundary, otherwise projects to
+        an intron-spanning coding delins with no protein consequence instead of the coding deletion it is.
+        hgvs rewrites a reverse-complement delins as ``inv``, which VRS cannot represent, so that is
+        written back as the equivalent delins.
+        """
+        self._ensure_initialized()
+        variant = self._normalizer.normalize(self._parser.parse(g_hgvs))
+        if variant.posedit.edit.type == "inv":
+            import hgvs.edit  # type: ignore[import-untyped]
+
+            start, end = variant.posedit.pos.start.base, variant.posedit.pos.end.base
+            ref = self._hdp.get_seq(variant.ac, start - 1, end).upper()
+            variant.posedit.edit = hgvs.edit.NARefAlt(ref=ref, alt=_reverse_complement(ref))
+
+        return str(variant)
+
     def c_to_p(self, c_hgvs: str) -> str:
         self._ensure_initialized()
         return str(self._mapper.c_to_p(self._parser.parse(c_hgvs)))
@@ -77,9 +105,42 @@ class WorkerCoordinateTranslator:
         self._ensure_initialized()
         return str(self._mapper.g_to_t(self._parser.parse(g_hgvs), transcript))
 
+    def g_to_c_literal(self, g_hgvs: str, transcript: str) -> str:
+        """Project to coding without normalization, so a delins stays a delins rather than becoming ``inv``."""
+        self._ensure_initialized()
+        return str(self._literal_mapper.g_to_t(self._parser.parse(g_hgvs), transcript))
+
     def c_to_g(self, c_hgvs: str) -> str:
         self._ensure_initialized()
         return str(self._mapper.c_to_g(self._parser.parse(c_hgvs)))
+
+    def mane_select_transcript(self, g_hgvs: str) -> str | None:
+        """The MANE Select RefSeq transcript overlapping a genomic variant, or ``None`` if there is none.
+
+        Reads cdot's per-build ``tag``, so it needs a cdot data provider. Where MANE Select transcripts of two
+        genes overlap the variant, the lowest accession wins, so the choice is stable across runs. HGVS that
+        does not parse has no locus and gives ``None``; data provider failures raise, so callers can tell an
+        outage from a locus with no MANE transcript.
+        """
+        self._ensure_initialized()
+        try:
+            variant = self._parser.parse(g_hgvs)
+        except Exception:
+            return None
+
+        candidates = sorted(
+            tx["tx_ac"]
+            for tx in self._hdp.get_tx_for_region(
+                variant.ac, "splign", variant.posedit.pos.start.base - 1, variant.posedit.pos.end.base
+            )
+            if tx["tx_ac"].startswith("NM_")
+        )
+        for accession in candidates:
+            build = self._hdp._get_transcript(accession).get("genome_builds", {}).get("GRCh38", {})
+            if "MANE Select" in (build.get("tag") or ""):
+                return accession
+
+        return None
 
     def c_to_g_literal(self, c_hgvs: str) -> str:
         """Project to genomic without normalization; variant-annotation uses it to rewrite an ``inv`` as delins."""

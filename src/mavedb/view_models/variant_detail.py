@@ -12,6 +12,7 @@ from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.view_models.allele_annotation import AlleleAnnotations
 from mavedb.view_models.allele_identity import AlleleIdentity
 from mavedb.view_models.base.base import BaseModel
+from mavedb.view_models.lean_variant import MappedTriple
 from mavedb.view_models.score_calibration import SavedFunctionalClassification
 
 
@@ -69,6 +70,9 @@ class VariantDetail(BaseModel):
 
     molecular_representation: Optional[dict[str, Any]] = None
     mode: Optional[str] = None
+    # The measured variant's mapped HGVS at every level it has, including levels with no allele in
+    # ``alleles`` (an intronic coding projection has no VRS representation).
+    mapped: Optional[MappedTriple] = None
     alleles: dict[str, AlleleIdentity] = {}
 
     annotations: dict[str, AlleleAnnotations] = {}
