@@ -13,6 +13,7 @@ import functools
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -212,6 +213,8 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
     linked_allele_ids: set[int] = set()
     preexisting_allele_ids: set[int] = set()
     failed_allele_ids: set[int] = set()
+    # Linked alleles whose submitted spelling CAR's response did not list; a subset of linked_allele_ids.
+    unlisted_allele_ids: set[int] = set()
 
     preexisting_alleles = []
     pending_alleles = []
@@ -296,6 +299,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
             "registered_allele_count": len(linked_allele_ids),
             "already_registered_allele_count": len(preexisting_allele_ids),
             "failed_allele_count": len(failed_allele_ids),
+            "unlisted_hgvs_allele_count": len(unlisted_allele_ids),
         }
 
     # All pending alleles failed HGVS extraction; annotations already written above.
@@ -402,25 +406,17 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
 
             caid = caid_iri.split("/")[-1]
 
-            # The positional zip is CAR's contract, but nothing else ties a response to its submission.
-            # An allele that does not list the submitted expression cannot be trusted for these alleles.
+            # CAR lists its own normalized spellings, not the submitted one, so an indel or identity written
+            # differently from CAR's form is expected to be missing from the list. The positional zip (with the
+            # count check above) ties the response to the submission; an unlisted spelling is recorded for audit.
+            spelling_metadata: dict[str, Any] = {}
             if hgvs_string not in _response_hgvs(response):
-                logger.error(
-                    msg=f"CAR returned {caid!r} for HGVS '{hgvs_string}', but that allele does not list it.",
+                unlisted_allele_ids.update(allele_ids_for_hgvs)
+                spelling_metadata = {"submitted_hgvs": hgvs_string, "submitted_hgvs_unlisted": True}
+                logger.debug(
+                    msg=f"CAR returned {caid!r} for HGVS '{hgvs_string}' without listing that spelling.",
                     extra=job_manager.logging_context(),
                 )
-                for allele_id in allele_ids_for_hgvs:
-                    failed_allele_ids.add(allele_id)
-                    _annotate_caid(
-                        annotation_manager,
-                        allele_id,
-                        Disposition.FAILED,
-                        EventReason.MALFORMED_RESPONSE,
-                        error_message="ClinGen Allele Registry returned an allele that does not include the submitted HGVS.",
-                        metadata={"submitted_hgvs": hgvs_string, "returned_caid": caid},
-                    )
-
-                continue
 
             for allele_id in allele_ids_for_hgvs:
                 entry = allele_data[allele_id]
@@ -446,6 +442,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
                         Disposition.PRESENT,
                         EventReason.CORRECTED,
                         metadata={
+                            **spelling_metadata,
                             "clingen_allele_id": caid,
                             "replaced_caid": prior_caid,
                             "submitted_hgvs": hgvs_string,
@@ -472,7 +469,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
                         allele_id,
                         Disposition.PRESENT,
                         reason,
-                        metadata={"clingen_allele_id": caid},
+                        metadata={**spelling_metadata, "clingen_allele_id": caid},
                     )
 
         # Submitted HGVS with no trustworthy response: the truncated tail when the counts line up
@@ -513,6 +510,15 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
     if outcome_data["failed_allele_count"] > 0:
         logger.warning(
             msg=f"CAR submission failed for {outcome_data['failed_allele_count']} alleles in score set {score_set.urn}.",
+            extra=job_manager.logging_context(),
+        )
+
+    if outcome_data["unlisted_hgvs_allele_count"] > 0:
+        logger.warning(
+            msg=(
+                f"CAR did not list the submitted spelling for {outcome_data['unlisted_hgvs_allele_count']} linked "
+                f"alleles in score set {score_set.urn}; their events carry submitted_hgvs_unlisted."
+            ),
             extra=job_manager.logging_context(),
         )
 
