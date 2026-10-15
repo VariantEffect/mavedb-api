@@ -12,6 +12,7 @@ from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
 from mavedb.models.user import User
+from mavedb.worker.lib.managers.utils import FAST_LANE_QUEUE_NAME
 from tests.helpers.constants import TEST_USER
 
 
@@ -56,6 +57,7 @@ class TestEnqueuePipelineForScoreSetUnit:
             self.entrypoint.job_function,
             self.entrypoint.id,
             _job_id=f"{self.entrypoint.urn}#{self.entrypoint.retry_count}",
+            _queue_name=FAST_LANE_QUEUE_NAME,
         )
 
     async def test_returns_none_job_when_arq_deduplicates(self):

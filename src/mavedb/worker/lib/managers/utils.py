@@ -12,6 +12,7 @@ from typing import Literal, Optional, Union
 import redis.exceptions
 import requests.exceptions
 import sqlalchemy.exc
+from arq.constants import default_queue_name
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import DependencyType, FailureCategory, JobStatus
@@ -44,6 +45,16 @@ EXCEPTION_TO_FAILURE_CATEGORY: dict[type[Exception], FailureCategory] = {
     OSError: FailureCategory.NETWORK_ERROR,
 }
 
+FAST_LANE_QUEUE_NAME = "arq:queue:fast-lane"
+"""ARQ queue consumed by a dedicated worker process, independent of the main worker's job slots."""
+
+FAST_LANE_JOB_FUNCTIONS = frozenset({"start_pipeline", "create_variants_for_score_set"})
+"""Short jobs that must not wait behind hour-long mapping jobs holding every main-worker slot.
+
+``start_pipeline`` is included because it enqueues ``create_variants_for_score_set``; routing only the
+latter would leave a new pipeline stuck behind mapping before variant creation is ever enqueued.
+"""
+
 
 def classify_exception(exc: Exception) -> FailureCategory:
     """Map an exception to a FailureCategory. Uses isinstance to match parent classes."""
@@ -63,6 +74,15 @@ def arq_job_id(job: JobRun) -> str:
     namespace while staying deterministic — any caller that holds the JobRun can recompute the id.
     """
     return f"{job.urn}#{job.retry_count or 0}"
+
+
+def arq_queue_name(job: JobRun) -> str:
+    """Return the ARQ queue a JobRun is enqueued on.
+
+    Every ARQ call that takes a queue name (``enqueue_job``, ``Job.status``, ``Job.abort``) must resolve it
+    here; a status lookup against the wrong queue reports a queued job as ``not_found``.
+    """
+    return FAST_LANE_QUEUE_NAME if job.job_function in FAST_LANE_JOB_FUNCTIONS else default_queue_name
 
 
 def construct_bulk_cancellation_result(reason: str) -> JobExecutionOutcome:

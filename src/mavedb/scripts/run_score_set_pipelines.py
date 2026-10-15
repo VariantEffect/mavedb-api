@@ -75,7 +75,7 @@ from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.scripts.run_pipeline import _print_available_pipelines
-from mavedb.worker.lib.managers.utils import arq_job_id
+from mavedb.worker.lib.managers.utils import arq_job_id, arq_queue_name
 from mavedb.worker.settings import RedisWorkerSettings
 
 logger = logging.getLogger(__name__)
@@ -507,6 +507,7 @@ async def enqueue_pipeline(
             pipeline_entrypoint.job_function,
             pipeline_entrypoint.id,
             _job_id=arq_job_id(pipeline_entrypoint),
+            _queue_name=arq_queue_name(pipeline_entrypoint),
         )
     except Exception as e:
         pipeline_factory.discard_pipeline(pipeline)

@@ -3,7 +3,7 @@
 The one shared kickoff seam: build the ``Pipeline`` / ``JobRun`` / ``JobDependency`` records via
 :class:`PipelineFactory`, then enqueue the ``start_pipeline`` entrypoint in ARQ. Both the ad-hoc
 ``run_pipeline`` script and the batch ``enrich_backfilled_score_sets`` driver go through here so the
-enqueue contract (entrypoint id + :func:`arq_job_id`) lives in exactly one place.
+enqueue contract (entrypoint id + :func:`arq_job_id` + :func:`arq_queue_name`) lives in exactly one place.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from mavedb.lib.workflow.pipeline_factory import PipelineFactory
 from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
-from mavedb.worker.lib.managers.utils import arq_job_id
+from mavedb.worker.lib.managers.utils import arq_job_id, arq_queue_name
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,9 @@ async def enqueue_pipeline_for_score_set(
     job_id = arq_job_id(entrypoint)
 
     try:
-        job = await redis.enqueue_job(entrypoint.job_function, entrypoint.id, _job_id=job_id)
+        job = await redis.enqueue_job(
+            entrypoint.job_function, entrypoint.id, _job_id=job_id, _queue_name=arq_queue_name(entrypoint)
+        )
     except Exception:
         logger.error(
             "Failed to enqueue pipeline %s for score set %s; discarding pipeline %s",

@@ -39,7 +39,7 @@ from mavedb.worker.lib.managers.exceptions import (
     PipelineTransitionError,
 )
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
-from mavedb.worker.lib.managers.utils import arq_job_id
+from mavedb.worker.lib.managers.utils import arq_job_id, arq_queue_name
 from tests.helpers.transaction_spy import TransactionSpy
 
 HANDLED_EXCEPTIONS_DURING_OBJECT_MANIPULATION = (
@@ -3567,6 +3567,7 @@ class TestEnqueueInArqUnit:
             mock_job.id,
             _defer_by=datetime.timedelta(seconds=mock_job.retry_delay_seconds if retry else 0),
             _job_id=arq_job_id(mock_job),
+            _queue_name=arq_queue_name(mock_job),
         )
 
     @pytest.mark.asyncio

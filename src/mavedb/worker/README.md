@@ -96,10 +96,10 @@ worker/
 │       ├── constants.py               #   Status grouping constants
 │       ├── exceptions.py              #   Exception hierarchy
 │       ├── types.py                   #   TypedDicts (RetryHistoryEntry, PipelineProgress)
-│       └── utils.py                   #   Dependency checking helpers, classify_exception()
+│       └── utils.py                   #   Dependency checking helpers, classify_exception(), ARQ job id/queue routing
 │
 └── settings/                          # ARQ worker configuration
-    ├── worker.py                      #   ArqWorkerSettings class
+    ├── worker.py                      #   ArqWorkerSettings (main) and ArqFastLaneWorkerSettings classes
     ├── lifecycle.py                   #   Startup/shutdown/job hooks, standalone_ctx()
     ├── redis.py                       #   Redis connection settings
     └── constants.py                   #   Environment variable handling
