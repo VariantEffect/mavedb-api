@@ -15,7 +15,7 @@ Usage:
 import logging
 
 import asyncclick as click
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from mavedb.lib.score_distribution import summarize_variant_data
@@ -50,13 +50,16 @@ def backfill(db: Session, force: bool = False, commit_each: bool = False) -> tup
         )
         summary = summarize_variant_data(variant_data)
 
-        score_set = db.get_one(ScoreSet, score_set_id)
-        score_set.score_distribution = summary
+        # Setting modification_date to itself keeps its onupdate from stamping every score set as modified today.
+        db.execute(
+            update(ScoreSet)
+            .where(ScoreSet.id == score_set_id)
+            .values(score_distribution=summary, modification_date=ScoreSet.modification_date)
+        )
         if commit_each:
             db.commit()
         else:
             db.flush()
-        db.expunge(score_set)
 
         if summary is None:
             empty += 1
