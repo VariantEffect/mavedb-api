@@ -201,9 +201,9 @@ def test_get_variant_detail_envelope(client, session, data_provider, data_files,
     assert body["alleles"]["prot-digest"]["level"] == "protein"
     assert body["alleles"]["prot-digest"]["hgvs"] == "NP_000537.3:p.Ala406Thr"
     assert body["alleles"]["prot-digest"]["relation"] == "translation_of"
-    # The apex is a deterministic projection that pairs with the measured allele it shares the measured group with.
+    # The apex is a deterministic projection, but not a c<->g counterpart, so it pairs with nothing.
     assert body["alleles"]["prot-digest"]["derivation"] == "projection"
-    assert body["alleles"]["prot-digest"]["projectionOf"] == "cdna-digest"
+    assert body["alleles"]["prot-digest"]["projectionOf"] is None
     # The synonymous cousin (different projection group) surfaces as a member wearing co_encodes and is
     # labelled `convergent` (a distinct change sharing the consequence, not an ambiguous candidate).
     assert body["alleles"]["cousin-digest"]["relation"] == "co_encodes"

@@ -238,7 +238,7 @@ def _assemble_variant_detail(
 
     # projection_group -> the nucleotide digests sharing it, for within-record c↔g pairing. A nucleotide link's
     # projection is the ≤1 *other* nucleotide digest in its group. The protein consequence in the measured group
-    # pairs with the measured allele: it is the part of the measurement the score describes.
+    # pairs with nothing: it is what the pair encodes (its relation says so), not another spelling of it.
     group_digests: dict[int, list[str]] = {}
     for link in links:
         if (
@@ -262,8 +262,6 @@ def _assemble_variant_detail(
                 (digest for digest in group_digests.get(link.projection_group, []) if digest != allele.vrs_digest),
                 None,
             )
-        elif link.projection_group is not None and link.projection_group == focus_group and authoritative is not None:
-            projection_of = authoritative.allele.vrs_digest
 
         relation, derivation = (
             (None, None)

@@ -76,10 +76,9 @@ def _focus_projection_pairs(
     """A ``digest -> digest`` map pairing each focus allele with its projection.
 
     A ``projection_group`` is one variant at each level, local to a single mapping record. A nucleotide
-    focus pairs with the ≤1 *other* nucleotide allele in its group (c↔g, symmetric). A protein focus in a
-    measured group pairs with that record's measured allele, one way only, so the measured allele keeps its
-    nucleotide pairing. Reading any one live link
-    is safe: the focus holds one live link per record it appears in, and each record re-encodes the same
+    focus pairs with the ≤1 *other* nucleotide allele in its group (c↔g, symmetric). A protein focus pairs
+    with nothing: it is what its group's nucleotide alleles encode, not another spelling of them. Reading any
+    one live link is safe: the focus holds one live link per record it appears in, and each record re-encodes the same
     change onto the same content-addressed digests, so the pairing is record-independent (assuming those
     records agree on genome assembly).
 
@@ -88,9 +87,8 @@ def _focus_projection_pairs(
     """
     pairs: dict[str, str] = {}
     for focus in focus_alleles:
-        if focus.vrs_digest is None:
+        if focus.vrs_digest is None or focus.level not in NUCLEOTIDE_LEVELS:
             continue
-        nucleotide = focus.level in NUCLEOTIDE_LEVELS
 
         # limit(1) rather than one_or_none(), which would raise for any allele measured more than once.
         link_query = (
@@ -113,18 +111,13 @@ def _focus_projection_pairs(
             .where(MappingRecordAllele.mapping_record_id == link.mapping_record_id)
             .where(MappingRecordAllele.projection_group == link.projection_group)
             .where(MappingRecordAllele.allele_id != focus.id)
+            .where(Allele.level.in_(NUCLEOTIDE_LEVELS))
             .where(MappingRecordAllele.live_at(as_of))
-        )
-        partners = (
-            partners.where(Allele.level.in_(NUCLEOTIDE_LEVELS))
-            if nucleotide
-            else partners.where(MappingRecordAllele.is_authoritative)
         )
         for projection in db.scalars(partners).all():
             if projection is not None:
                 pairs[focus.vrs_digest] = projection
-                if nucleotide:
-                    pairs.setdefault(projection, focus.vrs_digest)
+                pairs.setdefault(projection, focus.vrs_digest)
 
     return pairs
 

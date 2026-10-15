@@ -238,10 +238,10 @@ def test_full_envelope_for_a_coding_assay(session, setup_lib_db_with_score_set):
     assert protein_identity.hgvs == "NP_000537.3:p.Ala406Thr"  # coalesced from hgvs_p
     # The protein member is a translation of the measured coding allele (member -> defining)...
     assert protein_identity.relation == "translation_of"
-    # ...and, on a nucleotide assay, is itself a deterministic projection (axes are independent) that pairs
-    # with the measured allele it shares the measured group with.
+    # ...and, on a nucleotide assay, is itself a deterministic projection (axes are independent). It is not
+    # a c<->g counterpart, so it pairs with nothing.
     assert protein_identity.derivation == "projection"
-    assert protein_identity.projection_of == "cdna-digest"
+    assert protein_identity.projection_of is None
     # The synonymous cousin (different projection group) is a member wearing co_encodes (structural), and
     # labelled `convergent` (provenance) — a distinct, precise change that converges on the measured
     # consequence, not an ambiguous candidate and not a projection of the measured change. It pairs with
@@ -351,9 +351,9 @@ def test_mapped_triple_carries_a_coding_projection_with_no_allele(session, setup
 
 
 @pytest.mark.integration
-def test_protein_link_in_the_measured_group_pairs_with_the_measured_allele(session, setup_lib_db_with_score_set):
-    """The protein consequence is the part of the measurement the score describes, so it pairs with the
-    measured allele; the nucleotide pair still points at each other rather than at it."""
+def test_protein_link_in_the_measured_group_pairs_with_nothing(session, setup_lib_db_with_score_set):
+    """The protein consequence shares the measured group but is what the pair encodes, not another spelling of
+    it, so it pairs with nothing; the nucleotide pair still points at each other."""
     score_set = setup_lib_db_with_score_set
     variant = _variant(session, score_set, 1, hgvs_nt="c.1216G>A")
     record = _record(session, variant, assay_level="cdna", hgvs_assay_level="NM_000546.6:c.1216G>A")
@@ -373,7 +373,7 @@ def test_protein_link_in_the_measured_group_pairs_with_the_measured_allele(sessi
     _link(session, record, genomic, group=measured_group)
 
     variant_alleles = get_variant_detail(session, variant).alleles
-    assert variant_alleles["prot-digest"].projection_of == "cdna-digest"
+    assert variant_alleles["prot-digest"].projection_of is None
     assert variant_alleles["cdna-digest"].projection_of == "gen-digest"
     assert variant_alleles["gen-digest"].projection_of == "cdna-digest"
 
@@ -382,7 +382,8 @@ def test_protein_link_in_the_measured_group_pairs_with_the_measured_allele(sessi
     assert nucleotide_focus["gen-digest"].projection_of == "cdna-digest"
 
     protein_focus = get_allele_detail(session, protein, focus_digests={"prot-digest"}).alleles
-    assert protein_focus["prot-digest"].projection_of == "cdna-digest"
+    assert protein_focus["prot-digest"].projection_of is None
+    assert protein_focus["cdna-digest"].projection_of is None
 
 
 T0 = datetime(2020, 1, 1, tzinfo=timezone.utc)
