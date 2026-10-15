@@ -1,8 +1,8 @@
 """Measured projection groups: each mapping record's measured variant described at every level it has.
 
 A record's measured group holds its measured variant's HGVS at the measured level and its projections to
-the other levels: the coding HGVS of a genomic measurement (``g_to_c`` on the record's transcript) or the
-genomic HGVS of a coding one (``c_to_g``), plus the protein consequence (``c_to_p``). They are computed from
+the other levels: the coding HGVS of a genomic measurement (on the record's transcript) or the genomic HGVS
+of a coding one, plus the protein consequence (``c_to_p``). They are computed from
 the mapping alone, so every nucleotide record gets them, including variants reverse translation cannot
 reach: intronic and UTR changes, multi-codon indels, start and stop changes.
 
@@ -19,6 +19,7 @@ from typing import Callable, Optional, cast
 
 from sqlalchemy import CursorResult, select, true
 from sqlalchemy.orm import Session
+from variant_annotation.lib.translation import coding_to_genomic, genomic_to_coding
 
 from mavedb.lib.hgvs import extract_accession, is_cis_phased_hgvs, strip_protein_prediction_parens
 from mavedb.models.enums.sequence_level import SequenceLevel
@@ -59,11 +60,6 @@ def _expand_reference_identity(hgvs: str) -> str:
     return f"{match['accession']}:g.{start}_{start + len(match['ref']) - 1}="
 
 
-def _is_inversion(hgvs: str) -> bool:
-    """Whether hgvs wrote a variant as ``inv``, which VRS cannot represent; projections keep the delins."""
-    return hgvs.endswith("inv")
-
-
 def _protein_consequence(coordinates: WorkerCoordinateTranslator, hgvs_c: str) -> Optional[str]:
     """The protein consequence of a coding variant, or ``None`` when it is unknown (``p.?``: intronic, UTR)."""
     hgvs_p = strip_protein_prediction_parens(coordinates.c_to_p(hgvs_c))
@@ -85,7 +81,9 @@ def project_measured_hgvs(
 
     Each projection is attempted independently, so a failed protein consequence still keeps the coding
     projection. A genomic measurement is normalized before it is projected, and the group carries the
-    normalized form; one with no coding transcript has only its genomic HGVS.
+    normalized form; one with no coding transcript has only its genomic HGVS. Coding and genomic levels are
+    projected by variant-annotation's :func:`coding_to_genomic` and :func:`genomic_to_coding`, so a change no
+    single change describes at the other level (a codon split by an intron) has no projection there.
     """
     errors: list[str] = []
     if assay_level == SequenceLevel.protein:
@@ -105,18 +103,14 @@ def project_measured_hgvs(
 
         if transcript is not None:
             try:
-                hgvs_c = coordinates.g_to_c(hgvs_g, transcript)
-                if _is_inversion(hgvs_c):
-                    hgvs_c = coordinates.g_to_c_literal(hgvs_g, transcript)
+                hgvs_c = genomic_to_coding(hgvs_g, transcript, coordinates)
             except Exception as e:
                 errors.append(f"g_to_c: {e}")
 
     else:
         hgvs_c = hgvs
         try:
-            hgvs_g = coordinates.c_to_g(hgvs)
-            if _is_inversion(hgvs_g):
-                hgvs_g = coordinates.c_to_g_literal(hgvs)
+            hgvs_g = coding_to_genomic(hgvs, coordinates)
         except Exception as e:
             errors.append(f"c_to_g: {e}")
 

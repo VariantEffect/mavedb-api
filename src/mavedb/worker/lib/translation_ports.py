@@ -70,7 +70,8 @@ class WorkerCoordinateTranslator:
                 assembly_name="GRCh38",
                 alt_aln_method="splign",
             )
-            # Unnormalized, so a delins stays a delins rather than becoming ``inv`` (see c_to_g_literal).
+            # Unnormalized, so each end of a change maps where it is and a delins stays a delins rather than
+            # becoming ``inv`` (see c_to_g_literal).
             self._literal_mapper = hgvs.assemblymapper.AssemblyMapper(
                 self._hdp,
                 assembly_name="GRCh38",
@@ -106,7 +107,8 @@ class WorkerCoordinateTranslator:
         return str(self._mapper.g_to_t(self._parser.parse(g_hgvs), transcript))
 
     def g_to_c_literal(self, g_hgvs: str, transcript: str) -> str:
-        """Project to coding without normalization, so a delins stays a delins rather than becoming ``inv``."""
+        """Project to coding without normalization; variant-annotation uses it to check a projection's span and
+        to rewrite an ``inv`` as delins."""
         self._ensure_initialized()
         return str(self._literal_mapper.g_to_t(self._parser.parse(g_hgvs), transcript))
 
@@ -146,6 +148,12 @@ class WorkerCoordinateTranslator:
         return None
 
     def c_to_g_literal(self, c_hgvs: str) -> str:
-        """Project to genomic without normalization; variant-annotation uses it to rewrite an ``inv`` as delins."""
+        """Project to genomic without normalization; variant-annotation uses it to check a projection's span
+        and to rewrite an ``inv`` as delins."""
         self._ensure_initialized()
         return str(self._literal_mapper.c_to_g(self._parser.parse(c_hgvs)))
+
+    def c_to_n(self, c_hgvs: str) -> str:
+        """Project to transcript (``n.``) coordinates, which count exonic bases only."""
+        self._ensure_initialized()
+        return str(self._literal_mapper.c_to_n(self._parser.parse(c_hgvs)))

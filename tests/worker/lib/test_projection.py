@@ -30,6 +30,17 @@ class FakeCoordinates:
     def c_to_p(self, c_hgvs: str) -> str:
         return self._answer("c_to_p", c_hgvs)
 
+    # Unnormalized projections default to the normalized answer; a test that needs them to differ adds a
+    # ``*_literal`` answer.
+    def c_to_g_literal(self, c_hgvs: str) -> str:
+        return self.answers.get(("c_to_g_literal", c_hgvs)) or self.c_to_g(c_hgvs)
+
+    def g_to_c_literal(self, g_hgvs: str, transcript: str) -> str:
+        return self.answers.get(("g_to_c_literal", g_hgvs)) or self.g_to_c(g_hgvs, transcript)
+
+    def c_to_n(self, c_hgvs: str) -> str:
+        return self.answers.get(("c_to_n", c_hgvs)) or c_hgvs.replace(":c.", ":n.")
+
 
 MULTI_CODON_G = "NC_000008.11:g.95025143_95025145delinsAAC"
 MULTI_CODON_C = "NM_152416.4:c.135_137delinsAAC"
@@ -155,6 +166,22 @@ class TestProjectMeasuredHgvs:
 
         assert measured.hgvs_c == "NM_006888.6:c.215_216delinsCA"
         assert measured.hgvs_p == "NP_008819.1:p.Met72Thr"
+        assert errors == []
+
+    def test_a_coding_change_at_a_split_codon_has_no_genomic_projection(self):
+        """hgvs maps each end of the change separately, so its genomic form would delete the intron between."""
+        split = "NM_000546.6:c.73_75delinsAGG"
+        coordinates = FakeCoordinates(
+            {
+                ("c_to_g", split): "NC_000017.11:g.7676403_7676522delinsCCT",
+                ("c_to_n", split): "NM_000546.6:n.215_217delinsAGG",
+                ("c_to_p", split): "NP_000537.3:p.(Leu25Arg)",
+            }
+        )
+
+        measured, errors = project_measured_hgvs(SequenceLevel.cdna, split, transcript=None, coordinates=coordinates)
+
+        assert measured == MeasuredHgvs(hgvs_c=split, hgvs_g=None, hgvs_p="NP_000537.3:p.Leu25Arg")
         assert errors == []
 
     def test_a_reference_identity_is_projected_as_written(self):

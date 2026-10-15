@@ -146,6 +146,8 @@ Columns are grouped by a namespace prefix. The groups below always appear:
 The `mavedb.post_mapped_hgvs_*` columns describe the measured variant at each level: the measured HGVS
 plus its projections to the other levels. The genomic string is normalized, so for a genomic assay it can
 differ from `mavedb.post_mapped_hgvs_at_assay_level`, and a projected inversion is written as a `delins`.
+A coding change across an exon junction (a codon split by an intron) has no single genomic change, so its
+`mavedb.post_mapped_hgvs_g` is `NA`.
 Score sets assayed at the protein level fill only `mavedb.post_mapped_hgvs_p`: a protein change has
 no single coding or genomic encoding. gnomAD and ClinVar are nucleotide-level resources, so the `gnomad.*`
 and `clinvar.*` columns are `NA` for protein-level variants.

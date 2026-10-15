@@ -193,6 +193,16 @@ class FakeCoordinates:
     def c_to_p(self, c_hgvs: str) -> str:
         return self.p_by_c.get(c_hgvs, "NP_999999.1:p.(Met1Val)")
 
+    # The tables hold changes whose spans match on both levels, so the unnormalized projections agree.
+    def c_to_g_literal(self, c_hgvs: str) -> str:
+        return self.c_to_g(c_hgvs)
+
+    def g_to_c_literal(self, g_hgvs: str, transcript: str) -> str:
+        return self.g_to_c(g_hgvs, transcript)
+
+    def c_to_n(self, c_hgvs: str) -> str:
+        return c_hgvs.replace(":c.", ":n.")
+
     def mane_select_transcript(self, g_hgvs: str) -> str | None:
         self.mane_lookups.append(g_hgvs)
         return self.mane

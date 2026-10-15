@@ -49,6 +49,7 @@ given archive was generated.
   projections to the other levels, with the genomic string normalized. Score sets
   assayed at the protein level fill only `mavedb.post_mapped_hgvs_p`, and their
   `gnomad.*` and `clinvar.*` columns are `NA`: both are nucleotide-level resources.
+  A coding change across an exon junction has `NA` for `mavedb.post_mapped_hgvs_g`.
 - gnomAD frequencies are now reported from whichever release each allele's current
   record came from, rather than only from the single release the deployment serves.
   An allele not covered by a newer release previously reported `NA` for every gnomAD
