@@ -66,9 +66,9 @@ return JobExecutionOutcome.succeeded(data={"variants_created": count})
 ### Failed — a business-logic failure (not a bug)
 ```python
 # Missing data, validation failure, precondition not met
-if not mapped_variants:
+if not mapping_records:
     return JobExecutionOutcome.failed(
-        reason="No mapped variants found for score set",
+        reason="No mapping records found for score set",
         data={"score_set_id": score_set_id}
     )
 ```
@@ -170,8 +170,11 @@ async def submit_to_external_service(ctx: dict, job_id: int, job_manager: JobMan
     ).one()
 
     # 3. Check preconditions
-    if not score_set.mapped_variants:
-        return JobExecutionOutcome.failed(reason="No mapped variants to submit")
+    has_mappings = job_manager.db.scalar(
+        select(exists().where(MappingRecord.score_set_id == score_set.id, MappingRecord.current))
+    )
+    if not has_mappings:
+        return JobExecutionOutcome.failed(reason="No mapping records to submit")
 
     # 4. Submit to the service (let exceptions propagate for service errors)
     result = await external_client.submit(score_set)

@@ -143,6 +143,13 @@ Columns are grouped by a namespace prefix. The groups below always appear:
 | `gnomad.gnomad_version` | gnomAD release *this row's* frequencies were drawn from (e.g. `v4.1`). Varies by row — see Caveats |
 | `clingen.clingen_allele_id` | ClinGen Allele Registry CA identifier (e.g. `CA12345`) |
 
+The `mavedb.post_mapped_hgvs_*` columns describe the measured variant at each level: the measured HGVS
+plus its projections to the other levels. The genomic string is normalized, so for a genomic assay it can
+differ from `mavedb.post_mapped_hgvs_at_assay_level`, and a projected inversion is written as a `delins`.
+Score sets assayed at the protein level fill only `mavedb.post_mapped_hgvs_p`: a protein change has
+no single coding or genomic encoding. gnomAD and ClinVar are nucleotide-level resources, so the `gnomad.*`
+and `clinvar.*` columns are `NA` for protein-level variants.
+
 Two further groups vary by score set, because they exist only where MaveDB holds the underlying data.
 Read the header rather than assuming a fixed column set.
 
@@ -182,9 +189,11 @@ strength that the GA4GH VA-Spec has no equivalent for. The same variant's record
 therefore reports `moderate` where this file reports `MODERATE_PLUS`.
 
 Variants that could not be mapped, or for which a specific annotation is unavailable, will have
-`NA` in the corresponding column. For multi-allelic variants (haplotypes), `mavedb.*` HGVS columns
-will be `NA` because a single combined HGVS string cannot currently be derived. This may be updated in
-a future release.
+`NA` in the corresponding column. For a cis-phased multi-variant (haplotype), the measured-level HGVS is
+a single combined expression (e.g. `NC_…:g.[123A>G;125T>C]`) when every member has an HGVS expression
+on the same sequence, and `NA` otherwise. Haplotypes mapped with VRS 1.x have no VRS allele: they are absent from
+`vrs/{urn}.vrs.ndjson` and `va/{urn}.va.ndjson`, `mavedb.post_mapped_vrs_id` and the projected levels
+are `NA`, and the measured level carries only the HGVS their original mapping recorded, if any.
 
 ### `vrs/{urn}.vrs.ndjson`
 
@@ -309,9 +318,10 @@ mapping pipeline.**
 All files for a given score set share the same variant identifier:
 
 - In CSV files: the `accession` column (e.g. `urn:mavedb:00000001-a-1#42`)
-- In `mapped-variants.json`: the `variantUrn` field
+- In `vrs.ndjson` and `va.ndjson`: the `variant_urn` field
+- In the legacy `mapped-variants.json`: the `variantUrn` field
 
-To combine scores with annotations or with VRS data, join on `accession` = `variantUrn`.
+To combine scores with annotations or with VRS data, join on `accession` = `variant_urn`.
 
 ### Linking files back to metadata
 
@@ -346,8 +356,8 @@ score_set = next(
 
 - Only **published**, **CC0-licensed** data is included. Datasets with other licenses are not
   present in this dump even if they are publicly visible on MaveDB.
-- Annotation files (`.annotations.csv`), the legacy `.mapped-variants.json` files, and
-  VA-Spec files (`.va.ndjson`) are **only present for score sets that have been processed by the
+- Annotation files (`.annotations.csv`), VRS files (`.vrs.ndjson`), the legacy
+  `.mapped-variants.json` files, and VA-Spec files (`.va.ndjson`) are **only present for score sets that have been processed by the
   MaveDB variant mapping pipeline**. Score sets that have not yet been mapped, or for which mapping
   failed entirely, will not have these files.
 - `annotations.csv` includes **research-use-only** calibrations, flagged by `research_use_only`; the
@@ -358,8 +368,8 @@ score_set = next(
   functional evidence only, not a full clinical ACMG determination.
 - Mapping is applied per variant within a score set. A score set that has completed the mapping
   pipeline may still contain individual variants with failed mappings. Those variants have `NA` in
-  all `mavedb.*`, `vep.*`, `gnomad.*`, and `clingen.*` columns in the annotations CSV, and
-  `preMapped: null` / `postMapped: null` in the JSON.
+  all `mavedb.*`, `vep.*`, `gnomad.*`, and `clingen.*` columns in the annotations CSV, are omitted
+  from the `vrs/` and `va/` files, and have `preMapped: null` / `postMapped: null` in the legacy JSON.
 - This dump is a snapshot of MaveDB's **current** state, not a historical archive. The `mapped/`
   JSON files include only each variant's current mapping — superseded records from earlier mapping
   runs are not retained here. (Callers that need mapping history directly can ask the API for a past

@@ -13,6 +13,7 @@ BACKGROUND_FUNCTIONS: List[Callable] = [
     # Variant processing jobs
     create_variants_for_score_set,
     map_variants_for_score_set,
+    reverse_translate_variants_for_score_set,
     # External service jobs
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,
@@ -42,8 +43,8 @@ BACKGROUND_CRONJOBS: List[CronJob] = [
     cron(
         cleanup_stalled_jobs,
         name="cleanup_stalled_jobs_cron",
-        minute={15, 45},  # Every 30 minutes
-        keep_result=timedelta(minutes=25).total_seconds(),
+        minute={5, 15, 25, 35, 45, 55},  # Every 10 minutes
+        keep_result=timedelta(minutes=9).total_seconds(),
     ),
 ]
 ```
@@ -239,7 +240,9 @@ class ArqWorkerSettings:
     redis_settings = RedisWorkerSettings
     functions = BACKGROUND_FUNCTIONS
     cron_jobs = BACKGROUND_CRONJOBS
-    job_timeout = 5 * 60 * 60    # 5 hours
+    max_jobs = MAX_JOBS           # 2; limits event-loop starvation from sync DB calls
+    job_timeout = JOB_TIMEOUT_SECONDS  # 24 hours
+    allow_abort_jobs = True       # Lets cleanup_stalled_jobs abort a wedged RUNNING job
 ```
 
 The lifecycle hooks (in `settings/lifecycle.py`) manage the ARQ context dict (`ctx`):

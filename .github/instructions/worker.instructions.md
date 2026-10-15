@@ -86,7 +86,7 @@ Always return using factory methods:
 
 ```python
 return JobExecutionOutcome.succeeded(data={"variants_created": count})
-return JobExecutionOutcome.failed(reason="No mapped variants found", data={...})
+return JobExecutionOutcome.failed(reason="No mapping records found", data={...})
 return JobExecutionOutcome.failed(reason="HGVS parse error", failure_category=FailureCategory.DATA_ERROR)
 return JobExecutionOutcome.skipped(data={"reason": "Feature disabled"})
 # For unhandled exceptions: let them propagate — the decorator catches and creates .errored()
@@ -127,8 +127,8 @@ Parameters with `None` values in pipeline definitions are filled at runtime from
 
 ## Pipeline Lifecycle (Brief)
 
-1. Router calls `PipelineFactory.create_pipeline()` → creates `Pipeline`, `JobRun`, and `JobDependency` records
-2. Router enqueues the `start_pipeline` entrypoint job in ARQ
+1. Router or script calls `enqueue_pipeline_for_score_set()` (`lib/workflow/kickoff.py`) → `PipelineFactory.create_pipeline()` creates `Pipeline`, `JobRun`, and `JobDependency` records
+2. The same call enqueues the `start_pipeline` entrypoint job in ARQ
 3. `start_pipeline` runs → its `@with_pipeline_management` decorator starts the pipeline and calls `coordinate_pipeline()`
 4. `coordinate_pipeline()` finds PENDING jobs whose dependencies are met → marks them QUEUED → enqueues in ARQ
 5. Each job runs → after completion, its decorator calls `coordinate_pipeline()` again

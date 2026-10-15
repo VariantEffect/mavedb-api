@@ -242,13 +242,14 @@ When a job fails:
 
 ### Stalled Job Recovery
 
-The `cleanup_stalled_jobs` cron job (runs every 30 minutes) catches jobs stuck in intermediate states:
+The `cleanup_stalled_jobs` cron job (runs every 10 minutes) catches jobs stuck in intermediate states:
 
-| State | Timeout | Action |
-|-------|---------|--------|
-| `QUEUED` | 10 minutes | Fail → retry if eligible |
-| `RUNNING` | 60 minutes | Fail → retry if eligible |
-| `PENDING` (in pipeline) | 30 minutes | Fail → retry if eligible |
+| State | Stall signal | Action |
+|-------|--------------|--------|
+| `QUEUED` | Never started and absent from ARQ's Redis queue | Fail → retry if eligible |
+| `RUNNING` | `progress_updated_at` idle > 30 minutes (`PROGRESS_STALL_MINUTES`), or running > 23.5 hours (`RUNNING_TIMEOUT_MINUTES`) | Abort the ARQ attempt; once it is confirmed dead, fail → retry if eligible. An abort that cannot be confirmed leaves the job in place. |
+| `PENDING` (in pipeline) | Created > 5 minutes ago and runnable | Fail → retry if eligible |
+| Pipeline (non-terminal, no active jobs) | Created > 5 minutes ago | Re-coordinate to settle the pipeline status |
 
 ## See Also
 
