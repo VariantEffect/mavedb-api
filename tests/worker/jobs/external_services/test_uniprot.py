@@ -19,6 +19,8 @@ from tests.helpers.constants import (
     TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE,
     TEST_UNIPROT_SWISS_PROT_TYPE,
     VALID_NT_ACCESSION,
+    VALID_NT_ACCESSION_UNVERSIONED,
+    VALID_PRO_ACCESSION,
     VALID_UNIPROT_ACCESSION,
 )
 
@@ -162,7 +164,7 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
         # Verify that the job metadata contains no submitted jobs
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
         assert sample_submit_uniprot_mapping_jobs_run.metadata_["submitted_jobs"] == {
-            "1": {"job_id": None, "accession": VALID_NT_ACCESSION}
+            "1": {"job_id": None, "accession": VALID_NT_ACCESSION_UNVERSIONED}
         }
 
     async def test_submit_uniprot_mapping_jobs_api_failure_raises(
@@ -239,7 +241,7 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
         # Verify that the job metadata contains the submitted jobs (which were submitted before the error)
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
         assert sample_submit_uniprot_mapping_jobs_run.metadata_["submitted_jobs"] == {
-            "1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION}
+            "1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION_UNVERSIONED}
         }
 
     async def test_submit_uniprot_mapping_jobs_successful_submission(
@@ -277,7 +279,7 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
         assert isinstance(job_result, JobExecutionOutcome)
         assert job_result.status == JobStatus.SUCCEEDED
 
-        expected_submitted_jobs = {"1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION}}
+        expected_submitted_jobs = {"1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION_UNVERSIONED}}
 
         # Verify that the job metadata contains the submitted job
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -286,6 +288,59 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
         # Verify that polling job params have been updated correctly
         session.refresh(sample_dummy_polling_job_for_submission_run)
         assert sample_dummy_polling_job_for_submission_run.job_params["mapping_jobs"] == expected_submitted_jobs
+
+    @pytest.mark.parametrize(
+        "post_mapped_metadata, expected_from_db, expected_accession",
+        [
+            (
+                {"cdna": {"sequence_accessions": [VALID_NT_ACCESSION]}},
+                "RefSeq_Nucleotide",
+                VALID_NT_ACCESSION_UNVERSIONED,
+            ),
+            ({"protein": {"sequence_accessions": [VALID_PRO_ACCESSION]}}, "RefSeq_Protein", VALID_PRO_ACCESSION),
+        ],
+    )
+    async def test_submit_uniprot_mapping_jobs_submits_query_form_of_accession(
+        self,
+        session,
+        mock_worker_ctx,
+        with_populated_domain_data,
+        with_submit_uniprot_mapping_job,
+        with_dummy_polling_job_for_submission_run,
+        sample_score_set,
+        sample_submit_uniprot_mapping_jobs_run,
+        sample_dummy_polling_job_for_submission_run,
+        post_mapped_metadata,
+        expected_from_db,
+        expected_accession,
+    ):
+        """NM_ accessions are submitted unversioned, other accessions as-is, and the submitted
+        form is what the polling job receives to match results against."""
+        target_gene = sample_score_set.target_genes[0]
+        target_gene.post_mapped_metadata = post_mapped_metadata
+        session.commit()
+
+        with patch(
+            "mavedb.worker.jobs.external_services.uniprot.UniProtIDMappingAPI.submit_id_mapping",
+            return_value="job_12345",
+        ) as mock_submit:
+            job_result = await submit_uniprot_mapping_jobs_for_score_set(
+                mock_worker_ctx,
+                1,
+                JobManager(
+                    db=session,
+                    redis=mock_worker_ctx["redis"],
+                    job_id=sample_submit_uniprot_mapping_jobs_run.id,
+                ),
+            )
+
+        assert job_result.status == JobStatus.SUCCEEDED
+        mock_submit.assert_called_once_with(expected_from_db, "UniProtKB", [expected_accession])
+
+        session.refresh(sample_dummy_polling_job_for_submission_run)
+        assert sample_dummy_polling_job_for_submission_run.job_params["mapping_jobs"] == {
+            "1": {"job_id": "job_12345", "accession": expected_accession}
+        }
 
     async def test_submit_uniprot_mapping_jobs_partial_submission(
         self,
@@ -335,7 +390,7 @@ class TestSubmitUniprotMappingJobsForScoreSetUnit:
         assert job_result.status == JobStatus.SUCCEEDED
 
         expected_submitted_jobs = {
-            "1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION},
+            "1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION_UNVERSIONED},
             "2": {"job_id": None, "accession": "NM_000546"},
         }
 
@@ -385,7 +440,7 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
         assert isinstance(job_result, JobExecutionOutcome)
         assert job_result.status == JobStatus.SUCCEEDED
 
-        expected_submitted_jobs = {"1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION}}
+        expected_submitted_jobs = {"1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION_UNVERSIONED}}
 
         # Verify that the job metadata contains the submitted job
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -436,7 +491,7 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
         assert isinstance(job_result, JobExecutionOutcome)
         assert job_result.status == JobStatus.SUCCEEDED
 
-        expected_submitted_jobs = {"1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION}}
+        expected_submitted_jobs = {"1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION_UNVERSIONED}}
 
         # Verify that the job metadata contains the submitted job
         session.refresh(sample_submit_uniprot_mapping_jobs_run_in_pipeline)
@@ -662,7 +717,7 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
         # Verify that the job metadata contains no submitted jobs
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
         assert sample_submit_uniprot_mapping_jobs_run.metadata_["submitted_jobs"] == {
-            "1": {"job_id": None, "accession": VALID_NT_ACCESSION}
+            "1": {"job_id": None, "accession": VALID_NT_ACCESSION_UNVERSIONED}
         }
 
         # Verify that the submission job was completed successfully
@@ -697,8 +752,8 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
         session.commit()
 
         # Add accessions to both target genes' post mapped metadata
-        for idx, tg in enumerate(sample_score_set.target_genes):
-            tg.post_mapped_metadata = {"protein": {"sequence_accessions": [VALID_NT_ACCESSION + f"{idx:05d}"]}}
+        for tg, accession in zip(sample_score_set.target_genes, [VALID_NT_ACCESSION, "NM_000546.6"]):
+            tg.post_mapped_metadata = {"protein": {"sequence_accessions": [accession]}}
         session.commit()
 
         with (
@@ -715,8 +770,8 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
         assert job_result.status == JobStatus.SUCCEEDED
 
         expected_submitted_jobs = {
-            "1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION + "00000"},
-            "2": {"job_id": None, "accession": VALID_NT_ACCESSION + "00001"},
+            "1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION_UNVERSIONED},
+            "2": {"job_id": None, "accession": "NM_000546"},
         }
 
         # Verify that the job metadata contains both submitted and failed jobs
@@ -765,7 +820,7 @@ class TestSubmitUniprotMappingJobsForScoreSetIntegration:
         # Verify that the job metadata contains the job we submitted before the error
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
         assert sample_submit_uniprot_mapping_jobs_run.metadata_["submitted_jobs"] == {
-            "1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION}
+            "1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION_UNVERSIONED}
         }
 
         # Verify that the submission job failed
@@ -810,7 +865,7 @@ class TestSubmitUniprotMappingJobsArqContext:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        expected_submitted_jobs = {"1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION}}
+        expected_submitted_jobs = {"1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION_UNVERSIONED}}
 
         # Verify that the job metadata contains the submitted job
         session.refresh(sample_submit_uniprot_mapping_jobs_run)
@@ -859,7 +914,7 @@ class TestSubmitUniprotMappingJobsArqContext:
             await arq_worker.async_run()
             await arq_worker.run_check()
 
-        expected_submitted_jobs = {"1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION}}
+        expected_submitted_jobs = {"1": {"job_id": "job_12345", "accession": VALID_NT_ACCESSION_UNVERSIONED}}
 
         # Verify that the job metadata contains the submitted job
         session.refresh(sample_submit_uniprot_mapping_jobs_run_in_pipeline)

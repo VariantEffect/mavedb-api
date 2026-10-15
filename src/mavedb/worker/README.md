@@ -60,16 +60,17 @@ worker/
 │
 ├── jobs/                              # ── Business Layer ──
 │   ├── registry.py                    # Central registry of all job functions
-│   ├── variant_processing/            # Variant creation and mapping jobs
+│   ├── variant_processing/            # Variant creation, mapping and reverse translation jobs
 │   │   ├── creation.py                #   create_variants_for_score_set
-│   │   └── mapping.py                 #   map_variants_for_score_set
+│   │   ├── mapping.py                 #   map_variants_for_score_set
+│   │   └── reverse_translation.py     #   reverse_translate_variants_for_score_set
 │   ├── external_services/             # Integration with external APIs
 │   │   ├── clingen.py                 #   CAR and LDH submission
+│   │   ├── clingen_cache.py           #   ClinGen allele cache warming
 │   │   ├── clinvar.py                 #   ClinVar control refresh
 │   │   ├── gnomad.py                  #   gnomAD variant linking
-│   │   ├── hgvs.py                    #   HGVS annotation
 │   │   ├── uniprot.py                 #   UniProt mapping submission/polling
-│   │   └── variant_translation.py     #   Variant translation population
+│   │   └── vep.py                     #   VEP consequence population
 │   ├── data_management/               # Database maintenance jobs
 │   │   └── views.py                   #   Materialized view refresh
 │   ├── pipeline_management/           # Pipeline orchestration jobs
@@ -81,6 +82,8 @@ worker/
 │       └── constants.py               #   Job-level constants
 │
 ├── lib/                               # ── Infrastructure Layer ──
+│   ├── projection.py                  # Measured projection groups (c./g./p. HGVS per mapping record)
+│   ├── translation_ports.py           # variant-annotation translation ports (coordinate translator, UTA)
 │   ├── decorators/                    # Job/pipeline lifecycle decorators
 │   │   ├── job_management.py          #   @with_job_management
 │   │   ├── pipeline_management.py     #   @with_pipeline_management
@@ -93,10 +96,10 @@ worker/
 │       ├── constants.py               #   Status grouping constants
 │       ├── exceptions.py              #   Exception hierarchy
 │       ├── types.py                   #   TypedDicts (RetryHistoryEntry, PipelineProgress)
-│       └── utils.py                   #   Dependency checking helpers, classify_exception()
+│       └── utils.py                   #   Dependency checking helpers, classify_exception(), ARQ job id/queue routing
 │
 └── settings/                          # ARQ worker configuration
-    ├── worker.py                      #   ArqWorkerSettings class
+    ├── worker.py                      #   ArqWorkerSettings (main) and ArqFastLaneWorkerSettings classes
     ├── lifecycle.py                   #   Startup/shutdown/job hooks, standalone_ctx()
     ├── redis.py                       #   Redis connection settings
     └── constants.py                   #   Environment variable handling

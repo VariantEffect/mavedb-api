@@ -1,4 +1,3 @@
-import os
 from typing import Any, AsyncGenerator, Generator
 
 from arq import ArqRedis, create_pool
@@ -6,7 +5,7 @@ from biocommons.seqrepo import SeqRepo
 from cdot.hgvs.dataproviders import RESTDataProvider
 from sqlalchemy.orm import Session
 
-from mavedb.data_providers.services import cdot_rest
+from mavedb.data_providers.services import cdot_rest, seqrepo
 from mavedb.db.session import SessionLocal
 from mavedb.worker.settings import RedisWorkerSettings
 
@@ -33,5 +32,4 @@ def hgvs_data_provider() -> RESTDataProvider:
 
 
 def get_seqrepo() -> SeqRepo:
-    seqrepo_dir = os.environ.get("HGVS_SEQREPO_DIR", "/seqrepo")
-    return SeqRepo(seqrepo_dir)
+    return seqrepo()

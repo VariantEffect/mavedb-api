@@ -76,9 +76,9 @@ async def check_permission(
     elif model_name == ModelName.score_calibration:
         item = db.query(ScoreCalibration).filter(ScoreCalibration.urn == urn).one_or_none()
 
-    if item:
-        permission = has_permission(user_data, item, action).permitted
-        return permission
-    else:
-        logger.debug(msg="The requested resources does not exist.", extra=logging_context())
-        raise HTTPException(status_code=404, detail=f"{model_name.value} with URN '{urn}' not found")
+    # A resource the caller may not read is reported as missing, so this route can't confirm it exists.
+    if item and has_permission(user_data, item, Action.READ).permitted:
+        return has_permission(user_data, item, action).permitted
+
+    logger.debug(msg="The requested resource does not exist or is not readable.", extra=logging_context())
+    raise HTTPException(status_code=404, detail=f"{model_name.value} with URN '{urn}' not found")

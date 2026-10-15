@@ -14,8 +14,8 @@ from mavedb.lib.annotation.classification import (
     functional_classification_of_variant,
     pathogenicity_classification_of_variant,
 )
-from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_calibration import ScoreCalibration
+from mavedb.models.variant import Variant
 
 
 @dataclass(frozen=True)
@@ -56,7 +56,7 @@ class FlatAnnotation:
 
 
 def flatten_annotation(
-    mapped_variant: MappedVariant,
+    variant: Variant,
     score_calibration: Optional[ScoreCalibration],
     containing_classification_ids: Optional[set[int]] = None,
 ) -> FlatAnnotation:
@@ -86,7 +86,7 @@ def flatten_annotation(
         )
 
     _, functional_classification = functional_classification_of_variant(
-        mapped_variant, score_calibration, containing_classification_ids
+        variant, score_calibration, containing_classification_ids
     )
 
     functional_only = FlatAnnotation(
@@ -103,7 +103,7 @@ def flatten_annotation(
 
     # VA-Spec strength deliberately unused: it has already collapsed MODERATE_PLUS to MODERATE.
     containing_range, criterion, _va_spec_evidence_strength = pathogenicity_classification_of_variant(
-        mapped_variant, score_calibration, containing_classification_ids
+        variant, score_calibration, containing_classification_ids
     )
 
     # Read the strength off the containing range, which keeps MODERATE_PLUS. Reachable in practice:

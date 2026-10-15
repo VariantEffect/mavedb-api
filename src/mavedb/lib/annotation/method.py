@@ -143,12 +143,13 @@ def pathogenicity_score_calibration_as_iri(score_calibration: ScoreCalibration) 
     return publication_as_iri(publication) if publication else None
 
 
-def pathogenicity_score_calibration_as_method(
-    score_calibration: ScoreCalibration, method: Optional[VariantPathogenicityEvidenceLine.Criterion]
-) -> Method:
+def pathogenicity_score_calibration_as_method(score_calibration: ScoreCalibration) -> Method:
     """
     Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
     object for a generic calibration.
+
+    A calibration assesses functional data, so its method type is always ``functional_data_assessment``,
+    the ACMG 2015 type that permits the PS3 and BS3 criteria its evidence lines carry.
     """
     # TODO#XXX - in a future software version, it will be required that the method is populated with an IRI or equivalent.
     #            Currently, we populate the method with an IRI if a publication with the appropriate relationship is found,
@@ -157,7 +158,7 @@ def pathogenicity_score_calibration_as_method(
     return Method(
         name="Calibration method",
         reportedIn=pathogenicity_score_calibration_as_iri(score_calibration) or "Not Provided",
-        methodType=method.value if method else None,
+        methodType=VariantPathogenicityEvidenceLine.MethodType.FUNCTIONAL_DATA_ASSESSMENT.value,
     )
 
 

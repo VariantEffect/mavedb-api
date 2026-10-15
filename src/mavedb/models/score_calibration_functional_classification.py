@@ -22,6 +22,15 @@ if TYPE_CHECKING:
 
 
 class ScoreCalibrationFunctionalClassification(Base):
+    """A labeled functional-score range (or class) within a calibration, plus the variants that fall in it.
+
+    The ``variants`` relationship records *bin membership* — which variants' functional scores land
+    in this range. That is distinct from ``CalibrationControl`` (see ``models/calibration_control.py``),
+    which records variants with independently known clinical significance used as ground truth for the
+    calibration. A variant can be both, but the two are stored separately because they answer different
+    questions: "where did this score land?" versus "what is this variant's known clinical status?".
+    """
+
     __tablename__ = "score_calibration_functional_classifications"
 
     id = Column(Integer, primary_key=True)

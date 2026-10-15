@@ -11,8 +11,8 @@ from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
 from mavedb.scripts.run_score_set_pipelines import (
-    CLUSTER_KEY_UNKNOWN,
     _IN_FLIGHT_STATUSES,
+    CLUSTER_KEY_UNKNOWN,
     cluster_cohort,
     cohort_filename,
     effective_pipeline_name,
@@ -22,6 +22,7 @@ from mavedb.scripts.run_score_set_pipelines import (
     in_flight_pipelines,
     is_current,
     is_failure,
+    latest_pipeline_by_score_set,
     pipelines_by_score_set,
     plan_enqueue,
     render_cluster_table,
@@ -287,11 +288,81 @@ class TestPlanEnqueue:
         )
         assert sorted(self._decisions(plan).values()) == ["enqueue", "skip_cap", "skip_cap"]
 
+    def test_untried_entry_wins_a_slot_over_an_earlier_failed_entry(self):
+        """Cohort order (id 1 before id 2) must not decide this: id 1 previously failed,
+        id 2 has never run, and with only one slot the untried one has to get it —
+        otherwise a chronic failure at the front of the order retries forever while an
+        untried entry behind it never gets a turn."""
+        plan = plan_enqueue(
+            self._cohort(2),
+            in_flight_score_set_ids=set(),
+            current_score_set_ids=set(),
+            failed_score_set_ids=frozenset({1}),
+            slots=1,
+            limit=None,
+        )
+        decisions = self._decisions(plan)
+        assert decisions[1] == "skip_cap"
+        assert decisions[2] == "enqueue"
+
+    def test_failed_entry_gets_leftover_slots_after_untried_are_placed(self):
+        plan = plan_enqueue(
+            self._cohort(2),
+            in_flight_score_set_ids=set(),
+            current_score_set_ids=set(),
+            failed_score_set_ids=frozenset({1}),
+            slots=2,
+            limit=None,
+        )
+        assert set(self._decisions(plan).values()) == {"enqueue"}
+
+    def test_limit_also_applies_across_the_two_priority_passes(self):
+        plan = plan_enqueue(
+            self._cohort(2),
+            in_flight_score_set_ids=set(),
+            current_score_set_ids=set(),
+            failed_score_set_ids=frozenset({1}),
+            slots=2,
+            limit=1,
+        )
+        decisions = self._decisions(plan)
+        assert decisions[2] == "enqueue"
+        assert decisions[1] == "skip_cap"
+
+    def test_current_and_in_flight_still_take_precedence_over_failed_status(self):
+        cohort = self._cohort(2)
+        plan = plan_enqueue(
+            cohort,
+            in_flight_score_set_ids={1},
+            current_score_set_ids={2},
+            failed_score_set_ids=frozenset({1, 2}),
+            slots=5,
+            limit=None,
+        )
+        decisions = self._decisions(plan)
+        assert decisions[1] == "skip_in_flight"
+        assert decisions[2] == "skip_current"
+
     def test_slots_fill_one_cluster_before_moving_to_the_next(self):
         """Two slots against two clusters must both land on the same gene, otherwise each
         running pipeline warms a ClinGen cache the other never reads."""
         cohort = self._cohort(4, {1: "BRCA1", 2: "BRCA1", 3: "TP53", 4: "TP53"})
         plan = plan_enqueue(cohort, in_flight_score_set_ids=set(), current_score_set_ids=set(), slots=2, limit=None)
+        enqueued = {key for _ss, key, decision in plan if decision == "enqueue"}
+        assert len(enqueued) == 1
+
+    def test_failed_retry_pass_still_fills_one_cluster_before_the_next(self):
+        """The retry pass is a subsequence of the same cluster-ordered cohort, so it
+        inherits cache-coherent fill without any special-casing."""
+        cohort = self._cohort(4, {1: "BRCA1", 2: "BRCA1", 3: "TP53", 4: "TP53"})
+        plan = plan_enqueue(
+            cohort,
+            in_flight_score_set_ids=set(),
+            current_score_set_ids=set(),
+            failed_score_set_ids=frozenset({1, 2, 3, 4}),
+            slots=2,
+            limit=None,
+        )
         enqueued = {key for _ss, key, decision in plan if decision == "enqueue"}
         assert len(enqueued) == 1
 
@@ -311,7 +382,11 @@ class TestResolveJobSubset:
     def test_caid_leaf_resolves_against_map_annotate_score_set(self):
         jobs = PIPELINE_DEFINITIONS["map_annotate_score_set"]["job_definitions"]
         subset = resolve_job_subset(jobs, frozenset({"submit_score_set_mappings_to_car"}))
-        assert {j["key"] for j in subset} == {"map_variants_for_score_set", "submit_score_set_mappings_to_car"}
+        assert {j["key"] for j in subset} == {
+            "reverse_translate_variants_for_score_set",
+            "map_variants_for_score_set",
+            "submit_score_set_mappings_to_car",
+        }
 
     def test_fast_annotate_leaf_resolves_against_map_annotate_score_set(self):
         jobs = PIPELINE_DEFINITIONS["map_annotate_score_set"]["job_definitions"]
@@ -319,33 +394,28 @@ class TestResolveJobSubset:
             {
                 "link_gnomad_variants",
                 "refresh_clinvar_controls",
-                "populate_hgvs_for_score_set",
-                "populate_variant_translations_for_score_set",
                 "submit_uniprot_mapping_jobs_for_score_set",
                 "poll_uniprot_mapping_jobs_for_score_set",
             }
         )
         subset = resolve_job_subset(jobs, leaf)
         assert {j["key"] for j in subset} == {
+            "reverse_translate_variants_for_score_set",
             "map_variants_for_score_set",
             "submit_score_set_mappings_to_car",
             "warm_clingen_cache",
             "link_gnomad_variants",
             "refresh_clinvar_controls",
-            "populate_hgvs_for_score_set",
-            "populate_variant_translations_for_score_set",
             "submit_uniprot_mapping_jobs_for_score_set",
             "poll_uniprot_mapping_jobs_for_score_set",
         }
 
-    # TODO(#772)
-    @pytest.mark.skip(reason="vep currently disabled")
     def test_vep_leaf_resolves_against_map_annotate_score_set(self):
         jobs = PIPELINE_DEFINITIONS["map_annotate_score_set"]["job_definitions"]
         subset = resolve_job_subset(jobs, frozenset({"populate_vep_for_score_set"}))
         assert {j["key"] for j in subset} == {
             "map_variants_for_score_set",
-            "submit_score_set_mappings_to_car",
+            "reverse_translate_variants_for_score_set",
             "populate_vep_for_score_set",
         }
 
@@ -357,14 +427,11 @@ class TestResolveJobSubset:
                 {
                     "link_gnomad_variants",
                     "refresh_clinvar_controls",
-                    "populate_hgvs_for_score_set",
-                    "populate_variant_translations_for_score_set",
                     "submit_uniprot_mapping_jobs_for_score_set",
                     "poll_uniprot_mapping_jobs_for_score_set",
                 }
             ),
-            # TODO(#772)
-            # frozenset({"populate_vep_for_score_set"}),
+            frozenset({"populate_vep_for_score_set"}),
         ],
     )
     def test_presets_against_annotate_score_set_exclude_mapping_job(self, leaf):
@@ -377,8 +444,6 @@ class TestResolveJobSubset:
         with pytest.raises(ValueError):
             resolve_job_subset(jobs, frozenset({"populate_vep_for_score_set"}))
 
-    # TODO(#772)
-    @pytest.mark.skip(reason="vep currently disabled")
     def test_preserves_base_pipeline_order(self):
         jobs = PIPELINE_DEFINITIONS["map_annotate_score_set"]["job_definitions"]
         subset = resolve_job_subset(jobs, frozenset({"populate_vep_for_score_set"}))
@@ -510,6 +575,29 @@ class TestInFlightAndDedup:
             statuses=[PipelineStatus.SUCCEEDED],
         )
         assert score_set.id not in succeeded
+
+
+@pytest.mark.integration
+class TestLatestPipelineByScoreSet:
+    def test_score_set_with_no_pipeline_is_absent(self, session, make_score_set):
+        score_set = make_score_set()
+
+        result = latest_pipeline_by_score_set(session, tracked_name="test_pipeline", score_set_ids=[score_set.id])
+        assert score_set.id not in result
+
+    def test_most_recently_created_pipeline_wins(self, session, make_score_set):
+        score_set = make_score_set()
+        older = _make_pipeline(
+            session, status=PipelineStatus.FAILED, created_at=datetime(2024, 1, 1, tzinfo=timezone.utc)
+        )
+        _make_job_run(session, pipeline_id=older.id, score_set_id=score_set.id)
+        newer = _make_pipeline(
+            session, status=PipelineStatus.SUCCEEDED, created_at=datetime(2024, 6, 1, tzinfo=timezone.utc)
+        )
+        _make_job_run(session, pipeline_id=newer.id, score_set_id=score_set.id)
+
+        result = latest_pipeline_by_score_set(session, tracked_name="test_pipeline", score_set_ids=[score_set.id])
+        assert result[score_set.id].id == newer.id
 
 
 @pytest.mark.integration

@@ -8,13 +8,12 @@ applyTo: 'src/mavedb/models/**/*.py,alembic/**/*.py'
 ## Model Structure
 
 ### Base Class
-All models use `@as_declarative()` with a shared `Base` class providing:
-- `id`: Integer primary key (auto-increment)
-- `creation_date` / `modification_date`: Auto-managed timestamps
-- `created_by_id` / `modified_by_id`: Foreign keys to users table
+All models subclass the `@as_declarative()` `Base` in `src/mavedb/db/base.py`. It declares no columns; it only defaults `__tablename__` to the lowercased class name. Table models declare their own `id` primary key and set `__tablename__` explicitly; view models map `__table__` to a view instead.
 
 ### Common Columns
 Most resource models include:
+- `creation_date` / `modification_date`: `Date` columns defaulting to today (`modification_date` updates on write)
+- `created_by_id` / `modified_by_id`: Foreign keys to the users table (user-owned resources: experiment sets, experiments, score sets, calibrations, calibration controls, collections)
 - `urn`: Unique string identifier (temporary `tmp:<uuid>` or permanent `urn:mavedb:...`)
 - `private`: Boolean flag for visibility control
 - `approved`: Boolean for moderation status
@@ -49,6 +48,16 @@ class ScoreSetPublicationIdentifierAssociation(Base):
     publication_identifier_id = Column(ForeignKey("publication_identifiers.id"), primary_key=True)
     primary = Column(Boolean, default=False)
 ```
+
+### Valid-Time Versioning (`ValidTime`)
+Rows that change over time mix in `ValidTime` (`src/mavedb/db/mixins.py`) instead of being updated or deleted in place:
+- `valid_from` / `valid_to`: a row is live while `valid_to` is NULL; history is the half-open window `[valid_from, valid_to)`.
+- Reads: filter explicitly with `Model.current` or `Model.live_at(as_of)` (`None` means current; also works on `aliased()` classes). Never assume a query returns only live rows.
+- Replacing a row: `supersede_with` (one row) or `supersede_live_where` (bulk) retire the old rows and stamp the new rows' `valid_from` with the same timestamp, so the handoff has no gap. Never retire and then insert separately.
+- Withdrawing with no successor: `retire` (one row) or `retire_live_where` (bulk UPDATE).
+- `__retire_cascade__`: relationship names whose live `ValidTime` children are retired when the parent is (one level deep). `supersede_live_where` raises on a class that declares it; use `supersede_with` per row.
+- Each table adds a partial unique index over its natural key `WHERE valid_to IS NULL`, so a second live row raises `IntegrityError`.
+- Content-addressed, immutable rows (e.g. alleles) do not use the mixin.
 
 ### Enum Columns
 Use non-native enums stored as strings:
@@ -121,4 +130,4 @@ if item.private and not user_has_access(user, item):
 ```
 
 ## Materialized Views
-Used for pre-computed aggregations. Refresh via worker cron jobs defined in `src/mavedb/worker/settings.py`.
+Used for pre-computed aggregations. Refresh via worker cron jobs defined in `src/mavedb/worker/jobs/registry.py`.

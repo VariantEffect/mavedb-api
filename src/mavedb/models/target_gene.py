@@ -23,10 +23,10 @@ if TYPE_CHECKING:
 class TargetGene(Base):
     __tablename__ = "target_genes"
 
-    id = Column(Integer, primary_key=True)
+    id: Mapped[int] = Column(Integer, primary_key=True)
 
     name = Column(String, nullable=False)
-    category = Column(
+    category: Mapped[TargetCategory] = Column(
         Enum(TargetCategory, create_constraint=True, length=32, native_enum=False, validate_strings=True),
         nullable=False,
     )

@@ -30,6 +30,9 @@ class AvailableCsvNamespace(BaseModel):
     A picker should group calibrations by this when a response spans more than one score set.
     """
 
+    research_use_only: bool = False
+    """Whether this is a research-use-only calibration, for a picker to tag beside the label."""
+
     selected_by_default: bool = True
     """Whether a picker should open with this group checked.
 

@@ -66,9 +66,9 @@ return JobExecutionOutcome.succeeded(data={"variants_created": count})
 ### Failed — a business-logic failure (not a bug)
 ```python
 # Missing data, validation failure, precondition not met
-if not mapped_variants:
+if not mapping_records:
     return JobExecutionOutcome.failed(
-        reason="No mapped variants found for score set",
+        reason="No mapping records found for score set",
         data={"score_set_id": score_set_id}
     )
 ```
@@ -120,6 +120,14 @@ job_manager.update_progress(50, 100, "Writing to database.")
 job_manager.update_progress(100, 100, "Variant creation complete.")
 ```
 
+### Long external delegations
+
+A job that hands work to an opaque external call — a single blocking request whose duration you don't control and whose interior you can't see — breaks the checkpoint model. `cleanup_stalled_jobs` reaps a RUNNING job whose `progress_updated_at` hasn't advanced in `PROGRESS_STALL_MINUTES` (30), but you cannot emit real progress while parked inside a black-box call. The heartbeat conflates two signals that opaque delegation forces apart: **liveness** (is the worker alive and still executing — always answerable) and **progress** (is the work advancing or wedged — not answerable from your side of the call).
+
+**Rule: any long external delegation must expose progress, or be given a bounded duration at its boundary.** Absent one of those, stall detection degrades to liveness and "the worker is up" becomes the only thing you can assert. Real progress comes only from the delegate reporting it (streaming / callback / a status you poll) or from chunking the call so each unit is a real checkpoint — both require a change on the delegate's side and are the preferred fix.
+
+Until then, the interim pattern (see `map_variants_for_score_set`) is a **liveness keepalive** — a concurrent `asyncio` task that refreshes the heartbeat on a cadence well under `PROGRESS_STALL_MINUTES` so a live worker is not falsely reaped — paired with a **size-aware `asyncio.wait_for` budget** so a genuinely wedged delegate fails in a sensible window rather than riding the 23.5h wall-clock backstop. The keepalive dies with a crashed worker, so real crashes still go stale and get reaped. This is an explicit workaround; it does not claim progress it cannot see. Never `time.sleep` in the keepalive — it blocks the shared event loop and freezes every other job on the worker.
+
 ## Logging Context
 
 Always set up logging context early in the job function:
@@ -162,8 +170,11 @@ async def submit_to_external_service(ctx: dict, job_id: int, job_manager: JobMan
     ).one()
 
     # 3. Check preconditions
-    if not score_set.mapped_variants:
-        return JobExecutionOutcome.failed(reason="No mapped variants to submit")
+    has_mappings = job_manager.db.scalar(
+        select(exists().where(MappingRecord.score_set_id == score_set.id, MappingRecord.current))
+    )
+    if not has_mappings:
+        return JobExecutionOutcome.failed(reason="No mapping records to submit")
 
     # 4. Submit to the service (let exceptions propagate for service errors)
     result = await external_client.submit(score_set)

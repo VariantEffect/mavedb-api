@@ -16,7 +16,7 @@ from unittest.mock import patch
 from sqlalchemy import select
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
-from mavedb.models.enums.job_pipeline import JobStatus
+from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
 from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.decorators.job_management import with_job_management
 from mavedb.worker.lib.managers.exceptions import JobStateError
@@ -132,6 +132,67 @@ class TestManagedJobDecoratorUnit:
 
         mock_start_job.assert_called_once()
         mock_error_job.assert_called_once()
+
+    async def test_decorator_marks_failed_and_reraises_on_cancellation(
+        self, session, mock_worker_ctx, mock_job_manager
+    ):
+        """A CancelledError (ARQ timeout or stall-recovery abort) must mark the row FAILED then re-raise.
+
+        Re-raising is what lets ARQ record the cancellation as the job result so a concurrent
+        Job.abort() can confirm the job actually died. Without this handler the row would be
+        orphaned as RUNNING (CancelledError is a BaseException, not caught by `except Exception`).
+        """
+
+        @with_job_management
+        async def sample_cancel(ctx: dict, job_id: int, job_manager: JobManager):
+            raise asyncio.CancelledError()
+
+        with (
+            patch("mavedb.worker.lib.decorators.job_management.JobManager") as mock_job_manager_class,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_send_slack_job_failure,
+            patch.object(mock_job_manager, "start_job", return_value=None) as mock_start_job,
+            patch.object(mock_job_manager, "fail_job", return_value=None) as mock_fail_job,
+        ):
+            mock_job_manager_class.return_value = mock_job_manager
+
+            with pytest.raises(asyncio.CancelledError):
+                await sample_cancel(mock_worker_ctx, 999)
+
+        mock_start_job.assert_called_once()
+        mock_fail_job.assert_called_once()
+        # The row is failed with a TIMEOUT category.
+        outcome = mock_fail_job.call_args.kwargs["result"]
+        assert outcome.status == JobStatus.FAILED
+        assert outcome.failure_category == FailureCategory.TIMEOUT
+        # A permanent-failure alert is emitted for the cancellation.
+        mock_send_slack_job_failure.assert_called_once()
+
+    async def test_decorator_reraises_cancellation_even_if_marking_failed_errors(
+        self, session, mock_worker_ctx, mock_job_manager
+    ):
+        """If marking the cancelled job FAILED itself raises, the decorator still re-raises CancelledError.
+
+        The salvage path must never swallow the cancellation — ARQ needs it to record the result.
+        """
+
+        @with_job_management
+        async def sample_cancel(ctx: dict, job_id: int, job_manager: JobManager):
+            raise asyncio.CancelledError()
+
+        with (
+            patch("mavedb.worker.lib.decorators.job_management.JobManager") as mock_job_manager_class,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_error") as mock_send_slack_error,
+            patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure"),
+            patch.object(mock_job_manager, "start_job", return_value=None),
+            patch.object(mock_job_manager, "fail_job", side_effect=RuntimeError("db down")),
+        ):
+            mock_job_manager_class.return_value = mock_job_manager
+
+            with pytest.raises(asyncio.CancelledError):
+                await sample_cancel(mock_worker_ctx, 999)
+
+        # The inner failure is reported, and the original cancellation still propagates.
+        mock_send_slack_error.assert_called_once()
 
     async def test_decorator_calls_start_job_and_skip_job_when_wrapped_function_returns_skipped_status(
         self, session, mock_worker_ctx, mock_job_manager

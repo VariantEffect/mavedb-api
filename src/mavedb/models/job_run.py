@@ -70,6 +70,14 @@ class JobRun(Base):
     progress_total: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     progress_message: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
+    # Liveness heartbeat. `onupdate=func.now()` bumps this on *any* commit that dirties the row,
+    # so every progress checkpoint (and every lifecycle transition) refreshes it with zero per-job
+    # code. The stalled-job sweeper treats a RUNNING job whose heartbeat has gone stale as wedged,
+    # which distinguishes a healthy long-running job (still committing progress) from a dead one.
+    progress_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
     # Correlation for tracing
     correlation_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
@@ -98,6 +106,8 @@ class JobRun(Base):
         Index("ix_job_runs_created_at", "created_at"),
         Index("ix_job_runs_correlation_id", "correlation_id"),
         Index("ix_job_runs_status_scheduled", "status", "scheduled_at"),
+        # Supports the stalled-job sweeper's RUNNING heartbeat query (status + heartbeat staleness).
+        Index("ix_job_runs_status_progress_updated", "status", "progress_updated_at"),
         CheckConstraint(
             "status IN ('pending', 'queued', 'running', 'succeeded', 'failed', 'errored', 'cancelled', 'skipped')",
             name="ck_job_runs_status_valid",

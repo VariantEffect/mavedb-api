@@ -26,7 +26,7 @@ from tests.helpers.mocks.factories import (
     create_mock_mapped_variant_with_pathogenicity_calibration_score_set,
 )
 from tests.helpers.variant_shapes import VARIANT_SHAPES, shape_ids
-from tests.lib.annotation.conftest import scope_of
+from tests.lib.annotation.conftest import annotation_context_for, scope_of
 
 # Each surface is paired with the factory that can actually exercise it: a statement built on a score
 # set with no calibrations returns None for every shape, which would test nothing.
@@ -60,7 +60,7 @@ class TestAnnotationConformance:
         """Never raises, and anything emitted can be read back."""
         _, annotate, factory = surface
 
-        annotation = annotate(shape.build(factory))
+        annotation = annotate(annotation_context_for(shape.build(factory)))
 
         if annotation is None:
             pytest.skip(f"{shape.name} produces no annotation on this surface")
@@ -71,7 +71,7 @@ class TestAnnotationConformance:
         between "public" and "produced before disclosure existed". It has to come back too."""
         _, annotate, factory = surface
 
-        annotation = annotate(shape.build(factory))
+        annotation = annotate(annotation_context_for(shape.build(factory)))
 
         if annotation is None:
             pytest.skip(f"{shape.name} produces no annotation on this surface")
@@ -82,5 +82,7 @@ class TestAnnotationConformance:
 def test_every_surface_emits_something_for_at_least_one_shape():
     """Guards the suite above: a surface that returned None everywhere would silently skip every case."""
     for name, annotate, factory in ANNOTATION_SURFACES:
-        emitted = [shape.name for shape in VARIANT_SHAPES if annotate(shape.build(factory)) is not None]
+        emitted = [
+            shape.name for shape in VARIANT_SHAPES if annotate(annotation_context_for(shape.build(factory))) is not None
+        ]
         assert emitted, f"{name} emitted nothing for any shape; its conformance cases are all skips"

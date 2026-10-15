@@ -91,3 +91,75 @@ class TestUpsertVariantTranslations:
         session.commit()
         rows = session.scalars(select(VariantTranslation)).all()
         assert len(rows) == 2
+
+
+def _draft(digest, *, hgvs_c=None, hgvs_p=None, refget=None, level="cdna"):
+    from mavedb.models.allele import Allele
+
+    post_mapped = {"type": "Allele", "location": {"sequenceReference": {"refgetAccession": refget}}} if refget else None
+    return Allele(vrs_digest=digest, level=level, hgvs_c=hgvs_c, hgvs_p=hgvs_p, post_mapped=post_mapped)
+
+
+@pytest.mark.integration
+class TestGetOrCreateAllele:
+    """One allele per digest, and one allele per HGVS expression."""
+
+    def test_creates_and_flushes_a_new_allele(self, session):
+        from mavedb.lib.variant_translations import get_or_create_allele
+
+        allele = get_or_create_allele(session, _draft("digest-a", hgvs_c="NM_000001.1:c.1A>G"))
+
+        assert allele.id is not None
+
+    def test_returns_the_existing_allele_for_the_same_digest(self, session):
+        from mavedb.lib.variant_translations import get_or_create_allele
+
+        first = get_or_create_allele(session, _draft("digest-a", hgvs_c="NM_000001.1:c.1A>G"))
+        again = get_or_create_allele(session, _draft("digest-a", hgvs_c="NM_000001.1:c.1A>G"))
+
+        assert again is first
+
+    def test_alleles_without_an_hgvs_expression_do_not_conflict(self, session):
+        from mavedb.lib.variant_translations import get_or_create_allele
+
+        get_or_create_allele(session, _draft("digest-a"))
+        get_or_create_allele(session, _draft("digest-b"))
+
+    def test_same_hgvs_under_a_different_digest_is_a_conflict_that_explains_itself(self, session):
+        from mavedb.lib.variant_translations import AlleleIdentityConflictError, get_or_create_allele
+
+        hgvs = "NM_007294.3:c.5448A>T"
+        get_or_create_allele(session, _draft("digest-good", hgvs_c=hgvs, refget="SQ.jj1R"))
+
+        with pytest.raises(AlleleIdentityConflictError) as excinfo:
+            get_or_create_allele(session, _draft("digest-bad", hgvs_c=hgvs, refget="SQ.bh0R"))
+
+        message = str(excinfo.value)
+        for expected in (hgvs, "digest-good", "digest-bad", "SQ.jj1R", "SQ.bh0R", "AlleleIdentityConflictError"):
+            assert expected in message
+
+    def test_a_conflict_does_not_add_the_draft_or_poison_the_session(self, session):
+        from mavedb.lib.variant_translations import AlleleIdentityConflictError, get_or_create_allele
+        from mavedb.models.allele import Allele
+
+        hgvs = "NM_000001.1:c.1A>G"
+        get_or_create_allele(session, _draft("digest-good", hgvs_c=hgvs))
+        with pytest.raises(AlleleIdentityConflictError):
+            get_or_create_allele(session, _draft("digest-bad", hgvs_c=hgvs))
+
+        digests = set(session.scalars(select(Allele.vrs_digest)))
+        assert digests == {"digest-good"}
+        get_or_create_allele(session, _draft("digest-other", hgvs_c="NM_000001.1:c.2A>G"))
+
+    def test_the_database_index_backstops_a_writer_that_skips_the_check(self, session):
+        """A concurrent writer past the application check must still be stopped, by name."""
+        from sqlalchemy.exc import IntegrityError
+
+        hgvs = "NM_000001.1:c.1A>G"
+        session.add(_draft("digest-a", hgvs_c=hgvs))
+        session.flush()
+        session.add(_draft("digest-b", hgvs_c=hgvs))
+
+        with pytest.raises(IntegrityError, match="uq_alleles_hgvs"):
+            session.flush()
+        session.rollback()

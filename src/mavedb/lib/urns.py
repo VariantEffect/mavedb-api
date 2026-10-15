@@ -4,7 +4,7 @@ import string
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from mavedb.lib.validation.urn_re import (
@@ -18,13 +18,26 @@ from mavedb.models.score_set import ScoreSet
 logger = logging.getLogger(__name__)
 
 
+def lock_urn_assignment(db: Session) -> None:
+    """
+    Serialize permanent URN assignment for the rest of the current transaction.
+
+    The ``generate_*_urn`` functions read the highest assigned URN and add one, so under READ COMMITTED two concurrent
+    publications would mint the same URN. Take this before loading the records being published; the lock is released
+    when the transaction commits or rolls back.
+
+    :param db: An active database session
+    """
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtext('mavedb.urn_assignment'))"))
+
+
 def generate_experiment_set_urn(db: Session):
     """
     Generate a new URN for an experiment set.
 
     Experiment set URNs include an 8-digit, zero-padded, sequentially-assigned numeric part. This function finds the
-    maximum value in the database and adds one to form the new URN. To ensure atomicity, it should be called in the
-    context of a database transaction.
+    maximum value in the database and adds one to form the new URN. Callers must hold ``lock_urn_assignment`` so that
+    concurrent publications cannot read the same maximum.
 
     :param db: An active database session
     :return: The next available experiment set URN
@@ -54,8 +67,8 @@ def generate_experiment_urn(db: Session, experiment_set: ExperimentSet, experime
     a, b, ..., z, aa, ab, ..., az, ba, ... bz, ... zz, aaa, ..., zzz, aaaa, ...
     ```
     This function looks at the database records for other experiments in the set and finds the maximum value of the
-    alphabetic part, then increments it to form the new URN. To ensure atomicity, it should be called in the context of
-    a database transaction to ensure atomicity.
+    alphabetic part, then increments it to form the new URN. Callers must hold ``lock_urn_assignment`` so that
+    concurrent publications cannot read the same maximum.
 
     For meta-analyses, the suffix is always 0. There can only be one meta-analysis per experiment set.
 
@@ -110,8 +123,8 @@ def generate_score_set_urn(db: Session, experiment: Experiment):
     zero-padded to a fixed width.
 
     This function looks at the database records for other scoresets belonging to the experiment and finds the maximum
-    value of the numeric part, then increments it to form the new URN. To ensure atomicity, it should be called in the
-    context of a database transaction.
+    value of the numeric part, then increments it to form the new URN. Callers must hold ``lock_urn_assignment`` so that
+    concurrent publications cannot read the same maximum.
 
     :param db: An active database session
     :param experiment: The experiment to which this score set belongs

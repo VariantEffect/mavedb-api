@@ -4,13 +4,13 @@ from unittest.mock import patch
 
 from sqlalchemy import select
 
+from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant
 from mavedb.worker.jobs import (
     create_variants_for_score_set,
     map_variants_for_score_set,
 )
-from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.worker.lib.managers.job_manager import JobManager
 from tests.helpers.constants import (
     TEST_CODING_LAYER,
@@ -21,6 +21,16 @@ from tests.helpers.constants import (
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
 )
+
+
+# Placeholder reference accessions for qualifying target-relative HGVS in mock
+# post-mapped output, keyed by the HGVS kind prefix (``c.``/``n.``/``g.``/``p.``).
+_PLACEHOLDER_ACCESSIONS = {
+    "c.": "NM_999999.1",
+    "n.": "NR_999999.1",
+    "g.": "NC_999999.1",
+    "p.": "NP_999999.1",
+}
 
 
 async def create_variants_in_score_set(
@@ -128,6 +138,10 @@ async def construct_mock_mapping_output(
                         "target_gene_identifier": target.name,
                         "alignment_level": layer,
                         "preferred": idx == 0,
+                        # The accession this level was aligned against — a transcript (NM_)
+                        # only at the coding level. Reverse translation resolves its coding
+                        # transcript hint from the cdna entry's reference_accession.
+                        "reference_accession": _PLACEHOLDER_ACCESSIONS[f"{layer}."],
                         "tool_name": "dcd-mapping",
                         "tool_version": "pytest.0.0",
                         "tool_parameters": {},
@@ -155,14 +169,25 @@ async def construct_mock_mapping_output(
                 "alignment_level": default_alignment_level,
             }
 
-            # Don't alter HGVS strings in post mapped output. This makes it considerably
-            # easier to assert correctness in tests.
+            # Reuse the variant's own HGVS in post-mapped output to keep assertions simple.
+            # Real mapper post-mapped HGVS is always accession-qualified (it is mapped onto
+            # a reference sequence), so prefix a placeholder accession when the source HGVS
+            # is target-relative (a bare ``c.``/``n.``/``g.``/``p.`` with no accession).
             if with_post_mapped:
-                mapped_score["post_mapped"]["expressions"][0]["value"] = variant.hgvs_nt or variant.hgvs_pro
+                hgvs = variant.hgvs_nt or variant.hgvs_pro
+                if hgvs and ":" not in hgvs:
+                    hgvs = f"{_PLACEHOLDER_ACCESSIONS.get(hgvs[:2], 'NM_999999.1')}:{hgvs}"
+                mapped_score["post_mapped"]["expressions"][0]["value"] = hgvs
 
             # Skip every other variant if not with_all_variants
             if not with_all_variants and idx % 2 == 0:
                 mapped_score["post_mapped"] = {}
+
+            # Mirror the mapper's per-record outcome: both alleles present -> MAPPED, else
+            # FAILED. Tests needing benign outcomes set ``outcome`` explicitly afterward.
+            mapped_score["outcome"] = (
+                "mapped" if mapped_score["pre_mapped"] and mapped_score["post_mapped"] else "failed"
+            )
 
             mapping_output["mapped_scores"].append(mapped_score)
 

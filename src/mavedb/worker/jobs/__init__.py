@@ -33,11 +33,13 @@ from mavedb.worker.jobs.variant_processing.creation import create_variants_for_s
 from mavedb.worker.jobs.variant_processing.mapping import (
     map_variants_for_score_set,
 )
+from mavedb.worker.jobs.variant_processing.reverse_translation import reverse_translate_variants_for_score_set
 
 __all__ = [
     # Variant processing jobs
     "create_variants_for_score_set",
     "map_variants_for_score_set",
+    "reverse_translate_variants_for_score_set",
     # External service integration jobs
     "submit_score_set_mappings_to_car",
     "submit_score_set_mappings_to_ldh",

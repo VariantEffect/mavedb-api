@@ -7,13 +7,13 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Optional
 
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
 
 
 class TargetGeneMappingBase(BaseModel):
-    alignment_level: AnnotationLayer
+    alignment_level: SequenceLevel
     preferred: bool = False
 
     reference_assembly: Optional[str] = None

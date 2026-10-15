@@ -2292,3 +2292,25 @@ def test_cannot_add_experiment_to_others_public_experiment_set(
     assert response.status_code == 403
     response_data = response.json()
     assert f"insufficient permissions on experiment set with URN '{experiment_set_urn}'" in response_data["detail"]
+
+
+def test_experiment_list_omits_unreadable_score_sets(
+    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+):
+    """A published experiment often holds a private score set, such as a new submission or an unpublished
+    successor; listing experiments must not name it to callers who can't read it."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+    private_score_set = create_seq_score_set(client, published["experiment"]["urn"])
+
+    owner_list = client.get("/api/v1/experiments/").json()
+    assert [sorted(e["scoreSetUrns"]) for e in owner_list] == [sorted([published["urn"], private_score_set["urn"]])]
+
+    with DependencyOverrider(anonymous_app_overrides):
+        anonymous_list = client.get("/api/v1/experiments/").json()
+
+    assert [e["scoreSetUrns"] for e in anonymous_list] == [[published["urn"]]]
+    assert [e["numScoreSets"] for e in anonymous_list] == [1]

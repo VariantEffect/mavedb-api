@@ -6,6 +6,7 @@ from mavedb.lib.variants import (
     hgvs_from_vrs_allele,
     is_hgvs_g,
     is_hgvs_p,
+    score_from_variant_data,
 )
 from tests.helpers.constants import (
     TEST_GA4GH_DIGEST,
@@ -16,6 +17,28 @@ from tests.helpers.constants import (
     TEST_VALID_POST_MAPPED_VRS_CIS_PHASED_BLOCK,
     TEST_VALID_POST_MAPPED_VRS_HAPLOTYPE,
 )
+
+### Tests for score_from_variant_data function ###
+
+
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        ({"score_data": {"score": -2.3}}, -2.3),
+        ({"score_data": {"score": 0}}, 0.0),  # a real 0.0 score is not "missing"
+        ({"score_data": {"score": "1.5"}}, 1.5),  # numeric strings coerce
+        ({"score_data": {"score": None}}, None),  # explicit NA
+        ({"score_data": {}}, None),  # no score key
+        ({"count_data": {"c": 1}}, None),  # no score_data block
+        ({"score_data": {"score": True}}, None),  # a JSON bool is not a score
+        ({"score_data": {"score": "NA"}}, None),  # non-numeric string
+        ({}, None),
+        (None, None),
+    ],
+)
+def test_score_from_variant_data(data, expected):
+    assert score_from_variant_data(data) == expected
+
 
 ### Tests for hgvs_from_vrs_allele function ###
 
@@ -48,6 +71,18 @@ def test_get_hgvs_from_post_mapped_cis_phased_block():
     assert result is None
 
 
+def test_get_hgvs_from_post_mapped_cis_phased_block_combine_cis():
+    # combine_cis collapses the cis-phased members into one bracketed expression.
+    result = get_hgvs_from_post_mapped(TEST_VALID_POST_MAPPED_VRS_CIS_PHASED_BLOCK, combine_cis=True)
+    assert result == "NM_003345:p.[Asp5Phe;Asp5Phe]"
+
+
+def test_get_hgvs_from_post_mapped_single_allele_combine_cis_is_unbracketed():
+    # A single-variant post-mapped allele is unaffected by combine_cis.
+    result = get_hgvs_from_post_mapped(TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X, combine_cis=True)
+    assert result == TEST_HGVS_IDENTIFIER
+
+
 def test_get_hgvs_from_post_mapped_single_allele_vrs_1():
     with pytest.raises(ValueError):
         get_hgvs_from_post_mapped(TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS1_X)
@@ -71,6 +106,26 @@ def test_get_hgvs_from_post_mapped_invalid_type():
 def test_get_hgvs_from_post_mapped_invalid_structure():
     with pytest.raises(KeyError):
         get_hgvs_from_post_mapped({"invalid_key": "InvalidType"})
+
+
+def test_hgvs_from_vrs_allele_null_or_empty_expressions():
+    # A VRS allele may carry `expressions: null` or `[]` — that is "no HGVS", not a crash.
+    assert hgvs_from_vrs_allele({"type": "Allele", "expressions": None}) is None
+    assert hgvs_from_vrs_allele({"type": "Allele", "expressions": []}) is None
+
+
+def test_get_hgvs_from_post_mapped_member_without_expression():
+    # Regression: a cis-phased block member whose `expressions` is null must yield None, not raise
+    # `TypeError: 'NoneType' object is not subscriptable` (which previously killed the CAR job).
+    block = {
+        "type": "CisPhasedBlock",
+        "members": [
+            {"type": "Allele", "expressions": [{"value": "NM_003345:p.Asp5Phe"}]},
+            {"type": "Allele", "expressions": None},
+        ],
+    }
+    assert get_hgvs_from_post_mapped(block) is None
+    assert get_hgvs_from_post_mapped(block, combine_cis=True) is None
 
 
 ### Tests for get_id_from_post_mapped function ###

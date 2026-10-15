@@ -58,7 +58,7 @@ def test_contributor_gets_true_permission_from_others_experiment_set_add_experim
     assert response.json()
 
 
-def test_get_false_permission_from_others_experiment_set_add_experiment_check(session, client, setup_router_db):
+def test_get_not_found_from_others_experiment_set_add_experiment_check(session, client, setup_router_db):
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
     change_ownership(session, experiment["experimentSetUrn"], ExperimentSetDbModel)
@@ -67,8 +67,8 @@ def test_get_false_permission_from_others_experiment_set_add_experiment_check(se
         f"/api/v1/permissions/user-is-permitted/experiment-set/{experiment['experimentSetUrn']}/add_experiment"
     )
 
-    assert response.status_code == 200
-    assert not response.json()
+    # Unreadable resources are reported as missing, so the check can't confirm they exist.
+    assert response.status_code == 404
 
 
 def test_cannot_get_permission_with_wrong_action_in_experiment_set(client, setup_router_db):
@@ -167,14 +167,14 @@ def test_contributor_gets_true_permission_from_others_private_experiment_add_sco
     assert response.json()
 
 
-def test_get_false_permission_from_others_private_experiment_add_score_set_check(session, client, setup_router_db):
+def test_get_not_found_from_others_private_experiment_add_score_set_check(session, client, setup_router_db):
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
 
     response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{experiment['urn']}/add_score_set")
 
-    assert response.status_code == 200
-    assert not response.json()
+    # Unreadable resources are reported as missing, so the check can't confirm they exist.
+    assert response.status_code == 404
 
 
 def test_get_true_permission_from_others_public_experiment_add_score_set_check(
@@ -198,24 +198,24 @@ def test_get_true_permission_from_others_public_experiment_add_score_set_check(
     assert response.json()
 
 
-def test_get_false_permission_from_others_experiment_update_check(session, client, setup_router_db):
+def test_get_not_found_from_others_experiment_update_check(session, client, setup_router_db):
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
 
     response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{experiment['urn']}/update")
 
-    assert response.status_code == 200
-    assert not response.json()
+    # Unreadable resources are reported as missing, so the check can't confirm they exist.
+    assert response.status_code == 404
 
 
-def test_get_false_permission_from_other_users_experiment_delete_check(session, client, setup_router_db):
+def test_get_not_found_from_other_users_experiment_delete_check(session, client, setup_router_db):
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
 
     response = client.get(f"/api/v1/permissions/user-is-permitted/experiment/{experiment['urn']}/delete")
 
-    assert response.status_code == 200
-    assert not response.json()
+    # Unreadable resources are reported as missing, so the check can't confirm they exist.
+    assert response.status_code == 404
 
 
 def test_cannot_get_permission_with_wrong_action_in_experiment(client, setup_router_db):
@@ -318,37 +318,37 @@ def test_contributor_gets_false_permission_from_others_score_set_publish_check(s
     assert not response.json()
 
 
-def test_get_false_permission_from_others_score_set_delete_check(session, client, setup_router_db):
+def test_get_not_found_from_others_score_set_delete_check(session, client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
 
     response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/{score_set['urn']}/delete")
 
-    assert response.status_code == 200
-    assert not response.json()
+    # Unreadable resources are reported as missing, so the check can't confirm they exist.
+    assert response.status_code == 404
 
 
-def test_get_false_permission_from_others_score_set_update_check(session, client, setup_router_db):
+def test_get_not_found_from_others_score_set_update_check(session, client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
 
     response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/{score_set['urn']}/update")
 
-    assert response.status_code == 200
-    assert not response.json()
+    # Unreadable resources are reported as missing, so the check can't confirm they exist.
+    assert response.status_code == 404
 
 
-def test_get_false_permission_from_others_score_set_publish_check(session, client, setup_router_db):
+def test_get_not_found_from_others_score_set_publish_check(session, client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
 
     response = client.get(f"/api/v1/permissions/user-is-permitted/score-set/{score_set['urn']}/publish")
 
-    assert response.status_code == 200
-    assert not response.json()
+    # Unreadable resources are reported as missing, so the check can't confirm they exist.
+    assert response.status_code == 404
 
 
 def test_cannot_get_permission_with_wrong_action_in_score_set(client, setup_router_db):
@@ -464,7 +464,7 @@ def test_get_true_permission_as_score_set_owner_on_others_investigator_provided_
     assert response.json()
 
 
-def test_get_false_permission_as_score_set_owner_on_others_community_score_calibration_update_check(
+def test_get_not_found_as_score_set_owner_on_others_community_score_calibration_update_check(
     session, client, setup_router_db, admin_app_overrides
 ):
     experiment = create_experiment(client)
@@ -477,8 +477,8 @@ def test_get_false_permission_as_score_set_owner_on_others_community_score_calib
 
     response = client.get(f"/api/v1/permissions/user-is-permitted/score-calibration/{score_calibration['urn']}/update")
 
-    assert response.status_code == 200
-    assert not response.json()
+    # Unreadable resources are reported as missing, so the check can't confirm they exist.
+    assert response.status_code == 404
 
 
 def test_get_false_permission_from_others_score_calibration_delete_check(session, client, setup_router_db):

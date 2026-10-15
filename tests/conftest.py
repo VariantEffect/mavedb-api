@@ -95,11 +95,11 @@ def session(postgresql):
     Base.metadata.create_all(bind=engine)
 
     # Create a unique index for the published_variants_materialized_view to
-    # enforce uniqueness on (variant_id, mapped_variant_id, score_set_id). This
+    # enforce uniqueness on (variant_id, mapping_record_id, score_set_id). This
     # allows us to test mat view refreshes that require this constraint.
     session.execute(
         text("""CREATE UNIQUE INDEX IF NOT EXISTS published_variants_mv_unique_idx
-        ON published_variants_materialized_view (variant_id, mapped_variant_id, score_set_id)"""),
+        ON published_variants_materialized_view (variant_id, mapping_record_id, score_set_id)"""),
     )
     session.commit()
 

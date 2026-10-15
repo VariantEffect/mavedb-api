@@ -222,6 +222,12 @@ class HGNCServiceError(Exception):
     pass
 
 
+class MondoServiceError(Exception):
+    """Raised when the MONDO/OLS disease ontology service cannot provide search results."""
+
+    pass
+
+
 class LDHSubmissionFailureError(Exception):
     """Raised when submission to ClinGen Linked Data Hub (LDH) fails for all submissions."""
 

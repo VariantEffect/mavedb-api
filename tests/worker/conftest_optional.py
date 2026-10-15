@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 import pytest
 from arq import ArqRedis
 from cdot.hgvs.dataproviders import RESTDataProvider
+from ga4gh.vrs.dataproxy import SeqRepoDataProxy
 from sqlalchemy.orm import Session
 
 from mavedb.worker.lib.managers.job_manager import JobManager
@@ -52,6 +53,7 @@ def mock_worker_ctx():
     """Create a mock worker context dictionary for testing."""
     mock_redis = Mock(spec=ArqRedis)
     mock_hdp = Mock(spec=RESTDataProvider)
+    mock_seqrepo = Mock(spec=SeqRepoDataProxy)
     mock_pool = Mock(spec=ProcessPoolExecutor)
 
     # Don't mock the session itself to allow real DB interactions in tests
@@ -60,5 +62,6 @@ def mock_worker_ctx():
     return {
         "redis": mock_redis,
         "hdp": mock_hdp,
+        "seqrepo": mock_seqrepo,
         "pool": mock_pool,
     }

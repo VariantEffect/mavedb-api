@@ -5,8 +5,6 @@ This module exports jobs for integrating with third-party services:
 - ClinGen cache pre-warming to prevent stampede on downstream annotation jobs
 - UniProt for protein sequence annotation and ID mapping
 - gnomAD for population frequency and genomic context data
-- HGVS for standardized variant nomenclature population
-- Variant Translation for PA<->CA allele relationship mapping
 - VEP for functional consequence annotation
 """
 
@@ -18,12 +16,10 @@ from .clingen import (
 from .clingen_cache import warm_clingen_cache
 from .clinvar import refresh_clinvar_controls
 from .gnomad import link_gnomad_variants
-from .hgvs import populate_hgvs_for_score_set
 from .uniprot import (
     poll_uniprot_mapping_jobs_for_score_set,
     submit_uniprot_mapping_jobs_for_score_set,
 )
-from .variant_translation import populate_variant_translations_for_score_set
 from .vep import populate_vep_for_score_set
 
 __all__ = [
@@ -32,8 +28,6 @@ __all__ = [
     "warm_clingen_cache",
     "refresh_clinvar_controls",
     "link_gnomad_variants",
-    "populate_hgvs_for_score_set",
-    "populate_variant_translations_for_score_set",
     "poll_uniprot_mapping_jobs_for_score_set",
     "submit_uniprot_mapping_jobs_for_score_set",
     "populate_vep_for_score_set",

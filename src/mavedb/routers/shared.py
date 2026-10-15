@@ -8,6 +8,7 @@ BASE_RESPONSES: Mapping[int, dict[str, Any]] = {
     403: {"description": "Forbidden. Insufficient permissions."},
     404: {"description": "Resource not found."},
     409: {"description": "Conflict with current resource state."},
+    410: {"description": "Gone. This resource has been permanently removed."},
     416: {"description": "Requested range not satisfiable."},
     422: {"description": "Unprocessable entity. Validation failed."},
     429: {"description": "Too many requests. Rate limit exceeded."},
@@ -23,6 +24,7 @@ BASE_401_RESPONSE: Mapping[Union[int, str], dict[str, Any]] = {401: BASE_RESPONS
 BASE_403_RESPONSE: Mapping[Union[int, str], dict[str, Any]] = {403: BASE_RESPONSES[403]}
 BASE_404_RESPONSE: Mapping[Union[int, str], dict[str, Any]] = {404: BASE_RESPONSES[404]}
 BASE_409_RESPONSE: Mapping[Union[int, str], dict[str, Any]] = {409: BASE_RESPONSES[409]}
+BASE_410_RESPONSE: Mapping[Union[int, str], dict[str, Any]] = {410: BASE_RESPONSES[410]}
 BASE_416_RESPONSE: Mapping[Union[int, str], dict[str, Any]] = {416: BASE_RESPONSES[416]}
 BASE_422_RESPONSE: Mapping[Union[int, str], dict[str, Any]] = {422: BASE_RESPONSES[422]}
 BASE_429_RESPONSE: Mapping[Union[int, str], dict[str, Any]] = {429: BASE_RESPONSES[429]}

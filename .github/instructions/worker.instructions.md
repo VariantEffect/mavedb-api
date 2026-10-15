@@ -86,7 +86,7 @@ Always return using factory methods:
 
 ```python
 return JobExecutionOutcome.succeeded(data={"variants_created": count})
-return JobExecutionOutcome.failed(reason="No mapped variants found", data={...})
+return JobExecutionOutcome.failed(reason="No mapping records found", data={...})
 return JobExecutionOutcome.failed(reason="HGVS parse error", failure_category=FailureCategory.DATA_ERROR)
 return JobExecutionOutcome.skipped(data={"reason": "Feature disabled"})
 # For unhandled exceptions: let them propagate — the decorator catches and creates .errored()
@@ -124,11 +124,12 @@ Parameters with `None` values in pipeline definitions are filled at runtime from
 - **Slack safety**: `send_slack_job_failure()` and `send_slack_job_error()` catch their own exceptions internally (logging critical on failure), so Slack outages never interfere with job lifecycle management or error recovery in the decorators.
 - **Stale RUNNING recovery**: `start_job()` accepts RUNNING as a startable status (alongside QUEUED and PENDING). When ARQ re-delivers a job after a worker crash, `start_job()` logs a warning and resets the start timestamp rather than raising `JobTransitionError`.
 - **Concurrency limit**: `max_jobs = 2` in `ArqWorkerSettings` prevents event loop starvation from sync psycopg2 DB calls. With the default `max_jobs=10`, multiple concurrent jobs issuing blocking DB operations can starve the asyncio event loop.
+- **Fast lane**: `start_pipeline` and `create_variants_for_score_set` run on a separate queue (`FAST_LANE_QUEUE_NAME`) consumed by a second worker process (`ArqFastLaneWorkerSettings`), so long mapping jobs can't block new pipelines. Every `enqueue_job` and every `arq.jobs.Job(...)` status/abort call must pass `_queue_name=arq_queue_name(job_run)`.
 
 ## Pipeline Lifecycle (Brief)
 
-1. Router calls `PipelineFactory.create_pipeline()` → creates `Pipeline`, `JobRun`, and `JobDependency` records
-2. Router enqueues the `start_pipeline` entrypoint job in ARQ
+1. Router or script calls `enqueue_pipeline_for_score_set()` (`lib/workflow/kickoff.py`) → `PipelineFactory.create_pipeline()` creates `Pipeline`, `JobRun`, and `JobDependency` records
+2. The same call enqueues the `start_pipeline` entrypoint job in ARQ
 3. `start_pipeline` runs → its `@with_pipeline_management` decorator starts the pipeline and calls `coordinate_pipeline()`
 4. `coordinate_pipeline()` finds PENDING jobs whose dependencies are met → marks them QUEUED → enqueues in ARQ
 5. Each job runs → after completion, its decorator calls `coordinate_pipeline()` again
@@ -181,7 +182,7 @@ Pipeline definitions live in `src/mavedb/lib/workflow/definitions.py`. The `Pipe
 | `lib/managers/pipeline_manager.py` | Pipeline coordination, dependency resolution, job enqueueing |
 | `lib/managers/constants.py` | Status groupings (`TERMINAL_JOB_STATUSES`, `STARTABLE_JOB_STATUSES`, etc.) |
 | `lib/managers/exceptions.py` | Exception hierarchy (`JobStateError`, `PipelineCoordinationError`, etc.) |
-| `settings/worker.py` | `ArqWorkerSettings` class (ARQ worker configuration) |
+| `settings/worker.py` | `ArqWorkerSettings` (main) and `ArqFastLaneWorkerSettings` classes (ARQ worker configuration) |
 | `settings/lifecycle.py` | Worker startup/shutdown hooks, `standalone_ctx()` |
 | `src/mavedb/lib/workflow/definitions.py` | Pipeline and job definitions (`PIPELINE_DEFINITIONS`) |
 | `src/mavedb/lib/workflow/pipeline_factory.py` | Creates Pipeline + JobRun + JobDependency records |

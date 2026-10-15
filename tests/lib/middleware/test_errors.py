@@ -15,6 +15,8 @@ pytest.importorskip("psycopg2")
 pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from mavedb.server_main import app
 
@@ -37,6 +39,34 @@ def raising_route():
     route = app.router.routes[-1]
     try:
         yield
+    finally:
+        app.router.routes.remove(route)
+
+
+class FakePostgresError(Exception):
+    """Stands in for a psycopg2 error, which carries the server's SQLSTATE as ``pgcode``."""
+
+    def __init__(self, pgcode):
+        super().__init__(pgcode)
+        self.pgcode = pgcode
+
+
+def postgres_error(pgcode):
+    return OperationalError("SELECT 1", {}, FakePostgresError(pgcode))
+
+
+@pytest.fixture
+def database_error_route():
+    """Register a route that raises whichever error the test sets on ``raised["error"]``."""
+    raised = {}
+
+    @app.get(BOOM_PATH)
+    def boom():
+        raise raised["error"]
+
+    route = app.router.routes[-1]
+    try:
+        yield raised
     finally:
         app.router.routes.remove(route)
 
@@ -85,3 +115,38 @@ class TestCatchAllErrorMiddleware:
         assert response.status_code == 200
         assert response.headers.get("access-control-allow-origin") in ("*", TEST_ORIGIN)
         slack_error.assert_not_called()
+
+
+@pytest.mark.unit
+class TestDatabaseTimeouts:
+    @pytest.mark.parametrize(
+        "error",
+        [postgres_error("57014"), postgres_error("55P03"), PoolTimeoutError("QueuePool limit reached")],
+        ids=["statement_timeout", "lock_timeout", "pool_timeout"],
+    )
+    def test_timeout_returns_503_with_cors_headers(self, database_error_route, slack_error, error):
+        database_error_route["error"] = error
+
+        with TestClient(app) as tc:
+            response = tc.get(BOOM_PATH, headers={"Origin": TEST_ORIGIN})
+
+        assert response.status_code == 503
+        assert response.headers.get("access-control-allow-origin") in ("*", TEST_ORIGIN)
+        assert response.json()["correlation_id"]
+
+    def test_timeout_does_not_alert_slack(self, database_error_route, slack_error):
+        database_error_route["error"] = postgres_error("57014")
+
+        with TestClient(app) as tc:
+            tc.get(BOOM_PATH)
+
+        slack_error.assert_not_called()
+
+    def test_other_database_errors_are_still_500(self, database_error_route, slack_error):
+        database_error_route["error"] = postgres_error("23505")
+
+        with TestClient(app) as tc:
+            response = tc.get(BOOM_PATH)
+
+        assert response.status_code == 500
+        slack_error.assert_called_once()

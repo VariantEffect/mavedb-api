@@ -76,7 +76,7 @@ from sqlalchemy.orm import Session, configure_mappers, selectinload
 from mavedb.models import *  # noqa: F401,F403  pylint: disable=wildcard-import
 from mavedb.db.session import SessionLocal
 from mavedb.lib.variants import HGVS_G_REGEX, HGVS_P_REGEX, get_hgvs_from_post_mapped
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
@@ -102,18 +102,18 @@ _HGVS_C_REGEX = re.compile(r"(^|:)[cn]\.")
 _NUCLEOTIDE_ALPHABET = frozenset("ACGTUNRYSWKMBDHV-")
 
 
-def _layer_from_hgvs(hgvs: str) -> Optional[AnnotationLayer]:
-    """Classify an HGVS string into an :class:`AnnotationLayer`."""
+def _layer_from_hgvs(hgvs: str) -> Optional[SequenceLevel]:
+    """Classify an HGVS string into an :class:`SequenceLevel`."""
     if HGVS_G_REGEX.search(hgvs):
-        return AnnotationLayer.genomic
+        return SequenceLevel.genomic
     if HGVS_P_REGEX.search(hgvs):
-        return AnnotationLayer.protein
+        return SequenceLevel.protein
     if _HGVS_C_REGEX.search(hgvs):
-        return AnnotationLayer.cdna
+        return SequenceLevel.cdna
     return None
 
 
-def _layer_from_vrs_sequence(post_mapped: dict) -> Optional[AnnotationLayer]:
+def _layer_from_vrs_sequence(post_mapped: dict) -> Optional[SequenceLevel]:
     """
     Infer layer from VRS sequence alphabet (protein vs nucleotide).
     Returns protein if any allele/member sequence contains a non-nucleotide letter.
@@ -150,15 +150,15 @@ def _layer_from_vrs_sequence(post_mapped: dict) -> Optional[AnnotationLayer]:
     for seq in extract_sequences(post_mapped):
         found_seq = True
         if any(letter.upper() not in _NUCLEOTIDE_ALPHABET for letter in seq if letter.isalpha()):
-            return AnnotationLayer.protein
+            return SequenceLevel.protein
         
     if found_seq:
-        return AnnotationLayer.genomic
+        return SequenceLevel.genomic
     
     return None
 
 
-def _alignment_level_for(target: TargetGene) -> Optional[AnnotationLayer]:
+def _alignment_level_for(target: TargetGene) -> Optional[SequenceLevel]:
     """Recover the alignment layer for legacy mapped variants of ``target``.
 
     Tries ``post_mapped_metadata`` first, then ``pre_mapped_metadata`` (same
@@ -177,16 +177,16 @@ def _alignment_level_for(target: TargetGene) -> Optional[AnnotationLayer]:
             return None
 
         if has_genomic:
-            return AnnotationLayer.genomic
+            return SequenceLevel.genomic
         if has_protein:
-            return AnnotationLayer.protein
+            return SequenceLevel.protein
         if has_cdna:
-            return AnnotationLayer.cdna
+            return SequenceLevel.cdna
 
     return None
 
 
-def _layer_from_sequence_type(target: TargetGene) -> Optional[AnnotationLayer]:
+def _layer_from_sequence_type(target: TargetGene) -> Optional[SequenceLevel]:
     """Infer alignment layer from ``target_sequence.sequence_type`` and ``category``.
 
     Last-resort fallback for targets where all variant-level mappings failed
@@ -201,16 +201,16 @@ def _layer_from_sequence_type(target: TargetGene) -> Optional[AnnotationLayer]:
         return None
     seq_type = target.target_sequence.sequence_type
     if seq_type == "protein":
-        return AnnotationLayer.protein
+        return SequenceLevel.protein
     if seq_type == "dna" and target.category is not None and target.category.value == "protein_coding":
-        return AnnotationLayer.genomic
+        return SequenceLevel.genomic
     return None
 
 
 def _populate_layer_by_target_id(
     db: Session,
     targets_by_score_set_id: dict[int, list[TargetGene]],
-    layer_by_target_id: dict[int, Optional[AnnotationLayer]],
+    layer_by_target_id: dict[int, Optional[SequenceLevel]],
     layer_via_hgvs_target_ids: set[int],
     layer_via_sequence_type_target_ids: set[int],
 ) -> None:
@@ -344,7 +344,7 @@ def do_migration(db: Session) -> None:
     # Cache (target_gene_id, alignment_level, tool_version) -> persisted TargetGeneMapping
     # so we create one row per distinct combination and reuse it across every
     # mapped variant that maps into it.
-    cache: dict[tuple[int, AnnotationLayer, str], TargetGeneMapping] = {}
+    cache: dict[tuple[int, SequenceLevel, str], TargetGeneMapping] = {}
 
     total = db.scalar(sa.select(sa.func.count(MappedVariant.id))) or 0
     print(f"  {total} mapped variants to consider.")
@@ -393,7 +393,7 @@ def do_migration(db: Session) -> None:
     # only need to determine it once per target -- and any single attributable mapped
     # variant for that target lets us attribute every sibling. The via_* sets track which
     # fallback was used so the diagnostic report shows attribution breadth.
-    layer_by_target_id: dict[int, Optional[AnnotationLayer]] = {}
+    layer_by_target_id: dict[int, Optional[SequenceLevel]] = {}
     layer_via_hgvs_target_ids: set[int] = set()
     layer_via_sequence_type_target_ids: set[int] = set()
     _populate_layer_by_target_id(
@@ -420,7 +420,7 @@ def do_migration(db: Session) -> None:
 
         # Group ids to update by (tgm_id, level) so we can issue one bulk UPDATE
         # per group instead of a per-row ORM flush.
-        updates_by_group: dict[tuple[int, AnnotationLayer], list[int]] = defaultdict(list)
+        updates_by_group: dict[tuple[int, SequenceLevel], list[int]] = defaultdict(list)
 
         for row in chunk:
             last_id = row.id

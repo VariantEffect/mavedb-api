@@ -19,23 +19,24 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
-from mavedb.models.enums.annotation_layer import AnnotationLayer
+from mavedb.models.enums.sequence_level import SequenceLevel
 
 if TYPE_CHECKING:
     from mavedb.models.mapped_variant import MappedVariant
+    from mavedb.models.mapping_record import MappingRecord
     from mavedb.models.target_gene import TargetGene
 
 
 class TargetGeneMapping(Base):
     __tablename__ = "target_gene_mappings"
 
-    id = Column(Integer, primary_key=True)
+    id: Mapped[int] = Column(Integer, primary_key=True)
 
-    target_gene_id = Column(Integer, ForeignKey("target_genes.id"), nullable=False, index=True)
+    target_gene_id: Mapped[int] = Column(Integer, ForeignKey("target_genes.id"), nullable=False, index=True)
     target_gene: Mapped["TargetGene"] = relationship("TargetGene", back_populates="target_gene_mappings")
 
     alignment_level = Column(
-        Enum(AnnotationLayer, create_constraint=True, length=16, native_enum=False, validate_strings=True),
+        Enum(SequenceLevel, create_constraint=True, length=16, native_enum=False, validate_strings=True),
         nullable=False,
     )
     preferred = Column(Boolean, nullable=False, default=False, server_default="false")
@@ -72,11 +73,20 @@ class TargetGeneMapping(Base):
     # ``modification_date``, which track this row's lifecycle in MaveDB.
     mapped_date = Column(Date, nullable=True)
 
+    # The mapping job (JobRun) that produced this row. Nullable: rows written before this column,
+    # and rows whose job was pruned (ON DELETE SET NULL), carry no run anchor.
+    job_run_id = Column(Integer, ForeignKey("job_runs.id", ondelete="SET NULL"), nullable=True, index=True)
+
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
     mapped_variants: Mapped[list["MappedVariant"]] = relationship(
         "MappedVariant",
+        back_populates="target_gene_mapping",
+    )
+
+    mapping_records: Mapped[list["MappingRecord"]] = relationship(
+        "MappingRecord",
         back_populates="target_gene_mapping",
     )
 

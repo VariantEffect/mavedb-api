@@ -38,6 +38,8 @@ reconciled rather than left to drift.
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from mavedb.lib.csv.specs import CsvMappedRow
+from mavedb.lib.variants import get_id_from_post_mapped
 from tests.helpers.constants import (
     TEST_VALID_POST_MAPPED_VRS_ALLELE,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_DIGEST_ONLY,
@@ -186,6 +188,26 @@ VARIANT_SHAPES: list[VariantShape] = [
         kwargs={"hgvs_c": None, "hgvs_assay_level": None, "vep_functional_consequence": None},
     ),
 ]
+
+
+def to_csv_mapped_row(mapped_variant: Any) -> CsvMappedRow:
+    """Adapt a mock ``MappedVariant`` (as built by :meth:`VariantShape.build`) into the ``CsvMappedRow``
+    the CSV composer now consumes.
+
+    Production resolves ``hgvs_g``/``hgvs_c``/``hgvs_p``/``vrs_digest`` at the fetch layer
+    (``mapped_hgvs_by_level`` and the substrate query), not in the composer itself. This mirrors that
+    resolution over a mock, so the shape list still exercises every ``post_mapped`` payload variant for
+    the one CSV column that still derives from it (``post_mapped_vrs_id``).
+    """
+    return CsvMappedRow(
+        hgvs_g=mapped_variant.hgvs_g,
+        hgvs_c=mapped_variant.hgvs_c,
+        hgvs_p=mapped_variant.hgvs_p,
+        hgvs_assay_level=mapped_variant.hgvs_assay_level,
+        vrs_digest=get_id_from_post_mapped(mapped_variant.post_mapped) if mapped_variant.post_mapped else None,
+        vep_functional_consequence=mapped_variant.vep_functional_consequence,
+        clingen_allele_id=mapped_variant.clingen_allele_id,
+    )
 
 
 def shape_ids() -> list[str]:

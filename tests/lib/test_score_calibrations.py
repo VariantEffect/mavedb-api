@@ -1820,9 +1820,9 @@ def test_variants_for_functional_classification_raises_error_when_index_column_n
     variant_classes = pd.DataFrame(
         {
             "some_other_column": [
-                "urn:mavedb:variant-1",
-                "urn:mavedb:variant-2",
-                "urn:mavedb:variant-3",
+                f"{VALID_SCORE_SET_URN}#1",
+                f"{VALID_SCORE_SET_URN}#2",
+                f"{VALID_SCORE_SET_URN}#3",
             ],
             calibration_class_column_name: [
                 "pathogenic",
@@ -1851,9 +1851,9 @@ def test_variants_for_functional_classification_raises_error_when_index_column_n
             pd.DataFrame(
                 {
                     calibration_variant_column_name: [
-                        "urn:mavedb:variant-1",
-                        "urn:mavedb:variant-2",
-                        "urn:mavedb:variant-3",
+                        f"{VALID_SCORE_SET_URN}#1",
+                        f"{VALID_SCORE_SET_URN}#2",
+                        f"{VALID_SCORE_SET_URN}#3",
                     ],
                     calibration_class_column_name: [
                         "pathogenic",
@@ -1910,21 +1910,21 @@ def test_variants_for_functional_classification_python_filtering_with_valid_vari
     variant_1 = Variant(
         data={"score_data": {"score": 0.5}},
         score_set_id=setup_lib_db_with_score_set.id,
-        urn="urn:mavedb:variant-1",
+        urn=f"{VALID_SCORE_SET_URN}#1",
         hgvs_nt="NC_000001.11:g.1000A>T",
         hgvs_pro="NP_000000.1:p.Lys100Asn",
     )
     variant_2 = Variant(
         data={"score_data": {"score": 1.5}},
         score_set_id=setup_lib_db_with_score_set.id,
-        urn="urn:mavedb:variant-2",
+        urn=f"{VALID_SCORE_SET_URN}#2",
         hgvs_nt="NC_000001.11:g.1001G>C",
         hgvs_pro="NP_000000.1:p.Gly101Arg",
     )
     variant_3 = Variant(
         data={"score_data": {"score": 2.5}},
         score_set_id=setup_lib_db_with_score_set.id,
-        urn="urn:mavedb:variant-3",
+        urn=f"{VALID_SCORE_SET_URN}#3",
         hgvs_nt="NC_000001.11:g.1002T>A",
         hgvs_pro="NP_000000.1:p.Ser102Thr",
     )
@@ -1967,14 +1967,14 @@ def test_variants_for_functional_classification_python_filtering_skips_variants_
     variant_without_score_data = Variant(
         data={"other_data": {"value": 1.0}},
         score_set_id=setup_lib_db_with_score_set.id,
-        urn="urn:mavedb:variant-1",
+        urn=f"{VALID_SCORE_SET_URN}#1",
     )
 
     # Create variant with valid score
     variant_with_score = Variant(
         data={"score_data": {"score": 1.5}},
         score_set_id=setup_lib_db_with_score_set.id,
-        urn="urn:mavedb:variant-2",
+        urn=f"{VALID_SCORE_SET_URN}#2",
     )
 
     session.add_all([variant_without_score_data, variant_with_score])
@@ -2013,14 +2013,14 @@ def test_variants_for_functional_classification_python_filtering_skips_variants_
     variant_invalid_score_data = Variant(
         data={"score_data": "not_a_dict"},
         score_set_id=setup_lib_db_with_score_set.id,
-        urn="urn:mavedb:variant-1",
+        urn=f"{VALID_SCORE_SET_URN}#1",
     )
 
     # Create variant with valid score
     variant_with_score = Variant(
         data={"score_data": {"score": 1.5}},
         score_set_id=setup_lib_db_with_score_set.id,
-        urn="urn:mavedb:variant-2",
+        urn=f"{VALID_SCORE_SET_URN}#2",
     )
 
     session.add_all([variant_invalid_score_data, variant_with_score])
@@ -2058,14 +2058,14 @@ def test_variants_for_functional_classification_python_filtering_skips_variants_
     variant_none_score = Variant(
         data={"score_data": {"score": None}},
         score_set_id=setup_lib_db_with_score_set.id,
-        urn="urn:mavedb:variant-1",
+        urn=f"{VALID_SCORE_SET_URN}#1",
     )
 
     # Create variant with valid score
     variant_with_score = Variant(
         data={"score_data": {"score": 1.5}},
         score_set_id=setup_lib_db_with_score_set.id,
-        urn="urn:mavedb:variant-2",
+        urn=f"{VALID_SCORE_SET_URN}#2",
     )
 
     session.add_all([variant_none_score, variant_with_score])
@@ -2103,14 +2103,14 @@ def test_variants_for_functional_classification_python_filtering_skips_variants_
     variant_string_score = Variant(
         data={"score_data": {"score": "not_a_number"}},
         score_set_id=setup_lib_db_with_score_set.id,
-        urn="urn:mavedb:variant-1",
+        urn=f"{VALID_SCORE_SET_URN}#1",
     )
 
     # Create variant with valid score
     variant_with_score = Variant(
         data={"score_data": {"score": 1.5}},
         score_set_id=setup_lib_db_with_score_set.id,
-        urn="urn:mavedb:variant-2",
+        urn=f"{VALID_SCORE_SET_URN}#2",
     )
 
     session.add_all([variant_string_score, variant_with_score])
@@ -2146,14 +2146,14 @@ def test_variants_for_functional_classification_python_filtering_skips_variants_
 ):
     # Create variant with non-dict data
     variant_invalid_data = Variant(
-        data="not_a_dict", score_set_id=setup_lib_db_with_score_set.id, urn="urn:mavedb:variant-1"
+        data="not_a_dict", score_set_id=setup_lib_db_with_score_set.id, urn=f"{VALID_SCORE_SET_URN}#1"
     )
 
     # Create variant with valid score
     variant_with_score = Variant(
         data={"score_data": {"score": 1.5}},
         score_set_id=setup_lib_db_with_score_set.id,
-        urn="urn:mavedb:variant-2",
+        urn=f"{VALID_SCORE_SET_URN}#2",
     )
 
     session.add_all([variant_invalid_data, variant_with_score])
@@ -2191,11 +2191,11 @@ def test_variants_for_functional_classification_python_filtering_skips_variants_
             pd.DataFrame(
                 {
                     calibration_variant_column_name: [
-                        "urn:mavedb:variant-1",
-                        "urn:mavedb:variant-2",
-                        "urn:mavedb:variant-3",
-                        "urn:mavedb:variant-4",
-                        "urn:mavedb:variant-5",
+                        f"{VALID_SCORE_SET_URN}#1",
+                        f"{VALID_SCORE_SET_URN}#2",
+                        f"{VALID_SCORE_SET_URN}#3",
+                        f"{VALID_SCORE_SET_URN}#4",
+                        f"{VALID_SCORE_SET_URN}#5",
                     ],
                     calibration_class_column_name: [
                         "pathogenic",
@@ -2280,7 +2280,7 @@ def test_variants_for_functional_classification_filters_by_conditions(
         variant = Variant(
             data={"score_data": {"score": score}},
             score_set_id=setup_lib_db_with_score_set.id,
-            urn=f"urn:mavedb:variant-{i}",
+            urn=f"{VALID_SCORE_SET_URN}#{i}",
             hgvs_nt=hgvs_nts[i - 1],
             hgvs_pro=hgvs_pros[i - 1],
         )
@@ -2325,9 +2325,9 @@ def test_variants_for_functional_classification_filters_by_conditions(
             pd.DataFrame(
                 {
                     calibration_variant_column_name: [
-                        "urn:mavedb:variant-1",
-                        "urn:mavedb:variant-2",
-                        "urn:mavedb:variant-3",
+                        f"{VALID_SCORE_SET_URN}#1",
+                        f"{VALID_SCORE_SET_URN}#2",
+                        f"{VALID_SCORE_SET_URN}#3",
                     ],
                     calibration_class_column_name: [
                         "benign",
@@ -2385,7 +2385,7 @@ def test_variants_for_functional_classification_sql_fallback_on_exception(
     variant = Variant(
         data={"score_data": {"score": 1.5}},
         score_set_id=setup_lib_db_with_score_set.id,
-        urn="urn:mavedb:variant-1",
+        urn=f"{VALID_SCORE_SET_URN}#1",
         hgvs_nt="NC_000001.11:g.1000A>T",
         hgvs_pro="NP_000000.1:p.Lys100Asn",
     )
@@ -2441,7 +2441,7 @@ def test_variants_for_functional_classification_sql_with_infinite_bound(
         variant = Variant(
             data={"score_data": {"score": score}},
             score_set_id=setup_lib_db_with_score_set.id,
-            urn=f"urn:mavedb:variant-{i}",
+            urn=f"{VALID_SCORE_SET_URN}#{i}",
         )
         variants.append(variant)
 
@@ -2495,7 +2495,7 @@ def test_variants_for_functional_classification_sql_with_exclusive_bounds(
         variant = Variant(
             data={"score_data": {"score": score}},
             score_set_id=setup_lib_db_with_score_set.id,
-            urn=f"urn:mavedb:variant-{i}",
+            urn=f"{VALID_SCORE_SET_URN}#{i}",
         )
         variants.append(variant)
 
@@ -2555,10 +2555,10 @@ def test_variants_for_functional_classification_only_returns_variants_from_corre
     variant_in_target_set = Variant(
         data={"score_data": {"score": 1.5}},
         score_set_id=setup_lib_db_with_score_set.id,
-        urn="urn:mavedb:variant-target",
+        urn=f"{VALID_SCORE_SET_URN}#1",
     )
     variant_in_other_set = Variant(
-        data={"score_data": {"score": 1.5}}, score_set_id=other_score_set.id, urn="urn:mavedb:variant-other"
+        data={"score_data": {"score": 1.5}}, score_set_id=other_score_set.id, urn=f"{other_score_set.urn}#1"
     )
 
     session.add_all([variant_in_target_set, variant_in_other_set])
@@ -2581,7 +2581,7 @@ def test_variants_for_functional_classification_only_returns_variants_from_corre
     # Should only return variant from the target score set
     assert len(result) == 1
     assert result[0].score_set_id == setup_lib_db_with_score_set.id
-    assert result[0].urn == "urn:mavedb:variant-target"
+    assert result[0].urn == f"{VALID_SCORE_SET_URN}#1"
 
 
 ################################################################################

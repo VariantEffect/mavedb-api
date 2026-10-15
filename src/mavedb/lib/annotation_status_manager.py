@@ -1,207 +1,170 @@
-"""Manage annotation statuses for variants.
+"""Append-only writer for the annotation event log.
 
-This module provides functionality to insert and retrieve annotation statuses
-for genetic variants, ensuring that only one current status exists per
-(variant, annotation type, version) combination.
+Buffers :class:`AnnotationEvent` rows and flushes them in batches. This is an
+**append-only** log, not a state table: there is no ``current`` flag to
+maintain and no retire-on-write step. "Current" is derived at read time
+(``DISTINCT ON (subject, annotation_type) … ORDER BY id DESC``) — exposed as
+the ``v_current_annotation_events`` view (``mavedb.models.annotation_event_view``).
+
+Each event's *subject* is either a variant or an allele, chosen by
+``annotation_type``. The writer validates the subject/type pairing up front so
+a mis-subjected event fails with a clear ``ValueError`` rather than a deferred
+DB ``CHECK`` violation at flush.
 """
 
 import logging
 from typing import Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import desc
 
 from mavedb.models.enums.annotation_type import AnnotationType
-from mavedb.models.enums.job_pipeline import AnnotationFailureCategory, AnnotationStatus
-from mavedb.models.variant_annotation_status import VariantAnnotationStatus
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.annotation_event import ALLELE_SUBJECT_TYPES, VARIANT_SUBJECT_TYPES, AnnotationEvent
 
 logger = logging.getLogger(__name__)
 
-# Default number of pending annotations to accumulate before auto-flushing.
+# Default number of pending events to accumulate before auto-flushing.
 DEFAULT_BATCH_SIZE = 500
 
 
 class AnnotationStatusManager:
-    """
-    Manager for handling variant annotation statuses with batched writes.
+    """Buffered, append-only writer for :class:`AnnotationEvent` rows.
 
-    Annotations are accumulated in memory and flushed to the database in
-    batches (default 500) to reduce round-trips.  Callers **must** call
-    :meth:`flush` after the last ``add_annotation`` to persist any remainder.
+    Events are accumulated in memory and flushed in batches (default 500) to
+    reduce round-trips. Callers **must** call :meth:`flush` after the last
+    :meth:`record_event` to persist any remainder.
     """
 
-    def __init__(self, session: Session, job_run_id: Optional[int] = None, *, batch_size: int = DEFAULT_BATCH_SIZE):
+    def __init__(
+        self,
+        session: Session,
+        job_run_id: Optional[int] = None,
+        *,
+        score_set_id: Optional[int] = None,
+        batch_size: int = DEFAULT_BATCH_SIZE,
+    ):
         self.session = session
         self.job_run_id = job_run_id
+        self.score_set_id = score_set_id
         self.batch_size = batch_size
-        self._pending: list[VariantAnnotationStatus] = []
-        self._retirement_filters: list[dict] = []
+        self._pending: list[AnnotationEvent] = []
 
-    def add_annotation(
+    def record_event(
         self,
-        variant_id: int,
         annotation_type: AnnotationType,
-        status: AnnotationStatus,
-        version: Optional[str] = None,
-        failure_category: Optional[AnnotationFailureCategory] = None,
-        annotation_data: dict = {},
-        current: bool = True,
-        replace_all_versions: bool = True,
+        *,
+        disposition: Disposition,
+        reason: str,
+        variant_id: Optional[int] = None,
+        allele_id: Optional[int] = None,
+        source_version: Optional[str] = None,
+        metadata: Optional[dict] = None,
+        score_set_id: Optional[int] = None,
     ) -> None:
+        """Buffer one terminal observation about a variant or an allele.
+
+        Exactly one of ``variant_id`` / ``allele_id`` must be set, and it must
+        match the subject the ``annotation_type`` keys on. ``reason`` is the
+        single "what happened" axis across all dispositions (see EventReason).
+
+        Writes are accumulated in memory and flushed when ``batch_size`` is
+        reached. Call :meth:`flush` after the last call to persist the
+        remainder. Does not commit — the caller owns the transaction.
         """
-        Stage a new annotation and schedule retirement of previous current rows.
-
-        By default (``replace_all_versions=True``), all existing current annotations for
-        (variant, type) are retired regardless of version.
-
-        When ``replace_all_versions=False``, only existing current annotations matching
-        (variant, type, version) are retired.
-
-        Writes are accumulated in memory and flushed to the database when
-        ``batch_size`` is reached.  Call :meth:`flush` after the last add to
-        persist any remaining annotations.
-
-        NOTE:
-            This method does not commit the session. The caller is responsible
-            for persisting changes (e.g., via ``session.commit()``).
-        """
-        self._retirement_filters.append(
-            {
-                "variant_id": variant_id,
-                "annotation_type": annotation_type,
-                "replace_all_versions": replace_all_versions,
-                "version": version,
-            }
-        )
+        self._validate_subject(annotation_type, variant_id, allele_id)
 
         self._pending.append(
-            VariantAnnotationStatus(
-                variant_id=variant_id,
+            AnnotationEvent(
                 annotation_type=annotation_type,
-                status=status,
-                version=version,
-                failure_category=failure_category,
-                current=current,
+                variant_id=variant_id,
+                allele_id=allele_id,
+                disposition=disposition,
+                reason=reason,
+                source_version=source_version,
+                event_metadata=metadata,
                 job_run_id=self.job_run_id,
-                **annotation_data,
+                score_set_id=score_set_id if score_set_id is not None else self.score_set_id,
             )  # type: ignore[call-arg]
         )
 
         if len(self._pending) >= self.batch_size:
             self.flush()
 
-    def flush(self) -> None:
-        """Flush all pending annotations to the database.
+    @staticmethod
+    def _validate_subject(annotation_type: AnnotationType, variant_id: Optional[int], allele_id: Optional[int]) -> None:
+        if (variant_id is None) == (allele_id is None):
+            raise ValueError("Exactly one of variant_id or allele_id must be set")
 
-        Retires old ``current=True`` rows in bulk, then inserts all pending
-        new rows in a single ``add_all`` + ``flush``.  This replaces the
-        previous pattern of 2 flushes per ``add_annotation`` call.
-        """
+        type_value = annotation_type.value if isinstance(annotation_type, AnnotationType) else annotation_type
+        if variant_id is not None and type_value not in VARIANT_SUBJECT_TYPES:
+            raise ValueError(f"annotation_type {type_value!r} is allele-subject; pass allele_id, not variant_id")
+        if allele_id is not None and type_value not in ALLELE_SUBJECT_TYPES:
+            raise ValueError(f"annotation_type {type_value!r} is variant-subject; pass variant_id, not allele_id")
+
+    def flush(self) -> None:
+        """Insert all pending events in a single ``add_all`` + ``flush``."""
         if not self._pending:
             return
 
-        self._retire_existing()
         self.session.add_all(self._pending)
         self.session.flush()
 
-        logger.debug(f"Flushed {len(self._pending)} annotation statuses")
+        logger.debug(f"Flushed {len(self._pending)} variant events")
         self._pending.clear()
-        self._retirement_filters.clear()
-
-    def _retire_existing(self) -> None:
-        """Bulk-retire existing current annotations for all pending writes.
-
-        Groups retirement filters by (annotation_type, replace_all_versions, version)
-        and issues one UPDATE per group, minimizing round-trips.
-        """
-        # Group filters to minimize UPDATE statements.
-        # Key: (annotation_type, replace_all_versions, version) -> list of variant_ids
-        groups: dict[tuple, list[int]] = {}
-        for f in self._retirement_filters:
-            key = (f["annotation_type"], f["replace_all_versions"], f["version"])
-            groups.setdefault(key, []).append(f["variant_id"])
-
-        for (annotation_type, replace_all_versions, version), variant_ids in groups.items():
-            conditions = [
-                VariantAnnotationStatus.variant_id.in_(variant_ids),
-                VariantAnnotationStatus.annotation_type == annotation_type,
-                VariantAnnotationStatus.current.is_(True),
-            ]
-            if not replace_all_versions:
-                conditions.append(VariantAnnotationStatus.version == version)
-
-            stmt = update(VariantAnnotationStatus).where(*conditions).values(current=False)
-            self.session.execute(stmt)
 
     def get_current_annotation(
-        self, variant_id: int, annotation_type: AnnotationType, version: Optional[str] = None
-    ) -> Optional[VariantAnnotationStatus]:
-        """
-        Retrieve the current annotation for a given variant/type/version.
-
-        Flushes pending annotations first to ensure the result is up to date.
-        """
-        self.flush()
-
-        stmt = select(VariantAnnotationStatus).where(
-            VariantAnnotationStatus.variant_id == variant_id,
-            VariantAnnotationStatus.annotation_type == annotation_type,
-            VariantAnnotationStatus.current.is_(True),
-        )
-
-        if version is not None:
-            stmt = stmt.where(VariantAnnotationStatus.version == version)
-
-        result = self.session.execute(stmt)
-        return result.scalar_one_or_none()
-
-    def get_annotation_history(
         self,
-        variant_id: int,
         annotation_type: AnnotationType,
-        version: Optional[str] = None,
-    ) -> list[VariantAnnotationStatus]:
-        """
-        Return the full annotation timeline for a variant/type, newest first.
+        *,
+        variant_id: Optional[int] = None,
+        allele_id: Optional[int] = None,
+        source_version: Optional[str] = None,
+    ) -> Optional[AnnotationEvent]:
+        """Latest event for a single ``(subject, annotation_type)`` key.
 
-        Includes both current and retired rows — useful for debugging and
-        support investigations.
+        Current status is the newest event by ``id`` — there is no ``current``
+        flag to filter on. Flushes pending events first so the result reflects
+        buffered writes.
         """
         self.flush()
+        self._validate_subject(annotation_type, variant_id, allele_id)
 
-        stmt = (
-            select(VariantAnnotationStatus)
-            .where(
-                VariantAnnotationStatus.variant_id == variant_id,
-                VariantAnnotationStatus.annotation_type == annotation_type,
-            )
-            .order_by(desc(VariantAnnotationStatus.id))
-        )
+        stmt = select(AnnotationEvent).where(AnnotationEvent.annotation_type == annotation_type)
+        if variant_id is not None:
+            stmt = stmt.where(AnnotationEvent.variant_id == variant_id)
+        else:
+            stmt = stmt.where(AnnotationEvent.allele_id == allele_id)
+        if source_version is not None:
+            stmt = stmt.where(AnnotationEvent.source_version == source_version)
 
-        if version is not None:
-            stmt = stmt.where(VariantAnnotationStatus.version == version)
+        stmt = stmt.order_by(desc(AnnotationEvent.id)).limit(1)
+        return self.session.scalars(stmt).first()
 
-        return list(self.session.scalars(stmt).all())
-
-    def get_all_current_annotations(
+    def get_event_history(
         self,
-        variant_id: int,
-    ) -> list[VariantAnnotationStatus]:
-        """
-        Return all current annotations for a variant, across all types and versions.
+        annotation_type: AnnotationType,
+        *,
+        variant_id: Optional[int] = None,
+        allele_id: Optional[int] = None,
+        source_version: Optional[str] = None,
+    ) -> list[AnnotationEvent]:
+        """Full event timeline for a ``(subject, annotation_type)`` key, newest first.
 
-        Useful for a quick overview of what annotations are active for a given variant.
+        The append-only log retains every observation — skips, reconfirms,
+        no-ops — so this is the complete audit trail, not just the current row.
         """
         self.flush()
+        self._validate_subject(annotation_type, variant_id, allele_id)
 
-        stmt = (
-            select(VariantAnnotationStatus)
-            .where(
-                VariantAnnotationStatus.variant_id == variant_id,
-                VariantAnnotationStatus.current.is_(True),
-            )
-            .order_by(VariantAnnotationStatus.annotation_type, VariantAnnotationStatus.version)
-        )
+        stmt = select(AnnotationEvent).where(AnnotationEvent.annotation_type == annotation_type)
+        if variant_id is not None:
+            stmt = stmt.where(AnnotationEvent.variant_id == variant_id)
+        else:
+            stmt = stmt.where(AnnotationEvent.allele_id == allele_id)
+        if source_version is not None:
+            stmt = stmt.where(AnnotationEvent.source_version == source_version)
 
+        stmt = stmt.order_by(desc(AnnotationEvent.id))
         return list(self.session.scalars(stmt).all())

@@ -11,7 +11,6 @@ Usage:
     poetry run python -m mavedb.scripts.run_pipeline --list
 """
 
-import datetime
 import logging
 import sys
 
@@ -21,10 +20,9 @@ from sqlalchemy import select
 
 from mavedb.db.session import SessionLocal
 from mavedb.lib.workflow.definitions import PIPELINE_DEFINITIONS
-from mavedb.lib.workflow.pipeline_factory import PipelineFactory
+from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
-from mavedb.worker.lib.managers.utils import arq_job_id
 from mavedb.worker.settings import RedisWorkerSettings
 
 logger = logging.getLogger(__name__)
@@ -108,40 +106,25 @@ async def main(
         click.echo(f"User not found: {resolved_updater_id}", err=True)
         sys.exit(1)
 
-    correlation_id = f"{pipeline_name}_{score_set.urn}_{user.id}_{datetime.datetime.now().isoformat()}"
-    pipeline_params: dict = {
-        "correlation_id": correlation_id,
-        "score_set_id": score_set.id,
-        "updater_id": user.id,
-    }
-    for key, value in extra_params:
-        pipeline_params[key] = value
-
-    try:
-        pipeline_factory = PipelineFactory(session=db)
-        pipeline, pipeline_entrypoint = pipeline_factory.create_pipeline(
-            pipeline_name=pipeline_name,
-            creating_user=user,
-            pipeline_params=pipeline_params,
-        )
-    except (KeyError, ValueError) as e:
-        click.echo(f"Failed to create pipeline: {e}", err=True)
-        sys.exit(1)
-
-    click.echo(f"Created pipeline '{pipeline_name}' (id={pipeline.id}, correlation_id={correlation_id})")
-
     # Connect to Redis and enqueue
     redis = await create_pool(RedisWorkerSettings)
     try:
-        job = await redis.enqueue_job(
-            pipeline_entrypoint.job_function,
-            pipeline_entrypoint.id,
-            _job_id=arq_job_id(pipeline_entrypoint),
+        pipeline, job = await enqueue_pipeline_for_score_set(
+            db,
+            redis,
+            pipeline_name=pipeline_name,
+            score_set=score_set,
+            user=user,
+            extra_params={key: value for key, value in extra_params},
         )
+        click.echo(f"Created pipeline '{pipeline_name}' (id={pipeline.id}, correlation_id={pipeline.correlation_id})")
         if job:
             click.echo(f"Enqueued start_pipeline job: {job.job_id}. Pipeline will execute asynchronously.")
         else:
             click.echo("Job was already enqueued (duplicate).", err=True)
+    except (KeyError, ValueError) as e:
+        click.echo(f"Failed to create pipeline: {e}", err=True)
+        sys.exit(1)
     finally:
         await redis.aclose()
         db.close()

@@ -51,6 +51,11 @@ class JobFactory:
                     raise ValueError(f"Missing required param: {key}")
                 job_params[key] = pipeline_params[key]
 
+        # Optional params take the pipeline's value when given and their declared default otherwise.
+        # Preset params above are fixed by the definition and never overridden.
+        for key, default in job_def.get("optional_params", {}).items():
+            job_params[key] = pipeline_params.get(key, default)
+
         job_run = JobRun(
             job_type=job_def["type"],
             job_function=job_def["function"],

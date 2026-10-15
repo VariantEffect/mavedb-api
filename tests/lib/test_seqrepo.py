@@ -7,7 +7,7 @@ pytest.importorskip("bioutils")
 from mavedb.lib.seqrepo import get_sequence_ids, _generate_nsa_options, seqrepo_versions, sequence_generator
 from mavedb.lib import seqrepo as seqrepo_lib
 
-from tests.helpers.constants import TEST_SEQREPO_INITIAL_STATE
+from tests.helpers.constants import TEST_SEQREPO_INITIAL_STATE, VALID_MD5_DIGEST
 
 
 @pytest.mark.parametrize("entry", TEST_SEQREPO_INITIAL_STATE)
@@ -35,6 +35,18 @@ def test_get_sequence_ids_no_match(seqrepo):
     assert [] == result
 
 
+@pytest.mark.parametrize("entry", TEST_SEQREPO_INITIAL_STATE)
+def test_get_sequence_ids_rejects_wildcards(entry, seqrepo):
+    alias = list(entry.keys())[0]
+    namespace = entry[alias]["namespace"]
+    assert get_sequence_ids(seqrepo, f"{namespace}:{entry[alias]['alias'][:4]}%") == []
+    assert get_sequence_ids(seqrepo, f"{namespace}:%") == []
+
+
+def test_get_sequence_ids_rejects_digest_prefixes(seqrepo):
+    assert get_sequence_ids(seqrepo, VALID_MD5_DIGEST[:8]) == []
+
+
 @pytest.mark.parametrize(
     "query,expected",
     [
@@ -44,8 +56,14 @@ def test_get_sequence_ids_no_match(seqrepo):
         # Namespace inferred
         ("ENST00000530893.6", [("ensembl", "ENST00000530893.6")]),
         ("NM_000551.3", [("refseq", "NM_000551.3")]),
-        # Hex digest (MD5/VMC)
-        ("01234abcde", [("MD5", "01234abcde%"), ("VMC", "GS_ASNKvN4=%")]),
+        # Complete hex digests only: MD5 (32 characters) and TRUNC512, as VMC (48)
+        ("0123456789ABCDEF0123456789abcdef", [("MD5", "0123456789abcdef0123456789abcdef")]),
+        ("0123456789abcdef" * 3, [("VMC", "GS_ASNFZ4mrze8BI0VniavN7wEjRWeJq83v")]),
+        ("01234abcde", [(None, "01234abcde")]),
+        # SeqRepo treats "%" as a LIKE wildcard, so any query containing one matches nothing.
+        ("ga4gh:SQ.%", []),
+        ("NM_%", []),
+        ("%", []),
         # No match, fallback to (None, query)
         ("notfound", [(None, "notfound")]),
     ],
