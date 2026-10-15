@@ -45,9 +45,9 @@ def test_experiment_set_handles_all_actions() -> None:
     supported = set(EXPERIMENT_SET_SUPPORTED_ACTIONS)
     unsupported = set(EXPERIMENT_SET_UNSUPPORTED_ACTIONS)
 
-    assert (
-        supported.union(unsupported) == all_actions
-    ), "Some actions are not categorized as supported or unsupported for experiment sets."
+    assert supported.union(unsupported) == all_actions, (
+        "Some actions are not categorized as supported or unsupported for experiment sets."
+    )
 
 
 class TestExperimentSetHasPermission:
@@ -122,7 +122,9 @@ class TestExperimentSetReadActionHandler:
             PermissionTest("ExperimentSet", "published", "anonymous", Action.READ, True),
             PermissionTest("ExperimentSet", "private", "anonymous", Action.READ, False, 404),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_read_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_read_action helper function directly."""
@@ -171,7 +173,9 @@ class TestExperimentSetUpdateActionHandler:
             PermissionTest("ExperimentSet", "private", "anonymous", Action.UPDATE, False, 404),
             PermissionTest("ExperimentSet", "published", "anonymous", Action.UPDATE, False, 401),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_update_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_update_action helper function directly."""
@@ -218,7 +222,9 @@ class TestExperimentSetDeleteActionHandler:
             PermissionTest("ExperimentSet", "private", "mapper", Action.DELETE, False, 404),
             PermissionTest("ExperimentSet", "published", "mapper", Action.DELETE, False, 403),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_delete_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_delete_action helper function directly."""
@@ -265,7 +271,9 @@ class TestExperimentSetAddExperimentActionHandler:
             PermissionTest("ExperimentSet", "private", "anonymous", Action.ADD_EXPERIMENT, False, 404),
             PermissionTest("ExperimentSet", "published", "anonymous", Action.ADD_EXPERIMENT, False, 401),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_add_experiment_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_add_experiment_action helper function directly."""

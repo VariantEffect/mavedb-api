@@ -17,21 +17,21 @@ async def my_job(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutio
     score_set_id = job.job_params["score_set_id"]
     correlation_id = job.job_params["correlation_id"]
 
-    job_manager.save_to_context({
-        "application": "mavedb-worker",
-        "function": "my_job",
-        "resource": score_set_id,
-        "correlation_id": correlation_id,
-    })
+    job_manager.save_to_context(
+        {
+            "application": "mavedb-worker",
+            "function": "my_job",
+            "resource": score_set_id,
+            "correlation_id": correlation_id,
+        }
+    )
 
     # 3. Initialize progress
     job_manager.update_progress(0, 100, "Starting my job.")
     logger.info("Starting my job", extra=job_manager.logging_context())
 
     # 4. Load domain objects and do work
-    score_set = job_manager.db.scalars(
-        select(ScoreSet).where(ScoreSet.id == score_set_id)
-    ).one()
+    score_set = job_manager.db.scalars(select(ScoreSet).where(ScoreSet.id == score_set_id)).one()
 
     # ... business logic ...
 
@@ -68,8 +68,7 @@ return JobExecutionOutcome.succeeded(data={"variants_created": count})
 # Missing data, validation failure, precondition not met
 if not mapping_records:
     return JobExecutionOutcome.failed(
-        reason="No mapping records found for score set",
-        data={"score_set_id": score_set_id}
+        reason="No mapping records found for score set", data={"score_set_id": score_set_id}
     )
 ```
 
@@ -133,12 +132,14 @@ Until then, the interim pattern (see `map_variants_for_score_set`) is a **livene
 Always set up logging context early in the job function:
 
 ```python
-job_manager.save_to_context({
-    "application": "mavedb-worker",
-    "function": "my_job_name",
-    "resource": score_set.urn,
-    "correlation_id": correlation_id,
-})
+job_manager.save_to_context(
+    {
+        "application": "mavedb-worker",
+        "function": "my_job_name",
+        "resource": score_set.urn,
+        "correlation_id": correlation_id,
+    }
+)
 ```
 
 Then use `job_manager.logging_context()` with every log call:
@@ -165,9 +166,7 @@ async def submit_to_external_service(ctx: dict, job_id: int, job_manager: JobMan
         return JobExecutionOutcome.skipped(data={"reason": "Service submissions disabled"})
 
     # 2. Load required data
-    score_set = job_manager.db.scalars(
-        select(ScoreSet).where(ScoreSet.id == job.job_params["score_set_id"])
-    ).one()
+    score_set = job_manager.db.scalars(select(ScoreSet).where(ScoreSet.id == job.job_params["score_set_id"])).one()
 
     # 3. Check preconditions
     has_mappings = job_manager.db.scalar(

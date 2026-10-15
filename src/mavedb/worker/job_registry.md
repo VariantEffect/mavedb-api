@@ -37,7 +37,8 @@ BACKGROUND_CRONJOBS: List[CronJob] = [
     cron(
         refresh_materialized_views,
         name="refresh_all_materialized_views",
-        hour=20, minute=0,
+        hour=20,
+        minute=0,
         keep_result=timedelta(minutes=2).total_seconds(),
     ),
     cron(
@@ -103,17 +104,17 @@ async def submit_to_new_service(ctx: dict, job_id: int, job_manager: JobManager)
     _job_required_params = ["score_set_id", "correlation_id"]
     validate_job_params(_job_required_params, job)
 
-    score_set = job_manager.db.scalars(
-        select(ScoreSet).where(ScoreSet.id == job.job_params["score_set_id"])
-    ).one()
+    score_set = job_manager.db.scalars(select(ScoreSet).where(ScoreSet.id == job.job_params["score_set_id"])).one()
     correlation_id = job.job_params["correlation_id"]
 
-    job_manager.save_to_context({
-        "application": "mavedb-worker",
-        "function": "submit_to_new_service",
-        "resource": score_set.urn,
-        "correlation_id": correlation_id,
-    })
+    job_manager.save_to_context(
+        {
+            "application": "mavedb-worker",
+            "function": "submit_to_new_service",
+            "resource": score_set.urn,
+            "correlation_id": correlation_id,
+        }
+    )
     job_manager.update_progress(0, 100, "Starting NewService submission.")
     logger.info("Started NewService submission", extra=job_manager.logging_context())
 
@@ -148,16 +149,18 @@ BACKGROUND_FUNCTIONS: List[Callable] = [
 In `src/mavedb/lib/workflow/definitions.py`, add a `JobDefinition` to the appropriate pipeline:
 
 ```python
-{
-    "key": "submit_to_new_service",
-    "function": "submit_to_new_service",
-    "type": JobType.MAPPED_VARIANT_ANNOTATION,
-    "params": {
-        "correlation_id": None,
-        "score_set_id": None,
+(
+    {
+        "key": "submit_to_new_service",
+        "function": "submit_to_new_service",
+        "type": JobType.MAPPED_VARIANT_ANNOTATION,
+        "params": {
+            "correlation_id": None,
+            "score_set_id": None,
+        },
+        "dependencies": [("map_variants_for_score_set", DependencyType.SUCCESS_REQUIRED)],
     },
-    "dependencies": [("map_variants_for_score_set", DependencyType.SUCCESS_REQUIRED)],
-},
+)
 ```
 
 ### 5. Write tests
@@ -203,7 +206,8 @@ BACKGROUND_CRONJOBS: List[CronJob] = [
     cron(
         my_maintenance_job,
         name="my_maintenance_job_cron",
-        hour=4, minute=0,  # Run daily at 4:00 AM
+        hour=4,
+        minute=0,  # Run daily at 4:00 AM
         keep_result=timedelta(minutes=5).total_seconds(),
     ),
 ]
@@ -232,17 +236,17 @@ The `ArqWorkerSettings` class (in `settings/worker.py`) brings everything togeth
 
 ```python
 class ArqWorkerSettings:
-    on_startup = startup          # Create ProcessPoolExecutor
+    on_startup = startup  # Create ProcessPoolExecutor
     on_shutdown = shutdown
-    on_job_start = on_job_start   # Initialize hdp (HGVS data provider), state dict
+    on_job_start = on_job_start  # Initialize hdp (HGVS data provider), state dict
     on_job_end = on_job_end
-    after_job_end = log_job       # Canonical job logging
+    after_job_end = log_job  # Canonical job logging
     redis_settings = RedisWorkerSettings
     functions = BACKGROUND_FUNCTIONS
     cron_jobs = BACKGROUND_CRONJOBS
-    max_jobs = MAX_JOBS           # 2; limits event-loop starvation from sync DB calls
+    max_jobs = MAX_JOBS  # 2; limits event-loop starvation from sync DB calls
     job_timeout = JOB_TIMEOUT_SECONDS  # 24 hours
-    allow_abort_jobs = True       # Lets cleanup_stalled_jobs abort a wedged RUNNING job
+    allow_abort_jobs = True  # Lets cleanup_stalled_jobs abort a wedged RUNNING job
 ```
 
 ### Fast-lane worker

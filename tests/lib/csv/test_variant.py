@@ -847,9 +847,9 @@ class TestGetVariantCsv:
             for statement in statements
             if "score_calibrations" in statement and " variants" in statement.replace("\n", " ")
         ]
-        assert (
-            calibration_scans == []
-        ), "calibration discovery joined the variants table; it should filter on score_set_id"
+        assert calibration_scans == [], (
+            "calibration discovery joined the variants table; it should filter on score_set_id"
+        )
 
     def test_base_namespaces_are_all_present_by_default(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant

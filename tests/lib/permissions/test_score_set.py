@@ -47,9 +47,9 @@ def test_score_set_handles_all_actions() -> None:
     supported = set(SCORE_SET_SUPPORTED_ACTIONS)
     unsupported = set(SCORE_SET_UNSUPPORTED_ACTIONS)
 
-    assert (
-        supported.union(unsupported) == all_actions
-    ), "Some actions are not categorized as supported or unsupported for score sets."
+    assert supported.union(unsupported) == all_actions, (
+        "Some actions are not categorized as supported or unsupported for score sets."
+    )
 
 
 class TestScoreSetHasPermission:
@@ -124,7 +124,9 @@ class TestScoreSetReadActionHandler:
             PermissionTest("ScoreSet", "published", "anonymous", Action.READ, True),
             PermissionTest("ScoreSet", "private", "anonymous", Action.READ, False, 404),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_read_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_read_action helper function directly."""
@@ -171,7 +173,9 @@ class TestScoreSetUpdateActionHandler:
             PermissionTest("ScoreSet", "private", "anonymous", Action.UPDATE, False, 404),
             PermissionTest("ScoreSet", "published", "anonymous", Action.UPDATE, False, 401),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_update_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_update_action helper function directly."""
@@ -216,7 +220,9 @@ class TestScoreSetDeleteActionHandler:
             PermissionTest("ScoreSet", "private", "mapper", Action.DELETE, False, 404),
             PermissionTest("ScoreSet", "published", "mapper", Action.DELETE, False, 403),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_delete_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_delete_action helper function directly."""
@@ -261,7 +267,9 @@ class TestScoreSetSetScoresActionHandler:
             PermissionTest("ScoreSet", "private", "anonymous", Action.SET_SCORES, False, 404),
             PermissionTest("ScoreSet", "published", "anonymous", Action.SET_SCORES, False, 401),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_set_scores_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_set_scores_action helper function directly."""
@@ -308,7 +316,9 @@ class TestScoreSetPublishActionHandler:
             PermissionTest("ScoreSet", "private", "anonymous", Action.PUBLISH, False, 404),
             PermissionTest("ScoreSet", "published", "anonymous", Action.PUBLISH, False, 401),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_publish_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_publish_action helper function directly."""
@@ -353,7 +363,9 @@ class TestScoreSetAddCalibrationActionHandler:
             PermissionTest("ScoreSet", "private", "anonymous", Action.ADD_CALIBRATION, False, 404),
             PermissionTest("ScoreSet", "published", "anonymous", Action.ADD_CALIBRATION, False, 401),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_add_calibration_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_add_calibration_action helper function directly."""

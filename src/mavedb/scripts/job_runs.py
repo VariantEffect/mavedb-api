@@ -96,7 +96,7 @@ def list_job_runs(
         click.echo("No job runs match the given filters.")
         return
 
-    click.echo(f"{'ID':>6}  {'STATUS':<10} {'TYPE':<24} {'FUNCTION':<36} " f"{'RETRIES':<8} {'CREATED':<26} URN")
+    click.echo(f"{'ID':>6}  {'STATUS':<10} {'TYPE':<24} {'FUNCTION':<36} {'RETRIES':<8} {'CREATED':<26} URN")
     for j in job_runs:
         click.echo(
             f"{j.id:>6}  {str(j.status):<10} {j.job_type[:24]:<24} "
