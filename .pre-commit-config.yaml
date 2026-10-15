@@ -13,5 +13,6 @@ repos:
         name: ruff format
         entry: poetry run ruff format --force-exclude
         language: system
-        types_or: [python, pyi]
+        # Ruff also formats Python code blocks in Markdown; bin/check and CI check them too.
+        types_or: [python, pyi, markdown]
         require_serial: true
