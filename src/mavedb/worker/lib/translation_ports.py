@@ -119,8 +119,10 @@ class WorkerCoordinateTranslator:
 
         Reads cdot's per-build ``tag``, so it needs a cdot data provider. Where MANE Select transcripts of two
         genes overlap the variant, the lowest accession wins, so the choice is stable across runs. HGVS that
-        does not parse has no locus and gives ``None``; data provider failures raise, so callers can tell an
-        outage from a locus with no MANE transcript.
+        does not parse has no locus and gives ``None``. Data provider failures raise, so callers can tell an
+        outage from a locus with no MANE transcript; this relies on a provider that raises on one, as
+        :func:`~mavedb.data_providers.services.cdot_rest` does, since cdot's own REST client reports an outage
+        as no transcripts.
         """
         self._ensure_initialized()
         try:
@@ -136,7 +138,8 @@ class WorkerCoordinateTranslator:
             if tx["tx_ac"].startswith("NM_")
         )
         for accession in candidates:
-            build = self._hdp._get_transcript(accession).get("genome_builds", {}).get("GRCh38", {})
+            transcript = self._hdp._get_transcript(accession) or {}
+            build = transcript.get("genome_builds", {}).get("GRCh38", {})
             if "MANE Select" in (build.get("tag") or ""):
                 return accession
 
