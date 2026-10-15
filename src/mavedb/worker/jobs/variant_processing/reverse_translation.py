@@ -561,8 +561,10 @@ async def reverse_translate_variants_for_score_set(
             )
 
         # Each ProjectionPair is a coding candidate and its genomic projection: the same change at two levels.
-        # hgvs_g is None when the c→g projection failed, leaving a one-member group.
-        for pair in result.projection_pairs:
+        # hgvs_g is None when the c→g projection failed, leaving a one-member group. Two spellings of one coding
+        # change (an insertion either side of an exon junction) identify to one allele, which links only once,
+        # so pairs with a genomic projection go first to keep that allele with its genomic partner.
+        for pair in sorted(result.projection_pairs, key=lambda pair: pair.hgvs_g is None):
             members = [(pair.hgvs_c, SequenceLevel.cdna, "hgvs_c")]
             if pair.hgvs_g is not None:
                 members.append((pair.hgvs_g, SequenceLevel.genomic, "hgvs_g"))

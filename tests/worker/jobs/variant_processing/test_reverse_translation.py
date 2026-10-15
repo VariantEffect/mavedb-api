@@ -1645,6 +1645,52 @@ class TestReverseTranslateVariantsForScoreSetUnit:
                 first_candidate_group.valid_to
             }
 
+    async def test_a_coding_change_spelled_two_ways_stays_paired_with_its_genomic_projection(
+        self,
+        session,
+        with_independent_processing_runs,
+        with_reverse_translation_run,
+        mock_worker_ctx,
+        sample_independent_variant_mapping_run,
+        sample_independent_reverse_translation_run,
+        sample_score_set,
+    ):
+        """An insertion at an exon junction can be written on either side of it. Both spellings are one coding
+        allele, but only the one inside an exon projects to the genome; the allele joins that pair's group
+        rather than a coding-only group, whichever spelling the library lists first."""
+        variant = Variant(
+            score_set_id=sample_score_set.id,
+            urn=f"{sample_score_set.urn}#11",
+            hgvs_nt="NM_000000.1:c.1A>G",
+            hgvs_pro="NP_000000.1:p.Met1Val",
+            data={},
+        )
+        session.add(variant)
+        session.commit()
+        await _map_variants(session, mock_worker_ctx, sample_independent_variant_mapping_run, sample_score_set)
+
+        junction_c = "NM_000001.1:c.10_11insGAG"
+        exon_c = "NM_000001.1:c.11_12insAGG"
+        exon_g = "NC_000001.11:g.2000_2001insCCT"
+        construct = fake_construct({"NM_000000.1:c.1A>G": [(junction_c, None), (exon_c, exon_g)]})
+        translate = fake_translate({junction_c: "ga4gh:VA.shared_c", exon_c: "ga4gh:VA.shared_c", exon_g: "ga4gh:VA.g"})
+        with (
+            patch(f"{RT_MODULE}.construct_equivalent_variants", construct),
+            patch(f"{RT_MODULE}.translate_hgvs_to_variation", translate),
+        ):
+            await _reverse_translate(session, mock_worker_ctx, sample_independent_reverse_translation_run)
+
+        record = _record_for(session, variant.id)
+        measured_group_id = _authoritative_link(session, record.id).projection_group
+        candidate_groups: dict[int, set[str]] = {}
+        for link in _non_authoritative_links(session):
+            if link.valid_to is None and link.projection_group != measured_group_id:
+                candidate_groups.setdefault(link.projection_group, set()).add(link.allele.vrs_digest)
+
+        assert list(candidate_groups.values()) == [{"ga4gh:VA.shared_c", "ga4gh:VA.g"}]
+        (group_id,) = candidate_groups
+        assert (_group(session, group_id).hgvs_c, _group(session, group_id).hgvs_g) == (exon_c, exon_g)
+
     async def test_a_changed_standalone_projection_detaches_the_measured_groups_rt_alleles(
         self,
         session,
