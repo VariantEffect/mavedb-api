@@ -8,6 +8,13 @@ paths:
 
 Read `src/mavedb/worker/README.md` first; `best_practices.md`, `job_decorators.md`, `job_managers.md` and `pipeline_management.md` beside it cover job structure, decorators and pipelines.
 
+## Rules
+
+- Job signature: `async def job(ctx, job_id, job_manager) -> JobExecutionOutcome`. Register jobs in `worker/jobs/registry.py`.
+- Job code never commits. The management decorators and `update_progress()` own commits.
+- Start pipelines only through `enqueue_pipeline_for_score_set` (`lib/workflow/kickoff.py`).
+- `max_jobs = 2` is deliberate: psycopg2 is synchronous and blocks the worker's event loop.
+
 ## Testing jobs
 
 - Assert on `JobExecutionOutcome.status` and `.data` in every job test, plus database state for the objects the job changes. For external-service jobs, assert the boundary calls (ClinGen CAR/LDH, UniProt, gnomAD/Athena, ClinVar, S3).

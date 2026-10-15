@@ -47,8 +47,20 @@ poetry publish -r pypi -u <username> -p <password>
 To build and publish the package in one go, just pass the `--build` flag to the publish command.
 
 For use as a server, this distribution includes an optional set of dependencies, which are only installed with
-`poetry install --extras server`. For development, install the dev group too: `poetry install --with dev --extras server`.
-Development setup, check and test commands are in [AGENTS.md](AGENTS.md).
+`poetry install --extras server`.
+
+### Development setup
+
+Once per clone:
+
+```
+poetry install --with dev --extras server
+poetry run pre-commit install
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
+The pre-commit hooks run Ruff's linter and formatter. The `git config` line makes `git blame` skip formatting-only
+commits. Check and test commands are in [AGENTS.md](AGENTS.md).
 
 ### Running a local version of the API server
 
