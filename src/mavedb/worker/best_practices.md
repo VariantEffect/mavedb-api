@@ -348,7 +348,7 @@ assert result.status == "succeeded"
 ### Use fixtures for job setup
 The test `conftest.py` provides fixtures for creating `JobRun` records with the right params structure. Use these rather than constructing records manually.
 
-For complete testing guidelines, see `.github/instructions/testing.instructions.md`.
+For the rest of the testing conventions, see `.claude/rules/tests.md` and `.claude/rules/worker.md` at the repository root.
 
 ## See Also
 
