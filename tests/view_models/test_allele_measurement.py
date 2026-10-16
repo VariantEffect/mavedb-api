@@ -1,3 +1,9 @@
+# ruff: noqa: E402
+
+import pytest
+
+fastapi = pytest.importorskip("fastapi")
+
 from mavedb.view_models.allele_measurement import AlleleMeasurement
 from tests.helpers.constants import TEST_SAVED_FUNCTIONAL_RANGE_ABNORMAL
 

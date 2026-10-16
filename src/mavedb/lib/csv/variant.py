@@ -38,6 +38,7 @@ from mavedb.lib.csv.namespaces import (
     calibration_namespace_for_urn,
     clinvar_namespace_sort_key,
 )
+from mavedb.lib.exceptions import NonexistentIdentifierError
 from mavedb.lib.mave.utils import NA_VALUE
 from mavedb.lib.urns import score_set_urn_sort_key, variant_urn_sort_key
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
@@ -255,14 +256,14 @@ def available_variant_csv_namespaces(
     equivalent measurements, and one ``clinvar.YYYY_MM`` per release covering them.
 
     Raises:
-        ValueError: if no variant with *variant_urn* exists.
+        NonexistentIdentifierError: if no variant with *variant_urn* exists.
     """
     measurements = _equivalent_measurements(db, variant_urn, may_read_score_set=may_read_score_set, as_of=as_of)
 
     if measurements is None:
         variant = db.scalars(select(Variant).where(Variant.urn == variant_urn).limit(1)).first()
         if variant is None:
-            raise ValueError(f"variant with URN '{variant_urn}' not found")
+            raise NonexistentIdentifierError(f"variant with URN '{variant_urn}' not found")
 
         # No mapping on this variant, but its score set may still be mapped, in which case the
         # mapping-derived columns are owed with NA rather than omitted.
@@ -306,7 +307,7 @@ def get_variant_csv(
             instant. Defaults to currently-live rows.
 
     Raises:
-        ValueError: if no variant with *variant_urn* exists.
+        NonexistentIdentifierError: if no variant with *variant_urn* exists.
     """
     measurements = _equivalent_measurements(db, variant_urn, may_read_score_set=may_read_score_set, as_of=as_of)
 
@@ -382,7 +383,7 @@ def _unmapped_variant_csv(
     ).one_or_none()
 
     if variant is None:
-        raise ValueError(f"variant with URN '{variant_urn}' not found")
+        raise NonexistentIdentifierError(f"variant with URN '{variant_urn}' not found")
 
     plan = plan_csv_columns(
         dataset_columns={},
