@@ -1,14 +1,19 @@
 {
+  "env": {
+    "AWS_PROFILE": "mavedb-agent-readonly"
+  },
   "permissions": {
     "deny": [
       "Bash(* --no-verify*)",
       "Read(~/.aws/**)",
-      "Read(~/.pgpass)"
+      "Read(~/.pgpass)",
+      "Read(~/.ssh/**)"
     ],
     "ask": [
       "Bash(git push*)",
       "Bash(git -C * push*)",
-      "Bash(aws *)",
+      "Bash(*--profile*)",
+      "Bash(*AWS_PROFILE=*)",
       "Bash(eb *)",
       "Bash(*MODE=prodapi*)",
       "Bash(poetry add *)",
