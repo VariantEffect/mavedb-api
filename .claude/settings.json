@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(* --no-verify*)",
+      "Read(~/.aws/**)",
+      "Read(~/.pgpass)"
+    ],
+    "ask": [
+      "Bash(git push*)",
+      "Bash(git -C * push*)",
+      "Bash(aws *)",
+      "Bash(eb *)",
+      "Bash(*MODE=prodapi*)",
+      "Bash(poetry add *)",
+      "Bash(poetry remove *)",
+      "Bash(poetry update*)",
+      "Bash(poetry lock*)",
+      "Bash(poetry -C * add *)",
+      "Bash(poetry -C * remove *)",
+      "Bash(poetry -C * update*)",
+      "Bash(poetry -C * lock*)",
+      "Bash(npm install*)",
+      "Bash(npm uninstall *)",
+      "Bash(npm update*)",
+      "Bash(npm --prefix * install*)",
+      "Bash(npm --prefix * uninstall *)",
+      "Bash(npm --prefix * update*)",
+      "Bash(*pip install *)"
+    ]
+  }
+}
