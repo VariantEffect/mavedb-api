@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "mavedb"
-version = "2026.3.0"
+version = "2026.3.1"
 description = "API for MaveDB, the database of Multiplexed Assays of Variant Effect."
 license = "AGPL-3.0-only"
 readme = "README.md"
@@ -65,7 +65,7 @@ starlette = { version = "^1.7.0", optional = true }
 starlette-context = { version = "^0.3.6", optional = true }
 slack-sdk = { version = "~3.21.3", optional = true }
 uvicorn = { extras = ["standard"], version = "*", optional = true }
-variant-annotation = { git = "https://github.com/bbi-lab/variant-annotation.git", tag = "v1.2.0-beta.1", optional = true }
+bbi-variant-annotation = { version = "1.2.0b3", optional = true }
 watchtower = { version = "~3.2.0", optional = true }
 asyncclick = "^8.3.0.7"
 filelock = "^3.29.0"
@@ -96,7 +96,7 @@ SQLAlchemy = { extras = ["mypy"], version = "~2.0.0" }
 
 
 [tool.poetry.extras]
-server = ["aiocache", "alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "psycopg2", "python-jose", "python-multipart", "pyathena", "requests", "starlette", "starlette-context", "slack-sdk", "uvicorn", "variant-annotation", "watchtower"]
+server = ["aiocache", "alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "psycopg2", "python-jose", "python-multipart", "pyathena", "requests", "starlette", "starlette-context", "slack-sdk", "uvicorn", "bbi-variant-annotation", "watchtower"]
 
 
 [tool.mypy]
@@ -107,9 +107,8 @@ plugins = [
 ]
 mypy_path = "mypy_stubs"
 
-# variant-annotation is a git-pinned dependency (not yet published to PyPI) that ships
-# no py.typed marker. Treat it as untyped rather than maintaining drift-prone local
-# stubs for an actively-developed internal library.
+# bbi-variant-annotation (imported as variant_annotation) ships no py.typed marker. Treat it as
+# untyped rather than maintaining drift-prone local stubs for an actively-developed internal library.
 [[tool.mypy.overrides]]
 module = "variant_annotation.*"
 ignore_missing_imports = true
