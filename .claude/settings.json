@@ -10,6 +10,9 @@
       "Read(~/.ssh/**)"
     ],
     "ask": [
+      "Edit(**/AGENTS.md)",
+      "Edit(**/CLAUDE.md)",
+      "Edit(**/.claude/**)",
       "Bash(git push*)",
       "Bash(git -C * push*)",
       "Bash(*--profile*)",
