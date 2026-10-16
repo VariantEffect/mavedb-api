@@ -527,6 +527,10 @@ async def parse_score_set_variants_uploads(
             raise HTTPException(
                 status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values."
             )
+        except pd.errors.ParserError as e:
+            raise HTTPException(
+                status_code=400, detail=f"Error parsing scores file: {e}. Ensure the file is a valid CSV."
+            )
     else:
         scores_df = None
 
@@ -537,6 +541,10 @@ async def parse_score_set_variants_uploads(
         except UnicodeDecodeError as e:
             raise HTTPException(
                 status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values."
+            )
+        except pd.errors.ParserError as e:
+            raise HTTPException(
+                status_code=400, detail=f"Error parsing counts file: {e}. Ensure the file is a valid CSV."
             )
     else:
         counts_df = None
