@@ -342,9 +342,9 @@ class TestVariantPathogenicityStatement:
             assert evidence_line.hasEvidenceItems is not None
             for evidence_item in evidence_line.hasEvidenceItems:
                 # Must be a model instance, not a raw dict
-                assert not isinstance(
-                    evidence_item, dict
-                ), "hasEvidenceItems contained a raw dict instead of a model instance"
+                assert not isinstance(evidence_item, dict), (
+                    "hasEvidenceItems contained a raw dict instead of a model instance"
+                )
                 assert evidence_item.type == "Statement"
 
     def test_no_statement_is_built_from_a_private_calibration(

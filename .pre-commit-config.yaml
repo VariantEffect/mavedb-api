@@ -1,9 +1,18 @@
+# Ruff runs from the Poetry environment so poetry.lock is the only place its version is pinned.
+# --force-exclude keeps pyproject's `exclude` in effect when pre-commit passes file paths explicitly.
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Ruff version.
-    rev: v0.6.8
+  - repo: local
     hooks:
-      # Run the linter.
       - id: ruff
-      # Run the formatter.
+        name: ruff check
+        entry: poetry run ruff check --fix --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
       - id: ruff-format
+        name: ruff format
+        entry: poetry run ruff format --force-exclude
+        language: system
+        # Ruff also formats Python code blocks in Markdown; bin/check and CI check them too.
+        types_or: [python, pyi, markdown]
+        require_serial: true

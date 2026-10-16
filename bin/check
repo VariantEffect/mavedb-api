@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Fast static checks: lint, format and types. Tests run through bin/t.
+# Runs every check before exiting so one invocation reports all failures.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+status=0
+poetry run ruff check || status=1
+poetry run ruff format --check || status=1
+poetry run mypy src/ || status=1
+exit $status

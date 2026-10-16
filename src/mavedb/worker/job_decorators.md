@@ -11,6 +11,7 @@ Decorators are the bridge between the infrastructure layer and business layer. T
 ```python
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
 
+
 @with_pipeline_management
 async def my_job(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutionOutcome:
     # Business logic here
@@ -34,6 +35,7 @@ async def my_job(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutio
 
 ```python
 from mavedb.worker.lib.decorators.job_management import with_job_management
+
 
 @with_job_management
 async def my_standalone_job(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutionOutcome:
@@ -64,6 +66,7 @@ async def my_standalone_job(ctx: dict, job_id: int, job_manager: JobManager) -> 
 ```python
 from mavedb.worker.lib.decorators.job_guarantee import with_guaranteed_job_run_record
 from mavedb.worker.lib.decorators.job_management import with_job_management
+
 
 @with_guaranteed_job_run_record("cron_job")
 @with_job_management

@@ -34,11 +34,13 @@ job_manager.update_progress(75, 100, "Annotating", commit=False)  # Skip checkpo
 job_manager.update_status_message("Connecting to ClinGen API...")
 
 # Add context for structured logging
-job_manager.save_to_context({
-    "score_set_id": score_set.id,
-    "correlation_id": correlation_id,
-    "function": "create_variants_for_score_set",
-})
+job_manager.save_to_context(
+    {
+        "score_set_id": score_set.id,
+        "correlation_id": correlation_id,
+        "function": "create_variants_for_score_set",
+    }
+)
 logger.info("Started processing", extra=job_manager.logging_context())
 ```
 

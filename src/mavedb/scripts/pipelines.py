@@ -92,9 +92,7 @@ def list_pipelines(
 
     click.echo(f"{'ID':>6}  {'STATUS':<12} {'NAME':<32} {'CREATED':<26} URN")
     for p in pipelines:
-        click.echo(
-            f"{p.id:>6}  {str(p.status):<12} {p.name[:32]:<32} " f"{_format_dt(p.created_at):<26} {p.urn or '-'}"
-        )
+        click.echo(f"{p.id:>6}  {str(p.status):<12} {p.name[:32]:<32} {_format_dt(p.created_at):<26} {p.urn or '-'}")
 
 
 @script_environment.command(name="show-pipeline")

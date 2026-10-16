@@ -24,7 +24,7 @@ Or add `mavedb` to your Python project's dependencies.
 
 ### Prerequisites
 
-- Python 3.11 or later
+- Python 3.11 or 3.12 (the versions CI tests)
 - PIP
 - [Poetry](https://python-poetry.org/) for building and publishing distributions. For details on installing poetry, consult its [documentation](https://python-poetry.org/docs/#installation).
 
@@ -46,8 +46,21 @@ poetry publish -r pypi -u <username> -p <password>
 
 To build and publish the package in one go, just pass the `--build` flag to the publish command.
 
-For use as a server, this distribution includes an optional set of dependencies, which are only invoked if the package
-is installed with `poetry install mavedb --extras server`.
+For use as a server, this distribution includes an optional set of dependencies, which are only installed with
+`poetry install --extras server`.
+
+### Development setup
+
+Once per clone:
+
+```
+poetry install --with dev --extras server
+poetry run pre-commit install
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
+The pre-commit hooks run Ruff's linter and formatter. The `git config` line makes `git blame` skip formatting-only
+commits. Check and test commands are in [AGENTS.md](AGENTS.md).
 
 ### Running a local version of the API server
 

@@ -43,14 +43,14 @@ PIPELINE_DEFINITIONS: dict[str, PipelineDefinition] = {
         "description": "Human-readable description of what this pipeline does",
         "job_definitions": [
             {
-                "key": "first_job",                          # Unique key within pipeline
-                "function": "first_job_function_name",       # Must match registered function name
-                "type": JobType.VARIANT_CREATION,            # Job category enum
+                "key": "first_job",  # Unique key within pipeline
+                "function": "first_job_function_name",  # Must match registered function name
+                "type": JobType.VARIANT_CREATION,  # Job category enum
                 "params": {
-                    "score_set_id": None,                    # None = filled at runtime from pipeline_params
+                    "score_set_id": None,  # None = filled at runtime from pipeline_params
                     "correlation_id": None,
                 },
-                "dependencies": [],                          # No dependencies = runs first
+                "dependencies": [],  # No dependencies = runs first
             },
             {
                 "key": "second_job",

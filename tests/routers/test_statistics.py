@@ -96,12 +96,12 @@ def assert_statistic(desired_field_value, response):
     # Assert the GET request succeeded, that the desired field was present in the response, and that the number of times the field
     # appears in the database is 1. Tests calling this method should have created one score set containing the desired field.
     assert response.status_code == 200
-    assert (
-        desired_field_value in response.json()
-    ), f"Target accession statistic {desired_field_value} not present in statistic response."
-    assert (
-        response.json()[desired_field_value] == 1
-    ), f"Target accession statistic {desired_field_value} should appear on one (and only one) test score set."
+    assert desired_field_value in response.json(), (
+        f"Target accession statistic {desired_field_value} not present in statistic response."
+    )
+    assert response.json()[desired_field_value] == 1, (
+        f"Target accession statistic {desired_field_value} should appear on one (and only one) test score set."
+    )
 
 
 def add_query_param(url, query_name, query_value):

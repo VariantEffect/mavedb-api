@@ -69,9 +69,9 @@ class TestPipelineDefinitionsStructure:
     @pytest.mark.parametrize("pipeline_name", list(PIPELINE_DEFINITIONS))
     def test_pipeline_has_at_least_one_job(self, pipeline_name: str) -> None:
         """Every pipeline must define at least one job."""
-        assert PIPELINE_DEFINITIONS[pipeline_name][
-            "job_definitions"
-        ], f"Pipeline '{pipeline_name}' has no job definitions."
+        assert PIPELINE_DEFINITIONS[pipeline_name]["job_definitions"], (
+            f"Pipeline '{pipeline_name}' has no job definitions."
+        )
 
     # --- job field validity --------------------------------------------------
 
