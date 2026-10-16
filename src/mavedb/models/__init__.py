@@ -24,6 +24,7 @@ __all__ = [
     "mapping_record_allele",
     "mondo_term",
     "pipeline",
+    "projection_group",
     "publication_identifier",
     "published_variant",
     "variant_annotation_view",

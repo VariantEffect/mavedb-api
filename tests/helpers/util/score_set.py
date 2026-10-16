@@ -23,7 +23,7 @@ from tests.helpers.constants import (
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_PRE_MAPPED_VRS_CIS_PHASED_BLOCK,
 )
-from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
+from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 from tests.helpers.util.variant import mock_worker_variant_insertion
 
 
@@ -293,12 +293,18 @@ def seed_csv_substrate(
         level_hgvs = {"genomic": hgvs_g, "cdna": hgvs_c, "protein": hgvs_p}
         assay_hgvs = level_hgvs[assay_level]
         annotated = annotate == "all" or index == 0
+        # A protein assay's group carries only the protein string (no c/g fan-out).
+        measured = (
+            GroupSpec(hgvs_g=hgvs_g, hgvs_c=hgvs_c, hgvs_p=hgvs_p)
+            if assay_level in ("genomic", "cdna")
+            else GroupSpec(hgvs_p=hgvs_p)
+        )
         specs = [
             AlleleSpec(
                 digest=f"csv-auth-{variant.id}",
                 level=assay_level,
                 is_authoritative=True,
-                projection_group=0,
+                group=measured,
                 hgvs_g=hgvs_g if assay_level == "genomic" else None,
                 hgvs_c=hgvs_c if assay_level == "cdna" else None,
                 hgvs_p=hgvs_p if assay_level == "protein" else None,
@@ -317,7 +323,7 @@ def seed_csv_substrate(
                     AlleleSpec(
                         digest=f"csv-sib-{variant.id}",
                         level=other_level,
-                        projection_group=0,
+                        group=measured,
                         hgvs_g=hgvs_g if other_level == "genomic" else None,
                         hgvs_c=hgvs_c if other_level == "cdna" else None,
                     )

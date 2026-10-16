@@ -21,7 +21,7 @@ from mavedb.lib.allele_detail import get_allele_detail
 from mavedb.models.allele import Allele
 from mavedb.models.variant import Variant
 from tests.helpers.constants import TEST_MINIMAL_VARIANT
-from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
+from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 
 T0 = datetime(2020, 1, 1, tzinfo=timezone.utc)
 T1 = datetime(2021, 1, 1, tzinfo=timezone.utc)
@@ -66,7 +66,10 @@ def _allele(session, digest) -> Allele:
 
 def _coding_measured_specs():
     """A coding-measured record: authoritative cdna (+VEP+ClinGen), its genomic projection partner
-    (shared projection_group 0), the protein apex, and a synonymous cousin (own projection_group 1)."""
+    (shared measured group), the protein apex, and a synonymous cousin (its own group)."""
+    measured = GroupSpec(
+        hgvs_c="NM_000546.6:c.1216G>A", hgvs_g="NC_000017.11:g.7676154C>T", hgvs_p="NP_000537.3:p.Ala406Thr"
+    )
     return [
         AlleleSpec(
             digest="cdna-d",
@@ -76,7 +79,7 @@ def _coding_measured_specs():
             hgvs_c="NM_000546.6:c.1216G>A",
             post_mapped=_post_mapped(),
             vep_consequence="missense_variant",
-            projection_group=0,
+            group=measured,
         ),
         AlleleSpec(
             digest="gen-d",
@@ -84,7 +87,7 @@ def _coding_measured_specs():
             clingen_allele_id="CA1",
             hgvs_g="NC_000017.11:g.7676154C>T",
             post_mapped=_post_mapped(),
-            projection_group=0,
+            group=measured,
         ),
         AlleleSpec(digest="prot-d", level="protein", hgvs_p="NP_000537.3:p.Ala406Thr", post_mapped=_post_mapped()),
         AlleleSpec(
@@ -92,7 +95,7 @@ def _coding_measured_specs():
             level="cdna",
             hgvs_c="NM_000546.6:c.1218C>T",
             post_mapped=_post_mapped(),
-            projection_group=1,
+            group=GroupSpec(hgvs_c="NM_000546.6:c.1218C>T"),
         ),
     ]
 

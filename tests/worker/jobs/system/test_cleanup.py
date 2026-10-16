@@ -35,7 +35,7 @@ from mavedb.worker.jobs.system.cleanup import (
     cleanup_stalled_jobs,
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
-from mavedb.worker.lib.managers.utils import arq_job_id
+from mavedb.worker.lib.managers.utils import FAST_LANE_QUEUE_NAME, arq_job_id
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
@@ -1713,6 +1713,37 @@ class TestCleanupStalledJobsIntegration:
         assert recent_running.status == JobStatus.RUNNING
         assert recent_queued.retry_count == 0
         assert recent_running.retry_count == 0
+
+    async def test_cleanup_integration_leaves_fast_lane_queued_job_alone(self, standalone_worker_context, session):
+        """Integration test: the Redis presence check looks for a fast-lane job on the fast-lane queue."""
+        queued_creation = JobRun(
+            job_type="test_job",
+            job_function="create_variants_for_score_set",
+            status=JobStatus.QUEUED,
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=PENDING_TIMEOUT_MINUTES + 5),
+            started_at=None,
+            max_retries=3,
+            retry_count=0,
+            job_params={},
+        )
+        session.add(queued_creation)
+        session.commit()
+
+        arq_redis = standalone_worker_context["redis"]
+        await arq_redis.enqueue_job(
+            "create_variants_for_score_set",
+            queued_creation.id,
+            _job_id=arq_job_id(queued_creation),
+            _queue_name=FAST_LANE_QUEUE_NAME,
+        )
+
+        result = await cleanup_stalled_jobs(standalone_worker_context)
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["total_cleaned"] == 0
+        session.refresh(queued_creation)
+        assert queued_creation.status == JobStatus.QUEUED
+        assert queued_creation.retry_count == 0
 
     async def test_cleanup_integration_updates_progress_correctly(self, standalone_worker_context, session):
         """Integration test: cleanup job updates progress correctly and returns proper data."""

@@ -26,6 +26,7 @@ from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResu
 
 from sqlalchemy import select
 
+from mavedb.models.mapping_record import MappingRecord as MappingRecordDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
 from tests.helpers.constants import (
@@ -228,6 +229,118 @@ def test_lookup_variants_by_vrs_identifier(client, session, data_provider, data_
     assert response_data[0]["variantUrn"] == f"{score_set['urn']}#1"
     assert response_data[0]["clingenAlleleId"] == "CA1"
     assert response_data[0]["vrsId"] == TEST_GA4GH_IDENTIFIER
+
+
+PRE_MAPPED_IDENTIFIER = "ga4gh:VA.PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
+
+
+def _set_pre_mapped_digest(session, variant, digest):
+    record = session.scalar(select(MappingRecordDbModel).where(MappingRecordDbModel.variant_id == variant.id))
+    record.vrs_digest = digest
+    session.commit()
+
+
+def test_lookup_variants_by_pre_mapped_vrs_identifier(client, session, data_provider, data_files, setup_router_db):
+    """A pre-mapped identifier resolves to its variant, reported with the variant's measured allele."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == f"{score_set['urn']}#1"))
+    seed_mapping_record(
+        session,
+        variant,
+        assay_level="cdna",
+        alleles=[
+            AlleleSpec(
+                digest=TEST_GA4GH_IDENTIFIER,
+                level="cdna",
+                is_authoritative=True,
+                clingen_allele_id="CA1",
+                post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
+            )
+        ],
+    )
+    _set_pre_mapped_digest(session, variant, PRE_MAPPED_IDENTIFIER)
+
+    response = client.get(f"/api/v1/variants/vrs/{quote_plus(PRE_MAPPED_IDENTIFIER)}")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "variantUrn": f"{score_set['urn']}#1",
+            "clingenAlleleId": "CA1",
+            "vrsId": TEST_GA4GH_IDENTIFIER,
+            "level": "cdna",
+        }
+    ]
+
+
+def test_lookup_variants_by_pre_mapped_vrs_identifier_of_an_unmapped_variant(
+    client, session, data_provider, data_files, setup_router_db
+):
+    """A variant that did not map still resolves by its pre-mapped identifier, with no allele fields."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == f"{score_set['urn']}#1"))
+    seed_mapping_record(session, variant, assay_level="cdna", alleles=[])
+    _set_pre_mapped_digest(session, variant, PRE_MAPPED_IDENTIFIER)
+
+    response = client.get(f"/api/v1/variants/vrs/{quote_plus(PRE_MAPPED_IDENTIFIER)}")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"variantUrn": f"{score_set['urn']}#1", "clingenAlleleId": None, "vrsId": None, "level": None}
+    ]
+
+
+def test_lookup_variants_by_vrs_identifier_reports_a_variant_once_when_pre_and_post_mapped_agree(
+    client, session, data_provider, data_files, setup_router_db
+):
+    """An accession-based target's pre- and post-mapped variations can share an identifier."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == f"{score_set['urn']}#1"))
+    seed_mapping_record(
+        session,
+        variant,
+        assay_level="cdna",
+        alleles=[
+            AlleleSpec(digest=TEST_GA4GH_IDENTIFIER, level="cdna", is_authoritative=True, clingen_allele_id="CA1")
+        ],
+    )
+    _set_pre_mapped_digest(session, variant, TEST_GA4GH_IDENTIFIER)
+
+    response = client.get(f"/api/v1/variants/vrs/{quote_plus(TEST_GA4GH_IDENTIFIER)}")
+
+    assert response.status_code == 200
+    assert [match["variantUrn"] for match in response.json()] == [f"{score_set['urn']}#1"]
+
+
+def test_lookup_variants_by_vrs_identifier_orders_matches_by_variant_number(
+    client, session, data_provider, data_files, setup_router_db
+):
+    """A shared allele resolves to every variant linking it, in variant-number order whatever the seeding order."""
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    for number in (3, 1, 2):
+        variant = session.scalar(select(VariantDbModel).where(VariantDbModel.urn == f"{score_set['urn']}#{number}"))
+        seed_mapping_record(
+            session,
+            variant,
+            assay_level="cdna",
+            alleles=[AlleleSpec(digest=TEST_GA4GH_IDENTIFIER, level="cdna", is_authoritative=True)],
+        )
+
+    response = client.get(f"/api/v1/variants/vrs/{quote_plus(TEST_GA4GH_IDENTIFIER)}")
+
+    assert [match["variantUrn"] for match in response.json()] == [f"{score_set['urn']}#{n}" for n in (1, 2, 3)]
 
 
 def test_lookup_variants_by_vrs_identifier_empty_when_none_match(

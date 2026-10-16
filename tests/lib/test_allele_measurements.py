@@ -23,13 +23,13 @@ from starlette_context import context, request_cycle_context
 
 from mavedb.lib.allele_measurements import (
     AlleleMeasurement,
-    MeasurementRelationship,
     _ordering_key,
     _resolve_protein_apex,
     get_allele_measurements,
 )
 from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.lib.types.authentication import UserData
+from mavedb.models.enums.measurement_relationship import MeasurementRelationship
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele

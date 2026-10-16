@@ -103,9 +103,7 @@ class TestVariantUrnSortKey:
 
 
 @pytest.mark.integration
-@pytest.mark.skipif(
-    importlib.util.find_spec("psycopg2") is None, reason="requires psycopg2 for a live database session"
-)
+@pytest.mark.skipif(importlib.util.find_spec("psycopg2") is None, reason="needs the Postgres session fixture")
 class TestLockUrnAssignment:
     @staticmethod
     def _other_session_can_take_lock(session) -> bool:

@@ -7,11 +7,13 @@ all worker configuration including:
 - Lifecycle hooks for startup/shutdown and job execution
 - Timeout and logging configuration
 
-This is the main configuration class used to start the ARQ worker.
+ArqWorkerSettings configures the main worker; ArqFastLaneWorkerSettings configures the
+fast-lane worker that runs short jobs independently of the main worker's slots.
 """
 
 from mavedb.lib.logging.canonical import log_job
 from mavedb.worker.jobs import BACKGROUND_CRONJOBS, BACKGROUND_FUNCTIONS
+from mavedb.worker.lib.managers.utils import FAST_LANE_JOB_FUNCTIONS, FAST_LANE_QUEUE_NAME
 from mavedb.worker.settings.lifecycle import on_job_end, on_job_start, shutdown, startup
 from mavedb.worker.settings.redis import RedisWorkerSettings
 
@@ -53,4 +55,28 @@ class ArqWorkerSettings:
     # Required for cleanup_stalled_jobs to abort a wedged RUNNING job's coroutine (via Job.abort())
     # before re-driving it. Without this, ARQ ignores abort requests and the sweeper cannot safely
     # confirm a stalled job is dead before retrying it.
+    allow_abort_jobs = True
+
+
+class ArqFastLaneWorkerSettings:
+    """
+    Settings for the fast-lane ARQ worker, run as a separate process from the main worker.
+
+    Consumes only FAST_LANE_QUEUE_NAME so variant creation never waits for a main-worker slot. The main
+    worker still registers these functions to drain any already on the default queue. ARQ reads settings
+    from the class ``__dict__``, so attributes are not inherited from ArqWorkerSettings. No cron jobs:
+    those run once, on the main worker.
+    """
+
+    on_startup = startup
+    on_shutdown = shutdown
+    on_job_start = on_job_start
+    on_job_end = on_job_end
+    after_job_end = log_job
+    redis_settings = RedisWorkerSettings
+    queue_name = FAST_LANE_QUEUE_NAME
+    functions: list = [f for f in BACKGROUND_FUNCTIONS if f.__name__ in FAST_LANE_JOB_FUNCTIONS]
+
+    max_jobs = MAX_JOBS
+    job_timeout = JOB_TIMEOUT_SECONDS
     allow_abort_jobs = True

@@ -18,7 +18,7 @@ from mavedb.lib.annotation.context import variant_annotation_context
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
 from tests.helpers.constants import TEST_VALID_POST_MAPPED_VRS_ALLELE
-from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
+from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 
 
 T0 = datetime(2020, 1, 1, tzinfo=timezone.utc)
@@ -81,6 +81,7 @@ class TestVariantAnnotationContextSubject:
         """Anchored on the measured nt change: keep its projection_group coordinate partner + the protein
         consequence, exclude the sibling encoder (a distinct variant, different projection group)."""
         mapped_variant = setup_lib_db_with_mapped_variant
+        measured, sibling = GroupSpec(), GroupSpec()
         seed_mapping_record(
             session,
             mapped_variant.variant,
@@ -90,16 +91,16 @@ class TestVariantAnnotationContextSubject:
                     digest="cdna",
                     level="cdna",
                     is_authoritative=True,
-                    projection_group=0,
+                    group=measured,
                     post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE,
                 ),
                 # The measured change's precise coordinate partner (same projection group).
                 AlleleSpec(
-                    digest="gen", level="genomic", projection_group=0, post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE
+                    digest="gen", level="genomic", group=measured, post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE
                 ),
                 # A sibling encoder of the same protein consequence — distinct variant, other group: excluded.
                 AlleleSpec(
-                    digest="sibling", level="cdna", projection_group=1, post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE
+                    digest="sibling", level="cdna", group=sibling, post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE
                 ),
                 AlleleSpec(digest="prot", level="protein", post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE),
             ],
@@ -145,6 +146,7 @@ class TestVariantAnnotationContextSubject:
         old_id = _gnomad_variant(session, "1-100-A-G")
         new_id = _gnomad_variant(session, "1-100-A-T")
         sibling_id = _gnomad_variant(session, "1-101-C-T")
+        measured, sibling = GroupSpec(), GroupSpec()
         seed_mapping_record(
             session,
             mapped_variant.variant,
@@ -155,20 +157,20 @@ class TestVariantAnnotationContextSubject:
                     digest="cdna",
                     level="cdna",
                     is_authoritative=True,
-                    projection_group=0,
+                    group=measured,
                     post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE,
                 ),
                 AlleleSpec(
                     digest="gen",
                     level="genomic",
-                    projection_group=0,
+                    group=measured,
                     post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE,
                     gnomad_variant_ids=[old_id],
                 ),
                 AlleleSpec(
                     digest="sibling",
                     level="cdna",
-                    projection_group=1,
+                    group=sibling,
                     post_mapped=TEST_VALID_POST_MAPPED_VRS_ALLELE,
                     gnomad_variant_ids=[sibling_id],
                 ),

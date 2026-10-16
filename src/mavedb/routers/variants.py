@@ -107,7 +107,7 @@ def lookup_variants_by_vrs_identifier(
     identifier: Annotated[
         str,
         Path(
-            description="A valid GA4GH digest-based identifier for the mapped allele.",
+            description="A GA4GH digest-based identifier for a variant's pre-mapped or post-mapped variation.",
             json_schema_extra={"example": "ga4gh:VA.0123abcd"},
             regex=GA4GH_IR_REGEXP,
         ),
@@ -124,10 +124,11 @@ def lookup_variants_by_vrs_identifier(
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> list[VariantVrsMatch]:
-    """Resolve a GA4GH VRS identifier to the readable variants whose mapping links that allele.
+    """Resolve a GA4GH VRS identifier to the readable variants it identifies.
 
-    A deduplicated allele may be shared across score sets, so one identifier can resolve to several
-    variants. This is a lookup returning a collection: results are filtered to the score sets the caller
+    The identifier may be a reference-level (post-mapped) allele or a variant's pre-mapped variation on
+    its submitted target sequence. A deduplicated allele may be shared across score sets, so one
+    identifier can resolve to several variants. This is a lookup returning a collection: results are filtered to the score sets the caller
     may read, and an empty list is returned when nothing readable matches. An absent identifier and a
     match visible only in a private score set are deliberately indistinguishable (both yield ``[]``), so
     the response never reveals a private allele's existence.
@@ -145,9 +146,9 @@ def lookup_variants_by_vrs_identifier(
     return [
         VariantVrsMatch(
             variant_urn=variant.urn or "",
-            clingen_allele_id=allele.clingen_allele_id,
-            vrs_id=(allele.post_mapped or {}).get("id"),
-            level=allele.level,
+            clingen_allele_id=allele.clingen_allele_id if allele is not None else None,
+            vrs_id=(allele.post_mapped or {}).get("id") if allele is not None else None,
+            level=allele.level if allele is not None else None,
         )
         for variant, allele in permitted
     ]

@@ -38,7 +38,7 @@ from mavedb.lib.alleles import get_allele_translations
 from mavedb.lib.cat_vrs import member_label
 from mavedb.lib.vrs import vrs_object_from_mapped_variant
 from mavedb.models.allele import Allele
-from mavedb.models.enums.sequence_level import SequenceLevel
+from mavedb.models.enums.sequence_level import NUCLEOTIDE_LEVELS, SequenceLevel
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 
 
@@ -73,11 +73,12 @@ def _focus_projection_pairs(
     as_of: Optional[datetime],
     score_set_ids: Optional[Collection[int]],
 ) -> dict[str, str]:
-    """A symmetric ``digest -> digest`` map pairing each focus allele with its c↔g projection.
+    """A ``digest -> digest`` map pairing each focus allele with its projection.
 
-    A ``projection_group`` is one c↔g pair, local to a single mapping record. The projection is the ≤1
-    *other* allele sharing the same ``projection_group`` as the focus allele. Reading any one live link
-    is safe: the focus holds one live link per record it appears in, and each record re-encodes the same
+    A ``projection_group`` is one variant at each level, local to a single mapping record. A nucleotide
+    focus pairs with the ≤1 *other* nucleotide allele in its group (c↔g, symmetric). A protein focus pairs
+    with nothing: it is what its group's nucleotide alleles encode, not another spelling of them. Reading any
+    one live link is safe: the focus holds one live link per record it appears in, and each record re-encodes the same
     change onto the same content-addressed digests, so the pairing is record-independent (assuming those
     records agree on genome assembly).
 
@@ -86,7 +87,7 @@ def _focus_projection_pairs(
     """
     pairs: dict[str, str] = {}
     for focus in focus_alleles:
-        if focus.vrs_digest is None:
+        if focus.vrs_digest is None or focus.level not in NUCLEOTIDE_LEVELS:
             continue
 
         # limit(1) rather than one_or_none(), which would raise for any allele measured more than once.
@@ -103,16 +104,17 @@ def _focus_projection_pairs(
         if link is None:
             continue
 
-        projection_digests = db.scalars(
+        partners = (
             select(Allele.vrs_digest)
             .select_from(MappingRecordAllele)
             .join(Allele, Allele.id == MappingRecordAllele.allele_id)
             .where(MappingRecordAllele.mapping_record_id == link.mapping_record_id)
             .where(MappingRecordAllele.projection_group == link.projection_group)
             .where(MappingRecordAllele.allele_id != focus.id)
+            .where(Allele.level.in_(NUCLEOTIDE_LEVELS))
             .where(MappingRecordAllele.live_at(as_of))
-        ).all()
-        for projection in projection_digests:
+        )
+        for projection in db.scalars(partners).all():
             if projection is not None:
                 pairs[focus.vrs_digest] = projection
                 pairs.setdefault(projection, focus.vrs_digest)

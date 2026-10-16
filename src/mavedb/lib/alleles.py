@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, TypeVar
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, joinedload
 
 from mavedb.lib.permissions import Action, has_permission
@@ -37,8 +37,8 @@ InputsT = TypeVar("InputsT")
 
 @dataclass(frozen=True)
 class LiveRecordLinks:
-    """A variant's live (or as-of) ``MappingRecord`` and that record's live ``MappingRecordAllele`` links,
-    each with its ``allele`` eagerly loaded."""
+    """A variant's live (or as-of) ``MappingRecord``, that record's live ``MappingRecordAllele`` links (each with
+    its ``allele`` and projection ``group`` eagerly loaded)."""
 
     record: MappingRecord
     links: list[MappingRecordAllele]
@@ -114,7 +114,7 @@ def get_live_record_allele_links(
         select(MappingRecordAllele)
         .where(MappingRecordAllele.mapping_record_id.in_(links_by_record))
         .where(MappingRecordAllele.live_at(as_of))
-        .options(joinedload(MappingRecordAllele.allele))
+        .options(joinedload(MappingRecordAllele.allele), joinedload(MappingRecordAllele.group))
     ):
         links_by_record[link.mapping_record_id].append(link)
 
@@ -123,19 +123,22 @@ def get_live_record_allele_links(
 
 def find_variants_by_vrs_identifier(
     db: Session, identifier: str, *, as_of: Optional[datetime] = None
-) -> list[tuple[Variant, Allele]]:
-    """Resolve a GA4GH VRS identifier to the variants whose mapping links an allele bearing it.
+) -> list[tuple[Variant, Optional[Allele]]]:
+    """Resolve a GA4GH VRS identifier to the variants it identifies, before or after mapping.
 
-    Matches ``identifier`` against a deduplicated allele's ``vrs_digest``, then walks ``Allele →
-    MappingRecordAllele → MappingRecord → Variant``. Because alleles are deduplicated by ``vrs_digest``
-    and shared across variants/score sets, one identifier can resolve to several variants; the
-    paired allele carries the ClinGen id + level the caller surfaces alongside the URN.
+    Matches ``identifier`` against both sides of a mapping:
+
+    * a deduplicated allele's ``vrs_digest`` (the reference-level, post-mapped variation), walking
+      ``Allele → MappingRecordAllele → MappingRecord → Variant``. Alleles are shared across variants and
+      score sets, so one identifier can resolve to several variants; each is paired with the matched allele.
+    * a mapping record's ``vrs_digest`` (the pre-mapped variation on the submitted target sequence). Each
+      such variant is paired with its measured (authoritative) allele, or ``None`` when it did not map.
 
     The live link + record set (``valid_to IS NULL`` / ``as_of``) is used to filter results. Returns distinct
-    ``(variant, matched_allele)`` pairs. Include an ``as_of`` timestamp to reconstruct the set as it stood
-    at a past instant.
+    ``(variant, allele)`` pairs ordered by score set, then variant number, then allele. Include an ``as_of``
+    timestamp to reconstruct the set as it stood at a past instant.
     """
-    stmt = (
+    post_mapped = (
         select(Variant, Allele)
         .select_from(Allele)
         .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
@@ -147,8 +150,39 @@ def find_variants_by_vrs_identifier(
         # Callers check read permission on each match's score set; load them here rather than one per match.
         .options(joinedload(Variant.score_set))
     )
+    pre_mapped = (
+        select(Variant, Allele)
+        .select_from(MappingRecord)
+        .join(Variant, Variant.id == MappingRecord.variant_id)
+        .outerjoin(
+            MappingRecordAllele,
+            and_(
+                MappingRecordAllele.mapping_record_id == MappingRecord.id,
+                MappingRecordAllele.is_authoritative,
+                MappingRecordAllele.live_at(as_of),
+            ),
+        )
+        .outerjoin(Allele, Allele.id == MappingRecordAllele.allele_id)
+        .where(MappingRecord.vrs_digest == identifier)
+        .where(MappingRecord.live_at(as_of))
+        .options(joinedload(Variant.score_set))
+    )
 
-    return [(row[0], row[1]) for row in db.execute(stmt).unique().all()]
+    # An accession-based target's pre- and post-mapped variations can be the same, so both queries may
+    # return a pair.
+    matches: dict[tuple[int, Optional[int]], tuple[Variant, Optional[Allele]]] = {}
+    for stmt in (post_mapped, pre_mapped):
+        for variant, allele in db.execute(stmt).unique().tuples():
+            matches.setdefault((variant.id, allele.id if allele is not None else None), (variant, allele))
+    return sorted(
+        matches.values(),
+        key=lambda match: (
+            match[0].score_set_id,
+            match[0].variant_number or 0,
+            match[0].id,
+            match[1].id if match[1] is not None else 0,
+        ),
+    )
 
 
 def get_allele_translations(

@@ -3,9 +3,13 @@ Audit stored allele identifiers against their own content.
 
 Usage:
 ```
-python3 -m mavedb.scripts.audit_allele_identifiers audit
-python3 -m mavedb.scripts.audit_allele_identifiers audit-locations
+python3 -m mavedb.scripts.audit_allele_identifiers audit [SCOPE]
+python3 -m mavedb.scripts.audit_allele_identifiers audit-pre-mapped [SCOPE]
+python3 -m mavedb.scripts.audit_allele_identifiers audit-locations [SCOPE]
 ```
+
+SCOPE restricts each command to alleles and mapping records of some score sets; the options are the ones in
+`mavedb.scripts.audit_scope`. Unscoped, each command covers the whole database.
 
 Every row in `alleles` asserts that `vrs_digest` is the GA4GH computed identifier of `post_mapped`.
 Nothing enforced that until the mapping ingest path began recomputing identity on arrival, so rows
@@ -38,7 +42,8 @@ Read-only by default. Safe to run against production.
 
 import logging
 from collections import Counter
-from typing import Any, Optional
+from datetime import datetime
+from typing import Any, Optional, Sequence
 
 from ga4gh.core import ga4gh_identify
 from ga4gh.vrs.models import Allele as VrsAllele
@@ -52,9 +57,14 @@ from mavedb.lib.vrs import vrs_object_from_mapped_variant
 from mavedb.lib.vrs_utils import identify_variation
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
+from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.scripts.audit_scope import resolve_scope, scope_options
 from mavedb.scripts.environment import script_environment, with_database_session
 
 logger = logging.getLogger(__name__)
+
+# Rows are streamed in batches of this size; buffering a production-sized result set exhausts memory.
+STREAM_BATCH_SIZE = 5000
 
 
 def recomputed_identifier(post_mapped: dict[str, Any]) -> Optional[str]:
@@ -78,13 +88,30 @@ def recomputed_identifier(post_mapped: dict[str, Any]) -> Optional[str]:
         return None
 
 
+def _alleles_in_scope(score_set_ids: Optional[Sequence[int]]):
+    """Alleles with a ``post_mapped`` body, restricted to ones linked from the given score sets."""
+    query = select(Allele).where(Allele.post_mapped.isnot(None)).order_by(Allele.id)
+    if score_set_ids is not None:
+        linked = select(MappingRecordAllele.allele_id).where(MappingRecordAllele.score_set_id.in_(score_set_ids))
+        query = query.where(Allele.id.in_(linked))
+    return query
+
+
 @script_environment.command()
+@scope_options
 @click.option("--limit", type=int, default=None, help="Examine at most this many alleles.")
 @click.option("--repair", is_flag=True, help="Rewrite vrs_digest where the corrected identifier is unused.")
 @with_database_session
-def audit(db: Session, limit: Optional[int], repair: bool) -> None:
+def audit(
+    db: Session,
+    urns: tuple[str, ...],
+    collection: Optional[str],
+    translated_since: Optional[datetime],
+    limit: Optional[int],
+    repair: bool,
+) -> None:
     """Report — and with ``--repair``, rename — alleles whose identifier disagrees with their content."""
-    query = select(Allele).where(Allele.post_mapped.isnot(None)).order_by(Allele.id)
+    query = _alleles_in_scope(resolve_scope(db, urns, collection, translated_since))
     if limit is not None:
         query = query.limit(limit)
 
@@ -93,7 +120,7 @@ def audit(db: Session, limit: Optional[int], repair: bool) -> None:
     renames: list[tuple[Allele, str]] = []
     duplicates: list[tuple[Allele, str]] = []
 
-    for allele in db.scalars(query):
+    for allele in db.scalars(query.execution_options(yield_per=STREAM_BATCH_SIZE)):
         counts["examined"] += 1
         # post_mapped is nullable on the model, but the query above only selects rows where it isn't.
         assert allele.post_mapped is not None
@@ -148,9 +175,16 @@ def _rename(db: Session, renames: list[tuple["Allele", str]]) -> None:
 
 
 @script_environment.command()
+@scope_options
 @click.option("--limit", type=int, default=None, help="Examine at most this many mapping records.")
 @with_database_session
-def audit_pre_mapped(db: Session, limit: Optional[int]) -> None:
+def audit_pre_mapped(
+    db: Session,
+    urns: tuple[str, ...],
+    collection: Optional[str],
+    translated_since: Optional[datetime],
+    limit: Optional[int],
+) -> None:
     """Report mapping records whose ``vrs_digest`` disagrees with their ``pre_mapped`` content.
 
     Read-only, and no repair: ``mapping_records.vrs_digest`` is indexed but not unique, so a wrong value
@@ -159,13 +193,15 @@ def audit_pre_mapped(db: Session, limit: Optional[int]) -> None:
     normalization moved a del/dup span. The pre-mapped side had never been measured before 2026-08-25.
     """
     query = select(MappingRecord).where(MappingRecord.pre_mapped.isnot(None)).order_by(MappingRecord.id)
+    if (score_set_ids := resolve_scope(db, urns, collection, translated_since)) is not None:
+        query = query.where(MappingRecord.score_set_id.in_(score_set_ids))
     if limit is not None:
         query = query.limit(limit)
 
     counts: Counter[str] = Counter()
     drifted: list[tuple[int, Optional[str], str]] = []
 
-    for record in db.scalars(query):
+    for record in db.scalars(query.execution_options(yield_per=STREAM_BATCH_SIZE)):
         counts["examined"] += 1
         # pre_mapped is nullable on the model, but the query above only selects rows where it isn't.
         assert record.pre_mapped is not None
@@ -191,9 +227,16 @@ def audit_pre_mapped(db: Session, limit: Optional[int]) -> None:
 
 
 @script_environment.command()
+@scope_options
 @click.option("--limit", type=int, default=None, help="Examine at most this many alleles.")
 @with_database_session
-def audit_locations(db: Session, limit: Optional[int]) -> None:
+def audit_locations(
+    db: Session,
+    urns: tuple[str, ...],
+    collection: Optional[str],
+    translated_since: Optional[datetime],
+    limit: Optional[int],
+) -> None:
     """Report nested ``SequenceLocation`` identifiers that disagree with their own coordinates.
 
     Separate from :func:`audit` because it is a separate defect with a separate cause. ``audit`` checks
@@ -205,14 +248,14 @@ def audit_locations(db: Session, limit: Optional[int]) -> None:
     Read-only. A drifted location is repaired by re-mapping the score set, since both writers now
     restamp the location — see ``lib/vrs_utils.py::identify_allele``.
     """
-    query = select(Allele).where(Allele.post_mapped.isnot(None)).order_by(Allele.id)
+    query = _alleles_in_scope(resolve_scope(db, urns, collection, translated_since))
     if limit is not None:
         query = query.limit(limit)
 
     counts: Counter[str] = Counter()
     drifted: set[int] = set()
 
-    for allele in db.scalars(query):
+    for allele in db.scalars(query.execution_options(yield_per=STREAM_BATCH_SIZE)):
         counts["alleles examined"] += 1
         for path, location in _stored_locations(allele.post_mapped):
             stored = location.get("id")

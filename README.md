@@ -67,9 +67,10 @@ To stop the application when it is running as a daemon, run
 docker-compose -f docker-compose-local.yml down
 ```
 
-`docker-compose-local.yml` configures four containers: one for the API server, one for the PostgreSQL database, one for the
-worker node and one for the Redis cache which acts as the job queue for the worker node. The worker node stores data in a Docker
-volume named `mavedb-redis` and the database stores data in a Docker volume named `mavedb-data`. Both these volumes will persist
+`docker-compose-local.yml` configures five containers: one for the API server, one for the PostgreSQL 15 database, two worker
+nodes and one for the Redis cache which acts as the job queue for the workers. The fast worker runs only pipeline starts and
+variant creation, on its own queue, so new score sets get variants while mapping jobs occupy the main worker. The worker node stores data in a Docker
+volume named `mavedb-redis` and the database stores data in a Docker volume named `mavedb-data-15`. Both these volumes will persist
 after running `docker-compose down`.
 
 **Notes**

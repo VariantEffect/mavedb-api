@@ -13,6 +13,7 @@ BACKGROUND_FUNCTIONS: List[Callable] = [
     # Variant processing jobs
     create_variants_for_score_set,
     map_variants_for_score_set,
+    reverse_translate_variants_for_score_set,
     # External service jobs
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,
@@ -42,8 +43,8 @@ BACKGROUND_CRONJOBS: List[CronJob] = [
     cron(
         cleanup_stalled_jobs,
         name="cleanup_stalled_jobs_cron",
-        minute={15, 45},  # Every 30 minutes
-        keep_result=timedelta(minutes=25).total_seconds(),
+        minute={5, 15, 25, 35, 45, 55},  # Every 10 minutes
+        keep_result=timedelta(minutes=9).total_seconds(),
     ),
 ]
 ```
@@ -239,8 +240,18 @@ class ArqWorkerSettings:
     redis_settings = RedisWorkerSettings
     functions = BACKGROUND_FUNCTIONS
     cron_jobs = BACKGROUND_CRONJOBS
-    job_timeout = 5 * 60 * 60    # 5 hours
+    max_jobs = MAX_JOBS           # 2; limits event-loop starvation from sync DB calls
+    job_timeout = JOB_TIMEOUT_SECONDS  # 24 hours
+    allow_abort_jobs = True       # Lets cleanup_stalled_jobs abort a wedged RUNNING job
 ```
+
+### Fast-lane worker
+
+`ArqFastLaneWorkerSettings` runs as a second worker process (`arq mavedb.worker.FastLaneWorkerSettings`, its own container on the worker host). It consumes only `FAST_LANE_QUEUE_NAME` and registers only the jobs in `FAST_LANE_JOB_FUNCTIONS` (`start_pipeline`, `create_variants_for_score_set`), so new pipelines get their variants created even while hour-long mapping jobs hold every main-worker slot. It runs no cron jobs.
+
+Routing lives in `arq_queue_name()` (`lib/managers/utils.py`). Every ARQ call that takes a queue — `enqueue_job(_queue_name=...)`, `Job(..., _queue_name=...).status()` / `.abort()` — must resolve it from the `JobRun` there; a status check against the wrong queue reports a queued job as missing. To move a job into the fast lane, add its function name to `FAST_LANE_JOB_FUNCTIONS`; keep it short-running, since it shares two slots with variant creation.
+
+ARQ reads settings from the class `__dict__`, so the fast-lane class repeats its attributes rather than subclassing `ArqWorkerSettings`.
 
 The lifecycle hooks (in `settings/lifecycle.py`) manage the ARQ context dict (`ctx`):
 - `startup`: Creates `ProcessPoolExecutor` for CPU-intensive tasks

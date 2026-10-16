@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Boolean, Column, ForeignKey, ForeignKeyConstraint, Index, Integer, text
 from sqlalchemy.orm import Mapped, relationship
@@ -9,6 +9,7 @@ from mavedb.db.mixins import ValidTime
 if TYPE_CHECKING:
     from .allele import Allele
     from .mapping_record import MappingRecord
+    from .projection_group import ProjectionGroup
 
 
 class MappingRecordAllele(ValidTime, Base):
@@ -27,19 +28,33 @@ class MappingRecordAllele(ValidTime, Base):
     # alleles. Lives on the link, not Allele, since the same allele can be authoritative for one
     # mapping record and derived for another.
     is_authoritative: Mapped[bool] = Column(Boolean, nullable=False, default=False)
-    # Pairs a link with its coding/genomic counterpart within one mapping record (set by the
-    # reverse-translation job). NULL for unpaired links. Local to this record, not a cross-record
-    # identity — see the RT job for group-assignment logic.
+    # The projection group this allele describes one level of. The authoritative link's group is the record's
+    # measured group. NULL for an allele outside any group (the protein apex of reverse translation).
     projection_group = Column(Integer, nullable=True)
 
     mapping_record: Mapped["MappingRecord"] = relationship("MappingRecord", back_populates="allele_links")
     allele: Mapped["Allele"] = relationship("Allele", back_populates="mapping_record_links")
+    # Read-only: writers set ``projection_group`` directly. A group row is never edited in place (a new
+    # description is a new row, and its links are re-pointed), so this resolves to the group the link was
+    # written against at any instant.
+    group: Mapped[Optional["ProjectionGroup"]] = relationship(
+        "ProjectionGroup",
+        primaryjoin="foreign(MappingRecordAllele.projection_group) == ProjectionGroup.id",
+        viewonly=True,
+    )
 
     __table_args__ = (
         ForeignKeyConstraint(
             [mapping_record_id, score_set_id],
             ["mapping_records.id", "mapping_records.score_set_id"],
             name="fk_mapping_record_alleles_mapping_record_score_set",
+            ondelete="CASCADE",
+        ),
+        # MATCH SIMPLE: a NULL projection_group is not checked.
+        ForeignKeyConstraint(
+            [projection_group, mapping_record_id],
+            ["projection_groups.id", "projection_groups.mapping_record_id"],
+            name="fk_mapping_record_alleles_projection_group",
             ondelete="CASCADE",
         ),
         Index(
@@ -50,6 +65,7 @@ class MappingRecordAllele(ValidTime, Base):
             "ix_mapping_record_alleles_allele_id",
             "allele_id",
         ),
+        Index("ix_mapping_record_alleles_projection_group", "projection_group"),
         # At most one live link per (mapping_record, allele); retired links (valid_to set) are
         # exempt so history is preserved.
         Index(

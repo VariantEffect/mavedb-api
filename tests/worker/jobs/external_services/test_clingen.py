@@ -968,7 +968,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert corrected.event_metadata["retired_gnomad_links"] == 1
         assert corrected.event_metadata["retired_clinvar_links"] == 1
 
-    async def test_submit_score_set_mappings_to_car_rejects_a_response_without_the_submitted_hgvs(
+    async def test_submit_score_set_mappings_to_car_links_a_caid_whose_response_does_not_list_the_submitted_hgvs(
         self,
         mock_worker_ctx,
         session,
@@ -981,7 +981,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         dummy_variant_creation_job_run,
         dummy_variant_mapping_job_run,
     ):
-        """A response for some other allele is not written to the submitted one, however the counts line up."""
+        """CAR lists its own normalized spelling, so a positionally matched CAID is linked and the gap recorded."""
         await create_mappings_in_score_set(
             session,
             mock_s3_client,
@@ -992,12 +992,17 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             dummy_variant_mapping_job_run,
         )
         allele = session.scalars(select(Allele)).first()
-        other_allele = {"@id": "CA_OTHER", "type": "nucleotide", "genomicAlleles": [{"hgvs": ["NC_000001.11:g.1A>T"]}]}
+        submitted_hgvs = get_hgvs_from_post_mapped(allele.post_mapped)
+        normalized = {
+            "@id": "CA_NORMALIZED",
+            "type": "nucleotide",
+            "genomicAlleles": [{"hgvs": ["NC_000001.11:g.1A>T"]}],
+        }
 
         with (
             patch(
                 "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
-                return_value=[other_allele],
+                return_value=[normalized],
             ),
             patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
             patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
@@ -1008,15 +1013,71 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
                 JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
             )
 
-        assert result.status == JobStatus.FAILED
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["registered_allele_count"] == 1
+        assert result.data["unlisted_hgvs_allele_count"] == 1
         session.refresh(allele)
-        assert allele.clingen_allele_id is None
+        assert allele.clingen_allele_id == "CA_NORMALIZED"
 
         event = session.scalars(
             select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
         ).one()
-        assert (event.disposition, event.reason) == ("failed", "malformed_response")
-        assert event.event_metadata["returned_caid"] == "CA_OTHER"
+        assert (event.disposition, event.reason) == ("present", "created")
+        assert event.event_metadata["submitted_hgvs_unlisted"] is True
+        assert event.event_metadata["submitted_hgvs"] == submitted_hgvs
+
+    async def test_submit_score_set_mappings_to_car_force_reregister_reconfirms_a_caid_whose_response_does_not_list_the_submitted_hgvs(
+        self,
+        mock_worker_ctx,
+        session,
+        with_submit_score_set_mappings_to_car_job,
+        submit_score_set_mappings_to_car_sample_job_run,
+        mock_s3_client,
+        sample_score_dataframe,
+        sample_count_dataframe,
+        with_dummy_setup_jobs,
+        dummy_variant_creation_job_run,
+        dummy_variant_mapping_job_run,
+    ):
+        """A forced re-registration verifies a stored CAID even when CAR spells the allele differently."""
+        await create_mappings_in_score_set(
+            session,
+            mock_s3_client,
+            mock_worker_ctx,
+            sample_score_dataframe,
+            sample_count_dataframe,
+            dummy_variant_creation_job_run,
+            dummy_variant_mapping_job_run,
+        )
+        allele = session.scalars(select(Allele)).first()
+        allele.clingen_allele_id = "CA_STORED"
+        submit_score_set_mappings_to_car_sample_job_run.job_params = {
+            **submit_score_set_mappings_to_car_sample_job_run.job_params,
+            "force_reregister": True,
+        }
+        session.flush()
+        normalized = {"@id": "CA_STORED", "type": "nucleotide", "genomicAlleles": [{"hgvs": ["NC_000001.11:g.1A>T"]}]}
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.ClinGenAlleleRegistryService.dispatch_submissions",
+                return_value=[normalized],
+            ),
+            patch("mavedb.worker.jobs.external_services.clingen.CAR_SUBMISSION_ENDPOINT", "http://fake-endpoint"),
+            patch("mavedb.worker.jobs.external_services.clingen.CLIN_GEN_SUBMISSION_ENABLED", True),
+        ):
+            result = await submit_score_set_mappings_to_car(
+                mock_worker_ctx,
+                submit_score_set_mappings_to_car_sample_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], submit_score_set_mappings_to_car_sample_job_run.id),
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+        event = session.scalars(
+            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+        ).one()
+        assert (event.disposition, event.reason) == ("present", "reconfirmed")
+        assert event.event_metadata["submitted_hgvs_unlisted"] is True
 
     async def _add_derived_alleles_with_distinct_hgvs(self, session, count):
         """Attach ``count`` extra alleles to the score set, each carrying a distinct HGVS so the CAR

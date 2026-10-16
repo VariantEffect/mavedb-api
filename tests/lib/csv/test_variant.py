@@ -4,7 +4,7 @@ import csv
 import io
 from unittest.mock import Mock
 
-from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
+from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 from tests.helpers.util.query_plan import captured_statements
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -38,6 +38,7 @@ from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.projection_group import ProjectionGroup
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_set import ScoreSet
@@ -245,6 +246,18 @@ def _live_mapping_record(db, variant_id):
         select(MappingRecord).where(MappingRecord.variant_id == variant_id).where(MappingRecord.valid_to.is_(None))
     ).one()
     return record
+
+
+def _measured_group(db, variant_id):
+    """The live record's measured projection group — where the CSV reads the non-measured levels from."""
+    return db.scalars(
+        select(ProjectionGroup)
+        .join(MappingRecordAllele, MappingRecordAllele.projection_group == ProjectionGroup.id)
+        .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
+        .where(MappingRecord.variant_id == variant_id)
+        .where(MappingRecord.valid_to.is_(None))
+        .where(MappingRecordAllele.is_authoritative.is_(True))
+    ).one()
 
 
 def _authoritative_allele(db, variant_id):
@@ -548,14 +561,14 @@ class TestGetVariantCsv:
 
     def test_mapped_coordinates_and_external_annotations(self, session, setup_lib_db_with_mapped_variant):
         mapped_variant = setup_lib_db_with_mapped_variant
-        # The triple reconstructs from three different places, not from one row's columns: the measured
-        # slot is the record's assay-level string, the other nucleotide slot is the projection-group
-        # partner's HGVS, and the protein slot is the apex allele's.
+        # Every level is the measured projection group's string, including the normalized measured one.
         by_level = _live_alleles_by_level(session, mapped_variant.variant_id)
         record = _live_mapping_record(session, mapped_variant.variant_id)
-        record.hgvs_assay_level = "NC_000010.11:g.87933147C>T"
-        by_level["cdna"].hgvs_c = "NM_000314.8:c.100A>G"
-        by_level["protein"].hgvs_p = "NP_000305.3:p.Lys34Glu"
+        record.hgvs_assay_level = "NC_000010.11:g.87933146_87933147delinsCT"
+        measured_group = _measured_group(session, mapped_variant.variant_id)
+        measured_group.hgvs_g = "NC_000010.11:g.87933147C>T"
+        measured_group.hgvs_c = "NM_000314.8:c.100A>G"
+        measured_group.hgvs_p = "NP_000305.3:p.Lys34Glu"
         authoritative = by_level["genomic"]
         authoritative.vrs_digest = TEST_GA4GH_IDENTIFIER
         authoritative.clingen_allele_id = "CA123456"
@@ -572,6 +585,31 @@ class TestGetVariantCsv:
         assert rows[0]["vep.vep_functional_consequence"] == "missense_variant"
         assert rows[0]["gnomad.gnomad_af"] == str(TEST_GNOMAD_VARIANT["allele_frequency"])
         assert rows[0]["clingen.clingen_allele_id"] == "CA123456"
+
+    def test_coding_projection_without_an_allele_is_served(self, session, setup_lib_db_with_variant):
+        """An intronic genomic change has a coding coordinate but no cdna VRS allele: the CSV serves the measured
+        group's hgvs_c anyway, and no protein consequence."""
+        variant = setup_lib_db_with_variant
+        seed_mapping_record(
+            session,
+            variant,
+            assay_level="genomic",
+            hgvs_assay_level="NC_000010.11:g.87933147C>T",
+            alleles=[
+                AlleleSpec(
+                    digest="intronic-genomic",
+                    level="genomic",
+                    is_authoritative=True,
+                    group=GroupSpec(hgvs_c="NM_000465.4:c.123+5A>G", hgvs_g="NC_000010.11:g.87933147C>T"),
+                )
+            ],
+        )
+
+        rows = _parse_csv(get_variant_csv(session, variant.urn))
+
+        assert rows[0]["mavedb.post_mapped_hgvs_g"] == "NC_000010.11:g.87933147C>T"
+        assert rows[0]["mavedb.post_mapped_hgvs_c"] == "NM_000465.4:c.123+5A>G"
+        assert rows[0]["mavedb.post_mapped_hgvs_p"] == "NA"
 
     def test_post_mapped_vrs_id_is_the_stored_identifier_verbatim(self, session, setup_lib_db_with_mapped_variant):
         """The column is reported as-is, never rebuilt from the post-mapped payload.

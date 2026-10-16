@@ -23,7 +23,7 @@ services:
       - "8444:8000"
     restart: unless-stopped
 
-  worker:
+  worker: &worker
     image: mavedb-api-worker/mavedb-api-worker:latest
     build:
       context: .
@@ -43,15 +43,21 @@ services:
       - redis
     restart: unless-stopped
 
+  # Runs only start_pipeline and create_variants_for_score_set (the fast-lane queue), as in production, so
+  # variant creation never waits behind mapping jobs on the main worker.
+  fast-worker:
+    <<: *worker
+    command: bash -c "arq src.mavedb.worker.FastLaneWorkerSettings"
+
   db:
-    image: postgres:14
+    image: postgres:15
     env_file:
       - settings/.env.dev
     restart: unless-stopped
     ports:
       - "5434:5432"
     volumes:
-      - mavedb-data:/var/lib/postgresql/data
+      - mavedb-data-15:/var/lib/postgresql/data
 
   redis:
     image: redis:7.2.3
@@ -68,5 +74,5 @@ services:
 #      - "5673:5672"
 
 volumes:
-  mavedb-data:
+  mavedb-data-15:
   mavedb-redis:

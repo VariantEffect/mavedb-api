@@ -25,6 +25,7 @@ from sqlalchemy import select
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.projection_group import ProjectionGroup
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
@@ -96,39 +97,48 @@ def _seed_mapping(session, variant_urn):
     cousin = Allele(
         vrs_digest="cousin-digest", level="cdna", post_mapped=_post_mapped(), hgvs_c="NM_000546.6:c.1218C>T"
     )
-    session.add_all([measured, genomic, protein, cousin])
+    measured_group = ProjectionGroup(
+        mapping_record_id=record.id,
+        score_set_id=record.score_set_id,
+        hgvs_c=measured.hgvs_c,
+        hgvs_g=genomic.hgvs_g,
+        hgvs_p=protein.hgvs_p,
+    )
+    cousin_group = ProjectionGroup(mapping_record_id=record.id, score_set_id=record.score_set_id, hgvs_c=cousin.hgvs_c)
+    session.add_all([measured, genomic, protein, cousin, measured_group, cousin_group])
     session.commit()
 
     session.add_all(
         [
-            # The measured cdna link and its genomic projection share a projection_group; the protein
-            # apex is in no pair (group None); the cousin sits in its own projection group.
+            # The measured group holds the measured cdna, its genomic projection, and the protein apex; the
+            # cousin sits in its own projection group.
             MappingRecordAllele(
                 mapping_record_id=record.id,
                 score_set_id=record.score_set_id,
                 allele_id=measured.id,
                 is_authoritative=True,
-                projection_group=0,
+                projection_group=measured_group.id,
             ),
             MappingRecordAllele(
                 mapping_record_id=record.id,
                 score_set_id=record.score_set_id,
                 allele_id=genomic.id,
                 is_authoritative=False,
-                projection_group=0,
+                projection_group=measured_group.id,
             ),
             MappingRecordAllele(
                 mapping_record_id=record.id,
                 score_set_id=record.score_set_id,
                 allele_id=protein.id,
                 is_authoritative=False,
+                projection_group=measured_group.id,
             ),
             MappingRecordAllele(
                 mapping_record_id=record.id,
                 score_set_id=record.score_set_id,
                 allele_id=cousin.id,
                 is_authoritative=False,
-                projection_group=1,
+                projection_group=cousin_group.id,
             ),
             VepAlleleConsequence(
                 allele_id=measured.id,
@@ -161,6 +171,11 @@ def test_get_variant_detail_envelope(client, session, data_provider, data_files,
     assert body["assayLevelDigest"] == "cdna-digest"
     assert body["clingenAlleleId"] == "CA123"
     assert body["mode"] == "projection"
+    assert {level: slot["hgvs"] for level, slot in body["mapped"].items() if slot is not None} == {
+        "cdna": "NM_000546.6:c.1216G>A",
+        "genomic": "NC_000017.11:g.7676154C>T",
+        "protein": "NP_000537.3:p.Ala406Thr",
+    }
     # Spec-pure Cat-VRS carries its own field names (no camelization of the nested GA4GH object).
     assert body["molecularRepresentation"]["type"] == "CategoricalVariant"
     # State A: the full-closure Cat-VRS member set agrees with the sidecar (every linked allele is a
@@ -186,7 +201,7 @@ def test_get_variant_detail_envelope(client, session, data_provider, data_files,
     assert body["alleles"]["prot-digest"]["level"] == "protein"
     assert body["alleles"]["prot-digest"]["hgvs"] == "NP_000537.3:p.Ala406Thr"
     assert body["alleles"]["prot-digest"]["relation"] == "translation_of"
-    # The apex is a deterministic projection here but pairs with nothing (projectionOf is null).
+    # The apex is a deterministic projection, but not a c<->g counterpart, so it pairs with nothing.
     assert body["alleles"]["prot-digest"]["derivation"] == "projection"
     assert body["alleles"]["prot-digest"]["projectionOf"] is None
     # The synonymous cousin (different projection group) surfaces as a member wearing co_encodes and is

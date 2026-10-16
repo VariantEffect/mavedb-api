@@ -35,7 +35,7 @@ from tests.helpers.constants import (
     TEST_PUBMED_IDENTIFIER,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
 )
-from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
+from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 from tests.helpers.util.common import deepcamelize
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.query_plan import captured_statements
@@ -158,6 +158,7 @@ def _seed_world(client, session, data_provider, scores_csv, label: str) -> _Worl
     ).all()
     vrs = TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X
     for index, variant in enumerate(variants):
+        measured, convergent = GroupSpec(), GroupSpec()
         seed_mapping_record(
             session,
             variant,
@@ -167,16 +168,16 @@ def _seed_world(client, session, data_provider, scores_csv, label: str) -> _Worl
                     digest=_digest(f"{label}-measured-{index}"),
                     is_authoritative=True,
                     clingen_allele_id=f"CA{label}{index}",
-                    projection_group=0,
+                    group=measured,
                     vep_consequence="missense_variant",
                     clinvar_control_ids=(1,),
                     gnomad_variant_ids=(1,),
                     post_mapped=vrs,
                 ),
                 AlleleSpec(
-                    digest=_digest(f"{label}-genomic-{index}"), level="genomic", projection_group=0, post_mapped=vrs
+                    digest=_digest(f"{label}-genomic-{index}"), level="genomic", group=measured, post_mapped=vrs
                 ),
-                AlleleSpec(digest=_digest(f"{label}-convergent-{index}"), projection_group=1, post_mapped=vrs),
+                AlleleSpec(digest=_digest(f"{label}-convergent-{index}"), group=convergent, post_mapped=vrs),
                 AlleleSpec(
                     digest=_digest(f"{label}-protein"), level="protein", clingen_allele_id=f"PA{label}", post_mapped=vrs
                 ),

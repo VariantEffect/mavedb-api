@@ -8,21 +8,20 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional, Sequence
 
-from sqlalchemy import Select, and_, func, select
-from sqlalchemy.orm import Session, aliased, selectinload
+from sqlalchemy import Select, and_, select
+from sqlalchemy.orm import Session, selectinload
 
 from mavedb.lib.csv.namespaces import CLINVAR_DB_NAME
 from mavedb.lib.csv.specs import CsvMappedRow, namespace_spec
 from mavedb.lib.gnomad import GNOMAD_DB_NAME
-from mavedb.lib.score_set_variants import get_protein_hgvs_by_record, mapped_hgvs_by_level
 from mavedb.models.allele import Allele
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
-from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.projection_group import ProjectionGroup
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
@@ -68,14 +67,11 @@ def _substrate_query(
     *, score_set_id: Optional[int], variant_ids: Optional[Sequence[int]], as_of: Optional[datetime]
 ) -> Select[Any]:
     """The base per-variant query: each variant LEFT-joined to its live mapping record, its authoritative
-    (measured) allele (digest / ClinGen id / VEP consequence), and the projection-group nucleotide
-    partner — mirroring the lean whole-set view's join
-    (:func:`mavedb.lib.score_set_variants.get_lean_score_set_variants`). LEFT joins with ``live_at`` in the
-    ON clause keep unmapped variants (with null mapped fields); a WHERE would collapse them out. The
-    protein slot and the gnomAD/ClinVar dimensions are resolved by separate fetches and stitched on by id.
+    (measured) allele (digest / ClinGen id / VEP consequence), and that allele's measured projection group
+    (the mapped HGVS at every level). LEFT joins with ``live_at`` in the ON clause keep unmapped variants
+    (with null mapped fields); a WHERE would collapse them out. The gnomAD/ClinVar dimensions are resolved by
+    separate fetches and stitched on by id.
     """
-    projection_link = aliased(MappingRecordAllele)
-    projection_allele = aliased(Allele)
     query = (
         select(
             Variant,
@@ -86,10 +82,9 @@ def _substrate_query(
             Allele.vrs_digest,
             Allele.clingen_allele_id,
             VepAlleleConsequence.functional_consequence,
-            projection_allele.level.label("projection_level"),
-            # Exactly one of the projection's hgvs_g/hgvs_c is populated (it is a nucleotide allele), so
-            # coalesce yields its canonical string regardless of which nucleotide level it sits at.
-            func.coalesce(projection_allele.hgvs_g, projection_allele.hgvs_c).label("projection_hgvs"),
+            ProjectionGroup.hgvs_c,
+            ProjectionGroup.hgvs_g,
+            ProjectionGroup.hgvs_p,
         )
         .outerjoin(MappingRecord, and_(MappingRecord.variant_id == Variant.id, MappingRecord.live_at(as_of)))
         .outerjoin(
@@ -106,34 +101,21 @@ def _substrate_query(
             and_(VepAlleleConsequence.allele_id == Allele.id, VepAlleleConsequence.live_at(as_of)),
         )
         .outerjoin(
-            projection_link,
-            and_(
-                projection_link.mapping_record_id == MappingRecord.id,
-                projection_link.projection_group == MappingRecordAllele.projection_group,
-                projection_link.is_authoritative.is_(False),
-                projection_link.live_at(as_of),
-            ),
+            ProjectionGroup,
+            and_(ProjectionGroup.id == MappingRecordAllele.projection_group, ProjectionGroup.live_at(as_of)),
         )
-        .outerjoin(projection_allele, projection_allele.id == projection_link.allele_id)
     )
     return _scope_query(query, score_set_id=score_set_id, variant_ids=variant_ids)
 
 
-def _mapped_row(row: Any, protein_hgvs_by_record: dict[int, str]) -> CsvMappedRow:
-    """Assemble one variant's :class:`CsvMappedRow` from a substrate-query row: the canonical post-mapped
-    HGVS at each level (reconstructed via the shared projection rule) plus the assay-level string, VRS id,
-    VEP consequence, and ClinGen id off the authoritative allele."""
-    slots = mapped_hgvs_by_level(
-        assay_level=SequenceLevel(row.assay_level) if row.assay_level else None,
-        assay_level_hgvs=row.hgvs_assay_level,
-        projection_level=row.projection_level,
-        projection_hgvs=row.projection_hgvs,
-        protein_hgvs=protein_hgvs_by_record.get(row.mapping_record_id),
-    )
+def _mapped_row(row: Any) -> CsvMappedRow:
+    """Assemble one variant's :class:`CsvMappedRow` from a substrate-query row: the measured projection
+    group's HGVS at each level plus the assay-level string, VRS id, VEP consequence, and ClinGen id off the
+    authoritative allele."""
     return CsvMappedRow(
-        hgvs_g=slots.get(SequenceLevel.genomic.value),
-        hgvs_c=slots.get(SequenceLevel.cdna.value),
-        hgvs_p=slots.get(SequenceLevel.protein.value),
+        hgvs_g=row.hgvs_g,
+        hgvs_c=row.hgvs_c,
+        hgvs_p=row.hgvs_p,
         hgvs_assay_level=row.hgvs_assay_level,
         vrs_digest=row.vrs_digest,
         vep_functional_consequence=row.functional_consequence,
@@ -264,7 +246,6 @@ def fetch_variant_csv_data(
         rows = _restore_variant_id_order(rows, variant_ids, key=lambda row: row.Variant.id)
 
     # Protein slot: the standalone protein subquery over the whole set, stitched back by record id.
-    protein_hgvs_by_record = get_protein_hgvs_by_record(db, score_set_id, variant_ids=variant_ids, as_of=as_of)
     # The authoritative allele ids on this page — the join key for the batch gnomAD/ClinVar fetches.
     allele_ids = [row.allele_id for row in rows if row.allele_id is not None]
     gnomad_by_allele = _gnomad_by_allele(db, allele_ids, as_of=as_of) if need_gnomad else {}
@@ -279,7 +260,7 @@ def fetch_variant_csv_data(
     for row in rows:
         variants.append(row.Variant)
         allele_id = row.allele_id
-        mappings.append(_mapped_row(row, protein_hgvs_by_record) if row.mapping_record_id is not None else None)
+        mappings.append(_mapped_row(row) if row.mapping_record_id is not None else None)
         if gnomad_data is not None:
             gnomad_data.append(gnomad_by_allele.get(allele_id) if allele_id is not None else None)
         if clinvar_per_variant is not None:

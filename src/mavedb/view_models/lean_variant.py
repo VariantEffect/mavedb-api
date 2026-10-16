@@ -33,9 +33,10 @@ class HgvsField(BaseModel):
 class MappedTriple(BaseModel):
     """The mapped (reference-frame) HGVS keyed by level — the canonical projection of the measured change.
 
-    One slot per level. A nucleotide assay populates all three (``mapped[assayLevel]`` is the measured
-    slot; ``cdna`` is the level-invariant search key, present even when ``assayLevel`` is ``genomic``); a
-    protein assay populates only ``protein`` (the ambiguous c/g fan-out is not fabricated). Null slots are
+    One slot per level. A nucleotide assay populates the measured slot (``mapped[assayLevel]``) and the
+    projections it has (``cdna`` is the level-invariant search key, present even when ``assayLevel`` is
+    ``genomic``; an intronic or UTR change has no ``protein``); a protein assay populates only ``protein``
+    (the ambiguous c/g fan-out is not fabricated). Null slots are
     omitted under ``response_model_exclude_none``.
     """
 

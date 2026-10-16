@@ -94,10 +94,12 @@ async def publish_score_set(
     worker: ArqRedis = Depends(get_worker),
 ):
     # ... validation and DB updates ...
-    await worker.enqueue_job(
-        "create_variants_for_score_set",
-        score_set.id,
-        correlation_id,
+    await enqueue_pipeline_for_score_set(
+        db=db,
+        redis=worker,
+        pipeline_name="publish_score_set",
+        score_set=item,
+        user=user_data.user,
     )
 ```
 
@@ -114,24 +116,20 @@ responses=shared_responses  # Defines 4xx/5xx response schemas
 Most write operations trigger a multi-step pipeline via the worker:
 
 ```python
-from mavedb.lib.workflow.pipeline_factory import PipelineFactory
+from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set
 
 # In a router endpoint:
-pipeline, entrypoint_job_run = PipelineFactory.create_pipeline(
+pipeline, job = await enqueue_pipeline_for_score_set(
     db=db,
-    name="validate_map_annotate_score_set",
-    pipeline_params={
-        "score_set_id": score_set.id,
-        "updater_id": user_data.user.id,
-        "correlation_id": logging_context().get("correlation_id"),
-    },
+    redis=worker,
+    pipeline_name="validate_map_annotate_score_set",
+    score_set=item,
+    user=user_data.user,
+    extra_params={"scores_file_key": scores_file_key, ...},
 )
-db.commit()
-
-await worker.enqueue_job("start_pipeline", entrypoint_job_run.id)
 ```
 
-This creates a `Pipeline` with multiple `JobRun` records and `JobDependency` records, then enqueues the pipeline's `start_pipeline` entrypoint in ARQ. The worker coordinates the rest — each job runs after its dependencies complete.
+`enqueue_pipeline_for_score_set` is the single kickoff seam shared by routers and scripts. It fills `score_set_id`, `updater_id` and `correlation_id`, uses `PipelineFactory` to create a `Pipeline` with its `JobRun` and `JobDependency` records, then enqueues the pipeline's `start_pipeline` entrypoint in ARQ. A failed enqueue discards the just-created pipeline records. The worker coordinates the rest — each job runs after its dependencies complete.
 
 ### Job Function Signature
 
@@ -155,18 +153,11 @@ Callers pass only `ctx` and `job_id` when enqueueing. The decorator creates the 
 Correlation IDs flow from the API request through the pipeline to each job:
 
 ```python
-# In the router — capture correlation ID from starlette-context
-from mavedb.lib.logging.context import save_to_logging_context, logging_context
+# In the router — save request context; the kickoff seam reads the correlation ID from it
+from mavedb.lib.logging.context import save_to_logging_context
 
 save_to_logging_context({"score_set_urn": urn})
-correlation_id = logging_context().get("correlation_id")
-
-# Pass to pipeline via pipeline_params
-pipeline, entrypoint = PipelineFactory.create_pipeline(
-    db=db,
-    name="validate_map_annotate_score_set",
-    pipeline_params={"correlation_id": correlation_id, ...},
-)
+await enqueue_pipeline_for_score_set(db=db, redis=worker, pipeline_name="validate_map_annotate_score_set", ...)
 ```
 
 Each job retrieves the correlation ID from its `job_params` and uses `job_manager.save_to_context()` for structured logging.

@@ -28,8 +28,10 @@ Router (score_sets.py)
   │         • start_pipeline JobRun (entrypoint)
   │         • create_variants_for_score_set JobRun
   │         • map_variants_for_score_set JobRun (depends on create_variants)
-  │         • submit_to_car JobRun (depends on map_variants)
-  │         • link_gnomad JobRun (depends on submit_to_car)
+  │         • reverse_translate_variants_for_score_set JobRun (depends on map_variants)
+  │         • submit_to_car JobRun (depends on reverse_translate)
+  │         • warm_clingen_cache JobRun (depends on submit_to_car)
+  │         • link_gnomad JobRun (depends on warm_clingen_cache)
   │         • ... more annotation jobs with dependencies
   │         • JobDependency records linking them
   │
@@ -58,7 +60,7 @@ ARQ Worker picks up start_pipeline
   │
   ├─ 6. ARQ picks up map_variants_for_score_set
   │     ├─ @with_pipeline_management runs job, marks SUCCEEDED
-  │     └─ coordinate_pipeline() finds submit_to_car, submit_uniprot, etc. → enqueue
+  │     └─ coordinate_pipeline() finds reverse_translate, submit_uniprot → enqueue
   │
   ├─ 7... Continues until all jobs complete
   │
@@ -84,7 +86,7 @@ ARQ Cron Scheduler (or manual enqueue)
   └─ 3. No pipeline coordination (job has no pipeline_id)
 ```
 
-Example: `cleanup_stalled_jobs` runs every 30 minutes via ARQ cron to find and handle stuck jobs.
+Example: `cleanup_stalled_jobs` runs every 10 minutes via ARQ cron to find and handle stuck jobs.
 
 ## Key Models
 
@@ -104,6 +106,7 @@ The central record for every job execution:
 | `max_retries` | Maximum retry attempts (default: 3) |
 | `retry_count` | Current retry attempt count |
 | `progress_current/total/message` | Progress tracking fields |
+| `progress_updated_at` | Heartbeat bumped on every committing progress update; `cleanup_stalled_jobs` reaps RUNNING jobs whose heartbeat goes stale |
 | `error_message/error_traceback` | Error details on failure |
 | `failure_category` | `FailureCategory` enum for retry classification |
 | `metadata_` | JSONB for retry history, result snapshots, etc. |

@@ -36,6 +36,20 @@ given archive was generated.
 
 ### Changed
 
+- **`va/{urn}.va.ndjson` follows VA-Spec 1.1.0 and Cat-VRS 1.1.1.** Field renames
+  consumers must follow: a study result's `focusVariant` is `focus`; a proposition's
+  `subjectVariant` is `subject`, and `objectCondition` / `objectSequenceFeature` are
+  `object`. The functional classification system is
+  `ga4gh-gkm-term:experimental-var-func-impact-classification`.
+- The VA-Spec proposition subject is a Cat-VRS `CategoricalVariant` over the measured
+  change's other representations (its genomic or transcript twin and its protein
+  consequence) where it has any, with `mappings` to their ClinGen, gnomAD and ClinVar
+  records.
+- `mavedb.post_mapped_hgvs_g` / `_c` / `_p` describe the measured variant and its
+  projections to the other levels, with the genomic string normalized. Score sets
+  assayed at the protein level fill only `mavedb.post_mapped_hgvs_p`, and their
+  `gnomad.*` and `clinvar.*` columns are `NA`: both are nucleotide-level resources.
+  A coding change across an exon junction has `NA` for `mavedb.post_mapped_hgvs_g`.
 - gnomAD frequencies are now reported from whichever release each allele's current
   record came from, rather than only from the single release the deployment serves.
   An allele not covered by a newer release previously reported `NA` for every gnomAD

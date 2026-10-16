@@ -33,7 +33,7 @@ from mavedb.worker.lib.decorators.job_management import with_job_management
 from mavedb.worker.lib.managers.constants import ACTIVE_JOB_STATUSES, TERMINAL_PIPELINE_STATUSES
 from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.managers.pipeline_manager import PipelineManager
-from mavedb.worker.lib.managers.utils import arq_job_id
+from mavedb.worker.lib.managers.utils import arq_job_id, arq_queue_name
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +179,9 @@ async def _handle_stalled_job_retry(
     try:
         manager.prepare_queue()  # Transition to QUEUED
         db.flush()
-        result = await redis.enqueue_job(job.job_function, job.id, _job_id=arq_job_id(job))
+        result = await redis.enqueue_job(
+            job.job_function, job.id, _job_id=arq_job_id(job), _queue_name=arq_queue_name(job)
+        )
 
         if result is None:
             raise RuntimeError(
@@ -210,7 +212,7 @@ async def _handle_stalled_job_retry(
         return False
 
 
-async def _running_job_confirmed_dead(arq_id: str, redis: ArqRedis) -> bool:
+async def _running_job_confirmed_dead(arq_id: str, queue_name: str, redis: ArqRedis) -> bool:
     """Abort a RUNNING job's current ARQ attempt and report whether it is safe to re-drive.
 
     RUNNING recovery differs from QUEUED/PENDING recovery: a RUNNING job may still have a live
@@ -232,7 +234,7 @@ async def _running_job_confirmed_dead(arq_id: str, redis: ArqRedis) -> bool:
     Returns True when it is safe to re-drive the job, False when the job may still be running.
     """
     try:
-        await ArqJob(arq_id, redis).abort(timeout=ABORT_CONFIRM_TIMEOUT_SECONDS)
+        await ArqJob(arq_id, redis, _queue_name=queue_name).abort(timeout=ABORT_CONFIRM_TIMEOUT_SECONDS)
         return True
     except asyncio.TimeoutError:
         logger.warning(
@@ -265,7 +267,7 @@ async def _handle_stalled_running_job(
 
     # Could not confirm the coroutine is dead. Leave the job RUNNING; the next sweep will retry
     # the abort, and ARQ's job_timeout ceiling remains as a final backstop.
-    if not await _running_job_confirmed_dead(arq_id, redis):
+    if not await _running_job_confirmed_dead(arq_id, arq_queue_name(job), redis):
         logger.warning(
             f"Leaving stalled RUNNING job {job.urn} in place — abort unconfirmed, re-driving would risk a double-run",
             extra=manager.logging_context(),
@@ -369,7 +371,7 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
         # A healthy job waiting for a worker slot appears QUEUED in the DB and is also
         # present in Redis; only a crashed-enqueue job has the DB state without the
         # corresponding Redis entry.
-        arq_status = await ArqJob(arq_job_id(job), job_manager.redis).status()
+        arq_status = await ArqJob(arq_job_id(job), job_manager.redis, _queue_name=arq_queue_name(job)).status()
         if arq_status in (ArqJobStatus.queued, ArqJobStatus.in_progress, ArqJobStatus.deferred):
             logger.debug(
                 f"QUEUED job {job.urn} is present in ARQ Redis (status={arq_status.value}); skipping cleanup",

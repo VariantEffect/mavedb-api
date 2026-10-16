@@ -25,8 +25,21 @@ from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.projection_group import ProjectionGroup
 from mavedb.models.variant import Variant
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
+
+
+@dataclass(eq=False)
+class GroupSpec:
+    """A ProjectionGroup row on a mapping record: one variant described at the c./g./p. levels.
+
+    Specs that share a GroupSpec instance join that one group; its HGVS strings are written as given.
+    """
+
+    hgvs_c: Optional[str] = None
+    hgvs_g: Optional[str] = None
+    hgvs_p: Optional[str] = None
 
 
 @dataclass
@@ -35,6 +48,7 @@ class AlleleSpec:
 
     Digests are the allele's identity in the serving layer: a digest already seeded reuses that allele, so give
     a shared allele's annotations on one spec only.
+    ``group`` places the allele in a ProjectionGroup (see ``GroupSpec``).
     ``clinvar_control_ids`` / ``gnomad_variant_ids`` reference rows seeded elsewhere (the router
     fixtures seed ClinVar controls with ids 1 and 2); each id becomes a live link on this allele.
     """
@@ -48,7 +62,7 @@ class AlleleSpec:
     hgvs_g: Optional[str] = None
     post_mapped: Optional[dict] = None
     vep_consequence: Optional[str] = None
-    projection_group: Optional[int] = None
+    group: Optional[GroupSpec] = None
     clinvar_control_ids: Sequence[int] = field(default_factory=tuple)
     gnomad_variant_ids: Sequence[int] = field(default_factory=tuple)
 
@@ -70,7 +84,8 @@ def seed_mapping_record(
     VRS (the flat ``preMapped`` field on the variant detail). When ``valid_from`` is set it stamps the
     record, its allele links, and every annotation link, so ``as_of`` reconstruction tests can place
     the whole graph at a chosen instant (absent it, ``valid_from`` defaults to ``now()`` and the row
-    is live). Returns the created ``MappingRecord``.
+    is live). Each distinct ``GroupSpec`` instance among the specs becomes one ProjectionGroup row with
+    its HGVS strings copied verbatim. Returns the created ``MappingRecord``.
     """
     if isinstance(variant, str):
         resolved = session.scalar(select(Variant).where(Variant.urn == variant))
@@ -89,6 +104,25 @@ def seed_mapping_record(
         record.valid_from = valid_from
     session.add(record)
     session.commit()
+
+    # Keyed by instance identity so equal-looking GroupSpecs stay distinct groups.
+    groups: dict[int, ProjectionGroup] = {}
+    for spec in alleles:
+        if spec.group is None or id(spec.group) in groups:
+            continue
+        group = ProjectionGroup(
+            mapping_record_id=record.id,
+            score_set_id=record.score_set_id,
+            hgvs_c=spec.group.hgvs_c,
+            hgvs_g=spec.group.hgvs_g,
+            hgvs_p=spec.group.hgvs_p,
+        )
+        if valid_from is not None:
+            group.valid_from = valid_from
+        groups[id(spec.group)] = group
+
+    session.add_all(groups.values())
+    session.flush()
 
     # Alleles are deduplicated by digest, so one seeded under the same digest before is reused (an allele
     # several records share, like a protein consequence).
@@ -113,7 +147,7 @@ def seed_mapping_record(
                 score_set_id=record.score_set_id,
                 allele_id=allele.id,
                 is_authoritative=spec.is_authoritative,
-                projection_group=spec.projection_group,
+                projection_group=groups[id(spec.group)].id if spec.group is not None else None,
             )
         ]
         if spec.vep_consequence is not None:

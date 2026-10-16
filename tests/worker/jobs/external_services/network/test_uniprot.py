@@ -8,8 +8,10 @@ from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
-# UniProt ID mapping returns no results for unversioned RefSeq accessions.
+# Mapping records the versioned transcript; ID mapping is submitted the unversioned form, which UniProt matches
+# reliably (see id_mapping_query_accession).
 VERSIONED_REFSEQ_ACCESSION = "NM_003345.5"
+SUBMITTED_ACCESSION = "NM_003345"
 
 
 @pytest.mark.asyncio
@@ -47,12 +49,12 @@ class TestE2EUniprotMappingJobs:
         submitted_jobs = sample_submit_uniprot_mapping_jobs_run_in_pipeline.metadata_["submitted_jobs"]
         assert "1" in submitted_jobs
         assert submitted_jobs["1"]["job_id"] is not None
-        assert submitted_jobs["1"]["accession"] == VERSIONED_REFSEQ_ACCESSION
+        assert submitted_jobs["1"]["accession"] == SUBMITTED_ACCESSION
 
         # Verify that polling job params have been updated correctly
         session.refresh(sample_polling_job_for_submission_run_in_pipeline)
         assert sample_polling_job_for_submission_run_in_pipeline.job_params["mapping_jobs"] == {
-            "1": {"job_id": submitted_jobs["1"]["job_id"], "accession": VERSIONED_REFSEQ_ACCESSION}
+            "1": {"job_id": submitted_jobs["1"]["job_id"], "accession": SUBMITTED_ACCESSION}
         }
 
         # Verify that the submission job was completed successfully

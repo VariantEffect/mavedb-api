@@ -12,8 +12,8 @@ MaveDB is a bioinformatics database API for Multiplex Assays of Variant Effect (
 ### Service Architecture
 - **FastAPI application** — `src/mavedb/server_main.py`, router-based endpoint organization
 - **Background worker** — ARQ/Redis for async processing (variant creation, mapping, publication, annotation)
-- **Multi-container setup** — API server, worker, PostgreSQL, Redis, plus external services (cdot-rest, dcd-mapping, seqrepo)
-- **Docker config** — `docker-compose-dev.yml` (6 services), multi-stage `Dockerfile`
+- **Multi-container setup** — API server, worker, PostgreSQL 15, Redis, moto (local S3), plus external services (cdot-rest, dcd-mapping, seqrepo)
+- **Docker config** — `docker-compose-dev.yml` (9 services), multi-stage `Dockerfile`
 
 ### Core Domain Model
 - **Hierarchical URN system**: ExperimentSet (`urn:mavedb:00000001`) → Experiment (`00000001-a`) → ScoreSet (`00000001-a-1`) → Variant (ScoreSet URN + `#` + number)
@@ -41,8 +41,8 @@ src/mavedb/
 ├── worker/                 # ARQ background worker system
 │   ├── jobs/               # Job function implementations (by category)
 │   │   ├── registry.py     # Central registry of all jobs, cron definitions
-│   │   ├── variant_processing/  # Variant creation and mapping
-│   │   ├── external_services/   # ClinGen, ClinVar, gnomAD, UniProt
+│   │   ├── variant_processing/  # Variant creation, mapping, reverse translation
+│   │   ├── external_services/   # ClinGen, ClinVar, gnomAD, UniProt, VEP
 │   │   ├── pipeline_management/ # Pipeline entrypoint (start_pipeline)
 │   │   └── system/         # Cron maintenance (cleanup stalled jobs)
 │   ├── lib/                # Infrastructure layer
@@ -143,7 +143,7 @@ poetry run python -m mavedb.scripts.<script_name>
 
 - [score_set.py](src/mavedb/models/score_set.py) — Primary data model patterns
 - [score_sets.py](src/mavedb/routers/score_sets.py) — Complex router with worker integration
-- [jobs.py](src/mavedb/worker/jobs.py) — Background processing patterns
+- [registry.py](src/mavedb/worker/jobs/registry.py) — Background job registration
 - [score_set.py](src/mavedb/view_models/score_set.py) — Pydantic model hierarchy
 - [server_main.py](src/mavedb/server_main.py) — App setup and dependency injection
 - [authentication.py](src/mavedb/lib/authentication.py) — Auth patterns
@@ -222,9 +222,10 @@ poetry run python -m mavedb.scripts.<script_name>
 - **Key job types**:
   - `create_variants_for_score_set` - Parse uploaded CSV, create variant records
   - `map_variants_for_score_set` - Map variants via DCD Mapping / VRS
+  - `reverse_translate_variants_for_score_set` - Derive equivalent nucleotide/protein alleles and projection groups via variant-annotation
   - `submit_score_set_mappings_to_car/ldh` - Submit to ClinGen services
   - `cleanup_stalled_jobs` - Cron job for recovering stuck jobs
-- **Enqueueing pipelines**: Routers call `PipelineFactory.create_pipeline()` then `ArqRedis.enqueue_job("start_pipeline", ...)` with the pipeline's entrypoint JobRun ID
+- **Enqueueing pipelines**: Routers and scripts call `enqueue_pipeline_for_score_set()` (`src/mavedb/lib/workflow/kickoff.py`), which creates the pipeline via `PipelineFactory.create_pipeline()` and enqueues its `start_pipeline` entrypoint JobRun
 - **Detailed documentation**: See `src/mavedb/worker/README.md` and `.github/instructions/worker.instructions.md`
 
 ### View Models (Pydantic)

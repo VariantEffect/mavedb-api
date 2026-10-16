@@ -4,6 +4,10 @@ import pytest
 
 pytest.importorskip("arq")
 
+from unittest.mock import Mock
+
+from arq.constants import default_queue_name
+
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import DependencyType, FailureCategory, JobStatus
 from mavedb.worker.lib.managers.constants import (
@@ -13,7 +17,10 @@ from mavedb.worker.lib.managers.constants import (
     STARTABLE_JOB_STATUSES,
     TERMINAL_JOB_STATUSES,
 )
+from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.managers.utils import (
+    FAST_LANE_QUEUE_NAME,
+    arq_queue_name,
     classify_exception,
     construct_bulk_cancellation_result,
     job_dependency_is_met,
@@ -148,3 +155,16 @@ class TestClassifyException:
 
     def test_generic_exception_returns_unknown(self):
         assert classify_exception(Exception("generic")) == FailureCategory.UNKNOWN
+
+
+@pytest.mark.unit
+class TestArqQueueNameUnit:
+    """Tests for routing JobRuns to the fast-lane or default ARQ queue."""
+
+    @pytest.mark.parametrize("job_function", ["start_pipeline", "create_variants_for_score_set"])
+    def test_fast_lane_functions_route_to_fast_lane_queue(self, job_function):
+        assert arq_queue_name(Mock(spec=JobRun, job_function=job_function)) == FAST_LANE_QUEUE_NAME
+
+    @pytest.mark.parametrize("job_function", ["map_variants_for_score_set", "cleanup_stalled_jobs"])
+    def test_other_functions_route_to_default_queue(self, job_function):
+        assert arq_queue_name(Mock(spec=JobRun, job_function=job_function)) == default_queue_name

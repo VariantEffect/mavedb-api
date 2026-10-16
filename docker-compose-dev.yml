@@ -32,7 +32,7 @@ services:
       - ../variant-annotation:/variant-annotation
       - mavedb-seqrepo-dev:/usr/local/share/seqrepo
 
-  worker:
+  worker: &worker
     image: mavedb-api/mavedb-worker:dev
     build:
       context: .
@@ -60,6 +60,12 @@ services:
       - db
       - redis
       - moto-init
+
+  # Runs only start_pipeline and create_variants_for_score_set (the fast-lane queue), as in production, so
+  # variant creation never waits behind mapping jobs on the main worker.
+  fast-worker:
+    <<: *worker
+    command: bash -c "arq mavedb.worker.FastLaneWorkerSettings --watch ./src"
 
   dcd-mapping:
     build: ../dcd_mapping
@@ -92,13 +98,13 @@ services:
       - mavedb-seqrepo-dev:/usr/local/share/seqrepo
 
   db:
-    image: postgres:14
+    image: postgres:15
     env_file:
       - settings/.env.dev
     ports:
       - "5434:5432"
     volumes:
-      - mavedb-data-dev:/var/lib/postgresql/data
+      - mavedb-data-dev-15:/var/lib/postgresql/data
 
   redis:
     image: redis:7.2.3
@@ -129,6 +135,6 @@ services:
       - mavedb-seqrepo-dev:/usr/local/share/seqrepo
 
 volumes:
-  mavedb-data-dev:
+  mavedb-data-dev-15:
   mavedb-redis-dev:
   mavedb-seqrepo-dev:

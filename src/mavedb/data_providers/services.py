@@ -2,6 +2,7 @@ import os
 from typing import TYPE_CHECKING, Optional
 
 import boto3
+import requests
 from biocommons.seqrepo import SeqRepo
 from cdot.hgvs.dataproviders import ChainedSeqFetcher, FastaSeqFetcher, RESTDataProvider, SeqFetcher
 from ga4gh.vrs.dataproxy import SeqRepoDataProxy
@@ -21,13 +22,34 @@ CDOT_URL = os.environ.get("CDOT_URL", "http://cdot-rest:8000")
 SEQREPO_DIR = os.environ.get("HGVS_SEQREPO_DIR", "/seqrepo")
 CSV_UPLOAD_S3_BUCKET_NAME = os.getenv("UPLOAD_S3_BUCKET_NAME", "score-set-csv-uploads-dev")
 
+# (connect, read) seconds for each cdot-rest request.
+CDOT_REQUEST_TIMEOUT = (10, 60)
+
+
+class StrictRESTDataProvider(RESTDataProvider):
+    """cdot's REST data provider, raising on a cdot-rest outage instead of reporting the data missing.
+
+    The base client returns ``None`` for any non-OK response, which reads as "no such transcript" (or "no
+    transcripts in this region") and is cached for the provider's lifetime. Callers that overwrite stored
+    projections with a missing transcript would then erase them during an outage. Only a 404, which
+    cdot-rest returns for an unknown transcript or gene, is reported as missing here.
+    """
+
+    def _get_from_url(self, url: str) -> Optional[dict]:
+        response = requests.get(url, timeout=CDOT_REQUEST_TIMEOUT)
+        if response.status_code == 404:
+            return None
+
+        response.raise_for_status()
+        return response.json()
+
 
 def seqfetcher() -> ChainedSeqFetcher:
     return ChainedSeqFetcher(SeqFetcher(), *[FastaSeqFetcher(file) for file in GENOMIC_FASTA_FILES])
 
 
 def cdot_rest() -> RESTDataProvider:
-    return RESTDataProvider(url=CDOT_URL, seqfetcher=seqfetcher())
+    return StrictRESTDataProvider(url=CDOT_URL, seqfetcher=seqfetcher())
 
 
 def seqrepo() -> SeqRepo:
