@@ -205,6 +205,37 @@ files = [
 cryptography = "*"
 
 [[package]]
+name = "bbi-variant-annotation"
+version = "1.2.0b3"
+description = "Genetic variant mapping and annotation pipeline"
+optional = true
+python-versions = ">=3.11"
+groups = ["main"]
+markers = "extra == \"server\""
+files = [
+    {file = "bbi_variant_annotation-1.2.0b3-py3-none-any.whl", hash = "sha256:df1903b7db4c0e117ef0e1758df33a6f808ded032847e24d42a613c12151a286"},
+    {file = "bbi_variant_annotation-1.2.0b3.tar.gz", hash = "sha256:7f609f3f46dc9c3b6e2d121ecfe90b9b0297318e11cdc8e7a62554566cd5c11b"},
+]
+
+[package.dependencies]
+biopython = "*"
+boto3 = "*"
+click = "*"
+openpyxl = "*"
+pandas = ">=2.2.1,<3.0.0"
+python-dotenv = "*"
+redis = "*"
+requests = "*"
+variant-translation = "1.2.0"
+
+[package.extras]
+dev = ["ruff"]
+gnomad = ["hail"]
+liftover = ["pyliftover"]
+publish = ["build", "twine"]
+tests = ["pytest"]
+
+[[package]]
 name = "beautifulsoup4"
 version = "4.14.3"
 description = "Screen-scraping library"
@@ -4936,42 +4967,6 @@ docs = ["Sphinx (>=4.1.2,<4.2.0)", "sphinx_rtd_theme (>=0.5.2,<0.6.0)", "sphinxc
 test = ["aiohttp (>=3.10.5)", "flake8 (>=6.1,<7.0)", "mypy (>=0.800)", "psutil", "pyOpenSSL (>=25.3.0,<25.4.0)", "pycodestyle (>=2.11.0,<2.12.0)"]
 
 [[package]]
-name = "variant-annotation"
-version = "1.2.0-beta.1"
-description = "Genetic variant mapping and annotation pipeline"
-optional = true
-python-versions = ">=3.11"
-groups = ["main"]
-markers = "extra == \"server\""
-files = []
-develop = false
-
-[package.dependencies]
-biopython = "*"
-boto3 = "*"
-click = "*"
-openpyxl = "*"
-pandas = ">=2.2.1,<3.0.0"
-python-dotenv = "*"
-redis = "*"
-requests = "*"
-variant-translation = "1.2.0"
-
-[package.extras]
-dev = ["ruff"]
-gnomad = ["hail"]
-liftover = ["pyliftover"]
-mapping = ["dcd-mapping @ git+https://github.com/VariantEffect/dcd_mapping2.git@v2026.1.2"]
-publish = ["build", "twine"]
-tests = ["pytest"]
-
-[package.source]
-type = "git"
-url = "https://github.com/bbi-lab/variant-annotation.git"
-reference = "v1.2.0-beta.1"
-resolved_reference = "350b53bae5e99d30ecf6f33821c3df70f5c76a65"
-
-[[package]]
 name = "variant-translation"
 version = "1.2.0"
 description = "Reverse-translate protein HGVS variants."
@@ -5297,9 +5292,9 @@ test = ["big-O", "jaraco.functools", "jaraco.itertools", "jaraco.test", "more_it
 type = ["pytest-mypy"]
 
 [extras]
-server = ["aiocache", "alembic", "alembic-utils", "arq", "authlib", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "psycopg2", "pyathena", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "starlette-context", "uvicorn", "variant-annotation", "watchtower"]
+server = ["aiocache", "alembic", "alembic-utils", "arq", "authlib", "bbi-variant-annotation", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "psycopg2", "pyathena", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "starlette-context", "uvicorn", "watchtower"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "e12263b3cfdb3f840b9e8e433158504f57ba49a685d60efa267a439d5fc70ec5"
+content-hash = "db7b3312ba2b0593e0a225ef66a0cdc71bc11ee2b29ebe472ff496921aee61d2"
