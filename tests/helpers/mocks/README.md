@@ -38,7 +38,7 @@ score_set = create_mock_score_set(created_by=user)
 from tests.helpers.mocks.factories import (
     create_mock_functional_classification,
     create_mock_score_calibration,
-    create_mock_mapped_variant_with_functional_calibration_score_set
+    create_mock_mapped_variant_with_functional_calibration_score_set,
 )
 
 classification = create_mock_functional_classification()
@@ -48,17 +48,12 @@ mapped_variant = create_mock_mapped_variant_with_functional_calibration_score_se
 
 ### For Custom Mock Behavior
 ```python
-from tests.helpers.mocks.mock_utilities import (
-    MockObjectWithPydanticFunctionality,
-    MockVariantCollection
-)
+from tests.helpers.mocks.mock_utilities import MockObjectWithPydanticFunctionality, MockVariantCollection
 
 # Mock that works with both Pydantic validation and attribute access
-mock_data = MockObjectWithPydanticFunctionality({
-    "camelCaseKey": "value"
-})
+mock_data = MockObjectWithPydanticFunctionality({"camelCaseKey": "value"})
 assert mock_data["camelCaseKey"] == "value"  # Dict access
-assert mock_data.camel_case_key == "value"   # Attribute access (snake_case)
+assert mock_data.camel_case_key == "value"  # Attribute access (snake_case)
 
 # Mock collection for controlling variant membership tests
 variants = MockVariantCollection(contains_result=True)

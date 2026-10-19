@@ -45,9 +45,9 @@ def test_user_handles_all_actions() -> None:
     supported = set(USER_SUPPORTED_ACTIONS)
     unsupported = set(USER_UNSUPPORTED_ACTIONS)
 
-    assert (
-        supported.union(unsupported) == all_actions
-    ), "Some actions are not categorized as supported or unsupported for users."
+    assert supported.union(unsupported) == all_actions, (
+        "Some actions are not categorized as supported or unsupported for users."
+    )
 
 
 class TestUserHasPermission:

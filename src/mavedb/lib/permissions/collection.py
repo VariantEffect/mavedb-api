@@ -73,8 +73,7 @@ def has_permission(user_data: Optional[UserData], entity: Collection, action: Ac
     if action not in handlers:
         supported_actions = ", ".join(a.value for a in handlers.keys())
         raise NotImplementedError(
-            f"Action '{action.value}' is not supported for collection entities. "
-            f"Supported actions: {supported_actions}"
+            f"Action '{action.value}' is not supported for collection entities. Supported actions: {supported_actions}"
         )
 
     return handlers[action](

@@ -160,8 +160,7 @@ def job_should_be_skipped_due_to_unfulfillable_dependency(
     if dependency_type == DependencyType.SUCCESS_REQUIRED:
         if dependent_job_status in (JobStatus.FAILED, JobStatus.ERRORED, JobStatus.SKIPPED, JobStatus.CANCELLED):
             logger.debug(
-                f"Job should be skipped due to unfulfillable 'success_required' dependency "
-                f"({dependent_job_status})."
+                f"Job should be skipped due to unfulfillable 'success_required' dependency ({dependent_job_status})."
             )
             return True, f"Dependency did not succeed ({dependent_job_status})"
 
@@ -169,8 +168,7 @@ def job_should_be_skipped_due_to_unfulfillable_dependency(
     if dependency_type == DependencyType.COMPLETION_REQUIRED:
         if dependent_job_status in (JobStatus.CANCELLED, JobStatus.SKIPPED):
             logger.debug(
-                f"Job should be skipped due to unfulfillable 'completion_required' dependency "
-                f"({dependent_job_status})."
+                f"Job should be skipped due to unfulfillable 'completion_required' dependency ({dependent_job_status})."
             )
             return True, f"Dependency was not completed successfully ({dependent_job_status})"
 

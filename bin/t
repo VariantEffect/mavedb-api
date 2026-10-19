@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Targeted tests: bin/t <test path or node id> [pytest args]
+# Requires a target because the full suite takes ~20 minutes; pass tests/ to run it deliberately.
+set -euo pipefail
+
+if [ $# -eq 0 ]; then
+    echo "usage: bin/t <test path or node id> [pytest args]  (pass tests/ for the full suite)" >&2
+    exit 2
+fi
+exec poetry run pytest "$@"

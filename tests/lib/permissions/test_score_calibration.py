@@ -47,9 +47,9 @@ def test_score_calibration_handles_all_actions() -> None:
     supported = set(SCORE_CALIBRATION_SUPPORTED_ACTIONS)
     unsupported = set(SCORE_CALIBRATION_UNSUPPORTED_ACTIONS)
 
-    assert (
-        supported.union(unsupported) == all_actions
-    ), "Some actions are not categorized as supported or unsupported for score calibrations."
+    assert supported.union(unsupported) == all_actions, (
+        "Some actions are not categorized as supported or unsupported for score calibrations."
+    )
 
 
 class TestScoreCalibrationHasPermission:
