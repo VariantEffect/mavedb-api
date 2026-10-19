@@ -11,6 +11,10 @@
  * pattern covers every repo because issues are linked across repos, and each repo carries an identical copy of this
  * file.
  *
+ * A PR's issues are the ones linked from its Development sidebar plus those named on a "Closes #N" line in its
+ * description. GitHub turns that line into a link only on PRs into the default branch; on a PR into a release branch it
+ * is a plain mention, so this script reads the description itself.
+ *
  * Issues only move forward, so the release PR linking an issue that is already Pending release leaves it there. Issues
  * that aren't on the board are skipped, not added: adding one fires the board's "Item added to project" workflow, which
  * would race this script's status change.
@@ -54,33 +58,73 @@ async function loadProject(github) {
   return { id: project.id, fieldId: project.field.id, options };
 }
 
-async function linkedIssues(github, owner, repo, number) {
+const ISSUE_FIELDS = `
+  id number state
+  repository { nameWithOwner }
+  projectItems(first: 20) {
+    nodes {
+      id
+      project { id }
+      status: fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+    }
+  }
+  closedByPullRequestsReferences(first: 20, includeClosedPrs: false) {
+    nodes { number headRefName repository { nameWithOwner } }
+  }
+`;
+
+const CLOSING_REF = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+(?:([\w.-]+)\/([\w.-]+))?#(\d+)\b/gi;
+
+// HTML comments are dropped first so the template's own "Closes #123" example doesn't count.
+function closingRefs(body, owner, repo) {
+  const text = (body ?? '').replace(/<!--[\s\S]*?-->/g, '');
+  return [...text.matchAll(CLOSING_REF)].map(([, o, r, n]) => ({ owner: o ?? owner, repo: r ?? repo, number: Number(n) }));
+}
+
+const linkRefs = (links) =>
+  links.nodes.map((i) => {
+    const [owner, repo] = i.repository.nameWithOwner.split('/');
+    return { owner, repo, number: i.number };
+  });
+
+// Fetches the issues behind a set of refs in one query. Refs that turn out to be PRs, or that don't resolve, are dropped.
+async function fetchIssues(github, refs) {
+  const unique = [...new Map(refs.map((r) => [`${r.owner}/${r.repo}#${r.number}`.toLowerCase(), r])).values()];
+  if (!unique.length) return [];
+  const query = `query {
+    ${unique
+      .map(
+        (r, i) => `i${i}: repository(owner: ${JSON.stringify(r.owner)}, name: ${JSON.stringify(r.repo)}) {
+          issueOrPullRequest(number: ${r.number}) { ... on Issue { ${ISSUE_FIELDS} } }
+        }`,
+      )
+      .join('\n')}
+  }`;
+  let data;
+  try {
+    data = await github.graphql(query);
+  } catch (error) {
+    if (!error.data) throw error;
+    data = error.data;  // A ref to a missing repo fails only its own alias.
+  }
+  return Object.values(data)
+    .map((r) => r?.issueOrPullRequest)
+    .filter((issue) => issue?.id && issue.state === 'OPEN');
+}
+
+async function linkedIssues(github, owner, repo, pr) {
   const { repository } = await github.graphql(
     `query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {
         pullRequest(number: $number) {
-          closingIssuesReferences(first: 50) {
-            nodes {
-              id number state
-              repository { nameWithOwner }
-              projectItems(first: 20) {
-                nodes {
-                  id
-                  project { id }
-                  status: fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
-                }
-              }
-              closedByPullRequestsReferences(first: 20, includeClosedPrs: false) {
-                nodes { number headRefName repository { nameWithOwner } }
-              }
-            }
-          }
+          closingIssuesReferences(first: 50) { nodes { number repository { nameWithOwner } } }
         }
       }
     }`,
-    { owner, repo, number },
+    { owner, repo, number: pr.number },
   );
-  return repository.pullRequest.closingIssuesReferences.nodes.filter((issue) => issue.state === 'OPEN');
+  const links = repository.pullRequest.closingIssuesReferences;
+  return fetchIssues(github, [...linkRefs(links), ...closingRefs(pr.body, owner, repo)]);
 }
 
 async function moveIssue(github, core, project, issue, target) {
@@ -108,13 +152,13 @@ async function moveIssue(github, core, project, issue, target) {
 
 async function markInReview(github, core, project, owner, repo, pr) {
   const target = pr.draft ? 'In progress' : 'In review';
-  for (const issue of await linkedIssues(github, owner, repo, pr.number)) {
+  for (const issue of await linkedIssues(github, owner, repo, pr)) {
     await moveIssue(github, core, project, issue, target);
   }
 }
 
 // An issue split across several PRs, possibly in different repos, waits for the last of them. Release PRs link every
-// issue in the release, so they don't count.
+// issue in the release, so they don't count. Only sidebar links are visible here, not "Closes" lines in other PRs.
 function stillOpenElsewhere(core, issue) {
   const open = issue.closedByPullRequestsReferences.nodes.filter((p) => !isReleaseBranch(p.headRefName));
   if (open.length) {
@@ -126,7 +170,7 @@ function stillOpenElsewhere(core, issue) {
 
 async function markPendingRelease(github, core, project, owner, repo, pr) {
   // By the time "closed" fires, the merged PR no longer counts as open.
-  for (const issue of await linkedIssues(github, owner, repo, pr.number)) {
+  for (const issue of await linkedIssues(github, owner, repo, pr)) {
     if (!stillOpenElsewhere(core, issue)) await moveIssue(github, core, project, issue, 'Pending release');
   }
 }
@@ -145,7 +189,7 @@ async function lastReleasedAt(github, owner, repo, pr) {
 async function updateReleaseDescription(github, core, owner, repo, pr) {
   const since = await lastReleasedAt(github, owner, repo, pr);
   const query = `repo:${owner}/${repo} is:pr is:merged base:${pr.head.ref}` + (since ? ` merged:>${since}` : '');
-  const issues = new Map();
+  const refs = [];
   let cursor = null;
   do {
     const { search } = await github.graphql(
@@ -154,15 +198,8 @@ async function updateReleaseDescription(github, core, owner, repo, pr) {
           pageInfo { hasNextPage endCursor }
           nodes {
             ... on PullRequest {
-              closingIssuesReferences(first: 50) {
-                nodes {
-                  number state
-                  repository { nameWithOwner }
-                  closedByPullRequestsReferences(first: 20, includeClosedPrs: false) {
-                    nodes { number headRefName repository { nameWithOwner } }
-                  }
-                }
-              }
+              body
+              closingIssuesReferences(first: 50) { nodes { number repository { nameWithOwner } } }
             }
           }
         }
@@ -170,24 +207,26 @@ async function updateReleaseDescription(github, core, owner, repo, pr) {
       { query, cursor },
     );
     for (const merged of search.nodes) {
-      for (const issue of merged.closingIssuesReferences.nodes) {
-        if (issue.state !== 'OPEN' || stillOpenElsewhere(core, issue)) continue;
-        const sameRepo = issue.repository.nameWithOwner === `${owner}/${repo}`;
-        const ref = sameRepo ? `#${issue.number}` : `${issue.repository.nameWithOwner}#${issue.number}`;
-        issues.set(ref, issue);
-      }
+      refs.push(...linkRefs(merged.closingIssuesReferences), ...closingRefs(merged.body, owner, repo));
     }
     cursor = search.pageInfo.hasNextPage ? search.pageInfo.endCursor : null;
   } while (cursor);
 
-  const refs = [...issues.keys()].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+  const issues = new Map();
+  for (const issue of await fetchIssues(github, refs)) {
+    if (stillOpenElsewhere(core, issue)) continue;
+    const sameRepo = issue.repository.nameWithOwner === `${owner}/${repo}`;
+    issues.set(sameRepo ? `#${issue.number}` : `${issue.repository.nameWithOwner}#${issue.number}`, issue);
+  }
+
+  const listed = [...issues.keys()].sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
   const section = [
     RELEASE_SECTION_START,
     '### Issues closed by this release',
     '',
-    `_Generated from the issues linked to PRs merged into \`${pr.head.ref}\` for this release, and rewritten on every push. Issues still linked from an open PR are left out. To change the list, change those PRs' linked issues._`,
+    `_Generated from the issues linked to PRs merged into \`${pr.head.ref}\` for this release, and rewritten on every push. Issues still linked from an open PR are left out. To change the list, change those PRs' linked issues or Closes lines._`,
     '',
-    ...(refs.length ? refs.map((ref) => `- Closes ${ref}`) : ['None.']),
+    ...(listed.length ? listed.map((ref) => `- Closes ${ref}`) : ['None.']),
     RELEASE_SECTION_END,
   ].join('\n');
 
@@ -203,7 +242,7 @@ async function updateReleaseDescription(github, core, owner, repo, pr) {
     return;
   }
   await github.rest.pulls.update({ owner, repo, pull_number: pr.number, body: updated });
-  core.info(`Release description lists ${refs.length} issue(s).`);
+  core.info(`Release description lists ${listed.length} issue(s).`);
 }
 
 module.exports = async ({ github, context, core }) => {

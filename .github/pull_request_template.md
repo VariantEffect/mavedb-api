@@ -5,7 +5,7 @@
 Closes #
 
 <!--
-"Closes #123" links the issue, which moves it to In review now and to Pending release when this merges into a release
+"Closes #123" moves the issue to In review now and to Pending release when this merges into a release
 branch. It closes when the release merges. Use owner/repo#123 for an issue in another repo, and delete the line if
 there's no issue.
 -->
