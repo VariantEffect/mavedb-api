@@ -107,12 +107,12 @@ Usage
 -----
 ::
 
-    python -m alembic.manual_migrations.migrate_mapped_variants_to_allele_substrate           # run
-    python -m alembic.manual_migrations.migrate_mapped_variants_to_allele_substrate verify    # inspect without writing
-    python -m alembic.manual_migrations.migrate_mapped_variants_to_allele_substrate rollback  # remove backfilled records (destructive)
-    python -m alembic.manual_migrations.migrate_mapped_variants_to_allele_substrate rebuild-annotations  # (re)build annotation links for already-migrated variants
-    python -m alembic.manual_migrations.migrate_mapped_variants_to_allele_substrate migrate --score-set urn:mavedb:00000001-a-1
-    python -m alembic.manual_migrations.migrate_mapped_variants_to_allele_substrate migrate --batch-size 1000 --dry-run
+    python -m mavedb.scripts.migrate_mapped_variants_to_allele_substrate           # run
+    python -m mavedb.scripts.migrate_mapped_variants_to_allele_substrate verify    # inspect without writing
+    python -m mavedb.scripts.migrate_mapped_variants_to_allele_substrate rollback  # remove backfilled records (destructive)
+    python -m mavedb.scripts.migrate_mapped_variants_to_allele_substrate rebuild-annotations  # (re)build annotation links for already-migrated variants
+    python -m mavedb.scripts.migrate_mapped_variants_to_allele_substrate migrate --score-set urn:mavedb:00000001-a-1
+    python -m mavedb.scripts.migrate_mapped_variants_to_allele_substrate migrate --batch-size 1000 --dry-run
 """
 
 from __future__ import annotations
@@ -123,7 +123,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from time import perf_counter  # `time` above is datetime.time; import the timer directly
-from typing import Optional
+from typing import Optional, cast
 
 import sqlalchemy as sa
 from biocommons.seqrepo import SeqRepo
@@ -347,21 +347,21 @@ def _reconstruct_windows(mvs: list[MappedVariant]) -> Optional[_WindowResult]:
     else:
         # Multiple live rows is a source anomaly; keep the newest live and demote
         # the rest into history so no data is dropped.
-        current.sort(key=lambda m: (m.mapped_date, m.id))
+        current.sort(key=lambda m: (cast(date, m.mapped_date), m.id))
         live = current[-1]
         history.extend(current[:-1])
         logger.warning("Variant %s has %d current mapped_variants; keeping newest live.", live.variant_id, len(current))
 
-    history.sort(key=lambda m: (m.mapped_date, m.id))
+    history.sort(key=lambda m: (cast(date, m.mapped_date), m.id))
     ordered = history + [live]
-    live_precedes_history = bool(history) and live.mapped_date < history[-1].mapped_date
+    live_precedes_history = bool(history) and cast(date, live.mapped_date) < cast(date, history[-1].mapped_date)
 
     windows: list[tuple[MappedVariant, datetime, Optional[datetime]]] = []
     for i, m in enumerate(ordered):
-        valid_from = _as_dt(m.mapped_date)
+        valid_from = _as_dt(cast(date, m.mapped_date))
         valid_to: Optional[datetime] = None
         if i + 1 < len(ordered):
-            successor = _as_dt(ordered[i + 1].mapped_date)
+            successor = _as_dt(cast(date, ordered[i + 1].mapped_date))
             # Same-day or out-of-order successor: clamp so the window is never
             # inverted (a zero-width [t, t) window is simply invisible to as_of).
             valid_to = max(successor, valid_from)
@@ -563,7 +563,9 @@ def _merge_intervals(
     return merged
 
 
-def _allele_has_live_link(db: Session, model: type, allele_id: int) -> bool:
+def _allele_has_live_link(
+    db: Session, model: type[GnomadAlleleLink] | type[VepAlleleConsequence], allele_id: int
+) -> bool:
     """Whether ``allele_id`` already has a live (``valid_to IS NULL``) link in ``model``.
 
     Sees **committed** rows only — the session runs ``autoflush=False``, so this does not observe
@@ -805,7 +807,7 @@ def _observations_for_alleles(db: Session, allele_ids: list[int]) -> dict[int, l
 
     variant_ids = {variant_id for _, variant_id, _, _, _ in links}
     mv_by_key: dict[tuple[int, date], MappedVariant] = {
-        (mv.variant_id, mv.mapped_date): mv
+        (cast(int, mv.variant_id), cast(date, mv.mapped_date)): mv
         for mv in db.scalars(sa.select(MappedVariant).where(MappedVariant.variant_id.in_(variant_ids))).all()
     }
 
@@ -955,7 +957,7 @@ def _migrate_variant(
         if (mv.pre_mapped or {}).get("id"):
             try:
                 pre_mapped_document, pre_mapped_digest = canonical_variation_document(
-                    mv.pre_mapped, subject=f"mapped_variant {mv.id} pre_mapped"
+                    cast(dict, mv.pre_mapped), subject=f"mapped_variant {mv.id} pre_mapped"
                 )
             except (ValidationError, ValueError):
                 logger.exception(f"Could not canonicalize pre_mapped for mapped_variant {mv.id}; storing it unkeyed.")
@@ -1144,7 +1146,7 @@ def do_migration(
     stats: Counter = Counter()
     # Wall-clock spent in each phase, so a run reports where the time goes (batch build vs. the
     # final annotation pass) and whether the per-batch rate degrades as the tables grow.
-    phase_seconds: Counter = Counter()
+    phase_seconds: dict[str, float] = defaultdict(float)
     # Ids only — a deduped allele can be shared by variants in different chunks, so its annotation
     # timeline can only be assembled once every contributing variant has been migrated, but the actual
     # gnomAD/ClinVar/VEP payload doesn't need to ride along in memory to get there: it's re-read fresh
@@ -1164,7 +1166,7 @@ def do_migration(
         mark = perf_counter()
         mvs_by_variant: dict[int, list[MappedVariant]] = {vid: [] for vid in chunk}
         for mv in db.scalars(sa.select(MappedVariant).where(MappedVariant.variant_id.in_(chunk))).all():
-            mvs_by_variant[mv.variant_id].append(mv)
+            mvs_by_variant[cast(int, mv.variant_id)].append(mv)
         phase_seconds["fetch_mapped_variants"] += perf_counter() - mark
 
         # Bulk pre-fetch, once per chunk instead of once per window — this (not query execution time)
@@ -1172,12 +1174,15 @@ def do_migration(
         # another for "does this allele already exist" dominates wall-clock at millions-of-rows scale,
         # far more than the cost of the queries themselves.
         mark = perf_counter()
-        existing_records: set[tuple[int, date]] = set(
-            db.execute(
-                sa.select(MappingRecord.variant_id, MappingRecord.mapped_date).where(
-                    MappingRecord.variant_id.in_(chunk)
-                )
-            ).all()
+        existing_records = cast(
+            set[tuple[int, date]],
+            set(
+                db.execute(
+                    sa.select(MappingRecord.variant_id, MappingRecord.mapped_date).where(
+                        MappingRecord.variant_id.in_(chunk)
+                    )
+                ).all()
+            ),
         )
         score_set_ids: dict[int, int] = dict(
             db.execute(sa.select(Variant.id, Variant.score_set_id).where(Variant.id.in_(chunk))).tuples().all()

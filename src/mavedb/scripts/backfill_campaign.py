@@ -1,6 +1,6 @@
 """Read-only campaign map and safe-to-drop gate for the MappedVariant → allele-substrate backfill.
 
-The backfill has two halves (see ``alembic/manual_migrations/migrate_mapped_variants_to_allele_substrate.py``
+The backfill has two halves (see ``src/mavedb/scripts/migrate_mapped_variants_to_allele_substrate.py``
 for the reshape and ``run_score_set_pipelines.py`` for the enrichment): a deterministic *reshape* that
 reconstructs the measured-level spine and source-annotation links from the frozen ``mapped_variants`` rows,
 and a decoupled *enrichment* that runs reverse translation (the cross-level fan-out) and re-runs the source
