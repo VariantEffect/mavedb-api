@@ -14,7 +14,7 @@ The MaveDB API is a FastAPI app plus an ARQ/Redis worker over PostgreSQL. The we
 
 | Task | Command |
 |---|---|
-| Lint, format check, types | `bin/check` |
+| Lint, format check, types, migration rules | `bin/check` |
 | Targeted tests | `bin/t tests/routers/test_score_set.py -k publish` |
 | What PR CI runs | `bin/t tests/ -m "not network and not slow"` |
 | Format | `poetry run ruff format` |
@@ -31,7 +31,7 @@ The MaveDB API is a FastAPI app plus an ARQ/Redis worker over PostgreSQL. The we
 - Private records return 404, never 403, so a response doesn't reveal that they exist.
 - A route's permission check covers only the entity it names. Anything a read fans out to needs its own check through a `Viewer` (see `.claude/rules/permissions.md`).
 - Never write an `async def` that has no real await (#881).
-- Changes reachable from a route or a serving `lib/` module need tests, and so do scripts that emit a recurring public artifact such as the data dump. One-shot operator scripts and manual migrations don't.
+- Changes reachable from a route or a serving `lib/` module need tests, and so do scripts that emit a recurring public artifact such as the data dump. One-shot operator scripts don't.
 - Never add `slow` or `network` markers to get green; those markers drop a test from PR CI.
 - Run operator scripts with `--commit` only against a local database unless asked. Never commit to production or staging databases without explicit permission.
 - Never write to `mapped_variants` or `variant_translations`; they're legacy and read-only, and new mapping data goes to mapping records and alleles.
