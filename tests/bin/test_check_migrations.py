@@ -31,8 +31,18 @@ def problems_in(tmp_path: Path, source: str) -> list[str]:
         ("def upgrade():\n    with op.get_context().autocommit_block():\n        pass\n", "autocommit_block"),
         ("def upgrade():\n    op.execute('CREATE INDEX concurrently ix ON t (c)')\n", "CONCURRENTLY"),
         ("def upgrade():\n    op.get_bind().commit()\n", "commits mid-upgrade"),
+        ("def upgrade():\n    op.execute(\"ALTER TYPE state ADD  value 'done'\")\n", "adds an enum value"),
     ],
-    ids=["mavedb-from-import", "mavedb-import", "orm", "network", "autocommit-block", "concurrently", "commit"],
+    ids=[
+        "mavedb-from-import",
+        "mavedb-import",
+        "orm",
+        "network",
+        "autocommit-block",
+        "concurrently",
+        "commit",
+        "enum-add-value",
+    ],
 )
 def test_check_forbidden_pattern_reports_one_problem(tmp_path, source, reason):
     problems = problems_in(tmp_path, source)

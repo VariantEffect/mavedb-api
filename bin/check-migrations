@@ -52,8 +52,11 @@ def check(path: Path) -> list[str]:
         elif isinstance(node, ast.Attribute) and node.attr == "commit":
             reason = "commits mid-upgrade"
         elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
-            if "CONCURRENTLY" in node.value.upper():
+            text = " ".join(node.value.upper().split())
+            if "CONCURRENTLY" in text:
                 reason = "uses CONCURRENTLY, which can't run inside a transaction"
+            elif "ADD VALUE" in text:
+                reason = "adds an enum value, which the rest of the upgrade's transaction can't use"
         if reason:
             problems.append(f"{path}:{node.lineno}: {reason}")
     return problems

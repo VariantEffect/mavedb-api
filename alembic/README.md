@@ -7,6 +7,7 @@
 - No imports from `mavedb.*`. Write views and functions as literal SQL, so replaying a migration builds what it shipped with, not what the models say today.
 - No network calls, ORM sessions or commits. Data that needs either belongs in a script in `src/mavedb/scripts/`, run by an operator.
 - Nothing that can't run inside a transaction, such as `CREATE INDEX CONCURRENTLY` or `autocommit_block()`.
+- No `ALTER TYPE ... ADD VALUE`. The replay runs every migration in one transaction, and Postgres won't use an enum value in the transaction that added it. Store enums as text with a `CHECK` constraint, as the existing ones are.
 
 ### Large indexes
 
