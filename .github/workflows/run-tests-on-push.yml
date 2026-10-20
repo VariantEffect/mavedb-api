@@ -39,7 +39,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -57,7 +57,7 @@ jobs:
         cache: 'pip'
     - run: pip install --upgrade pip
     - run: pip install poetry
-    - run: poetry install --with dev
+    - run: poetry install --with dev --extras server
     - run: poetry run alembic upgrade head
     - name: Check there is exactly one head
       run: test "$(poetry run alembic heads | wc -l)" -eq 1
