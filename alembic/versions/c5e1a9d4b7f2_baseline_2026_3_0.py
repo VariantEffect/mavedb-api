@@ -23,10 +23,12 @@ BASELINE = Path(__file__).resolve().parent.parent / "baseline" / f"{revision}.sq
 
 
 def upgrade():
-    # Function bodies in the dump can reference tables created later in it.
+    # Function bodies in the dump can reference tables created later in it. The upgrade runs in one
+    # transaction, so the setting is restored for the migrations that follow.
     op.execute("SET LOCAL check_function_bodies = false")
     # Executed by the driver directly, so SQLAlchemy doesn't read ``:name`` in the dump as a bind parameter.
     op.get_bind().exec_driver_sql(BASELINE.read_text())
+    op.execute("SET LOCAL check_function_bodies = DEFAULT")
 
 
 def downgrade():
