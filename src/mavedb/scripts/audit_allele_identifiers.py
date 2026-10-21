@@ -16,7 +16,7 @@ Nothing enforced that until the mapping ingest path began recomputing identity o
 written earlier can carry an identifier minted before their own normalization. `audit` reports them, and `--repair` corrects the ones that can be corrected safely.
 
 Run this before and after
-`alembic/manual_migrations/migrate_mapped_variants_to_allele_substrate.py`. That migration now
+`src/mavedb/scripts/migrate_mapped_variants_to_allele_substrate.py`. That migration now
 recomputes identity as it writes, so it will not import drift — but `vrs_digest` is a UNIQUE dedup key
 on an immutable, ValidTime-less table, so a wrong value there cannot be corrected in place afterwards.
 Measuring before and expecting zero after is how that is kept honest.
