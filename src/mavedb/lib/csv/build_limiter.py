@@ -42,7 +42,7 @@ def rows_to_build(num_variants: Optional[int], start: Optional[int], limit: Opti
     """The number of rows a request for ``start``/``limit`` of a score set with ``num_variants`` variants returns."""
     # TODO(#372): `num_variants` is NOT NULL but typed optional.
     remaining = max((num_variants or 0) - (start or 0), 0)
-    return min(remaining, limit) if limit else remaining
+    return min(remaining, limit) if limit is not None else remaining
 
 
 @contextmanager

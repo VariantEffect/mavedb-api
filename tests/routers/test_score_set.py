@@ -4045,6 +4045,45 @@ def test_download_variants_data_file(
             assert row["mavedb.post_mapped_hgvs_at_assay_level"] == "NA"
 
 
+@pytest.mark.parametrize(
+    "namespaces", ["namespaces=scores", "namespaces=scores&namespaces=mavedb"], ids=["scores", "with_mappings"]
+)
+@pytest.mark.parametrize(
+    "start,limit",
+    [(1, 1), (1, None), (None, 2), (2, 5), (0, 2)],
+    ids=["middle_page", "start_only", "limit_only", "limit_past_end", "zero_start"],
+)
+def test_download_variants_data_file_paged_matches_the_full_download(
+    session, data_provider, client, setup_router_db, data_files, namespaces, start, limit
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    seed_csv_substrate(
+        session,
+        score_set,
+        assay_level="genomic",
+        hgvs_g=TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION["hgvs_g"],
+        hgvs_c=TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION["hgvs_c"],
+        hgvs_p=TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION["hgvs_p"],
+    )
+
+    url = f"/api/v1/score-sets/{score_set['urn']}/variants/data?{namespaces}"
+    full_response = client.get(url)
+    page_params = "".join(
+        f"&{name}={value}" for name, value in (("start", start), ("limit", limit)) if value is not None
+    )
+    paged_response = client.get(url + page_params)
+
+    assert full_response.status_code == 200
+    assert paged_response.status_code == 200
+    header, *full_rows = full_response.text.splitlines()
+    paged_header, *paged_rows = paged_response.text.splitlines()
+    first = start or 0
+    assert paged_header == header
+    assert paged_rows == full_rows[first : first + limit if limit is not None else None]
+
+
 # Test file doesn't have hgvs_splice so its values are all NA.
 def test_download_scores_file(session, data_provider, client, setup_router_db, data_files):
     experiment = create_experiment(client)
