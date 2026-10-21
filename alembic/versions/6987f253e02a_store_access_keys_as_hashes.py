@@ -1,7 +1,7 @@
 """store access keys as hashes
 
 Revision ID: 6987f253e02a
-Revises: c5e1a9d4b7f2
+Revises: d7a3e9c1f5b2
 Create Date: 2026-10-21
 
 Replaces each ``access_keys.key_id`` with the hex SHA-256 of the key, and adds ``key_hint``, the key's
@@ -20,7 +20,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "6987f253e02a"
-down_revision = "c5e1a9d4b7f2"
+down_revision = "d7a3e9c1f5b2"
 branch_labels = None
 depends_on = None
 
