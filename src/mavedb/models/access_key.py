@@ -20,7 +20,9 @@ class AccessKey(Base):
     user: Mapped[User] = relationship(back_populates="access_keys")
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=True)
     role_obj: Mapped[Role] = relationship(Role)
+    # Hex SHA-256 of the access key; the key itself is never stored.
     key_id = Column(String, unique=True, index=True, nullable=False)
+    key_hint = Column(String, nullable=True)
     public_key = Column(String, nullable=False)
     name = Column(String, nullable=True)
     expiration_date = Column(Date, nullable=True)

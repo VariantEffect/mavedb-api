@@ -12,12 +12,14 @@ from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from mavedb import deps
+from mavedb.lib.authentication import hash_access_key
 from mavedb.lib.authorization import require_current_user
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.types.authentication import UserData
 from mavedb.models.access_key import AccessKey
 from mavedb.models.enums.user_role import UserRole
+from mavedb.models.user import User
 from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import access_key
 
@@ -58,6 +60,18 @@ def generate_key_pair():
     return private_key, public_key
 
 
+def new_access_key(user: User) -> tuple[str, bytes, AccessKey]:
+    """Generate an access key for a user.
+
+    Returns the key, the private half of its key pair, and an unsaved ``AccessKey`` that stores only the
+    key's hash and hint. The key can't be recovered afterwards, so the caller must return it to the user now.
+    """
+    private_key, public_key = generate_key_pair()
+    key = secrets.token_urlsafe(32)
+    item = AccessKey(user=user, key_id=hash_access_key(key), key_hint=key[-4:], public_key=public_key)
+    return key, private_key, item
+
+
 @router.get(
     "/users/me/access-keys",
     status_code=200,
@@ -87,16 +101,12 @@ def create_my_access_key(
     """
     Create a new access key for the current user, with the default user role.
     """
-    private_key, public_key = generate_key_pair()
-
-    item = AccessKey(user=user_data.user, key_id=secrets.token_urlsafe(32), public_key=public_key)
+    key, private_key, item = new_access_key(user_data.user)
     db.add(item)
     db.commit()
     db.refresh(item)
 
-    response_item = access_key.NewAccessKey(**jsonable_encoder(item, by_alias=False), private_key=private_key)
-    response_item.private_key = private_key
-    return response_item
+    return access_key.NewAccessKey(**{**jsonable_encoder(item, by_alias=False), "key_id": key}, private_key=private_key)
 
 
 @router.post(
@@ -128,28 +138,24 @@ async def create_my_access_key_with_role(
             detail="User cannot create an API key for a role they do not have.",
         )
 
-    private_key, public_key = generate_key_pair()
-
-    item = AccessKey(user=user_data.user, key_id=secrets.token_urlsafe(32), public_key=public_key)
+    key, private_key, item = new_access_key(user_data.user)
     await item.set_role(db, role)
     db.add(item)
     db.commit()
     db.refresh(item)
 
-    response_item = access_key.NewAccessKey(**jsonable_encoder(item, by_alias=False), private_key=private_key)
-    response_item.private_key = private_key
-    return response_item
+    return access_key.NewAccessKey(**{**jsonable_encoder(item, by_alias=False), "key_id": key}, private_key=private_key)
 
 
 @router.delete(
-    "/users/me/access-keys/{key_id}",
+    "/users/me/access-keys/{access_key_id}",
     status_code=200,
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Delete one of my access keys",
 )
 def delete_my_access_key(
     *,
-    key_id: str,
+    access_key_id: int,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
 ) -> Any:
@@ -158,7 +164,7 @@ def delete_my_access_key(
     """
     item = (
         db.query(AccessKey)
-        .filter(and_(AccessKey.key_id == key_id, AccessKey.user_id == user_data.user.id))
+        .filter(and_(AccessKey.id == access_key_id, AccessKey.user_id == user_data.user.id))
         .one_or_none()
     )
 
@@ -168,7 +174,7 @@ def delete_my_access_key(
             extra=logging_context(),
         )
         # Never acknowledge the existence of an access key that doesn't belong to the user.
-        raise HTTPException(status_code=404, detail=f"Access key with ID {key_id} not found.")
+        raise HTTPException(status_code=404, detail=f"Access key with ID {access_key_id} not found.")
 
     db.delete(item)
     db.commit()
