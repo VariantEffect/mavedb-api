@@ -1,9 +1,13 @@
 # ruff: noqa: E402
 
+import importlib.util
+import secrets
 from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 arq = pytest.importorskip("arq")
@@ -15,6 +19,7 @@ from mavedb.lib.authentication import (
     get_current_user,
     get_current_user_data_from_api_key,
 )
+from mavedb.models.access_key import AccessKey
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.user import User
 from tests.helpers.constants import ADMIN_USER, ADMIN_USER_DECODED_JWT, TEST_USER, TEST_USER_DECODED_JWT
@@ -32,6 +37,28 @@ def test_get_current_user_data_from_key_invalid_token(session, setup_lib_db):
     access_key = create_api_key_for_user(session, TEST_USER["username"])
     user_data = get_current_user_data_from_api_key(session, f"invalid_{access_key}")
     assert user_data is None
+
+
+def test_get_current_user_data_from_key_pre_migration_key_authenticates_after_hashing(session, setup_lib_db):
+    migration_path = Path(__file__).parents[2] / "alembic" / "versions" / "6987f253e02a_store_access_keys_as_hashes.py"
+    spec = importlib.util.spec_from_file_location("store_access_keys_as_hashes", migration_path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    user = session.query(User).filter(User.username == TEST_USER["username"]).one()
+    key = secrets.token_urlsafe(32)
+    session.add(AccessKey(user=user, key_id=key, public_key="unused"))
+    session.commit()
+
+    session.execute(text(migration.HASH_ACCESS_KEYS))
+    session.commit()
+    session.expire_all()
+
+    stored = session.query(AccessKey).filter(AccessKey.user == user).one()
+    assert stored.key_id != key
+    assert stored.key_hint == key[-4:]
+    user_data = get_current_user_data_from_api_key(session, key)
+    assert user_data.user.username == TEST_USER["username"]
 
 
 def test_get_current_user_data_from_key_nonetype_token(session, setup_lib_db):
