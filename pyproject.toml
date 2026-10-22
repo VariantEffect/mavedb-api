@@ -120,7 +120,7 @@ module = "ga4gh.*"
 follow_untyped_imports = true
 
 [tool.pytest.ini_options]
-addopts = "-v --import-mode=importlib"
+addopts = "--import-mode=importlib"
 asyncio_mode = 'strict'
 testpaths = "tests/"
 pythonpath = "."
