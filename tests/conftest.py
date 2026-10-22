@@ -84,7 +84,23 @@ def _load_schema(host, port, user, dbname, password):
     engine.dispose()
 
 
-postgresql_server = factories.postgresql_proc(load=[_load_schema])
+# With MAVEDB_TEST_DB_PORT set (bin/t sets it when bin/test-db is running), tests use that tmpfs-backed
+# server instead of starting one in $TMPDIR, keeping per-test database churn off the host filesystem.
+# The run id keeps concurrent runs against the shared server from colliding on database names; it is
+# set before xdist starts its workers so they all inherit the same one.
+if os.environ.get("MAVEDB_TEST_DB_PORT"):
+    _run_id = os.environ.setdefault("MAVEDB_TEST_RUN_ID", os.urandom(4).hex())
+    postgresql_server = factories.postgresql_noproc(
+        host="localhost",
+        port=os.environ["MAVEDB_TEST_DB_PORT"],
+        user="postgres",
+        password="postgres",
+        dbname=f"mavedb_test_{_run_id}",
+        load=[_load_schema],
+    )
+else:
+    postgresql_server = factories.postgresql_proc(load=[_load_schema])
+
 postgresql = factories.postgresql("postgresql_server")
 
 
