@@ -17,7 +17,7 @@ The MaveDB API is a FastAPI app plus an ARQ/Redis worker over PostgreSQL. The we
 | Lint, format check, types, migration rules | `bin/check` |
 | Start the test database (Postgres on tmpfs in Docker) | `bin/test-db up` (`bin/test-db down` stops it) |
 | Targeted tests | `bin/t tests/routers/test_score_set.py -k publish` |
-| What PR CI runs | `bin/t tests/ -n auto -m "not network and not slow"` |
+| What PR CI runs | `bin/t tests/ -n logical -m "not network and not slow"` |
 | Format | `poetry run ruff format` |
 | Migrations | `poetry run alembic upgrade head` |
 | Operator scripts | `poetry run python -m mavedb.scripts.<name>` (dry run unless `--commit`) |
