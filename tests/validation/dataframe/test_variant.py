@@ -50,6 +50,11 @@ class ProteinSequenceTestCase:
         self.sequence_type = "protein"
 
 
+def _label(column: pd.Series) -> str:
+    """Subtest label for a column; pytest-xdist can't send a pandas Series between processes."""
+    return f"{column.name}: {column.tolist()}"
+
+
 class TestValidateTransgenicColumn(DfTestCase):
     def setUp(self):
         super().setUp()
@@ -172,14 +177,14 @@ class TestValidateTransgenicColumn(DfTestCase):
 
     def test_valid_columns_single_target(self):
         for column in self.valid_hgvs_columns:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 validate_hgvs_transgenic_column(
                     column,
                     is_index=False,
                     targets={"test_nt": self.nt_sequence_test_case},  # type: ignore
                 )
         for column in self.valid_hgvs_columns_invalid_for_index:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 validate_hgvs_transgenic_column(
                     column,
                     is_index=False,
@@ -188,14 +193,14 @@ class TestValidateTransgenicColumn(DfTestCase):
 
     def test_valid_columns_multi_target(self):
         for column in self.valid_hgvs_columns_multi_target:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 validate_hgvs_transgenic_column(
                     column,
                     is_index=False,
                     targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case},  # type: ignore
                 )
         for column in self.valid_hgvs_columns_invalid_for_index_multi_target:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 validate_hgvs_transgenic_column(
                     column,
                     is_index=False,
@@ -205,7 +210,7 @@ class TestValidateTransgenicColumn(DfTestCase):
     # Test when supplied targets do not contain a DNA sequence (only valid for hgvs_nt col)
     def test_valid_columns_invalid_supplied_targets(self):
         for column in self.valid_hgvs_columns_nt_only:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValueError):
                     validate_hgvs_transgenic_column(
                         column,
@@ -216,7 +221,7 @@ class TestValidateTransgenicColumn(DfTestCase):
     # Test when multiple supplied targets do not contain a DNA sequence (only valid for hgvs_nt col)
     def test_valid_columns_invalid_supplied_targets_multi_target(self):
         for column in self.valid_hgvs_columns_nt_only_multi_target:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValueError):
                     validate_hgvs_transgenic_column(
                         column,
@@ -226,7 +231,7 @@ class TestValidateTransgenicColumn(DfTestCase):
 
     def test_valid_columns_invalid_column_name(self):
         for column in self.valid_hgvs_columns_invalid_names:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValueError):
                     validate_hgvs_transgenic_column(
                         column,
@@ -236,7 +241,7 @@ class TestValidateTransgenicColumn(DfTestCase):
 
     def test_valid_columns_invalid_column_name_multi_target(self):
         for column in self.valid_hgvs_columns_invalid_names_multi_target:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValueError):
                     validate_hgvs_transgenic_column(
                         column,
@@ -246,14 +251,14 @@ class TestValidateTransgenicColumn(DfTestCase):
 
     def test_index_columns(self):
         for column in self.valid_hgvs_columns:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 validate_hgvs_transgenic_column(
                     column,
                     is_index=True,
                     targets={"test_nt": self.nt_sequence_test_case},  # type: ignore
                 )
         for column in self.valid_hgvs_columns_invalid_for_index:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
                         column,
@@ -263,14 +268,14 @@ class TestValidateTransgenicColumn(DfTestCase):
 
     def test_index_columns_multi_target(self):
         for column in self.valid_hgvs_columns_multi_target:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 validate_hgvs_transgenic_column(
                     column,
                     is_index=True,
                     targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case},  # type: ignore
                 )
         for column in self.valid_hgvs_columns_invalid_for_index_multi_target:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
                         column,
@@ -280,7 +285,7 @@ class TestValidateTransgenicColumn(DfTestCase):
 
     def test_invalid_column_values(self):
         for column in self.invalid_hgvs_columns_by_contents:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
                         column,
@@ -288,7 +293,7 @@ class TestValidateTransgenicColumn(DfTestCase):
                         targets={"test_nt": self.nt_sequence_test_case},  # type: ignore
                     )
         for column in self.invalid_hgvs_columns_by_contents:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
                         column,
@@ -298,7 +303,7 @@ class TestValidateTransgenicColumn(DfTestCase):
 
     def test_invalid_column_values_multi_target(self):
         for column in self.invalid_hgvs_columns_by_contents_multi_target:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
                         column,
@@ -306,7 +311,7 @@ class TestValidateTransgenicColumn(DfTestCase):
                         targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case},  # type: ignore
                     )
         for column in self.invalid_hgvs_columns_by_contents_multi_target:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
                         column,
@@ -316,7 +321,7 @@ class TestValidateTransgenicColumn(DfTestCase):
 
     def test_valid_column_values_wrong_column_name(self):
         for column in self.invalid_hgvs_columns_by_name:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
                         column,
@@ -324,7 +329,7 @@ class TestValidateTransgenicColumn(DfTestCase):
                         targets={"test_nt": self.nt_sequence_test_case},  # type: ignore
                     )
         for column in self.invalid_hgvs_columns_by_name:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
                         column,
@@ -334,7 +339,7 @@ class TestValidateTransgenicColumn(DfTestCase):
 
     def test_valid_column_values_wrong_column_name_multi_target(self):
         for column in self.invalid_hgvs_columns_by_name:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
                         column,
@@ -342,7 +347,7 @@ class TestValidateTransgenicColumn(DfTestCase):
                         targets={"test_nt": self.nt_sequence_test_case, "test_pt": self.pt_sequence_test_case},  # type: ignore
                     )
         for column in self.invalid_hgvs_columns_by_name:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_transgenic_column(
                         column,
@@ -528,7 +533,7 @@ class TestValidateHgvsGenomicColumnHgvsInstalled(GenomicColumnValidationTestCase
             self.invalid_hgvs_columns_by_contents + self.invalid_hgvs_columns_by_contents_under_strict_validation
         ):
             with (
-                self.subTest(column=column),
+                self.subTest(column=_label(column)),
                 self.assertRaises(ValidationError),
                 patch.object(
                     cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
@@ -544,7 +549,7 @@ class TestValidateHgvsGenomicColumnHgvsInstalled(GenomicColumnValidationTestCase
             self.invalid_hgvs_columns_by_contents + self.invalid_hgvs_columns_by_contents_under_strict_validation
         ):
             with (
-                self.subTest(column=column),
+                self.subTest(column=_label(column)),
                 self.assertRaises(ValidationError),
                 patch.object(
                     cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
@@ -560,7 +565,7 @@ class TestValidateHgvsGenomicColumnHgvsInstalled(GenomicColumnValidationTestCase
     def test_valid_column_values_wrong_column_name(self):
         for column in self.invalid_hgvs_columns_by_name:
             with (
-                self.subTest(column=column),
+                self.subTest(column=_label(column)),
                 self.assertRaises(ValidationError),
                 patch.object(
                     cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
@@ -574,7 +579,7 @@ class TestValidateHgvsGenomicColumnHgvsInstalled(GenomicColumnValidationTestCase
                 )
         for column in self.invalid_hgvs_columns_by_name:
             with (
-                self.subTest(column=column),
+                self.subTest(column=_label(column)),
                 self.assertRaises(ValidationError),
                 patch.object(
                     cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
@@ -611,7 +616,7 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
 
     def test_valid_variant_limited_validation(self):
         for column in [self.valid_hgvs_nt_column, self.valid_hgvs_pro_column]:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 validate_hgvs_genomic_column(column, is_index=False, targets=self.accession_test_case, hdp=None)
 
     def test_valid_variant_valid_missing_strict_validation(self):
@@ -657,14 +662,14 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
 
     def test_valid_variant_index_limited_validation(self):
         for column in [self.valid_hgvs_nt_column, self.valid_hgvs_pro_column]:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 validate_hgvs_genomic_column(column, is_index=True, targets=self.accession_test_case, hdp=None)
 
     def test_invalid_column_values_strict_validation(self):
         for column in (
             self.invalid_hgvs_columns_by_contents + self.invalid_hgvs_columns_by_contents_under_strict_validation
         ):
-            with self.subTest(column=column), self.assertRaises((ValidationError, ModuleNotFoundError)):
+            with self.subTest(column=_label(column)), self.assertRaises((ValidationError, ModuleNotFoundError)):
                 validate_hgvs_genomic_column(
                     column,
                     is_index=False,
@@ -674,7 +679,7 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
         for column in (
             self.invalid_hgvs_columns_by_contents + self.invalid_hgvs_columns_by_contents_under_strict_validation
         ):
-            with self.subTest(column=column), self.assertRaises((ValidationError, ModuleNotFoundError)):
+            with self.subTest(column=_label(column)), self.assertRaises((ValidationError, ModuleNotFoundError)):
                 validate_hgvs_genomic_column(
                     column,
                     is_index=True,
@@ -684,7 +689,7 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
 
     def test_invalid_column_values_limited_validation(self):
         for column in self.invalid_hgvs_columns_by_contents:
-            with self.subTest(column=column), self.assertRaises(ValidationError):
+            with self.subTest(column=_label(column)), self.assertRaises(ValidationError):
                 validate_hgvs_genomic_column(
                     column,
                     is_index=False,
@@ -692,7 +697,7 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
                     hdp=None,  # type: ignore
                 )
         for column in self.invalid_hgvs_columns_by_contents:
-            with self.subTest(column=column), self.assertRaises(ValidationError):
+            with self.subTest(column=_label(column)), self.assertRaises(ValidationError):
                 validate_hgvs_genomic_column(
                     column,
                     is_index=True,
@@ -700,7 +705,7 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
                     hdp=None,  # type: ignore
                 )
         for column in self.invalid_hgvs_columns_by_contents_under_strict_validation:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 validate_hgvs_genomic_column(
                     column,
                     is_index=True,
@@ -710,7 +715,7 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
 
     def test_valid_column_values_wrong_column_name_strict_validation(self):
         for column in self.invalid_hgvs_columns_by_name:
-            with self.subTest(column=column), self.assertRaises(ValidationError):
+            with self.subTest(column=_label(column)), self.assertRaises(ValidationError):
                 validate_hgvs_genomic_column(
                     column,
                     is_index=False,
@@ -718,7 +723,7 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
                     hdp=self.mocked_nt_human_data_provider,  # type: ignore
                 )
         for column in self.invalid_hgvs_columns_by_name:
-            with self.subTest(column=column), self.assertRaises(ValidationError):
+            with self.subTest(column=_label(column)), self.assertRaises(ValidationError):
                 validate_hgvs_genomic_column(
                     column,
                     is_index=True,
@@ -728,7 +733,7 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
 
     def test_valid_column_values_wrong_column_name_limited_validation(self):
         for column in self.invalid_hgvs_columns_by_name:
-            with self.subTest(column=column), self.assertRaises(ValidationError):
+            with self.subTest(column=_label(column)), self.assertRaises(ValidationError):
                 validate_hgvs_genomic_column(
                     column,
                     is_index=False,
@@ -736,7 +741,7 @@ class TestValidateHgvsGenomicColumnHgvsNotInstalled(GenomicColumnValidationTestC
                     hdp=None,  # type: ignore
                 )
         for column in self.invalid_hgvs_columns_by_name:
-            with self.subTest(column=column), self.assertRaises(ValidationError):
+            with self.subTest(column=_label(column)), self.assertRaises(ValidationError):
                 validate_hgvs_genomic_column(
                     column,
                     is_index=True,
@@ -914,7 +919,7 @@ class TestValidateGuideSequenceColumn(DfTestCase):
 
     def test_valid_guide_sequences(self):
         for column in self.valid_guide_sequences + self.invalid_index_guide_sequences:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 validate_guide_sequence_column(
                     column,
                     is_index=False,
@@ -922,7 +927,7 @@ class TestValidateGuideSequenceColumn(DfTestCase):
 
     def test_invalid_guide_sequences(self):
         for column in self.invalid_guide_sequences:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValidationError):
                     validate_guide_sequence_column(
                         column,
@@ -931,7 +936,7 @@ class TestValidateGuideSequenceColumn(DfTestCase):
 
     def test_valid_guide_sequences_index(self):
         for column in self.valid_guide_sequences:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 validate_guide_sequence_column(
                     column,
                     is_index=True,
@@ -939,7 +944,7 @@ class TestValidateGuideSequenceColumn(DfTestCase):
 
     def test_invalid_guide_sequences_index(self):
         for column in self.invalid_guide_sequences + self.invalid_index_guide_sequences:
-            with self.subTest(column=column):
+            with self.subTest(column=_label(column)):
                 with self.assertRaises(ValidationError):
                     validate_guide_sequence_column(
                         column,
