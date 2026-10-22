@@ -1,26 +1,26 @@
 # ruff: noqa: E402
 
-import pytest
 from unittest import mock
+
+import pytest
 from requests.exceptions import HTTPError
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
-from mavedb.lib.uniprot.id_mapping import UniProtIDMappingAPI
 from mavedb.lib.uniprot.constants import SWISS_PROT_ENTRY_TYPE
-
+from mavedb.lib.uniprot.id_mapping import UniProtIDMappingAPI
 from tests.helpers.constants import (
-    TEST_UNIPROT_JOB_ID,
-    TEST_UNIPROT_JOB_SUBMISSION_RESPONSE,
-    TEST_UNIPROT_JOB_SUBMISSION_ERROR_RESPONSE,
-    TEST_UNIPROT_REDIRECT_RESPONSE,
-    VALID_NT_ACCESSION,
     TEST_UNIPROT_FINISHED_JOB_STATUS_RESPONSE,
-    TEST_UNIPROT_RUNNING_JOB_STATUS_RESPONSE,
-    TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE,
     TEST_UNIPROT_ID_FAILED_ID_MAPPING_RESPONSE,
+    TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE,
+    TEST_UNIPROT_JOB_ID,
+    TEST_UNIPROT_JOB_SUBMISSION_ERROR_RESPONSE,
+    TEST_UNIPROT_JOB_SUBMISSION_RESPONSE,
+    TEST_UNIPROT_REDIRECT_RESPONSE,
+    TEST_UNIPROT_RUNNING_JOB_STATUS_RESPONSE,
+    VALID_NT_ACCESSION,
 )
 
 

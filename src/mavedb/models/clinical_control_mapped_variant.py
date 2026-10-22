@@ -1,7 +1,6 @@
-from sqlalchemy import Column, Table, ForeignKey
+from sqlalchemy import Column, ForeignKey, Table
 
 from mavedb.db.base import Base
-
 
 mapped_variants_clinical_controls_association_table = Table(
     "mapped_variants_clinical_controls",

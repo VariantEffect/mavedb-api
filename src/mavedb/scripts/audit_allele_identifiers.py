@@ -45,11 +45,10 @@ from collections import Counter
 from datetime import datetime
 from typing import Any, Optional, Sequence
 
+import asyncclick as click
 from ga4gh.core import ga4gh_identify
 from ga4gh.vrs.models import Allele as VrsAllele
 from ga4gh.vrs.models import CisPhasedBlock, SequenceLocation
-
-import asyncclick as click
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 

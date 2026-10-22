@@ -1,7 +1,6 @@
-from sqlalchemy import Column, Table, ForeignKey
+from sqlalchemy import Column, ForeignKey, Table
 
 from mavedb.db.base import Base
-
 
 gnomad_variants_mapped_variants_association_table = Table(
     "gnomad_variants_mapped_variants",

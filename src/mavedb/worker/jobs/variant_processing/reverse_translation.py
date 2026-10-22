@@ -39,11 +39,11 @@ from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variant_translations import get_or_create_allele
 from mavedb.lib.vrs_utils import translate_hgvs_to_variation, verify_allele_refget
 from mavedb.models.allele import Allele as AlleleDbModel
-from mavedb.models.enums.sequence_level import NUCLEOTIDE_LEVELS, SequenceLevel
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.job_pipeline import FailureCategory
+from mavedb.models.enums.sequence_level import NUCLEOTIDE_LEVELS, SequenceLevel
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele

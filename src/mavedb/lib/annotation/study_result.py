@@ -12,8 +12,8 @@ from mavedb.lib.annotation.document import measured_allele_as_iri, variant_as_ir
 from mavedb.lib.annotation.method import (
     publication_identifiers_to_method,
 )
-from mavedb.lib.vrs import vrs_object_from_mapped_variant
 from mavedb.lib.variants import variant_score
+from mavedb.lib.vrs import vrs_object_from_mapped_variant
 
 
 def variant_impact_study_result(

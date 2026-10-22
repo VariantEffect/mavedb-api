@@ -3,8 +3,8 @@ from datetime import datetime
 from typing import Annotated, Any, List, Optional
 
 from fastapi import APIRouter, Depends, Path, Query, Response
-from fastapi.exceptions import HTTPException
 from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from ga4gh.core.identifiers import GA4GH_IR_REGEXP
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement

@@ -1,13 +1,13 @@
-import requests
-import time
 import logging
+import time
+from typing import Any, Dict, List, Optional
 
+import requests
 from requests.adapters import HTTPAdapter, Retry
-from typing import List, Optional, Dict, Any
 
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.lib.uniprot.constants import UNIPROT_ID_MAPPING_API_URL, SWISS_PROT_ENTRY_TYPE
 from mavedb.lib.types import uniprot
+from mavedb.lib.uniprot.constants import SWISS_PROT_ENTRY_TYPE, UNIPROT_ID_MAPPING_API_URL
 
 logger = logging.getLogger(__name__)
 

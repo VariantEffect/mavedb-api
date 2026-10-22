@@ -16,12 +16,12 @@ import pytest
 
 pytest.importorskip("psycopg2")
 
-from mavedb.lib.annotation.context import load_annotation_context_inputs, variant_annotation_context
 from mavedb.lib.allele_detail import get_allele_detail
 from mavedb.lib.allele_identity import AlleleDerivation
+from mavedb.lib.annotation.context import load_annotation_context_inputs, variant_annotation_context
+from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.lib.score_set_variants import HgvsField, MappedTriple
 from mavedb.lib.variant_detail import get_variant_detail, load_variant_detail_inputs
-from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.models.allele import Allele
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink

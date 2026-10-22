@@ -1,7 +1,8 @@
-import pytest
-import pandas as pd
 import unittest
 from unittest.mock import Mock, patch
+
+import pandas as pd
+import pytest
 
 from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
@@ -9,28 +10,26 @@ from mavedb.lib.validation.constants.general import (
     hgvs_splice_column,
 )
 from mavedb.lib.validation.dataframe.variant import (
-    validate_guide_sequence_column,
-    validate_hgvs_transgenic_column,
-    validate_hgvs_genomic_column,
     validate_genomic_variant,
-    validate_transgenic_variant,
-    validate_observed_sequence_types,
+    validate_guide_sequence_column,
+    validate_hgvs_genomic_column,
     validate_hgvs_prefix_combinations,
+    validate_hgvs_transgenic_column,
+    validate_observed_sequence_types,
+    validate_transgenic_variant,
 )
 from mavedb.lib.validation.exceptions import ValidationError
-
 from tests.helpers.constants import (
-    VALID_NT_ACCESSION,
-    VALID_PRO_ACCESSION,
     TEST_NT_CDOT_TRANSCRIPT,
     TEST_PRO_CDOT_TRANSCRIPT,
+    VALID_NT_ACCESSION,
+    VALID_PRO_ACCESSION,
 )
 from tests.validation.dataframe.conftest import DfTestCase
 
-
 try:
-    import hgvs  # noqa: F401
     import cdot.hgvs.dataproviders  # noqa: F401
+    import hgvs  # noqa: F401
 
     HGVS_INSTALLED = True
 except ModuleNotFoundError:

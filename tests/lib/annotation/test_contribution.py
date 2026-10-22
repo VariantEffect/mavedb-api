@@ -24,8 +24,8 @@ from mavedb.lib.annotation.contribution import (
     mavedb_score_calibration_contribution,
     mavedb_vrs_contribution,
 )
-from mavedb.lib.vrs import vrs_object_from_mapped_variant
 from mavedb.lib.mondo import get_generic_disease_term
+from mavedb.lib.vrs import vrs_object_from_mapped_variant
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.user import User
 from tests.helpers.constants import TEST_VALID_POST_MAPPED_VRS_ALLELE

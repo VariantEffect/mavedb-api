@@ -26,11 +26,11 @@ from mavedb.lib.csv.entries import (
     AvailableCsvNamespaceEntry,
     calibration_can_annotate,
     calibration_namespace_entries,
+    calibration_viewer,
     clinvar_namespace_entries,
     clinvar_release_namespaces,
     score_sets_have_current_mappings,
     static_namespace_entry,
-    calibration_viewer,
 )
 from mavedb.lib.csv.fetch import fetch_variant_csv_data
 from mavedb.lib.csv.namespaces import (
@@ -39,8 +39,8 @@ from mavedb.lib.csv.namespaces import (
     clinvar_namespace_sort_key,
 )
 from mavedb.lib.mave.utils import NA_VALUE
-from mavedb.lib.urns import score_set_urn_sort_key, variant_urn_sort_key
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
+from mavedb.lib.urns import score_set_urn_sort_key, variant_urn_sort_key
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele

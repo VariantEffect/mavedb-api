@@ -4,8 +4,8 @@ from typing import Optional
 from sqlalchemy import func, not_, or_
 from sqlalchemy.orm import Session
 
-from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.collections import readable_official_collections
+from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action
 from mavedb.lib.score_sets import find_superseded_score_set_tail
 from mavedb.lib.types.authentication import UserData

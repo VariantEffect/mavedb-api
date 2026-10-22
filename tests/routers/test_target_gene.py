@@ -1,20 +1,20 @@
 # ruff: noqa: E402
-import pytest
 from copy import deepcopy
 from unittest.mock import patch
+
+import pytest
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
-
 from tests.helpers.constants import TEST_MINIMAL_SEQ_SCORESET, TEST_USER
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.experiment import create_experiment
-from tests.helpers.util.user import change_ownership
 from tests.helpers.util.score_set import create_seq_score_set, publish_score_set
+from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import mock_worker_variant_insertion
 
 

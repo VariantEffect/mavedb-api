@@ -18,9 +18,11 @@ from variant_annotation.lib.translation.types import (
 )
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
+from mavedb.lib.vrs_utils import canonical_variation_document
 from mavedb.models.allele import Allele
-from mavedb.models.enums.sequence_level import SequenceLevel
+from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.enums.job_pipeline import JobStatus
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.job_run import JobRun
 from mavedb.models.mapping_record import MappingRecord
@@ -29,7 +31,6 @@ from mavedb.models.projection_group import ProjectionGroup
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene_mapping import TargetGeneMapping
 from mavedb.models.variant import Variant
-from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.worker.jobs.variant_processing.mapping import map_variants_for_score_set
 from mavedb.worker.jobs.variant_processing.reverse_translation import (
     _build_translation_config,
@@ -38,7 +39,6 @@ from mavedb.worker.jobs.variant_processing.reverse_translation import (
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
 from mavedb.worker.lib.projection import project_measured_variants
-from mavedb.lib.vrs_utils import canonical_variation_document
 from tests.helpers.constants import TEST_VALID_POST_MAPPED_VRS_ALLELE
 from tests.helpers.util.setup.worker import construct_mock_mapping_output
 

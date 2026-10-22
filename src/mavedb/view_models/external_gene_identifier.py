@@ -1,7 +1,7 @@
 from typing import Optional
-from typing_extensions import Self
 
 from pydantic import field_validator, model_validator
+from typing_extensions import Self
 
 from mavedb.lib.validation import identifier as identifier_validator
 from mavedb.view_models import record_type_validator, set_record_type

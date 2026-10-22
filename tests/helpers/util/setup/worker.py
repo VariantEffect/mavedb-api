@@ -22,7 +22,6 @@ from tests.helpers.constants import (
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
 )
 
-
 # Placeholder reference accessions for qualifying target-relative HGVS in mock
 # post-mapped output, keyed by the HGVS kind prefix (``c.``/``n.``/``g.``/``p.``).
 _PLACEHOLDER_ACCESSIONS = {

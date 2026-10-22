@@ -6,16 +6,16 @@ See: https://github.com/biocommons/seqrepo-rest-service/blob/main/src/seqrepo_re
 
 import os
 import re
-from base64 import urlsafe_b64encode, urlsafe_b64decode
-from binascii import unhexlify, hexlify
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+from binascii import hexlify, unhexlify
 
 # TODO (https://github.com/VariantEffect/mavedb-api/issues/354). We need pydantic upgraded to use this package.
 # from ga4gh.core.identifiers import is_ga4gh_identifier, CURIE_NAMESPACE as ga4gh_namespace
 from typing import Generator, Optional
 
-from biocommons.seqrepo import SeqRepo, __version__ as seqrepo_dep_version
+from biocommons.seqrepo import SeqRepo
+from biocommons.seqrepo import __version__ as seqrepo_dep_version
 from bioutils.accessions import infer_namespaces
-
 
 DEFAULT_CHUNK_SIZE = 8192
 

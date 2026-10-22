@@ -3,10 +3,10 @@
 import csv
 import json
 import re
+import threading
 from copy import deepcopy
 from datetime import date, datetime, timezone
 from io import StringIO
-import threading
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -21,8 +21,8 @@ cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.annotation.annotate import variant_study_result
-from mavedb.lib.csv import build_limiter
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
+from mavedb.lib.csv import build_limiter
 from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.score_distribution import summarize_scores
 from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
@@ -34,15 +34,15 @@ from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.experiment import Experiment as ExperimentDbModel
+from mavedb.models.gnomad_variant import GnomADVariant as GnomADVariantDbModel
 from mavedb.models.job_run import JobRun
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.pipeline import Pipeline
-from mavedb.models.gnomad_variant import GnomADVariant as GnomADVariantDbModel
+from mavedb.models.score_calibration import ScoreCalibration as ScoreCalibrationDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
-from mavedb.view_models.lean_variant import LeanVariant
-from mavedb.models.score_calibration import ScoreCalibration as ScoreCalibrationDbModel
 from mavedb.routers.score_sets import _annotation_stream_record
+from mavedb.view_models.lean_variant import LeanVariant
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
@@ -83,6 +83,7 @@ from tests.helpers.constants import (
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
+from tests.helpers.util.collection import create_collection
 from tests.helpers.util.common import (
     create_failing_side_effect,
     deepcamelize,
@@ -106,7 +107,6 @@ from tests.helpers.util.score_set import (
     seed_csv_substrate,
     shift_hgvs_position,
 )
-from tests.helpers.util.collection import create_collection
 from tests.helpers.util.user import change_ownership
 from tests.helpers.util.variant import (
     mock_worker_variant_insertion,

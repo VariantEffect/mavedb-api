@@ -17,10 +17,10 @@ from mavedb.models.collection_score_set_association import CollectionScoreSetAss
 from mavedb.models.enums.contribution_role import ContributionRole
 from mavedb.view_models.collection import Collection
 from tests.helpers.constants import (
+    ADMIN_USER,
     EXTRA_USER,
     TEST_COLLECTION,
     TEST_COLLECTION_RESPONSE,
-    ADMIN_USER,
     TEST_USER,
 )
 from tests.helpers.dependency_overrider import DependencyOverrider
