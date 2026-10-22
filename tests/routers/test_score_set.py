@@ -4143,19 +4143,13 @@ def test_download_scores_and_counts_with_accession_dataset_column_returns_200(
 
     scores_csv_path = tmp_path / "scores_with_accession_column.csv"
     scores_csv_path.write_text(
-        "hgvs_nt,hgvs_pro,score,accession\n"
-        "c.1A>T,p.Thr1Ser,0.3,sample-1\n"
-        "c.2C>T,p.Thr1Met,1.0,sample-2\n"
-        "c.6T>A,p.Phe2Leu,-1.65,sample-3\n"
+        "hgvs_nt,hgvs_pro,score,accession\nc.1A>T,p.Thr1Ser,0.3,sample-1\nc.2C>T,p.Thr1Met,1.0,sample-2\nc.6T>A,p.Phe2Leu,-1.65,sample-3\n"
     )
     # A counts dataframe's non-hgvs columns must all be numeric (`validate_data_column`, force_numeric=True
     # for kind="counts"), so unlike the scores file above, `accession` here has to be numeric too.
     counts_csv_path = tmp_path / "counts_with_accession_column.csv"
     counts_csv_path.write_text(
-        "hgvs_nt,hgvs_pro,count1,accession\n"
-        "c.1A>T,p.Thr1Ser,10,1\n"
-        "c.2C>T,p.Thr1Met,8,2\n"
-        "c.6T>A,p.Phe2Leu,90,3\n"
+        "hgvs_nt,hgvs_pro,count1,accession\nc.1A>T,p.Thr1Ser,10,1\nc.2C>T,p.Thr1Met,8,2\nc.6T>A,p.Phe2Leu,90,3\n"
     )
     with open(scores_csv_path, "rb") as scores_file:
         scores_df = csv_data_to_df(scores_file)
