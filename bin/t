@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Targeted tests: bin/t <test path or node id> [pytest args]
-# Requires a target because the full suite takes ~20 minutes; pass tests/ to run it deliberately.
+# Requires a target so the full suite only runs deliberately: pass tests/ (with -n 6) to run it.
 set -euo pipefail
 
 if [ $# -eq 0 ]; then

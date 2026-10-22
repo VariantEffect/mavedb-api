@@ -8,21 +8,23 @@ The MaveDB API is a FastAPI app plus an ARQ/Redis worker over PostgreSQL. The we
 
 - `poetry install --with dev --extras server`, on Python 3.11 or 3.12.
 - Run everything through `poetry run`. The host Python has none of the dependencies.
-- Tests need PostgreSQL server binaries on `PATH`, because pytest-postgresql runs `pg_ctl`, which refuses to run as root. Server-extras tests also need `tabix`.
+- Tests need PostgreSQL server binaries on `PATH`, because pytest-postgresql runs `pg_ctl`, which refuses to run as root. With `bin/test-db up` they need Docker instead. Server-extras tests also need `tabix`.
 
 ## Commands
 
 | Task | Command |
 |---|---|
 | Lint, format check, types, migration rules | `bin/check` |
+| Start the test database (Postgres on tmpfs in Docker) | `bin/test-db up` (`bin/test-db down` stops it) |
 | Targeted tests | `bin/t tests/routers/test_score_set.py -k publish` |
-| What PR CI runs | `bin/t tests/ -m "not network and not slow"` |
+| What PR CI runs | `bin/t tests/ -n auto -m "not network and not slow"` |
 | Format | `poetry run ruff format` |
 | Migrations | `poetry run alembic upgrade head` |
 | Operator scripts | `poetry run python -m mavedb.scripts.<name>` (dry run unless `--commit`) |
 
 - Run `bin/check` after every edit. It takes seconds.
-- Before handing work back, run the targeted tests for what you touched. The full suite is about 4,700 tests and takes roughly 20 minutes, so leave it to CI unless asked.
+- Run `bin/test-db up` before testing when Docker is available. `bin/t` uses it automatically, which keeps the thousands of files each test database creates off the host disk; without it, test runs load macOS's file watchers and endpoint scanning heavily. One container serves every checkout and worktree.
+- Before handing work back, run the targeted tests for what you touched. Add `-n 6` when running more than a couple of files; xdist costs a few seconds to start, so skip it for one file. The PR set is about 5,400 tests and takes about 2.5 minutes with `bin/test-db up` and `-n 6`.
 - If the pre-commit hook rewrites files, re-stage them and commit again. Never use `--no-verify`.
 - Change Ruff's version or rule set only in a commit of its own.
 
