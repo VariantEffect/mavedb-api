@@ -134,14 +134,16 @@ def session(postgresql):
     )
 
     # The database is a fresh clone of the schema template and is dropped after the test, so there's
-    # no create_all or drop_all here.
-    engine = create_engine(connection, echo=False, poolclass=NullPool)
+    # no create_all or drop_all here. A pooled engine reuses one connection across commits instead of
+    # reconnecting after each; under xdist, reconnecting overwhelms Docker's port forwarding.
+    engine = create_engine(connection, echo=False)
     session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
 
     try:
         yield session
     finally:
         session.close()
+        engine.dispose()
 
 
 @pytest.fixture
