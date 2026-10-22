@@ -1,5 +1,4 @@
 from pathlib import Path
-from shutil import copytree
 
 import pytest
 
@@ -60,6 +59,6 @@ def setup_router_db(session):
 
 
 @pytest.fixture
-def data_files(tmp_path):
-    copytree(Path(__file__).absolute().parent / "data", tmp_path / "data")
-    return tmp_path / "data"
+def data_files():
+    """The shared test data directory. Tests read it in place; copy a file into tmp_path before changing it."""
+    return Path(__file__).absolute().parent / "data"

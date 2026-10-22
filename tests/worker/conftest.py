@@ -4,7 +4,6 @@ Test configuration and fixtures for worker lib tests.
 
 from datetime import datetime
 from pathlib import Path
-from shutil import copytree
 from unittest.mock import Mock
 
 import pandas as pd
@@ -282,9 +281,9 @@ def mock_job_run(mock_pipeline):
 
 
 @pytest.fixture
-def data_files(tmp_path):
-    copytree(Path(__file__).absolute().parent / "data", tmp_path / "data")
-    return tmp_path / "data"
+def data_files():
+    """The shared test data directory. Tests read it in place; copy a file into tmp_path before changing it."""
+    return Path(__file__).absolute().parent / "data"
 
 
 @pytest.fixture
