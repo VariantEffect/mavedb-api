@@ -2,15 +2,14 @@
 
 import csv
 import io
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+
+import pytest
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 from tests.helpers.util.query_plan import captured_statements
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-from unittest.mock import patch
-
-import pytest
 
 pytest.importorskip("psycopg2")
 
@@ -26,14 +25,14 @@ from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.models.acmg_classification import ACMGClassification
+from mavedb.models.allele import Allele
 from mavedb.models.clinical_control import ClinvarControl
+from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.enums.acmg_criterion import ACMGCriterion
 from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassificationOptions
 from mavedb.models.enums.user_role import UserRole
-from mavedb.models.gnomad_variant import GnomADVariant
-from mavedb.models.allele import Allele
-from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
+from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele

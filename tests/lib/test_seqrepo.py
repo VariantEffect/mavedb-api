@@ -4,9 +4,8 @@ import pytest
 pytest.importorskip("biocommons.seqrepo")
 pytest.importorskip("bioutils")
 
-from mavedb.lib.seqrepo import get_sequence_ids, _generate_nsa_options, seqrepo_versions, sequence_generator
 from mavedb.lib import seqrepo as seqrepo_lib
-
+from mavedb.lib.seqrepo import _generate_nsa_options, get_sequence_ids, seqrepo_versions, sequence_generator
 from tests.helpers.constants import TEST_SEQREPO_INITIAL_STATE, VALID_MD5_DIGEST
 
 

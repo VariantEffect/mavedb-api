@@ -1,4 +1,5 @@
 from typing import Any, Iterator, Optional
+
 from biocommons.seqrepo.fastadir.bases import BaseReader, BaseWriter
 
 class FastaDir(BaseReader, BaseWriter):

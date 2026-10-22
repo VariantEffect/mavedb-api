@@ -1,34 +1,34 @@
 # ruff: noqa: E402
 
+from unittest.mock import patch
+
 import pytest
 from humps import camelize
-from unittest.mock import patch
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
 from mavedb.models.published_variant import PublishedVariantsMV
-
 from tests.helpers.constants import (
     TEST_BIORXIV_IDENTIFIER,
-    TEST_MINIMAL_MAPPED_VARIANT,
-    TEST_NT_CDOT_TRANSCRIPT,
     TEST_KEYWORDS,
     TEST_MEDRXIV_IDENTIFIER,
     TEST_MINIMAL_ACC_SCORESET,
+    TEST_MINIMAL_MAPPED_VARIANT,
     TEST_MINIMAL_SEQ_SCORESET,
+    TEST_NT_CDOT_TRANSCRIPT,
     TEST_PUBMED_IDENTIFIER,
     VALID_GENE,
 )
+from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import (
-    publish_score_set,
     create_acc_score_set,
     create_seq_score_set,
+    publish_score_set,
     seed_annotation_substrate,
 )
-from tests.helpers.util.experiment import create_experiment
-from tests.helpers.util.variant import mock_worker_variant_insertion, create_mapped_variants_for_score_set
+from tests.helpers.util.variant import create_mapped_variants_for_score_set, mock_worker_variant_insertion
 
 TARGET_ACCESSION_FIELDS = ["accession", "assembly", "gene"]
 TARGET_SEQUENCE_FIELDS = ["sequence", "sequence-type"]

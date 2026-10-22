@@ -25,7 +25,6 @@ from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 
-
 # How many variants a whole-set builder loads per round of batched queries. Bounds both the size of each
 # query's IN list (a variant's record links can fan out to dozens of reverse-translation members) and the
 # number of ORM rows held at once.

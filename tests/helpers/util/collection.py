@@ -1,11 +1,11 @@
-import jsonschema
 from copy import deepcopy
 from typing import Any, Dict, Optional
 
-from mavedb.view_models.collection import Collection
-
-from tests.helpers.constants import TEST_COLLECTION
+import jsonschema
 from fastapi.testclient import TestClient
+
+from mavedb.view_models.collection import Collection
+from tests.helpers.constants import TEST_COLLECTION
 
 
 def create_collection(client: TestClient, update: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

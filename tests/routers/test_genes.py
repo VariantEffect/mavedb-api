@@ -113,8 +113,9 @@ def test_get_gene_slash_symbol_returns_404():
     # No approved HGNC symbols currently contain a slash — the GeneSymbolConverter regex
     # intentionally excludes them. This test documents that behaviour: a percent-encoded
     # slash in the URL path is not routed to the gene handler.
-    from mavedb.server_main import app
     from starlette.testclient import TestClient as StarletteTestClient
+
+    from mavedb.server_main import app
 
     with StarletteTestClient(app) as c:
         response = c.get(f"/api/v1/genes/{quote(SLASH_GENE, safe='')}")

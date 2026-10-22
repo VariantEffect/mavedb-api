@@ -1,5 +1,4 @@
 import pytest
-
 from pydantic import TypeAdapter, ValidationError
 
 from mavedb.lib.csv.namespaces import (

@@ -1,5 +1,4 @@
 from humps import camelize
-
 from pydantic import BaseModel as PydanticBaseModel
 from pydantic import field_validator
 

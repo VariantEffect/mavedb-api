@@ -1,9 +1,9 @@
 from datetime import date
 from typing import Optional
-from typing_extensions import Self
 
 from fqfa import infer_sequence_type
-from pydantic import field_validator, model_validator, ValidationInfo
+from pydantic import ValidationInfo, field_validator, model_validator
+from typing_extensions import Self
 
 from mavedb.lib.identifiers import sanitize_target_sequence_label
 from mavedb.lib.validation import target

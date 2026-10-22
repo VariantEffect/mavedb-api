@@ -1,17 +1,16 @@
 import json
 import logging
-import requests
-from typing import Sequence, Optional
+from typing import Optional, Sequence
 
 import click
+import requests
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from mavedb.models.score_set import ScoreSet
 from mavedb.models.mapped_variant import MappedVariant
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.variant import Variant
-
 from mavedb.scripts.environment import script_environment, with_database_session
 
 logger = logging.getLogger(__name__)

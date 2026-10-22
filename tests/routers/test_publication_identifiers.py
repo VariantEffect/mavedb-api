@@ -1,17 +1,14 @@
 # ruff: noqa: E402
 
 import pytest  # noqa: F401
-
-from sqlalchemy import select, delete
+from sqlalchemy import delete, select
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
 from mavedb.models.publication_identifier import PublicationIdentifier
-
 from tests.helpers.constants import TEST_PUBMED_PUBLICATION
-
 
 # TODO#497: Expand test coverage for publication identifier routes.
 
