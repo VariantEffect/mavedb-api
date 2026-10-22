@@ -3,24 +3,29 @@
 # While it runs, bin/t points tests at it instead of starting a server in $TMPDIR, so the thousands of
 # files each test database creates and drops never touch the host filesystem (or fseventsd and
 # endpoint scanners watching it). One container serves every checkout and worktree; its data is
-# discarded when it stops.
+# discarded when it stops, so restart it to clear databases left behind by interrupted runs.
 set -euo pipefail
 
 name=mavedb-test-db
 port=5435
-# The server started by pytest-postgresql runs in the host's time zone, and some tests depend on it.
-timezone=$(readlink /etc/localtime 2>/dev/null | sed 's#.*/zoneinfo/##')
 
 case "${1:-up}" in
 up)
     if [ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null)" != "true" ]; then
         docker run -d --rm --name "$name" -p "127.0.0.1:$port:5432" \
             --tmpfs /var/lib/postgresql/data -e POSTGRES_PASSWORD=postgres \
-            postgres:15 -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=300 \
-            -c timezone="${timezone:-UTC}" >/dev/null
+            postgres:15 -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=300 >/dev/null
     fi
-    until docker exec "$name" pg_isready -U postgres -h localhost >/dev/null 2>&1; do sleep 0.5; done
-    echo "$name is up on localhost:$port"
+    for _ in $(seq 60); do
+        if docker exec "$name" pg_isready -U postgres -h localhost >/dev/null 2>&1; then
+            echo "$name is up on localhost:$port"
+            exit 0
+        fi
+        sleep 0.5
+    done
+    echo "$name didn't become ready in 30s" >&2
+    docker logs "$name" 2>&1 | tail -20 >&2 || true
+    exit 1
     ;;
 down)
     docker rm -f "$name" >/dev/null 2>&1 || true

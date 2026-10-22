@@ -91,7 +91,7 @@ def _load_schema(host, port, user, dbname, password):
 if os.environ.get("MAVEDB_TEST_DB_PORT"):
     _run_id = os.environ.setdefault("MAVEDB_TEST_RUN_ID", os.urandom(4).hex())
     postgresql_server = factories.postgresql_noproc(
-        host="localhost",
+        host="127.0.0.1",
         port=os.environ["MAVEDB_TEST_DB_PORT"],
         user="postgres",
         password="postgres",
