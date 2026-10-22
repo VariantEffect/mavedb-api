@@ -33,7 +33,7 @@ Error Handling:
 
 import logging
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from arq import ArqRedis
@@ -222,7 +222,7 @@ class JobManager(BaseManager):
 
         try:
             job_run.status = JobStatus.RUNNING
-            job_run.started_at = datetime.now()
+            job_run.started_at = datetime.now(timezone.utc)
             job_run.progress_message = "Job began execution"
         except (AttributeError, TypeError, KeyError, ValueError) as e:
             self.save_to_context(format_raised_exception_info_as_dict(e))
@@ -267,7 +267,7 @@ class JobManager(BaseManager):
                 if result.exception
                 else None,
             }
-            job_run.finished_at = datetime.now()
+            job_run.finished_at = datetime.now(timezone.utc)
 
             if status in (JobStatus.FAILED, JobStatus.ERRORED):
                 if result.failure_category:

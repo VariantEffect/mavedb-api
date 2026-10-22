@@ -8,6 +8,8 @@ on:
 
 env:
   LOG_CONFIG: test
+  # Keep pytest's temp files, including each worker's Postgres data directory, in memory.
+  PYTEST_ADDOPTS: --basetemp=/dev/shm/pytest
 
 jobs:
   run-checks:
@@ -76,10 +78,10 @@ jobs:
     - run: poetry install --with dev
     - name: Run fast tests on PRs
       if: github.event_name == 'pull_request'
-      run: bin/t tests/ -m "not network and not slow"
+      run: bin/t tests/ -n logical -m "not network and not slow"
     - name: Run full tests on main and release branches
       if: github.event_name == 'push'
-      run: bin/t tests/
+      run: bin/t tests/ -n logical
 
   run-tests-3_12-core-dependencies:
     runs-on: ubuntu-latest
@@ -95,10 +97,10 @@ jobs:
     - run: poetry install --with dev
     - name: Run fast tests on PRs
       if: github.event_name == 'pull_request'
-      run: bin/t tests/ -m "not network and not slow"
+      run: bin/t tests/ -n logical -m "not network and not slow"
     - name: Run all tests on main and release branches
       if: github.event_name == 'push'
-      run: bin/t tests/
+      run: bin/t tests/ -n logical
 
   run-tests-3_11:
     runs-on: ubuntu-latest
@@ -118,12 +120,12 @@ jobs:
       if: github.event_name == 'pull_request'
       run: |
         mkdir -p coverage
-        bin/t tests/ -m "not network and not slow" --show-capture=stdout --cov=src --cov-report=term-missing --cov-report=lcov:coverage/lcov.info
+        bin/t tests/ -n logical -m "not network and not slow" --show-capture=stdout --cov=src --cov-report=term-missing --cov-report=lcov:coverage/lcov.info
     - name: Run all tests with coverage on main and release branches
       if: github.event_name == 'push'
       run: |
         mkdir -p coverage
-        bin/t tests/ --show-capture=stdout --cov=src --cov-report=term-missing --cov-report=lcov:coverage/lcov.info
+        bin/t tests/ -n logical --show-capture=stdout --cov=src --cov-report=term-missing --cov-report=lcov:coverage/lcov.info
     - name: Upload coverage to Coveralls
       uses: coverallsapp/github-action@v2
       with:

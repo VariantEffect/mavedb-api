@@ -9,7 +9,8 @@ import email_validator
 import pytest
 import pytest_postgresql
 import pytest_socket
-from sqlalchemy import create_engine, text
+from pytest_postgresql import factories
+from sqlalchemy import URL, create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -64,6 +65,45 @@ assert pytest_postgresql.factories
 email_validator.TEST_ENVIRONMENT = True
 
 
+def _load_schema(host, port, user, dbname, password):
+    """Build the schema once into the server's template database, which each test's database is cloned from."""
+    engine = create_engine(
+        URL.create("postgresql+psycopg2", username=user, password=password, host=host, port=port, database=dbname),
+        poolclass=NullPool,
+    )
+    Base.metadata.create_all(bind=engine)
+
+    # Create a unique index for the published_variants_materialized_view to
+    # enforce uniqueness on (variant_id, mapping_record_id, score_set_id). This
+    # allows us to test mat view refreshes that require this constraint.
+    with engine.begin() as conn:
+        conn.execute(
+            text("""CREATE UNIQUE INDEX IF NOT EXISTS published_variants_mv_unique_idx
+            ON published_variants_materialized_view (variant_id, mapping_record_id, score_set_id)"""),
+        )
+    engine.dispose()
+
+
+# With MAVEDB_TEST_DB_PORT set (bin/t sets it when bin/test-db is running), tests use that tmpfs-backed
+# server instead of starting one in $TMPDIR, keeping per-test database churn off the host filesystem.
+# The run id keeps concurrent runs against the shared server from colliding on database names; it is
+# set before xdist starts its workers so they all inherit the same one.
+if os.environ.get("MAVEDB_TEST_DB_PORT"):
+    _run_id = os.environ.setdefault("MAVEDB_TEST_RUN_ID", os.urandom(4).hex())
+    postgresql_server = factories.postgresql_noproc(
+        host="127.0.0.1",
+        port=os.environ["MAVEDB_TEST_DB_PORT"],
+        user="postgres",
+        password="postgres",
+        dbname=f"mavedb_test_{_run_id}",
+        load=[_load_schema],
+    )
+else:
+    postgresql_server = factories.postgresql_proc(load=[_load_schema])
+
+postgresql = factories.postgresql("postgresql_server")
+
+
 def pytest_runtest_setup(item):
     # Only block sockets for tests not marked with 'network'
     if "network" not in item.keywords:
@@ -84,30 +124,26 @@ def session(postgresql):
     # Un-comment this line to log all database queries:
     # logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO)
 
-    connection = (
-        f"postgresql+psycopg2://{postgresql.info.user}:"
-        f"@{postgresql.info.host}:{postgresql.info.port}/{postgresql.info.dbname}"
+    connection = URL.create(
+        "postgresql+psycopg2",
+        username=postgresql.info.user,
+        password=postgresql.info.password or None,
+        host=postgresql.info.host,
+        port=postgresql.info.port,
+        database=postgresql.info.dbname,
     )
 
-    engine = create_engine(connection, echo=False, poolclass=NullPool)
+    # The database is a fresh clone of the schema template and is dropped after the test, so there's
+    # no create_all or drop_all here. A pooled engine reuses one connection across commits instead of
+    # reconnecting after each; under xdist, reconnecting overwhelms Docker's port forwarding.
+    engine = create_engine(connection, echo=False)
     session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
-
-    Base.metadata.create_all(bind=engine)
-
-    # Create a unique index for the published_variants_materialized_view to
-    # enforce uniqueness on (variant_id, mapping_record_id, score_set_id). This
-    # allows us to test mat view refreshes that require this constraint.
-    session.execute(
-        text("""CREATE UNIQUE INDEX IF NOT EXISTS published_variants_mv_unique_idx
-        ON published_variants_materialized_view (variant_id, mapping_record_id, score_set_id)"""),
-    )
-    session.commit()
 
     try:
         yield session
     finally:
         session.close()
-        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
 
 
 @pytest.fixture

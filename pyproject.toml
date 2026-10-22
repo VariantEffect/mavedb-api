@@ -84,6 +84,7 @@ pytest-cov = "~7.1.0"
 pytest-postgresql = "~8.0.0"
 pytest-asyncio = "~1.3.0"
 pytest-socket = "~0.6.0"
+pytest-xdist = "~3.8"
 pandas-stubs = "~3.0.0"
 types-requests = "~2.31.0"
 types-python-jose = "~3.3.4"
@@ -120,7 +121,7 @@ module = "ga4gh.*"
 follow_untyped_imports = true
 
 [tool.pytest.ini_options]
-addopts = "-v --import-mode=importlib"
+addopts = "--import-mode=importlib"
 asyncio_mode = 'strict'
 testpaths = "tests/"
 pythonpath = "."
