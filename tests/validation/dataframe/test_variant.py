@@ -825,14 +825,14 @@ class TestValidateGenomicVariantHgvsNotInstalled(TestValidateGenomicVariant):
         for idx, variant_string in enumerate(
             [column for column in [self.valid_hgvs_nt_column + self.valid_hgvs_pro_column]]
         ):
-            with self.subTest(variant_string=variant_string), self.assertRaises(ModuleNotFoundError):
+            with self.subTest(variant_string=_label(variant_string)), self.assertRaises(ModuleNotFoundError):
                 validate_genomic_variant(idx, variant_string, self.parser, self.validator)
 
     def test_validate_invalid_hgvs_variant(self):
         for idx, variant_string in enumerate(
             [column for column in [self.invalid_hgvs_nt_column + self.invalid_hgvs_pro_column]]
         ):
-            with self.subTest(variant_string=variant_string), self.assertRaises(ModuleNotFoundError):
+            with self.subTest(variant_string=_label(variant_string)), self.assertRaises(ModuleNotFoundError):
                 validate_genomic_variant(idx, variant_string, self.parser, self.validator)
 
 
