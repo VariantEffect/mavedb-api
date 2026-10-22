@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import jsonschema
+import pandas as pd
 import pytest
 from humps import camelize
 from sqlalchemy import select
@@ -3963,6 +3964,56 @@ def test_upload_a_non_utf8_file(session, client, setup_router_db, data_files):
     )
 
 
+def test_upload_a_malformed_scores_csv_file(session, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch(
+            "mavedb.routers.score_sets.csv_data_to_df",
+            side_effect=pd.errors.ParserError("Error tokenizing data. C error: Expected 1 fields in line 17, saw 4"),
+        ),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+    assert response.status_code == 422
+    response_data = response.json()
+    assert "Error parsing scores file:" in response_data["detail"]
+    assert "Ensure the file is a valid CSV." in response_data["detail"]
+
+
+def test_upload_a_malformed_counts_csv_file(session, client, setup_router_db, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    scores_csv_path = data_files / "scores.csv"
+    counts_csv_path = data_files / "scores.csv"
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        open(counts_csv_path, "rb") as counts_file,
+        patch(
+            "mavedb.routers.score_sets.csv_data_to_df",
+            side_effect=[
+                pd.read_csv(scores_csv_path),
+                pd.errors.ParserError("Error tokenizing data. C error: Expected 1 fields in line 17, saw 4"),
+            ],
+        ),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={
+                "scores_file": (scores_csv_path.name, scores_file, "text/csv"),
+                "counts_file": (counts_csv_path.name, counts_file, "text/csv"),
+            },
+        )
+    assert response.status_code == 422
+    response_data = response.json()
+    assert "Error parsing counts file:" in response_data["detail"]
+    assert "Ensure the file is a valid CSV." in response_data["detail"]
+
+
 ########################################################################################################################
 # Score set download files
 ########################################################################################################################
@@ -4043,6 +4094,45 @@ def test_download_variants_data_file(
             assert row["mavedb.post_mapped_hgvs_c"] == "NA"
             assert row["mavedb.post_mapped_hgvs_p"] == "NA"
             assert row["mavedb.post_mapped_hgvs_at_assay_level"] == "NA"
+
+
+@pytest.mark.parametrize(
+    "namespaces", ["namespaces=scores", "namespaces=scores&namespaces=mavedb"], ids=["scores", "with_mappings"]
+)
+@pytest.mark.parametrize(
+    "start,limit",
+    [(1, 1), (1, None), (None, 2), (2, 5), (0, 2)],
+    ids=["middle_page", "start_only", "limit_only", "limit_past_end", "zero_start"],
+)
+def test_download_variants_data_file_paged_matches_the_full_download(
+    session, data_provider, client, setup_router_db, data_files, namespaces, start, limit
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    seed_csv_substrate(
+        session,
+        score_set,
+        assay_level="genomic",
+        hgvs_g=TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION["hgvs_g"],
+        hgvs_c=TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION["hgvs_c"],
+        hgvs_p=TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION["hgvs_p"],
+    )
+
+    url = f"/api/v1/score-sets/{score_set['urn']}/variants/data?{namespaces}"
+    full_response = client.get(url)
+    page_params = "".join(
+        f"&{name}={value}" for name, value in (("start", start), ("limit", limit)) if value is not None
+    )
+    paged_response = client.get(url + page_params)
+
+    assert full_response.status_code == 200
+    assert paged_response.status_code == 200
+    header, *full_rows = full_response.text.splitlines()
+    paged_header, *paged_rows = paged_response.text.splitlines()
+    first = start or 0
+    assert paged_header == header
+    assert paged_rows == full_rows[first : first + limit if limit is not None else None]
 
 
 # Test file doesn't have hgvs_splice so its values are all NA.

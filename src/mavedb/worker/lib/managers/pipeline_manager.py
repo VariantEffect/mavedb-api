@@ -1246,7 +1246,7 @@ class PipelineManager(BaseManager):
 
             # Ensure finished_at is set/cleared appropriately
             if new_status in TERMINAL_PIPELINE_STATUSES:
-                pipeline.finished_at = datetime.now()
+                pipeline.finished_at = datetime.now(timezone.utc)
             else:
                 pipeline.finished_at = None
 
@@ -1254,7 +1254,7 @@ class PipelineManager(BaseManager):
             if new_status == PipelineStatus.CREATED:
                 pipeline.started_at = None
             elif new_status == PipelineStatus.RUNNING and pipeline.started_at is None:
-                pipeline.started_at = datetime.now()
+                pipeline.started_at = datetime.now(timezone.utc)
 
         except (AttributeError, TypeError, KeyError, ValueError) as e:
             logger.debug(f"Object manipulation failed setting status for pipeline {self.pipeline_id}: {e}")

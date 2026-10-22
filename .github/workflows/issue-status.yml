@@ -1,0 +1,41 @@
+name: Issue status
+
+# Moves linked issues across the MaveDB Backlog project; the logic and its rules are in .github/scripts/issue-status.js.
+# pull_request_target runs this file from the base branch with the org secrets, so it works for fork PRs too. It never
+# checks out or runs the PR's code.
+on:
+  pull_request_target:
+    types: [opened, reopened, edited, synchronize, ready_for_review, converted_to_draft, closed]
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: issue-status-${{ github.event.pull_request.number || github.run_id }}
+
+permissions:
+  contents: read
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+
+      # The default GITHUB_TOKEN can't write to org projects. The app needs org Projects read/write and repo Issues
+      # read and Pull requests read/write, installed on mavedb-api, mavedb-ui and dcd_mapping2.
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.PROJECT_AUTOMATION_APP_ID }}
+          private-key: ${{ secrets.PROJECT_AUTOMATION_PRIVATE_KEY }}
+          owner: VariantEffect
+
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const run = require('./.github/scripts/issue-status.js');
+            await run({ github, context, core });

@@ -63,4 +63,13 @@ class Variant(Base):
 
 
 # Serves ordering a score set's variants by number, so deep pages of a large score set skip the full sort.
-Index("ix_variants_scoreset_number", Variant.score_set_id, Variant.variant_number, Variant.id)
+# Including urn lets a page's ids come from an index-only scan: Postgres won't use one for an expression
+# index unless the expression's columns are in the index too.
+# TODO(#939): index a stored variant_number column instead, which needs no INCLUDE.
+Index(
+    "ix_variants_scoreset_number_covering",
+    Variant.score_set_id,
+    Variant.variant_number,
+    Variant.id,
+    postgresql_include=["urn"],
+)

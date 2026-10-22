@@ -101,6 +101,9 @@ async def arq_worker(data_provider, session, arq_redis):
     ```
     """
 
+    # One pool for the fixture, shut down on teardown, so jobs don't each leave worker processes behind.
+    pool = futures.ProcessPoolExecutor()
+
     async def on_startup(ctx):
         pass
 
@@ -109,7 +112,7 @@ async def arq_worker(data_provider, session, arq_redis):
         ctx["hdp"] = data_provider
         ctx["seqrepo"] = Mock(spec=SeqRepoDataProxy)  # mirrors lifecycle.on_job_start
         ctx["state"] = {}
-        ctx["pool"] = futures.ProcessPoolExecutor()
+        ctx["pool"] = pool
 
     worker_ = Worker(
         functions=BACKGROUND_FUNCTIONS + [dummy_arq_function],
@@ -127,18 +130,23 @@ async def arq_worker(data_provider, session, arq_redis):
             yield worker_
         finally:
             await worker_.close()
+            pool.shutdown(cancel_futures=True)
 
 
 @pytest.fixture
 def standalone_worker_context(data_provider, arq_redis):
-    yield {
-        "hdp": data_provider,
-        "seqrepo": Mock(spec=SeqRepoDataProxy),  # mirrors lifecycle.on_job_start
-        "state": {},
-        "job_id": "test_job",
-        "redis": arq_redis,
-        "pool": futures.ProcessPoolExecutor(),
-    }
+    pool = futures.ProcessPoolExecutor()
+    try:
+        yield {
+            "hdp": data_provider,
+            "seqrepo": Mock(spec=SeqRepoDataProxy),  # mirrors lifecycle.on_job_start
+            "state": {},
+            "job_id": "test_job",
+            "redis": arq_redis,
+            "pool": pool,
+        }
+    finally:
+        pool.shutdown(cancel_futures=True)
 
 
 ####################################################################################################

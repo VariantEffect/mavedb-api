@@ -1,6 +1,7 @@
 import logging
 from typing import Optional
 
+import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session, selectinload
 
@@ -360,6 +361,10 @@ async def create_score_calibration_route(
             raise HTTPException(
                 status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values."
             )
+        except pd.errors.ParserError as e:
+            raise HTTPException(
+                status_code=400, detail=f"Error parsing classes file: {e}. Ensure the file is a valid CSV."
+            )
 
         try:
             standardized_classes_df, index_column = validate_and_standardize_calibration_classes_dataframe(
@@ -385,6 +390,10 @@ async def create_score_calibration_route(
         except UnicodeDecodeError as e:
             raise HTTPException(
                 status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values."
+            )
+        except pd.errors.ParserError as e:
+            raise HTTPException(
+                status_code=400, detail=f"Error parsing controls file: {e}. Ensure the file is a valid CSV."
             )
 
         try:
@@ -577,6 +586,10 @@ async def modify_score_calibration_route(
             raise HTTPException(
                 status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values."
             )
+        except pd.errors.ParserError as e:
+            raise HTTPException(
+                status_code=400, detail=f"Error parsing classes file: {e}. Ensure the file is a valid CSV."
+            )
 
         try:
             standardized_classes_df, index_column = validate_and_standardize_calibration_classes_dataframe(
@@ -603,6 +616,10 @@ async def modify_score_calibration_route(
         except UnicodeDecodeError as e:
             raise HTTPException(
                 status_code=400, detail=f"Error decoding file: {e}. Ensure the file has correct values."
+            )
+        except pd.errors.ParserError as e:
+            raise HTTPException(
+                status_code=400, detail=f"Error parsing controls file: {e}. Ensure the file is a valid CSV."
             )
 
         try:

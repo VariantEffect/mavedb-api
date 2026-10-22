@@ -56,9 +56,9 @@ def test_collection_handles_all_actions() -> None:
     supported = set(COLLECTION_SUPPORTED_ACTIONS)
     unsupported = set(COLLECTION_UNSUPPORTED_ACTIONS)
 
-    assert (
-        supported.union(unsupported) == all_actions
-    ), "Some actions are not categorized as supported or unsupported for collections."
+    assert supported.union(unsupported) == all_actions, (
+        "Some actions are not categorized as supported or unsupported for collections."
+    )
 
 
 class TestCollectionHasPermission:
@@ -168,7 +168,9 @@ class TestCollectionReadActionHandler:
             PermissionTest("Collection", "published", "anonymous", Action.READ, True),
             PermissionTest("Collection", "private", "anonymous", Action.READ, False, 404),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_read_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_read_action helper function directly."""
@@ -233,7 +235,9 @@ class TestCollectionUpdateActionHandler:
             PermissionTest("Collection", "private", "anonymous", Action.UPDATE, False, 404),
             PermissionTest("Collection", "published", "anonymous", Action.UPDATE, False, 401),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_update_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_update_action helper function directly."""
@@ -300,7 +304,9 @@ class TestCollectionDeleteActionHandler:
             PermissionTest("Collection", "private", "anonymous", Action.DELETE, False, 404),
             PermissionTest("Collection", "published", "anonymous", Action.DELETE, False, 401),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_delete_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_delete_action helper function directly."""
@@ -377,7 +383,9 @@ class TestCollectionPublishActionHandler:
             PermissionTest("Collection", "private", "anonymous", Action.PUBLISH, False, 404),
             PermissionTest("Collection", "published", "anonymous", Action.PUBLISH, False, 401),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_publish_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_publish_action helper function directly."""
@@ -462,7 +470,9 @@ class TestCollectionAddExperimentActionHandler:
             PermissionTest("Collection", "private", "anonymous", Action.ADD_EXPERIMENT, False, 404),
             PermissionTest("Collection", "published", "anonymous", Action.ADD_EXPERIMENT, False, 401),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_add_experiment_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_add_experiment_action helper function directly."""
@@ -542,7 +552,9 @@ class TestCollectionAddScoreSetActionHandler:
             PermissionTest("Collection", "private", "anonymous", Action.ADD_SCORE_SET, False, 404),
             PermissionTest("Collection", "published", "anonymous", Action.ADD_SCORE_SET, False, 401),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_add_score_set_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_add_score_set_action helper function directly."""
@@ -617,7 +629,9 @@ class TestCollectionAddRoleActionHandler:
             PermissionTest("Collection", "private", "anonymous", Action.ADD_ROLE, False, 404),
             PermissionTest("Collection", "published", "anonymous", Action.ADD_ROLE, False, 401),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_add_role_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_add_role_action helper function directly."""
@@ -710,7 +724,9 @@ class TestCollectionAddBadgeActionHandler:
             PermissionTest("Collection", "private", "anonymous", Action.ADD_BADGE, False, 404),
             PermissionTest("Collection", "published", "anonymous", Action.ADD_BADGE, False, 401),
         ],
-        ids=lambda tc: f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}",
+        ids=lambda tc: (
+            f"{tc.user_type}_{tc.collection_role if tc.collection_role else 'no_role'}_{tc.entity_state}_{tc.action.value}_{'permitted' if tc.should_be_permitted else 'denied'}"
+        ),
     )
     def test_handle_add_badge_action(self, test_case: PermissionTest, entity_helper: EntityTestHelper) -> None:
         """Test _handle_add_badge_action helper function directly."""

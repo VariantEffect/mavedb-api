@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""Write the squashed migration baseline from a live database.
+
+Usage: bin/build-baseline <revision> [libpq connection string]
+
+Dumps the schema and the fixed vocabulary an empty database needs, and writes them to
+``alembic/baseline/<revision>.sql``, which the baseline migration executes. Connection details come from
+the connection string or the usual ``PG*`` environment variables. Needs PostgreSQL 15 client tools on
+``PATH``. See ``alembic/README.md`` for when and how to squash.
+"""
+
+import subprocess
+import sys
+from pathlib import Path
+
+# Tables copied whole, and tables of which only the rows matching a condition are copied.
+SEED_TABLES = ["controlled_keywords", "licenses", "roles"]
+SEED_ROWS = {"mondo_terms": "code = 'MONDO:0000001'"}
+
+# pg_dump emits psql meta-commands (``\restrict``) and session settings. Neither can run inside the
+# migration's transaction without leaking into the rest of the upgrade; every object name in the dump is
+# schema-qualified, so the empty ``search_path`` it sets is not needed either.
+DROPPED_PREFIXES = ("\\", "SET ", "SELECT pg_catalog.set_config('search_path'")
+
+
+def run(*args: str) -> str:
+    return subprocess.run(args, check=True, capture_output=True, text=True).stdout
+
+
+def schema_sql(conninfo: str) -> str:
+    dump = run(
+        "pg_dump",
+        f"--dbname={conninfo}",
+        "--schema-only",
+        "--no-owner",
+        "--no-privileges",
+        "--exclude-table=public.alembic_version",
+    )
+    return "\n".join(line for line in dump.splitlines() if not line.startswith(DROPPED_PREFIXES))
+
+
+def seed_sql(conninfo: str) -> str:
+    """Emit each seed row as an INSERT through ``json_populate_record``, so no column list is hard-coded."""
+    conditions = {table: "true" for table in SEED_TABLES} | SEED_ROWS
+    statements = []
+    for table, condition in conditions.items():
+        query = (
+            "SELECT format('INSERT INTO public.%I SELECT * FROM json_populate_record(NULL::public.%I, %L);', "
+            f"'{table}', '{table}', row_to_json(t)) FROM public.{table} t WHERE {condition} ORDER BY id"
+        )
+        statements.append(run("psql", f"--dbname={conninfo}", "-X", "-v", "ON_ERROR_STOP=1", "-tA", "-c", query))
+        statements.append(
+            f"SELECT pg_catalog.setval(pg_get_serial_sequence('public.{table}', 'id'), "
+            f"(SELECT coalesce(max(id), 1) FROM public.{table}));\n"
+        )
+    return "".join(statements)
+
+
+def refresh_sql(conninfo: str) -> str:
+    """Populate the materialized views a schema-only dump creates ``WITH NO DATA``.
+
+    Reading an unpopulated view raises, so a replayed database would fail on every route that reads one.
+    """
+    query = (
+        "SELECT format('REFRESH MATERIALIZED VIEW %I.%I;', schemaname, matviewname) "
+        "FROM pg_matviews WHERE schemaname = 'public' AND ispopulated ORDER BY matviewname"
+    )
+    return run("psql", f"--dbname={conninfo}", "-X", "-v", "ON_ERROR_STOP=1", "-tA", "-c", query)
+
+
+def main() -> None:
+    if len(sys.argv) not in (2, 3):
+        sys.exit(__doc__)
+    revision = sys.argv[1]
+    conninfo = sys.argv[2] if len(sys.argv) == 3 else ""
+    out = Path(__file__).resolve().parent.parent / "alembic" / "baseline" / f"{revision}.sql"
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(
+        f"{schema_sql(conninfo)}\n\n--\n-- Seed vocabulary\n--\n\n{seed_sql(conninfo)}\n{refresh_sql(conninfo)}"
+    )
+    print(f"Wrote {out}")
+
+
+if __name__ == "__main__":
+    main()

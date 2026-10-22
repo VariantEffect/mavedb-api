@@ -39,12 +39,26 @@ class CsvFetchResult:
 
 
 def _scope_query(
-    query: Select[Any], *, score_set_id: Optional[int], variant_ids: Optional[Sequence[int]]
+    query: Select[Any],
+    *,
+    score_set_id: Optional[int],
+    variant_ids: Optional[Sequence[int]],
+    start: Optional[int] = None,
+    limit: Optional[int] = None,
 ) -> Select[Any]:
-    """Narrow *query* to one score set (ordered by variant number) or an explicit variant set."""
-    if score_set_id is not None:
+    """Narrow *query* to one score set (ordered by variant number, optionally one ``start``/``limit`` page of
+    it) or an explicit variant set."""
+    if score_set_id is None:
+        return query.where(Variant.id.in_(variant_ids or []))
+
+    if start is None and limit is None:
         return query.where(Variant.score_set_id == score_set_id).order_by(*_VARIANT_NUMBER_ORDER)
-    return query.where(Variant.id.in_(variant_ids or []))
+
+    # Joining to the page's ids, with no score set filter of its own, leaves the outer query nothing to do
+    # but fetch those rows. Filtered by score set, the planner could serve its ORDER BY by walking the whole
+    # score set in index order and reading every row, skipped ones included (#901).
+    page = _page_variant_ids(score_set_id, start, limit).subquery("page")
+    return query.join(page, page.c.id == Variant.id).order_by(*_VARIANT_NUMBER_ORDER)
 
 
 def _restore_variant_id_order(rows: list[Any], variant_ids: Sequence[int], key) -> list[Any]:
@@ -53,18 +67,27 @@ def _restore_variant_id_order(rows: list[Any], variant_ids: Sequence[int], key) 
     return sorted(rows, key=lambda row: position.get(key(row), len(position)))
 
 
-def _apply_pagination(query: Select[Any], start: Optional[int], limit: Optional[int]) -> Select[Any]:
-    """Apply the shared ``start``/``limit`` window (offset/limit) to a variant query. A falsy ``start`` or
-    ``limit`` leaves that bound off."""
-    if start:
+def _page_variant_ids(score_set_id: int, start: Optional[int], limit: Optional[int]) -> Select[Any]:
+    """The ids of one ``start``/``limit`` page of a score set's variants. A ``None`` bound is left off.
+
+    Selecting only ids lets the variant-number index skip the rows before ``start`` without joining them
+    (#901).
+    """
+    query = select(Variant.id).where(Variant.score_set_id == score_set_id).order_by(*_VARIANT_NUMBER_ORDER)
+    if start is not None:
         query = query.offset(start)
-    if limit:
+    if limit is not None:
         query = query.limit(limit)
     return query
 
 
 def _substrate_query(
-    *, score_set_id: Optional[int], variant_ids: Optional[Sequence[int]], as_of: Optional[datetime]
+    *,
+    score_set_id: Optional[int],
+    variant_ids: Optional[Sequence[int]],
+    start: Optional[int],
+    limit: Optional[int],
+    as_of: Optional[datetime],
 ) -> Select[Any]:
     """The base per-variant query: each variant LEFT-joined to its live mapping record, its authoritative
     (measured) allele (digest / ClinGen id / VEP consequence), and that allele's measured projection group
@@ -105,7 +128,7 @@ def _substrate_query(
             and_(ProjectionGroup.id == MappingRecordAllele.projection_group, ProjectionGroup.live_at(as_of)),
         )
     )
-    return _scope_query(query, score_set_id=score_set_id, variant_ids=variant_ids)
+    return _scope_query(query, score_set_id=score_set_id, variant_ids=variant_ids, start=start, limit=limit)
 
 
 def _mapped_row(row: Any) -> CsvMappedRow:
@@ -194,6 +217,8 @@ def fetch_variant_csv_data(
     Args:
         score_set: every variant in a score set, ordered by URN suffix. Mutually exclusive with
             *variant_ids*, which returns an explicit set in the order given. Exactly one is required.
+        start: rows of the score set to skip. Not valid with *variant_ids*.
+        limit: the most rows of the score set to return. Not valid with *variant_ids*.
         as_of: reconstruct the mapping-derived namespaces (reference HGVS, VEP, gnomAD, ClinVar) as they
             stood at this instant, over the variant's immutable submitted HGVS/scores/counts. Defaults to
             currently-live rows. The deterministic replacement for the old ``current``-flag pinning: a
@@ -202,6 +227,8 @@ def fetch_variant_csv_data(
     """
     if (score_set is None) == (variant_ids is None):
         raise ValueError("exactly one of score_set or variant_ids must be provided")
+    if variant_ids is not None and (start is not None or limit is not None):
+        raise ValueError("start and limit page a score set, not an explicit variant set")
 
     # Driven by the namespaces' own descriptors, so a namespace cannot declare a relationship-backed
     # column and then quietly not have it loaded.
@@ -224,23 +251,17 @@ def fetch_variant_csv_data(
     if not need_mappings:
         # Fast path: scores/counts (and bare core/score-set identity) are a straight paginated scan,
         # untouched by as_of (it only reconstructs the — absent here — mapping-derived namespaces).
-        query = _apply_pagination(
-            _scope_query(select(Variant), score_set_id=score_set_id, variant_ids=variant_ids).options(
-                *score_set_options
-            ),
-            start,
-            limit,
-        )
+        query = _scope_query(
+            select(Variant), score_set_id=score_set_id, variant_ids=variant_ids, start=start, limit=limit
+        ).options(*score_set_options)
         result = list(db.scalars(query).all())
         if variant_ids is not None:
             result = _restore_variant_id_order(result, variant_ids, key=lambda v: v.id)
         return CsvFetchResult(result, None, None, None)
 
-    query = _apply_pagination(
-        _substrate_query(score_set_id=score_set_id, variant_ids=variant_ids, as_of=as_of).options(*score_set_options),
-        start,
-        limit,
-    )
+    query = _substrate_query(
+        score_set_id=score_set_id, variant_ids=variant_ids, start=start, limit=limit, as_of=as_of
+    ).options(*score_set_options)
     rows = list(db.execute(query).all())
     if variant_ids is not None:
         rows = _restore_variant_id_order(rows, variant_ids, key=lambda row: row.Variant.id)

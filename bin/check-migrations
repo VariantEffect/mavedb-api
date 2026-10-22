@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""Fail on migration code that stops the history replaying from an empty database.
+
+Usage: bin/check-migrations [file or directory ...]  (default: alembic/versions)
+
+The rules are in ``alembic/README.md``. Docstrings are ignored, since they describe the build-by-hand
+step for large indexes.
+"""
+
+import ast
+import sys
+from pathlib import Path
+
+FORBIDDEN_IMPORTS = {
+    "mavedb": "imports application code; write views and functions as literal SQL",
+    "sqlalchemy.orm": "uses the ORM; migrations run SQL only",
+    "requests": "makes network calls",
+    "httpx": "makes network calls",
+    "urllib": "makes network calls",
+}
+
+
+def _docstrings(tree: ast.Module) -> set[int]:
+    ids = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.body:
+            first = node.body[0]
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+                ids.add(id(first.value))
+    return ids
+
+
+def _forbidden_import(module: str) -> str | None:
+    for name, reason in FORBIDDEN_IMPORTS.items():
+        if module == name or module.startswith(f"{name}."):
+            return reason
+    return None
+
+
+def check(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(), filename=str(path))
+    docstrings = _docstrings(tree)
+    problems = []
+    for node in ast.walk(tree):
+        reason = None
+        if isinstance(node, ast.Import):
+            reason = next(filter(None, (_forbidden_import(alias.name) for alias in node.names)), None)
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            reason = _forbidden_import(node.module)
+        elif isinstance(node, ast.Attribute) and node.attr == "autocommit_block":
+            reason = "uses autocommit_block(), which commits everything before it"
+        elif isinstance(node, ast.Attribute) and node.attr == "commit":
+            reason = "commits mid-upgrade"
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
+            text = " ".join(node.value.upper().split())
+            if "CONCURRENTLY" in text:
+                reason = "uses CONCURRENTLY, which can't run inside a transaction"
+            elif "ADD VALUE" in text:
+                reason = "adds an enum value, which the rest of the upgrade's transaction can't use"
+        if reason:
+            problems.append(f"{path}:{node.lineno}: {reason}")
+    return problems
+
+
+def main(args: list[str]) -> int:
+    targets = [Path(arg) for arg in args] or [Path(__file__).resolve().parent.parent / "alembic" / "versions"]
+    files = [f for t in targets for f in (sorted(t.glob("*.py")) if t.is_dir() else [t])]
+    problems = [problem for f in files for problem in check(f)]
+    if problems:
+        print("\n".join(problems), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

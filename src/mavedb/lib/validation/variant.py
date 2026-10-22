@@ -62,7 +62,7 @@ def validate_hgvs_string(
         value = value.decode()
     if not isinstance(value, str):
         raise ValidationError(
-            "Variant HGVS values input must be strings. " "'{}' has the type '{}'.".format(value, type(value).__name__)
+            "Variant HGVS values input must be strings. '{}' has the type '{}'.".format(value, type(value).__name__)
         )
 
     if value.lower() == "_sy":
@@ -87,19 +87,16 @@ def validate_hgvs_string(
         else:
             if prefix not in "cn":
                 raise ValidationError(
-                    f"'{value}' is not a transcript variant. The accepted "
-                    f"transcript variant prefixes are 'c.', 'n.'."
+                    f"'{value}' is not a transcript variant. The accepted transcript variant prefixes are 'c.', 'n.'."
                 )
     elif column in ("splice", hgvs_splice_column):
         if prefix not in "cn":
             raise ValidationError(
-                f"'{value}' is not a transcript variant. The accepted " f"transcript variant prefixes are 'c.', 'n.'."
+                f"'{value}' is not a transcript variant. The accepted transcript variant prefixes are 'c.', 'n.'."
             )
     elif column in ("p", hgvs_pro_column):
         if prefix not in "p":
-            raise ValidationError(
-                f"'{value}' is not a protein variant. The accepted " f"protein variant prefix is 'p.'."
-            )
+            raise ValidationError(f"'{value}' is not a protein variant. The accepted protein variant prefix is 'p.'.")
     else:
         raise ValueError("Unknown column '{}'. Expected nt, splice or p".format(column))
 

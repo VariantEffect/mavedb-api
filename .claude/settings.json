@@ -1,0 +1,32 @@
+{
+  "env": {
+    "AWS_PROFILE": "mavedb-agent-readonly"
+  },
+  "permissions": {
+    "deny": ["Bash(* --no-verify*)", "Read(~/.aws/**)", "Read(~/.pgpass)", "Read(~/.ssh/**)"],
+    "ask": [
+      "Edit(**/.claude/settings*.json)",
+      "Bash(git push *--force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push * main*)",
+      "Bash(git push * mavedb-main*)",
+      "Bash(git push * mavedb-dev*)",
+      "Bash(git push * release-*)",
+      "Bash(git -C * push *--force*)",
+      "Bash(git -C * push * -f*)",
+      "Bash(git -C * push * main*)",
+      "Bash(git -C * push * mavedb-main*)",
+      "Bash(git -C * push * mavedb-dev*)",
+      "Bash(git -C * push * release-*)",
+      "Bash(aws *--profile*)",
+      "Bash(*AWS_PROFILE=*)",
+      "Bash(eb *)",
+      "Bash(*MODE=prodapi*)",
+      "Bash(poetry add *)",
+      "Bash(poetry -C * add *)",
+      "Bash(npm install *)",
+      "Bash(npm --prefix * install *)",
+      "Bash(*pip install *)"
+    ]
+  }
+}

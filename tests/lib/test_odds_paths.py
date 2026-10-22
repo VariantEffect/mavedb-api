@@ -66,9 +66,9 @@ def test_each_interval_is_exclusive():
         upper_result = oddspaths_evidence_strength_equivalent(r[1])
         assert lower_result == upper_result, f"Mismatch at interval {r}"
 
-        assert all(
-            result not in seen for result in [lower_result, upper_result]
-        ), f"Duplicate classification for ratio {r}"
+        assert all(result not in seen for result in [lower_result, upper_result]), (
+            f"Duplicate classification for ratio {r}"
+        )
         seen.add(lower_result)
 
 

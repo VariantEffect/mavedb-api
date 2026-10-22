@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 from datetime import datetime, timedelta
@@ -125,6 +126,14 @@ async def get_access_token(
     return access_token_header or access_token_cookie
 
 
+def hash_access_key(access_key: str) -> str:
+    """Return the hex SHA-256 digest under which an access key is stored and looked up.
+
+    Access keys are long random tokens, so an unsalted fast hash is enough to keep stored keys unusable.
+    """
+    return hashlib.sha256(access_key.encode()).hexdigest()
+
+
 def get_current_user_data_from_api_key(
     db: Session = Depends(deps.get_db), access_token: str = Depends(get_access_token)
 ) -> Optional[UserData]:
@@ -132,7 +141,7 @@ def get_current_user_data_from_api_key(
     roles: list[UserRole] = []
 
     if access_token is not None:
-        access_key = db.query(AccessKey).filter(AccessKey.key_id == access_token).one_or_none()
+        access_key = db.query(AccessKey).filter(AccessKey.key_id == hash_access_key(access_token)).one_or_none()
         if access_key:
             user = access_key.user
             if access_key.role is not None:

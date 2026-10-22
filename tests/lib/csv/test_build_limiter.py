@@ -25,7 +25,13 @@ def one_slot(monkeypatch):
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "num_variants, start, limit, expected",
-    [(648022, None, None, 648022), (648022, 600000, 50000, 48022), (648022, None, 5, 5), (10, 20, None, 0)],
+    [
+        (648022, None, None, 648022),
+        (648022, 600000, 50000, 48022),
+        (648022, None, 5, 5),
+        (10, 20, None, 0),
+        (10, None, 0, 0),
+    ],
 )
 def test_rows_to_build(num_variants, start, limit, expected):
     assert rows_to_build(num_variants, start, limit) == expected

@@ -11,6 +11,7 @@ fastapi = pytest.importorskip("fastapi")
 import json
 from unittest.mock import patch
 
+import pandas as pd
 from arq import ArqRedis
 from sqlalchemy import select
 
@@ -1453,6 +1454,51 @@ def test_cannot_create_score_calibration_when_csv_file_fails_decoding(
     ],
     indirect=["mock_publication_fetch"],
 )
+def test_cannot_create_score_calibration_when_csv_file_fails_parsing(
+    client, setup_router_db, session, data_provider, data_files, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+
+    calibration_csv_path = data_files / "calibration_classes_by_urn.csv"
+    with (
+        open(calibration_csv_path, "rb") as class_file,
+        patch(
+            "mavedb.routers.score_calibrations.csv_data_to_df",
+            side_effect=pd.errors.ParserError("Error tokenizing data. C error: Expected 1 fields in line 17, saw 4"),
+        ),
+    ):
+        response = client.post(
+            "/api/v1/score-calibrations",
+            files={"classes_file": (calibration_csv_path.name, class_file, "text/csv")},
+            data={
+                "calibration_json": json.dumps(
+                    {"scoreSetUrn": score_set["urn"], **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED)}
+                ),
+            },
+        )
+
+    assert response.status_code == 400
+    error = response.json()
+    assert "Error parsing classes file:" in str(error["detail"])
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
 def test_cannot_create_score_calibration_when_validation_error_is_raised_from_score_calibration_file_standardization(
     client, setup_router_db, session, data_provider, data_files, mock_publication_fetch
 ):
@@ -2011,6 +2057,57 @@ def test_cannot_update_score_calibration_when_csv_file_fails_decoding(
     assert response.status_code == 400
     error = response.json()
     assert "Error decoding file:" in str(error["detail"])
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_update_score_calibration_when_csv_file_fails_parsing(
+    client, setup_router_db, session, data_provider, data_files, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    calibration_csv_path = data_files / "calibration_classes_by_urn.csv"
+    with (
+        open(calibration_csv_path, "rb") as class_file,
+        patch(
+            "mavedb.routers.score_calibrations.csv_data_to_df",
+            side_effect=pd.errors.ParserError("Error tokenizing data. C error: Expected 1 fields in line 17, saw 4"),
+        ),
+    ):
+        response = client.put(
+            f"/api/v1/score-calibrations/{calibration['urn']}",
+            files={"classes_file": (calibration_csv_path.name, class_file, "text/csv")},
+            data={
+                "calibration_json": json.dumps(
+                    {
+                        "scoreSetUrn": score_set["urn"],
+                        **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED),
+                    }
+                ),
+            },
+        )
+
+    assert response.status_code == 400
+    error = response.json()
+    assert "Error parsing classes file:" in str(error["detail"])
 
 
 @pytest.mark.parametrize(

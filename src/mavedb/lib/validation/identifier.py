@@ -47,7 +47,7 @@ def validate_sra_identifier(identifier: str):
         or idutils.is_arrayexpress_array(identifier)
         or idutils.is_arrayexpress_experiment(identifier)
     ):
-        raise ValidationError(f"'{identifier} is not a valid SRA, GEO, ArrayExpress or BioProject " "accession.")
+        raise ValidationError(f"'{identifier} is not a valid SRA, GEO, ArrayExpress or BioProject accession.")
 
 
 def validate_ensembl_identifier(identifier: str):

@@ -8,11 +8,13 @@ on:
 
 env:
   LOG_CONFIG: test
+  # Keep pytest's temp files, including each worker's Postgres data directory, in memory.
+  PYTEST_ADDOPTS: --basetemp=/dev/shm/pytest
 
 jobs:
-  run-mypy-3_11:
+  run-checks:
     runs-on: ubuntu-latest
-    name: MyPy checks on Python 3.11
+    name: Lint, format and type checks (bin/check)
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
@@ -24,23 +26,43 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev --extras server
-    - run: poetry run mypy src/
+    - run: bin/check
 
-  run-ruff-lint:
+  replay-migrations:
     runs-on: ubuntu-latest
-    name: Ruff linting on Python 3.11
+    name: Replay migrations on an empty database
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mavedb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_DATABASE_NAME: mavedb
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
       with:
         python-version: "3.11"
         cache: 'pip'
-    - run: sudo apt-get update
-    - run: sudo apt-get install -y tabix
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev --extras server
-    - run: poetry run ruff check
+    - run: poetry run alembic upgrade head
+    - name: Check there is exactly one head
+      run: test "$(poetry run alembic heads | wc -l)" -eq 1
 
   run-tests-3_11-core-dependencies:
     runs-on: ubuntu-latest
@@ -56,10 +78,10 @@ jobs:
     - run: poetry install --with dev
     - name: Run fast tests on PRs
       if: github.event_name == 'pull_request'
-      run: poetry run pytest tests/ -m "not network and not slow"
+      run: bin/t tests/ -n logical -m "not network and not slow"
     - name: Run full tests on main and release branches
       if: github.event_name == 'push'
-      run: poetry run pytest tests/
+      run: bin/t tests/ -n logical
 
   run-tests-3_12-core-dependencies:
     runs-on: ubuntu-latest
@@ -75,10 +97,10 @@ jobs:
     - run: poetry install --with dev
     - name: Run fast tests on PRs
       if: github.event_name == 'pull_request'
-      run: poetry run pytest tests/ -m "not network and not slow"
+      run: bin/t tests/ -n logical -m "not network and not slow"
     - name: Run all tests on main and release branches
       if: github.event_name == 'push'
-      run: poetry run pytest tests/
+      run: bin/t tests/ -n logical
 
   run-tests-3_11:
     runs-on: ubuntu-latest
@@ -98,12 +120,12 @@ jobs:
       if: github.event_name == 'pull_request'
       run: |
         mkdir -p coverage
-        poetry run pytest tests/ -m "not network and not slow" --show-capture=stdout --cov=src --cov-report=term-missing --cov-report=lcov:coverage/lcov.info
+        bin/t tests/ -n logical -m "not network and not slow" --show-capture=stdout --cov=src --cov-report=term-missing --cov-report=lcov:coverage/lcov.info
     - name: Run all tests with coverage on main and release branches
       if: github.event_name == 'push'
       run: |
         mkdir -p coverage
-        poetry run pytest tests/ --show-capture=stdout --cov=src --cov-report=term-missing --cov-report=lcov:coverage/lcov.info
+        bin/t tests/ -n logical --show-capture=stdout --cov=src --cov-report=term-missing --cov-report=lcov:coverage/lcov.info
     - name: Upload coverage to Coveralls
       uses: coverallsapp/github-action@v2
       with:
