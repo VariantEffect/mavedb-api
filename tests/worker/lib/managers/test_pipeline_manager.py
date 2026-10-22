@@ -3349,9 +3349,9 @@ class TestSetPipelineStatusUnit:
         mock_pipeline.finished_at = None
 
         with TransactionSpy.spy(mock_pipeline_manager.db):
-            before_update = datetime.datetime.now()
+            before_update = datetime.datetime.now(tz=datetime.timezone.utc)
             mock_pipeline_manager.set_pipeline_status(pipeline_status)
-            after_update = datetime.datetime.now()
+            after_update = datetime.datetime.now(tz=datetime.timezone.utc)
 
             assert mock_pipeline.status == pipeline_status
             assert mock_pipeline.finished_at is not None
@@ -3377,9 +3377,9 @@ class TestSetPipelineStatusUnit:
         """Test that setting status to RUNNING sets the started_at property if not already set."""
         mock_pipeline.started_at = initial_started_at
         with TransactionSpy.spy(mock_pipeline_manager.db):
-            before_update = datetime.datetime.now()
+            before_update = datetime.datetime.now(tz=datetime.timezone.utc)
             mock_pipeline_manager.set_pipeline_status(PipelineStatus.RUNNING)
-            after_update = datetime.datetime.now()
+            after_update = datetime.datetime.now(tz=datetime.timezone.utc)
 
             assert mock_pipeline.status == PipelineStatus.RUNNING
 
