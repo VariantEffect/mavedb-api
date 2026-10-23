@@ -16,11 +16,7 @@ from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.collections import readable_official_collections
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.experiments import search_experiments as _search_experiments
-from mavedb.lib.identifiers import (
-    find_or_create_doi_identifier,
-    find_or_create_publication_identifier,
-    find_or_create_raw_read_identifier,
-)
+from mavedb.lib.identifiers import distinct_identifiers, find_or_create_publication_identifier
 from mavedb.lib.keywords import search_keyword
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
@@ -32,9 +28,11 @@ from mavedb.lib.types.authentication import UserData
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import validate_keyword_list
 from mavedb.models.contributor import Contributor
+from mavedb.models.doi_identifier import ExperimentDoiIdentifier
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_set import ExperimentSet
+from mavedb.models.raw_read_identifier import ExperimentRawReadIdentifier
 from mavedb.models.score_set import ScoreSet
 from mavedb.routers.shared import (
     ACCESS_CONTROL_ERROR_RESPONSES,
@@ -323,15 +321,16 @@ async def create_experiment(
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
         raise HTTPException(status_code=404, detail=str(e))
 
+    doi_identifiers = [
+        ExperimentDoiIdentifier(identifier=identifier)
+        for identifier in distinct_identifiers(i.identifier for i in item_create.doi_identifiers or [])
+    ]
+    raw_read_identifiers = [
+        ExperimentRawReadIdentifier(identifier=identifier)
+        for identifier in distinct_identifiers(i.identifier for i in item_create.raw_read_identifiers or [])
+    ]
+
     try:
-        doi_identifiers = [
-            await find_or_create_doi_identifier(db, identifier.identifier)
-            for identifier in item_create.doi_identifiers or []
-        ]
-        raw_read_identifiers = [
-            await find_or_create_raw_read_identifier(db, identifier.identifier)
-            for identifier in item_create.raw_read_identifiers or []
-        ]
         primary_publication_identifiers = [
             await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             for identifier in item_create.primary_publication_identifiers or []
@@ -474,16 +473,16 @@ async def update_experiment(
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
         raise HTTPException(status_code=404, detail=str(e))
 
-    try:
-        doi_identifiers = [
-            await find_or_create_doi_identifier(db, identifier.identifier)
-            for identifier in item_update.doi_identifiers or []
-        ]
-        raw_read_identifiers = [
-            await find_or_create_raw_read_identifier(db, identifier.identifier)
-            for identifier in item_update.raw_read_identifiers or []
-        ]
+    doi_identifiers = [
+        ExperimentDoiIdentifier(identifier=identifier)
+        for identifier in distinct_identifiers(i.identifier for i in item_update.doi_identifiers or [])
+    ]
+    raw_read_identifiers = [
+        ExperimentRawReadIdentifier(identifier=identifier)
+        for identifier in distinct_identifiers(i.identifier for i in item_update.raw_read_identifiers or [])
+    ]
 
+    try:
         primary_publication_identifiers = [
             await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             for identifier in item_update.primary_publication_identifiers or []

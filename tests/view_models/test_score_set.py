@@ -291,10 +291,7 @@ def test_saved_score_set_synthetic_properties():
     score_set.pop("secondaryPublicationIdentifiers")
 
     # Convert fields expecting an object to attributed objects
-    external_identifiers = {"refseq_offset": None, "ensembl_offset": None, "uniprot_offset": None}
-    target_genes = [
-        dummy_attributed_object_from_dict({**target, **external_identifiers}) for target in score_set["targetGenes"]
-    ]
+    target_genes = [dummy_attributed_object_from_dict(target) for target in score_set["targetGenes"]]
     score_set["targetGenes"] = [SavedTargetGene.model_validate(target) for target in target_genes]
 
     # Set synthetic properties with dummy attributed objects to mock SQLAlchemy model objects.
@@ -397,10 +394,7 @@ def test_cannot_create_saved_score_set_without_all_attributed_properties(exclude
     score_set.pop("secondaryPublicationIdentifiers")
 
     # Convert fields expecting an object to attributed objects
-    external_identifiers = {"refseq_offset": None, "ensembl_offset": None, "uniprot_offset": None}
-    target_genes = [
-        dummy_attributed_object_from_dict({**target, **external_identifiers}) for target in score_set["targetGenes"]
-    ]
+    target_genes = [dummy_attributed_object_from_dict(target) for target in score_set["targetGenes"]]
     score_set["targetGenes"] = [SavedTargetGene.model_validate(target) for target in target_genes]
 
     # Set synthetic properties with dummy attributed objects to mock SQLAlchemy model objects.

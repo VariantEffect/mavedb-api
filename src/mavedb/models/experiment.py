@@ -12,7 +12,7 @@ from mavedb.db.base import Base
 from mavedb.lib.temp_urns import generate_temp_urn
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
-from mavedb.models.doi_identifier import DoiIdentifier
+from mavedb.models.doi_identifier import ExperimentDoiIdentifier
 from mavedb.models.experiment_controlled_keyword import (
     ExperimentControlledKeywordAssociation,
 )
@@ -22,7 +22,7 @@ from mavedb.models.experiment_publication_identifier import (
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.legacy_keyword import LegacyKeyword
 from mavedb.models.publication_identifier import PublicationIdentifier
-from mavedb.models.raw_read_identifier import RawReadIdentifier
+from mavedb.models.raw_read_identifier import ExperimentRawReadIdentifier
 from mavedb.models.user import User
 
 if TYPE_CHECKING:
@@ -36,26 +36,11 @@ experiments_contributors_association_table = Table(
     Column("contributor_id", ForeignKey("contributors.id"), primary_key=True),
 )
 
-experiments_doi_identifiers_association_table = Table(
-    "experiment_doi_identifiers",
-    Base.metadata,
-    Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
-    Column("doi_identifier_id", ForeignKey("doi_identifiers.id"), primary_key=True),
-)
-
 experiments_legacy_keywords_association_table = Table(
     "experiment_keywords",
     Base.metadata,
     Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
     Column("keyword_id", ForeignKey("keywords.id"), primary_key=True),
-)
-
-# experiments_sra_identifiers_association_table = Table(
-experiments_raw_read_identifiers_association_table = Table(
-    "experiment_sra_identifiers",
-    Base.metadata,
-    Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
-    Column("sra_identifier_id", ForeignKey("sra_identifiers.id"), primary_key=True),
 )
 
 
@@ -117,10 +102,8 @@ class Experiment(Base):
         secondary=experiments_legacy_keywords_association_table,
         backref="experiments",
     )
-    doi_identifiers: Mapped[list[DoiIdentifier]] = relationship(
-        "DoiIdentifier",
-        secondary=experiments_doi_identifiers_association_table,
-        backref="experiments",
+    doi_identifiers: Mapped[list[ExperimentDoiIdentifier]] = relationship(
+        cascade="all, delete-orphan", order_by=ExperimentDoiIdentifier.identifier
     )
     publication_identifier_associations: Mapped[list[ExperimentPublicationIdentifierAssociation]] = relationship(
         "ExperimentPublicationIdentifierAssociation",
@@ -133,11 +116,8 @@ class Experiment(Base):
         creator=lambda p: ExperimentPublicationIdentifierAssociation(publication=p, primary=p.primary),
     )
 
-    # sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
-    raw_read_identifiers: Mapped[list[RawReadIdentifier]] = relationship(
-        "RawReadIdentifier",
-        secondary=experiments_raw_read_identifiers_association_table,
-        backref="experiments",
+    raw_read_identifiers: Mapped[list[ExperimentRawReadIdentifier]] = relationship(
+        cascade="all, delete-orphan", order_by=ExperimentRawReadIdentifier.identifier
     )
 
     # Unfortunately, we can't use association_proxy here, because in spite of what the documentation seems to imply, it

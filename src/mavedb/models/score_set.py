@@ -10,7 +10,7 @@ from sqlalchemy.schema import Table
 import mavedb.models.score_set_publication_identifier
 from mavedb.db.base import Base
 from mavedb.models.contributor import Contributor
-from mavedb.models.doi_identifier import DoiIdentifier
+from mavedb.models.doi_identifier import ScoreSetDoiIdentifier
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from mavedb.models.target_gene import TargetGene
     from mavedb.models.variant import Variant
 
-# from .raw_read_identifier import SraIdentifier
 from mavedb.lib.temp_urns import generate_temp_urn
 
 # TODO Reformat code without removing dependencies whose use is not detected.
@@ -35,14 +34,6 @@ score_sets_contributors_association_table = Table(
     Base.metadata,
     Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
     Column("contributor_id", ForeignKey("contributors.id"), primary_key=True),
-)
-
-
-score_sets_doi_identifiers_association_table = Table(
-    "scoreset_doi_identifiers",
-    Base.metadata,
-    Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
-    Column("doi_identifier_id", ForeignKey("doi_identifiers.id"), primary_key=True),
 )
 
 
@@ -59,15 +50,6 @@ score_sets_meta_analysis_score_sets_association_table = Table(
     Base.metadata,
     Column("source_scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
     Column("meta_analysis_scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
-)
-
-
-# score_sets_sra_identifiers_association_table = Table(
-score_sets_raw_read_identifiers_association_table = Table(
-    "scoreset_sra_identifiers",
-    Base.metadata,
-    Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
-    Column("sra_identifier_id", ForeignKey("sra_identifiers.id"), primary_key=True),
 )
 
 
@@ -161,10 +143,8 @@ class ScoreSet(Base):
         secondary=score_sets_contributors_association_table,
         backref="score_sets",
     )
-    doi_identifiers: Mapped[list["DoiIdentifier"]] = relationship(
-        "DoiIdentifier",
-        secondary=score_sets_doi_identifiers_association_table,
-        backref="score_sets",
+    doi_identifiers: Mapped[list[ScoreSetDoiIdentifier]] = relationship(
+        cascade="all, delete-orphan", order_by=ScoreSetDoiIdentifier.identifier
     )
     publication_identifier_associations: Mapped[
         list[mavedb.models.score_set_publication_identifier.ScoreSetPublicationIdentifierAssociation]
@@ -180,8 +160,6 @@ class ScoreSet(Base):
             publication=p, primary=p.primary
         ),
     )
-    # sra_identifiers = relationship('SraIdentifier', secondary=score_sets_sra_identifiers_association_table, backref='score_sets')
-    # raw_read_identifiers = relationship('RawReadIdentifier', secondary=score_sets_raw_read_identifiers_association_table,backref='score_sets')
     meta_analyzes_score_sets: Mapped[list["ScoreSet"]] = relationship(
         "ScoreSet",
         secondary=score_sets_meta_analysis_score_sets_association_table,

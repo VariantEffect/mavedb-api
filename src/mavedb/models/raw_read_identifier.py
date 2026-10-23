@@ -1,17 +1,36 @@
-from datetime import date
-
-from sqlalchemy import Column, Date, Integer, String
+from sqlalchemy import Column, ForeignKey, Integer, String
 
 from mavedb.db.base import Base
+from mavedb.lib.external_identifier_urls import raw_read_url
+from mavedb.models.mixins.external_identifier import ExternalIdentifier
 
 
-class RawReadIdentifier(Base):
-    __tablename__ = "sra_identifiers"
+class RawReadIdentifierLink(ExternalIdentifier):
+    """A raw read accession (SRA, BioProject, GEO or ArrayExpress) cited by one record."""
 
-    id = Column(Integer, primary_key=True)
-    identifier = Column(String, nullable=False)
-    db_name = Column(String, nullable=False)
-    db_version = Column(String, nullable=True)
-    url = Column(String, nullable=True)
-    creation_date = Column(Date, nullable=False, default=date.today)
-    modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
+    db_name = "SRA"
+
+    @property
+    def url(self) -> str:
+        return raw_read_url(self.identifier)
+
+
+class ScoreSetRawReadIdentifier(RawReadIdentifierLink, Base):
+    __tablename__ = "scoreset_sra_identifiers"
+
+    score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), primary_key=True)
+    identifier = Column(String, primary_key=True)
+
+
+class ExperimentRawReadIdentifier(RawReadIdentifierLink, Base):
+    __tablename__ = "experiment_sra_identifiers"
+
+    experiment_id = Column(Integer, ForeignKey("experiments.id"), primary_key=True)
+    identifier = Column(String, primary_key=True)
+
+
+class ExperimentSetRawReadIdentifier(RawReadIdentifierLink, Base):
+    __tablename__ = "experiment_set_sra_identifiers"
+
+    experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), primary_key=True)
+    identifier = Column(String, primary_key=True)
