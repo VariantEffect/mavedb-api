@@ -212,6 +212,16 @@ def test_search_doi_identifiers_cited_twice_returns_one_result(client, setup_rou
     ]
 
 
+@pytest.mark.parametrize("text", ["%", "_"], ids=["percent", "underscore"])
+def test_search_doi_identifiers_with_like_wildcard_matches_it_literally(client, setup_router_db, text):
+    create_experiment(client, {"doiIdentifiers": [{"identifier": "10.1000/182"}]})
+
+    response = client.post("/api/v1/doi-identifiers/search", json={"text": text})
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
 @pytest.mark.parametrize(
     "route",
     [

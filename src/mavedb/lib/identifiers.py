@@ -430,7 +430,7 @@ def search_identifiers_on_readable_records(
     found: dict[str, ExternalIdentifier] = {}
     for link, viewer_class, query in sources:
         viewer = principal.viewer_for(viewer_class)
-        rows = db.execute(query.where(func.lower(link.identifier).contains(text.lower()))).all()
+        rows = db.execute(query.where(func.lower(link.identifier).contains(text.lower(), autoescape=True))).all()
         for link_row, record in rows:
             if link_row.identifier in found:
                 continue
