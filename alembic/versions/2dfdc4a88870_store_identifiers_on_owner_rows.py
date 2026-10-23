@@ -9,7 +9,8 @@ to by id. Every column but the identifier was a constant, always null, or deriva
 moves onto the row that uses it (#944):
 
 - The six DOI and raw read link tables hold the identifier string, keyed by ``(<parent>_id, identifier)``.
-  DOIs are upper-cased on the way, the form the DOI registry stores, since they're case-insensitive and a record
+  DOIs are stored bare and upper-cased, as the api now stores new ones: ``doi:`` and resolver prefixes are
+  stripped, and upper case is the form the DOI registry stores, since DOIs are case-insensitive and a record
   shouldn't cite one twice.
 - ``ensembl_offsets``, ``refseq_offsets`` and ``uniprot_offsets`` merge into
   ``target_gene_external_identifiers``, keyed by ``(target_gene_id, db_name)``: a target gene has at most one
@@ -33,6 +34,10 @@ revision = "2dfdc4a88870"
 down_revision = "6987f253e02a"
 branch_labels = None
 depends_on = None
+
+# The api accepted DOIs with a ``doi:`` or resolver prefix before #944 and stored them as given. This strips the
+# prefixes idutils.normalize_doi strips, which is what the api applies to new DOIs.
+DOI_NORMALIZE = r"upper(regexp_replace({}, '^(doi:\s*|(https?://)?(dx\.)?doi\.org/)', '', 'i'))"
 
 # (link table, parent column, shared table, shared id column)
 DOI_LINKS = [
@@ -60,7 +65,7 @@ def _fold_link_table(link: str, parent: str, shared: str, shared_id: str, normal
         f"UPDATE {link} l SET identifier = {normalize.format('s.identifier')} FROM {shared} s WHERE s.id = l.{shared_id}"
     )
 
-    # Two shared rows differing only in case would collide once upper-cased. There are none today.
+    # Two shared rows differing only in case or prefix would collide once normalized. There are none today.
     op.execute(
         f"DELETE FROM {link} a USING {link} b "
         f"WHERE a.{parent} = b.{parent} AND a.identifier = b.identifier AND a.ctid > b.ctid"
@@ -105,7 +110,7 @@ def _unfold_link_table(link: str, parent: str, shared: str, shared_id: str) -> N
 
 def upgrade() -> None:
     for link, parent, shared, shared_id in DOI_LINKS:
-        _fold_link_table(link, parent, shared, shared_id, normalize="upper({})")
+        _fold_link_table(link, parent, shared, shared_id, normalize=DOI_NORMALIZE)
     for link, parent, shared, shared_id in RAW_READ_LINKS:
         _fold_link_table(link, parent, shared, shared_id, normalize="{}")
 
