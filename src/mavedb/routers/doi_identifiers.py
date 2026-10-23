@@ -1,20 +1,13 @@
 from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.authorization import get_principal
-from mavedb.lib.identifiers import search_identifiers_on_readable_records
-from mavedb.lib.permissions.experiment import ExperimentViewer
-from mavedb.lib.permissions.experiment_set import ExperimentSetViewer
+from mavedb.lib.identifiers import identifier_sources_on_records, search_identifiers_on_readable_records
 from mavedb.lib.permissions.principal import Principal
-from mavedb.lib.permissions.score_set import ScoreSetViewer
 from mavedb.models.doi_identifier import ExperimentDoiIdentifier, ExperimentSetDoiIdentifier, ScoreSetDoiIdentifier
-from mavedb.models.experiment import Experiment
-from mavedb.models.experiment_set import ExperimentSet
-from mavedb.models.score_set import ScoreSet
 from mavedb.routers.shared import BASE_400_RESPONSE, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import doi_identifier
 from mavedb.view_models.search import TextSearch
@@ -55,27 +48,5 @@ def search_doi_identifiers(
         db,
         principal,
         search.text.strip(),
-        [
-            (
-                ScoreSetDoiIdentifier,
-                ScoreSetViewer,
-                select(ScoreSetDoiIdentifier, ScoreSet).join(
-                    ScoreSet, ScoreSet.id == ScoreSetDoiIdentifier.score_set_id
-                ),
-            ),
-            (
-                ExperimentDoiIdentifier,
-                ExperimentViewer,
-                select(ExperimentDoiIdentifier, Experiment).join(
-                    Experiment, Experiment.id == ExperimentDoiIdentifier.experiment_id
-                ),
-            ),
-            (
-                ExperimentSetDoiIdentifier,
-                ExperimentSetViewer,
-                select(ExperimentSetDoiIdentifier, ExperimentSet).join(
-                    ExperimentSet, ExperimentSet.id == ExperimentSetDoiIdentifier.experiment_set_id
-                ),
-            ),
-        ],
+        identifier_sources_on_records(ScoreSetDoiIdentifier, ExperimentDoiIdentifier, ExperimentSetDoiIdentifier),
     )
