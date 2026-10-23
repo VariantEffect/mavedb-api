@@ -241,7 +241,7 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
                         ScoreSetPublicationIdentifierAssociation.publication
                     ),
                     joinedload(ScoreSet.target_genes).options(
-                        joinedload(TargetGene.external_identifiers),
+                        selectinload(TargetGene.external_identifiers),
                         joinedload(TargetGene.target_sequence).joinedload(TargetSequence.taxonomy),
                         joinedload(TargetGene.target_accession),
                     ),
@@ -253,7 +253,7 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
                 ScoreSetPublicationIdentifierAssociation.publication
             ),
             selectinload(ScoreSet.target_genes).options(
-                joinedload(TargetGene.external_identifiers),
+                selectinload(TargetGene.external_identifiers),
                 joinedload(TargetGene.target_sequence).joinedload(TargetSequence.taxonomy),
                 joinedload(TargetGene.target_accession),
             ),
