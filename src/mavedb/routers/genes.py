@@ -86,7 +86,7 @@ def _score_set_load_options():
             ScoreSetPublicationIdentifierAssociation.publication
         ),
         selectinload(ScoreSet.target_genes).options(
-            joinedload(TargetGene.external_identifiers),
+            selectinload(TargetGene.external_identifiers),
             joinedload(TargetGene.target_sequence).joinedload(TargetSequence.taxonomy),
             joinedload(TargetGene.target_accession),
         ),
