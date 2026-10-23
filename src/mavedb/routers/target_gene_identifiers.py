@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.authorization import get_principal
-from mavedb.lib.identifiers import search_identifiers_on_readable_records
+from mavedb.lib.identifier_search import search_identifiers_on_readable_records
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_set import ScoreSetViewer
 from mavedb.lib.validation.constants.identifier import valid_dbnames
