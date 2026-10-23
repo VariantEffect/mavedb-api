@@ -59,9 +59,9 @@ from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.gnomad import get_gnomad_variants_with_variant_urns
 from mavedb.lib.identifiers import (
-    create_external_gene_identifier_offset,
-    find_or_create_doi_identifier,
+    distinct_identifiers,
     find_or_create_publication_identifier,
+    target_gene_external_identifiers,
 )
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
@@ -97,6 +97,7 @@ from mavedb.lib.validation.exceptions import ValidationError as MaveDBValidation
 from mavedb.lib.variant_detail import load_variant_detail_inputs
 from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set_from_thread
 from mavedb.models.contributor import Contributor
+from mavedb.models.doi_identifier import ScoreSetDoiIdentifier
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
@@ -301,7 +302,8 @@ def score_set_update(
             DoiIdentifierCreate(**identifier) for identifier in item_update_dict.get("doi_identifiers") or []
         ]
         item.doi_identifiers = [
-            find_or_create_doi_identifier(db, identifier.identifier) for identifier in doi_identifiers_list
+            ScoreSetDoiIdentifier(identifier=identifier)
+            for identifier in distinct_identifiers(i.identifier for i in doi_identifiers_list)
         ]
 
     if any(key in item_update_dict for key in ["primary_publication_identifiers", "secondary_publication_identifiers"]):
@@ -477,16 +479,7 @@ def score_set_update(
                     logger.info(msg="Failed to create score set; Could not infer target type.", extra=logging_context())
                     raise ValueError("One of either `target_accession` or `target_gene` should be present")
 
-                for external_gene_identifier_offset_create in gene.external_identifiers:
-                    offset = external_gene_identifier_offset_create.offset
-                    identifier_create = external_gene_identifier_offset_create.identifier
-                    create_external_gene_identifier_offset(
-                        db,
-                        target_gene,
-                        identifier_create.db_name,
-                        identifier_create.identifier,
-                        offset,
-                    )
+                target_gene.external_identifiers = target_gene_external_identifiers(gene.external_identifiers)
 
                 targets.append(target_gene)
 
@@ -2114,10 +2107,12 @@ def create_score_set(
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
         raise HTTPException(status_code=404, detail=str(e))
 
+    doi_identifiers = [
+        ScoreSetDoiIdentifier(identifier=identifier)
+        for identifier in distinct_identifiers(i.identifier for i in item_create.doi_identifiers or [])
+    ]
+
     try:
-        doi_identifiers = [
-            find_or_create_doi_identifier(db, identifier.identifier) for identifier in item_create.doi_identifiers or []
-        ]
         primary_publication_identifiers = [
             find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             for identifier in item_create.primary_publication_identifiers or []
@@ -2266,16 +2261,7 @@ def create_score_set(
             logger.info(msg="Failed to create score set; Could not infer target type.", extra=logging_context())
             raise ValueError("One of either `target_accession` or `target_gene` should be present")
 
-        for external_gene_identifier_offset_create in gene.external_identifiers:
-            offset = external_gene_identifier_offset_create.offset
-            identifier_create = external_gene_identifier_offset_create.identifier
-            create_external_gene_identifier_offset(
-                db,
-                target_gene,
-                identifier_create.db_name,
-                identifier_create.identifier,
-                offset,
-            )
+        target_gene.external_identifiers = target_gene_external_identifiers(gene.external_identifiers)
 
         targets.append(target_gene)
 

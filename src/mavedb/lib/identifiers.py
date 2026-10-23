@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from typing import Mapping, Optional, Union
+from typing import Any, Iterable, Mapping, Optional, Sequence, Union
 
 import eutils  # type: ignore
 import requests
@@ -9,41 +9,22 @@ from eutils import EutilsNCBIError  # type: ignore
 from eutils._internal.xmlfacades.pubmedarticle import PubmedArticle  # type: ignore
 from eutils._internal.xmlfacades.pubmedarticleset import PubmedArticleSet  # type: ignore
 from idutils import is_doi, normalize_doi
-from sqlalchemy import select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError
 from mavedb.lib.external_publications import Crossref, CrossrefWork, PublicationAuthors, Rxiv, RxivContentDetail
+from mavedb.lib.permissions.principal import Principal
+from mavedb.lib.permissions.viewer import Viewer
 from mavedb.lib.validation.publication import identifier_valid_for, infer_identifier_from_url, validate_db_name
-from mavedb.models.doi_identifier import DoiIdentifier
-from mavedb.models.ensembl_identifier import EnsemblIdentifier
-from mavedb.models.ensembl_offset import EnsemblOffset
+from mavedb.models.mixins.external_identifier import ExternalIdentifier
 from mavedb.models.publication_identifier import PublicationIdentifier
-from mavedb.models.raw_read_identifier import RawReadIdentifier
-from mavedb.models.refseq_identifier import RefseqIdentifier
-from mavedb.models.refseq_offset import RefseqOffset
-from mavedb.models.target_gene import TargetGene
-from mavedb.models.uniprot_identifier import UniprotIdentifier
-from mavedb.models.uniprot_offset import UniprotOffset
+from mavedb.models.target_gene_external_identifier import TargetGeneExternalIdentifier
+from mavedb.view_models.external_gene_identifier_offset import ExternalGeneIdentifierOffsetCreate
 
 logger = logging.getLogger(__name__)
 
-# XXX these classes all have an "identifier" attribute but there's no superclass
-# to unify them ...
-
-EXTERNAL_GENE_IDENTIFIER_CLASSES = {
-    "Ensembl": EnsemblIdentifier,
-    "RefSeq": RefseqIdentifier,
-    "UniProt": UniprotIdentifier,
-}
-
-EXTERNAL_GENE_IDENTIFIER_OFFSET_CLASSES = {"Ensembl": EnsemblOffset, "RefSeq": RefseqOffset, "UniProt": UniprotOffset}
-
-EXTERNAL_GENE_IDENTIFIER_OFFSET_ATTRIBUTES = {
-    "Ensembl": "ensembl_offset",
-    "RefSeq": "refseq_offset",
-    "UniProt": "uniprot_offset",
-}
+IDENTIFIER_SEARCH_LIMIT = 50
 
 
 class ExternalPublication:
@@ -172,20 +153,6 @@ class ExternalPublication:
         return self._article_cit_fmt.format(
             author=author, volume=volume, pages=pages, year=year, title=title, journal=journal, doi=doi_str
         )
-
-
-def find_or_create_doi_identifier(db: Session, identifier: str):
-    """
-    Find an existing DOI identifier record with the specified identifier string, or create a new one.
-
-    :param db: An active database session
-    :param identifier: A valid DOI identifier
-    :return: An existing DoiIdentifier containing the specified identifier string, or a new, unsaved DoiIdentifier
-    """
-    doi_identifier = db.query(DoiIdentifier).filter(DoiIdentifier.identifier == identifier).one_or_none()
-    if not doi_identifier:
-        doi_identifier = DoiIdentifier(identifier=identifier, db_name="DOI", url=f"https://doi.org/{identifier}")
-    return doi_identifier
 
 
 def fetch_pubmed_article(identifier: str) -> Optional[PubmedArticle]:
@@ -408,55 +375,69 @@ def find_or_create_publication_identifier(
     return create_generic_article(matched_article)
 
 
-def find_or_create_raw_read_identifier(db: Session, identifier: str):
-    raw_read_identifier = db.query(RawReadIdentifier).filter(RawReadIdentifier.identifier == identifier).one_or_none()
-    if not raw_read_identifier:
-        raw_read_identifier = RawReadIdentifier(
-            identifier=identifier, db_name="SRA", url=f"http://www.ebi.ac.uk/ena/data/view/{identifier}"
-        )
-    return raw_read_identifier
+def distinct_identifiers(identifiers: Iterable[str]) -> list[str]:
+    """The distinct identifier strings in a submitted list, in the order given.
 
-
-def find_or_create_external_gene_identifier(db: Session, db_name: str, identifier: str):
+    A record stores each identifier once, so a repeat in the submission would collide with itself.
     """
-    Find an existing gene identifier record with the specified gene database name and identifier string, or create a new
-    one.
+    return list(dict.fromkeys(identifiers))
 
-    :param db: An active database session
-    :param identifier: A valid identifier
-    :return: An existing EnsemblIdentifier, RefseqIdentifier, or UniprotIdentifier containing the specified identifier
-      string, or a new, unsaved instance of one of these classes
+
+def target_gene_external_identifiers(
+    external_identifiers: Iterable[ExternalGeneIdentifierOffsetCreate],
+) -> list[TargetGeneExternalIdentifier]:
+    """Rows for a target gene's submitted external identifiers.
+
+    A target gene holds one identifier per database. When a submission names a database twice, the last one
+    wins, as it did when each database had its own offset table.
     """
-
-    # TODO Handle key errors.
-    identifier_class = EXTERNAL_GENE_IDENTIFIER_CLASSES[db_name]
-    assert hasattr(identifier_class, "identifier")
-
-    external_gene_identifier = (
-        db.query(identifier_class).filter(identifier_class.identifier == identifier).one_or_none()
-    )
-
-    if not external_gene_identifier:
-        external_gene_identifier = identifier_class(
-            identifier=identifier,
+    by_db_name = {
+        external_identifier.identifier.db_name: external_identifier for external_identifier in external_identifiers
+    }
+    return [
+        TargetGeneExternalIdentifier(
             db_name=db_name,
-            # TODO Set URL from identifier
-            # url=f'https://doi.org/{identifier}'
+            identifier=external_identifier.identifier.identifier,
+            offset=external_identifier.offset,
         )
-    return external_gene_identifier
+        for db_name, external_identifier in by_db_name.items()
+    ]
 
 
-def create_external_gene_identifier_offset(
-    db: Session, target_gene: TargetGene, db_name: str, identifier: str, offset: int
-):
-    external_gene_identifier = find_or_create_external_gene_identifier(db, db_name, identifier)
+def search_identifiers_on_readable_records(
+    db: Session,
+    principal: Principal,
+    text: str,
+    sources: Sequence[tuple[type[ExternalIdentifier], type[Viewer[Any]], Select]],
+) -> list[ExternalIdentifier]:
+    """Find identifiers containing ``text`` that are attached to records the caller may read.
 
-    # TODO Handle key errors.
-    offset_class = EXTERNAL_GENE_IDENTIFIER_OFFSET_CLASSES[external_gene_identifier.db_name]
-    external_gene_identifier_offset = offset_class(identifier=external_gene_identifier, offset=offset)
+    Identifiers are stored on the rows that link them to their records, so one identifier can appear on many
+    rows. This returns one row per distinct identifier, sorted by identifier.
 
-    identifier_offset_attribute = EXTERNAL_GENE_IDENTIFIER_OFFSET_ATTRIBUTES[external_gene_identifier.db_name]
-    setattr(target_gene, identifier_offset_attribute, external_gene_identifier_offset)
+    Args:
+        db: An active database session.
+        principal: The caller.
+        text: The text to search for, matched case-insensitively anywhere in the identifier.
+        sources: For each table to search, its link model, the viewer for the record that governs each row's
+            visibility, and a query selecting ``(link row, record)``.
+
+    Returns:
+        Up to ``IDENTIFIER_SEARCH_LIMIT`` link rows, one per distinct identifier.
+    """
+    # Read access to a record is decided in Python, so the filter runs before the limit. These tables hold a
+    # few hundred rows. Once row-level security enforces reads (#808), the database does this filtering.
+    found: dict[str, ExternalIdentifier] = {}
+    for link, viewer_class, query in sources:
+        viewer = principal.viewer_for(viewer_class)
+        rows = db.execute(query.where(func.lower(link.identifier).contains(text.lower()))).all()
+        for link_row, record in rows:
+            if link_row.identifier in found:
+                continue
+            if viewer.may_read(record):
+                found[link_row.identifier] = link_row
+
+    return [found[identifier] for identifier in sorted(found)][:IDENTIFIER_SEARCH_LIMIT]
 
 
 def sanitize_target_sequence_label(label: str):
