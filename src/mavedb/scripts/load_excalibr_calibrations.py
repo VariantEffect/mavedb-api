@@ -40,7 +40,6 @@ Example Usage:
     python load_excalibr_calibrations_csv.py /path/to/calibrations.csv /path/to/dataset_mapping.json --overwrite
 """
 
-import asyncio
 import csv
 import json
 from typing import Dict, List, Optional, Tuple
@@ -238,8 +237,8 @@ def main(db: Session, csv_path: str, dataset_map: str, overwrite: bool, remove: 
                     method_sources=[EXCALIBR_CALIBRATION_CITATION],
                 )
 
-                new_calibration_object = asyncio.run(
-                    create_score_calibration_in_score_set(db, score_calibration_create, system_user)
+                new_calibration_object = create_score_calibration_in_score_set(
+                    db, score_calibration_create, system_user
                 )
                 new_calibration_object.primary = False
                 new_calibration_object.private = False

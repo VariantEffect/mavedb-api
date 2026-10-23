@@ -227,15 +227,15 @@ class ScoreSet(Base):
             legacy_keyword_obj.text for legacy_keyword_obj in legacy_keyword_objs if legacy_keyword_obj.text is not None
         ]
 
-    async def set_legacy_keywords(self, db, keywords: list[str]):
-        self.keyword_objs = [await self._find_or_create_legacy_keyword(db, text) for text in keywords]
+    def set_legacy_keywords(self, db, keywords: list[str]):
+        self.keyword_objs = [self._find_or_create_legacy_keyword(db, text) for text in keywords]
 
     # See https://gist.github.com/tachyondecay/e0fe90c074d6b6707d8f1b0b1dcc8e3a
     # @keywords.setter
     # async def set_keywords(self, db, keywords: list[str]):
     #     self._keyword_objs = [await self._find_or_create_keyword(text) for text in keywords]
 
-    async def _find_or_create_legacy_keyword(self, db, keyword_text):
+    def _find_or_create_legacy_keyword(self, db, keyword_text):
         keyword_obj = db.query(LegacyKeyword).filter(LegacyKeyword.text == keyword_text).one_or_none()
         if not keyword_obj:
             keyword_obj = LegacyKeyword(text=keyword_text)

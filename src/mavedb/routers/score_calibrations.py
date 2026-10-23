@@ -130,7 +130,7 @@ def get_score_calibration(
     response_model=list[score_calibration.ScoreCalibrationWithScoreSetUrn],
     responses={404: {}},
 )
-async def get_score_calibrations_for_score_set(
+def get_score_calibrations_for_score_set(
     *,
     score_set_urn: str,
     db: Session = Depends(deps.get_db),
@@ -170,7 +170,7 @@ async def get_score_calibrations_for_score_set(
     response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}},
 )
-async def get_primary_score_calibrations_for_score_set(
+def get_primary_score_calibrations_for_score_set(
     *,
     score_set_urn: str,
     db: Session = Depends(deps.get_db),
@@ -256,7 +256,7 @@ async def get_primary_score_calibrations_for_score_set(
         }
     },
 )
-async def create_score_calibration_route(
+def create_score_calibration_route(
     *,
     calibration: score_calibration.ScoreCalibrationCreate = Depends(calibration_create_loader),
     classes_file: Optional[UploadFile] = File(
@@ -405,7 +405,7 @@ async def create_score_calibration_route(
             )
 
     try:
-        created_calibration = await create_score_calibration_in_score_set(
+        created_calibration = create_score_calibration_in_score_set(
             db, calibration, user_data.user, variant_classes if classes_file else None
         )
     except ValidationError as e:
@@ -457,7 +457,7 @@ async def create_score_calibration_route(
         }
     },
 )
-async def modify_score_calibration_route(
+def modify_score_calibration_route(
     *,
     urn: str,
     calibration_update: score_calibration.ScoreCalibrationModify = Depends(calibration_modify_loader),
@@ -633,7 +633,7 @@ async def modify_score_calibration_route(
             )
 
     try:
-        updated_calibration = await modify_score_calibration(
+        updated_calibration = modify_score_calibration(
             db, item, calibration_update, user_data.user, variant_classes if classes_file else None
         )
     except ValidationError as e:
@@ -654,7 +654,7 @@ async def modify_score_calibration_route(
     responses={404: {}},
     status_code=204,
 )
-async def delete_score_calibration_route(
+def delete_score_calibration_route(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
@@ -688,7 +688,7 @@ async def delete_score_calibration_route(
     response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
     responses={404: {}},
 )
-async def promote_score_calibration_to_primary_route(
+def promote_score_calibration_to_primary_route(
     *,
     urn: str,
     demote_existing_primary: bool = Query(

@@ -50,7 +50,7 @@ class ModelName(str, Enum):
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Check user permissions on a resource",
 )
-async def check_permission(
+def check_permission(
     *,
     model_name: ModelName,
     urn: str,

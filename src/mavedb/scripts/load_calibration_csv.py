@@ -88,7 +88,6 @@ The script will output summary statistics showing:
 
 """
 
-import asyncio
 import csv
 import re
 from pathlib import Path
@@ -414,8 +413,8 @@ def main(db: Session, csv_path: str, delimiter: str, overwrite: bool, purge_publ
 
                 system_user = db.query(User).filter(User.id == 1).one()
                 calibration_user = score_set.created_by if calibration_is_investigator_provided else system_user
-                new_calibration_object = asyncio.run(
-                    create_score_calibration_in_score_set(db, created_score_calibration, calibration_user)
+                new_calibration_object = create_score_calibration_in_score_set(
+                    db, created_score_calibration, calibration_user
                 )
                 new_calibration_object.primary = primary
                 new_calibration_object.private = False

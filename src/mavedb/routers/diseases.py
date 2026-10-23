@@ -31,7 +31,12 @@ metadata = {
     summary="Search MONDO disease terms",
     responses={**GATEWAY_ERROR_RESPONSES},
 )
-async def search_diseases(
+# This route only calls OLS, so it could be `async` with an async client and hold no thread while OLS
+# answers. As `def`, each search holds a thread for up to `OLS_TIMEOUT`. That's cheap while only the
+# calibration editor calls it, debounced and cancelled on each keystroke, and it keeps `lib/mondo_ols.py`
+# on one client style. Make it `async` if it moves onto a high-traffic page or slow OLS responses start
+# exhausting the thread pool (#950).
+def search_diseases(
     *,
     q: str = Query(..., description="Free-text query for a MONDO disease term."),
     limit: int = Query(DEFAULT_SEARCH_LIMIT, ge=1, le=100, description="Maximum number of results."),
@@ -39,5 +44,5 @@ async def search_diseases(
     """Typeahead search for MONDO disease terms, returned as GA4GH ``MappableConcept`` suggestions."""
     save_to_logging_context({"query": q, "limit": limit})
 
-    suggestions = await search_mondo(q, limit)
+    suggestions = search_mondo(q, limit)
     return [mondo_suggestion_to_mappable_concept(suggestion) for suggestion in suggestions]

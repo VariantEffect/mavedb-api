@@ -8,7 +8,7 @@ from mavedb.models.taxonomy import Taxonomy
 from mavedb.view_models.taxonomy import TaxonomyCreate
 
 
-async def find_or_create_taxonomy(db: Session, taxonomy: TaxonomyCreate):
+def find_or_create_taxonomy(db: Session, taxonomy: TaxonomyCreate):
     """
     Find an existing taxonomy ID record with the specified code, or create a new one.
 
@@ -19,11 +19,11 @@ async def find_or_create_taxonomy(db: Session, taxonomy: TaxonomyCreate):
     """
     taxonomy_record = db.query(Taxonomy).filter(Taxonomy.code == taxonomy.code).one_or_none()
     if not taxonomy_record:
-        taxonomy_record = await search_NCBI_taxonomy(db, str(taxonomy.code))
+        taxonomy_record = search_NCBI_taxonomy(db, str(taxonomy.code))
     return taxonomy_record
 
 
-async def search_NCBI_taxonomy(db: Session, search: str) -> Any:
+def search_NCBI_taxonomy(db: Session, search: str) -> Any:
     """
     Check whether this taxonomy exists in NCBI website.
     If it exists, saving it in local database and return it to users.
@@ -35,8 +35,8 @@ async def search_NCBI_taxonomy(db: Session, search: str) -> Any:
             search_text = str(search)
 
         url = f"https://api.ncbi.nlm.nih.gov/datasets/v2alpha/taxonomy/taxon/{search_text}"
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url)
+        with httpx.Client() as client:
+            response = client.get(url)
             if response.status_code == 200:
                 data = response.json()
 

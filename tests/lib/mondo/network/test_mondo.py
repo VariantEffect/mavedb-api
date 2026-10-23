@@ -20,13 +20,12 @@ BRUGADA_CODE = "MONDO:0015263"
 
 
 @pytest.mark.network
-@pytest.mark.asyncio
 class TestMondoOlsNetwork:
     """Canary tests exercising the real OLS4 service."""
 
-    async def test_search_returns_known_term_with_expected_shape(self):
+    def test_search_returns_known_term_with_expected_shape(self):
         # /select endpoint: a known query surfaces the expected code, in the {code, label, iri} shape.
-        results = await search_mondo("brugada syndrome")
+        results = search_mondo("brugada syndrome")
         assert results, "OLS returned no results for a known disease query."
         assert BRUGADA_CODE in {result["code"] for result in results}
         first = results[0]
@@ -34,22 +33,22 @@ class TestMondoOlsNetwork:
         assert first["label"]
         assert first["iri"].startswith("http")
 
-    async def test_search_broad_prefix_returns_results(self):
+    def test_search_broad_prefix_returns_results(self):
         # A two-letter prefix must still return via /select — /search timed out on these (the #754 switch).
-        assert await search_mondo("ca")
+        assert search_mondo("ca")
 
-    async def test_fetch_known_code_returns_canonical_term(self):
+    def test_fetch_known_code_returns_canonical_term(self):
         # /search exact-obo_id lookup: a known code resolves to its canonical label.
-        resolved = await fetch_mondo_term(BRUGADA_CODE)
+        resolved = fetch_mondo_term(BRUGADA_CODE)
         assert resolved is not None
         assert resolved["code"] == BRUGADA_CODE
         assert "brugada" in resolved["label"].lower()
 
-    async def test_fetch_generic_root_resolves(self):
-        resolved = await fetch_mondo_term(MONDO_GENERIC_CODE)
+    def test_fetch_generic_root_resolves(self):
+        resolved = fetch_mondo_term(MONDO_GENERIC_CODE)
         assert resolved is not None
         assert resolved["code"] == MONDO_GENERIC_CODE
 
-    async def test_fetch_unknown_code_returns_none(self):
+    def test_fetch_unknown_code_returns_none(self):
         # The not-found path must stay a clean None so validation can reject unknown codes.
-        assert await fetch_mondo_term("MONDO:9999999") is None
+        assert fetch_mondo_term("MONDO:9999999") is None
