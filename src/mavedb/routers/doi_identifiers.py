@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.authorization import get_principal
-from mavedb.lib.identifiers import identifier_sources_on_records, search_identifiers_on_readable_records
+from mavedb.lib.identifier_search import identifier_sources_on_records, search_identifiers_on_readable_records
 from mavedb.lib.permissions.principal import Principal
 from mavedb.models.doi_identifier import ExperimentDoiIdentifier, ExperimentSetDoiIdentifier, ScoreSetDoiIdentifier
 from mavedb.routers.shared import BASE_400_RESPONSE, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
