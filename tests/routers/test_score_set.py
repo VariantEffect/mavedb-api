@@ -25,6 +25,9 @@ from mavedb.lib.csv import build_limiter
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.score_distribution import summarize_scores
+from mavedb.lib.score_sets import columns_for_dataset, create_variants, create_variants_data, csv_data_to_df
+from mavedb.lib.validation.dataframe.dataframe import validate_and_standardize_dataframe_pair
+from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
 from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
@@ -45,6 +48,7 @@ from mavedb.models.score_calibration import ScoreCalibration as ScoreCalibration
 from mavedb.routers.score_sets import _annotation_stream_record
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
+from mavedb.view_models.score_set_dataset_columns import DatasetColumnsCreate
 from tests.helpers.constants import (
     EXTRA_LICENSE,
     EXTRA_USER,
@@ -1752,6 +1756,42 @@ def test_upload_score_set_variant_data_returns_500_and_resets_processing_state_w
 
     pipelines = session.scalars(select(Pipeline).where(Pipeline.name == "validate_map_annotate_score_set")).all()
     assert pipelines == []
+
+
+def test_upload_score_set_variant_data_with_accession_column_is_accepted_but_fails_validation(
+    session, data_provider, client, setup_router_db, mock_s3_client, tmp_path
+):
+    """The router only parses the upload and enqueues a job (see `upload_score_set_variant_data`); the
+    real column-name validation runs later, in the worker job that creates variants. This checks both
+    halves of the fix: the HTTP boundary accepts a column named `accession` rather than 500ing, and the
+    validation the worker would run on this exact data rejects it with a typed, user-facing error instead
+    of letting it through or crashing.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    scores_csv_path = tmp_path / "scores_with_accession_column.csv"
+    scores_csv_path.write_text("hgvs_nt,hgvs_pro,score,accession\nc.1A>T,p.Thr1Ser,0.3,sample-1\n")
+
+    with (
+        open(scores_csv_path, "rb") as scores_file,
+        patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue,
+        patch.object(mock_s3_client, "upload_fileobj", return_value=None),
+    ):
+        response = client.post(
+            f"/api/v1/score-sets/{score_set['urn']}/variants/data",
+            files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
+        )
+        worker_queue.assert_called_once()
+
+    assert response.status_code == 200
+
+    item = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    with open(scores_csv_path, "rb") as scores_file:
+        score_df = csv_data_to_df(scores_file)
+
+    with pytest.raises(ValidationError, match="'accession' is a reserved column name"):
+        validate_and_standardize_dataframe_pair(score_df, None, None, None, item.target_genes, data_provider)
 
 
 def test_upload_score_set_variant_data_deletes_s3_files_and_pipeline_when_enqueue_job_fails(
@@ -4177,6 +4217,73 @@ def test_download_counts_file(session, data_provider, client, setup_router_db, d
     assert "hgvs_nt" in columns
     assert "hgvs_pro" in columns
     assert "hgvs_splice" not in columns
+
+
+def test_download_scores_and_counts_with_accession_dataset_column_returns_200(
+    session, data_provider, client, setup_router_db, tmp_path
+):
+    """A score set whose score/count data already has a column literally named `accession` (data ingested
+    before uploads rejected that name) must still download rather than 500ing on the header collision with
+    the core `accession` column; the investigator's column is namespaced instead (`scores.accession` /
+    `counts.accession`). New uploads can no longer acquire such a column (see the upload-side test above),
+    so this models a pre-existing score set directly rather than going through the upload endpoint.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    scores_csv_path = tmp_path / "scores_with_accession_column.csv"
+    scores_csv_path.write_text(
+        "hgvs_nt,hgvs_pro,score,accession\nc.1A>T,p.Thr1Ser,0.3,sample-1\nc.2C>T,p.Thr1Met,1.0,sample-2\nc.6T>A,p.Phe2Leu,-1.65,sample-3\n"
+    )
+    # A counts dataframe's non-hgvs columns must all be numeric (`validate_data_column`, force_numeric=True
+    # for kind="counts"), so unlike the scores file above, `accession` here has to be numeric too.
+    counts_csv_path = tmp_path / "counts_with_accession_column.csv"
+    counts_csv_path.write_text(
+        "hgvs_nt,hgvs_pro,count1,accession\nc.1A>T,p.Thr1Ser,10,1\nc.2C>T,p.Thr1Met,8,2\nc.6T>A,p.Phe2Leu,90,3\n"
+    )
+    with open(scores_csv_path, "rb") as scores_file:
+        scores_df = csv_data_to_df(scores_file)
+    with open(counts_csv_path, "rb") as counts_file:
+        counts_df = csv_data_to_df(counts_file)
+
+    item = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+
+    # Bypasses only the reserved-`accession`-column check, to model data that predates it; everything else
+    # runs through the real standardization pipeline.
+    with patch("mavedb.lib.validation.dataframe.dataframe.validate_column_names", return_value=None):
+        scores, counts, score_columns_metadata, count_columns_metadata = validate_and_standardize_dataframe_pair(
+            scores_df, counts_df, None, None, item.target_genes, data_provider
+        )
+
+    variants = create_variants_data(scores, counts, None)
+    num_variants = create_variants(session, item, variants)
+    assert num_variants == len(scores)
+
+    item.processing_state = ProcessingState.success
+    item.dataset_columns = DatasetColumnsCreate(
+        score_columns=columns_for_dataset(scores),
+        count_columns=columns_for_dataset(counts),
+        score_columns_metadata=score_columns_metadata if score_columns_metadata is not None else {},
+        count_columns_metadata=count_columns_metadata if count_columns_metadata is not None else {},
+    ).model_dump()
+    session.add(item)
+    session.commit()
+
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_score_set = publish_score_set(client, score_set["urn"])
+        worker_queue.assert_called_once()
+
+    scores_response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}/scores")
+    assert scores_response.status_code == 200
+    scores_header = scores_response.text.splitlines()[0].split(",")
+    assert "accession" in scores_header
+    assert "scores.accession" in scores_header
+
+    counts_response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}/counts")
+    assert counts_response.status_code == 200
+    counts_header = counts_response.text.splitlines()[0].split(",")
+    assert "accession" in counts_header
+    assert "counts.accession" in counts_header
 
 
 @pytest.mark.parametrize("path", ["scores", "counts", "variants/data"])
