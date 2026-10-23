@@ -21,7 +21,7 @@ from sqlalchemy import Column, ForeignKey, Index, Integer, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased, declarative_base, relationship
 
-from mavedb.db.mixins import ValidTime
+from mavedb.models.mixins.valid_time import ValidTime
 
 VtBase = declarative_base()
 

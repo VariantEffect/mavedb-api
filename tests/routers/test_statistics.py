@@ -1,5 +1,7 @@
 # ruff: noqa: E402
 
+from copy import deepcopy
+
 import pytest
 from humps import camelize
 from unittest.mock import patch
@@ -241,14 +243,16 @@ def test_target_gene_field_statistics_seq(client, field, desired_field_value, se
 # Target gene identifier based statistics behave similarly enough to parametrize.
 @pytest.mark.parametrize("field_value", TARGET_GENE_IDENTIFIER_FIELDS)
 @pytest.mark.parametrize(
-    "target", (TEST_MINIMAL_ACC_SCORESET["targetGenes"][0], TEST_MINIMAL_SEQ_SCORESET["targetGenes"][0])
+    "score_set_template", (TEST_MINIMAL_ACC_SCORESET, TEST_MINIMAL_SEQ_SCORESET), ids=["accession", "sequence"]
 )
-def test_target_gene_identifier_statistiscs(
-    session, data_provider, client, setup_router_db, data_files, field_value, target
+def test_target_gene_identifier_statistics_published_score_set_counts_its_identifiers(
+    session, data_provider, client, setup_router_db, data_files, field_value, score_set_template
 ):
     """Test target gene identifier statistics endpoint for published score sets."""
-    record_update = {"externalIdentifiers": [v for v in EXTERNAL_IDENTIFIERS.values()]}
-    target.update(record_update)
+    # Copy the target rather than updating the shared constant, which later tests in this process would inherit.
+    target = deepcopy(score_set_template["targetGenes"][0])
+    target["externalIdentifiers"] = list(EXTERNAL_IDENTIFIERS.values())
+    score_set_update = {"targetGenes": [target]}
 
     # Create whichever score set target type is being tested.
     experiment = create_experiment(client)
@@ -256,13 +260,13 @@ def test_target_gene_identifier_statistiscs(
         with patch.object(
             cdot.hgvs.dataproviders.RESTDataProvider, "_get_transcript", return_value=TEST_NT_CDOT_TRANSCRIPT
         ):
-            unpublished_score_set = create_acc_score_set(client, experiment["urn"])
+            unpublished_score_set = create_acc_score_set(client, experiment["urn"], score_set_update)
             unpublished_score_set = mock_worker_variant_insertion(
                 client, session, data_provider, unpublished_score_set, data_files / "scores_acc.csv"
             )
 
     elif "targetSequence" in target:
-        unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+        unpublished_score_set = create_seq_score_set(client, experiment["urn"], score_set_update)
         unpublished_score_set = mock_worker_variant_insertion(
             client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
         )

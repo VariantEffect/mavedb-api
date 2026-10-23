@@ -12,10 +12,8 @@ from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_sequence import TargetSequence
 
 if TYPE_CHECKING:
-    from mavedb.models.ensembl_offset import EnsemblOffset
-    from mavedb.models.refseq_offset import RefseqOffset
+    from mavedb.models.target_gene_external_identifier import TargetGeneExternalIdentifier
     from mavedb.models.target_gene_mapping import TargetGeneMapping
-    from mavedb.models.uniprot_offset import UniprotOffset
 
 # TODO Reformat code without removing dependencies whose use is not detected.
 
@@ -54,9 +52,11 @@ class TargetGene(Base):
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
 
-    ensembl_offset: Mapped["EnsemblOffset"] = relationship(back_populates="target_gene", cascade="all, delete-orphan")
-    refseq_offset: Mapped["RefseqOffset"] = relationship(back_populates="target_gene", cascade="all, delete-orphan")
-    uniprot_offset: Mapped["UniprotOffset"] = relationship(back_populates="target_gene", cascade="all, delete-orphan")
+    external_identifiers: Mapped[list["TargetGeneExternalIdentifier"]] = relationship(
+        back_populates="target_gene",
+        cascade="all, delete-orphan",
+        order_by="TargetGeneExternalIdentifier.db_name",
+    )
 
     target_gene_mappings: Mapped[list["TargetGeneMapping"]] = relationship(
         "TargetGeneMapping",
