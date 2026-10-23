@@ -48,10 +48,6 @@ RecordAssociationTables = Union[
     type[ExperimentControlledKeywordAssociation],
     type[ExperimentPublicationIdentifierAssociation],
     type[ScoreSetPublicationIdentifierAssociation],
-    type[ExperimentDoiIdentifier],
-    type[ExperimentRawReadIdentifier],
-    type[ScoreSetDoiIdentifier],
-    type[ScoreSetRawReadIdentifier],
 ]
 RecordIdentifierLinks = Union[
     type[ExperimentDoiIdentifier],
@@ -98,15 +94,11 @@ def _model_and_association_from_record_field(
     }
     record_to_assc_map: dict[RecordNames, dict[RecordFields, RecordAssociationTables]] = {
         RecordNames.experiment: {
-            RecordFields.doiIdentifiers: ExperimentDoiIdentifier,
             RecordFields.publicationIdentifiers: ExperimentPublicationIdentifierAssociation,
-            RecordFields.rawReadIdentifiers: ExperimentRawReadIdentifier,
             RecordFields.keywords: ExperimentControlledKeywordAssociation,
         },
         RecordNames.scoreSet: {
-            RecordFields.doiIdentifiers: ScoreSetDoiIdentifier,
             RecordFields.publicationIdentifiers: ScoreSetPublicationIdentifierAssociation,
-            RecordFields.rawReadIdentifiers: ScoreSetRawReadIdentifier,
         },
     }
 
@@ -127,13 +119,22 @@ def _count_for_identifier_in_query(db: Session, query: Select[tuple[Any, int]]) 
     return {value: count for value, count in db.execute(query).all() if value is not None}
 
 
+# Identifiers are stored on the rows that link them to their records, so these count the link rows themselves.
+RECORD_IDENTIFIER_LINKS: dict[RecordNames, dict[RecordFields, RecordIdentifierLinks]] = {
+    RecordNames.experiment: {
+        RecordFields.doiIdentifiers: ExperimentDoiIdentifier,
+        RecordFields.rawReadIdentifiers: ExperimentRawReadIdentifier,
+    },
+    RecordNames.scoreSet: {
+        RecordFields.doiIdentifiers: ScoreSetDoiIdentifier,
+        RecordFields.rawReadIdentifiers: ScoreSetRawReadIdentifier,
+    },
+}
+
+
 def _count_identifiers_on_published_records(db: Session, record: RecordNames, field: RecordFields) -> dict[str, int]:
-    queried_model, queried_link = _model_and_association_from_record_field(record, field)
-
-    if queried_link is None:
-        raise HTTPException(500, f"No association table associated with the {field.value} field when one was expected.")
-
-    link: RecordIdentifierLinks = queried_link  # type: ignore[assignment]
+    queried_model, _ = _model_and_association_from_record_field(record, None)
+    link = RECORD_IDENTIFIER_LINKS[record][field]
     query = _join_model_and_filter_unpublished(
         select(link.identifier, func.count(link.identifier)), queried_model
     ).group_by(link.identifier)
