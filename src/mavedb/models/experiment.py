@@ -177,18 +177,18 @@ class Experiment(Base):
         legacy_keyword_objs = self.legacy_keyword_objs or []
         return [keyword_obj.text for keyword_obj in legacy_keyword_objs if keyword_obj.text is not None]
 
-    async def set_legacy_keywords(self, db, keywords: Optional[list[str]]):
+    def set_legacy_keywords(self, db, keywords: Optional[list[str]]):
         if keywords:
-            self.keyword_objs = [await self._find_or_create_legacy_keyword(db, text) for text in keywords]
+            self.keyword_objs = [self._find_or_create_legacy_keyword(db, text) for text in keywords]
         else:
             self.keyword_objs = []
 
-    async def set_keywords(self, db, keywords: list):
+    def set_keywords(self, db, keywords: list):
         if keywords:
             self.keyword_objs = [
                 ExperimentControlledKeywordAssociation(
                     experiment=self,
-                    controlled_keyword=await self._find_keyword(
+                    controlled_keyword=self._find_keyword(
                         db,
                         keyword_obj.keyword.key,
                         keyword_obj.keyword.label,
@@ -206,13 +206,13 @@ class Experiment(Base):
     # async def set_keywords(self, db, keywords: list[str]):
     #     self._keyword_objs = [await self._find_or_create_keyword(text) for text in keywords]
 
-    async def _find_or_create_legacy_keyword(self, db, keyword_text):
+    def _find_or_create_legacy_keyword(self, db, keyword_text):
         keyword_obj = db.query(LegacyKeyword).filter(LegacyKeyword.text == keyword_text).one_or_none()
         if not keyword_obj:
             keyword_obj = LegacyKeyword(text=keyword_text)
         return keyword_obj
 
-    async def _find_keyword(self, db, key: str, label: str, code: Optional[str]):
+    def _find_keyword(self, db, key: str, label: str, code: Optional[str]):
         query = (
             db.query(ControlledKeyword).filter(ControlledKeyword.key == key).filter(ControlledKeyword.label == label)
         )

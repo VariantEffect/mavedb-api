@@ -118,7 +118,7 @@ access_token_header = APIKeyHeader(name=ACCESS_TOKEN_NAME, auto_error=False)
 access_token_cookie = APIKeyCookie(name=ACCESS_TOKEN_NAME, auto_error=False)
 
 
-async def get_access_token(
+def get_access_token(
     # access_token_query: str = Security(access_token_query),
     access_token_header: Optional[str] = Security(access_token_header),
     access_token_cookie: Optional[str] = Security(access_token_cookie),

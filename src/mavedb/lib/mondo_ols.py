@@ -32,7 +32,7 @@ OLS_TIMEOUT = 10.0
 DEFAULT_SEARCH_LIMIT = 20
 
 
-async def search_mondo(query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> list[MondoSuggestion]:
+def search_mondo(query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> list[MondoSuggestion]:
     """Search MONDO disease classes by free text via OLS, for the disease typeahead."""
     if not query or not query.strip():
         return []
@@ -47,8 +47,8 @@ async def search_mondo(query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> list[Mo
     }
     save_to_logging_context({"mondo_search_query": query, "mondo_search_limit": limit})
     try:
-        async with httpx.AsyncClient(timeout=OLS_TIMEOUT) as client:
-            response = await client.get(f"{OLS_BASE_URL}/select", params=params)
+        with httpx.Client(timeout=OLS_TIMEOUT) as client:
+            response = client.get(f"{OLS_BASE_URL}/select", params=params)
             response.raise_for_status()
             docs = response.json().get("response", {}).get("docs", [])
     except httpx.HTTPError as exc:
@@ -63,7 +63,7 @@ async def search_mondo(query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> list[Mo
     ]
 
 
-async def fetch_mondo_term(code: str) -> Optional[MondoSuggestion]:
+def fetch_mondo_term(code: str) -> Optional[MondoSuggestion]:
     """Resolve one MONDO CURIE to its canonical label + IRI via OLS, or None if it does not exist."""
     params: dict[str, Any] = {
         "q": code,
@@ -74,8 +74,8 @@ async def fetch_mondo_term(code: str) -> Optional[MondoSuggestion]:
         "fieldList": "iri,label,obo_id",
     }
     try:
-        async with httpx.AsyncClient(timeout=OLS_TIMEOUT) as client:
-            response = await client.get(f"{OLS_BASE_URL}/search", params=params)
+        with httpx.Client(timeout=OLS_TIMEOUT) as client:
+            response = client.get(f"{OLS_BASE_URL}/search", params=params)
             response.raise_for_status()
             docs = response.json().get("response", {}).get("docs", [])
     except httpx.HTTPError as exc:
@@ -90,7 +90,7 @@ async def fetch_mondo_term(code: str) -> Optional[MondoSuggestion]:
     return MondoSuggestion(code=doc["obo_id"], label=doc["label"], iri=doc.get("iri", mondo_iri(code)))
 
 
-async def find_or_create_mondo_term(db: Session, code: str) -> MondoTerm:
+def find_or_create_mondo_term(db: Session, code: str) -> MondoTerm:
     """Find an existing MONDO term by code, or create one after validating it against OLS.
 
     A new code is validated against OLS and its canonical label stored. An unknown code raises
@@ -105,7 +105,7 @@ async def find_or_create_mondo_term(db: Session, code: str) -> MondoTerm:
     if term is not None:
         return term
 
-    resolved = await fetch_mondo_term(code)
+    resolved = fetch_mondo_term(code)
     if resolved is None:
         raise ValidationError(f"'{code}' is not a valid MONDO disease term.", custom_loc=["body", "disease"])
 
@@ -125,7 +125,7 @@ async def find_or_create_mondo_term(db: Session, code: str) -> MondoTerm:
     return term
 
 
-async def resolve_disease_term(db: Session, code: Optional[str]) -> MondoTerm:
+def resolve_disease_term(db: Session, code: Optional[str]) -> MondoTerm:
     """Resolve a calibration's submitted disease code to a stored MONDO term.
 
     ``None`` (no disease specified) resolves to the generic "disease or disorder" term; any other code
@@ -135,4 +135,4 @@ async def resolve_disease_term(db: Session, code: Optional[str]) -> MondoTerm:
     if code is None:
         return get_generic_disease_term(db)
 
-    return await find_or_create_mondo_term(db, code)
+    return find_or_create_mondo_term(db, code)

@@ -42,11 +42,11 @@ class User(Base):
         role_objs = self.role_objs or []
         return [role_obj.name for role_obj in role_objs if role_obj.name is not None]
 
-    async def set_roles(self, db, roles: list[UserRole]):
-        self.role_objs = [await self._find_or_create_role(db, name) for name in roles]
+    def set_roles(self, db, roles: list[UserRole]):
+        self.role_objs = [self._find_or_create_role(db, name) for name in roles]
 
     @staticmethod
-    async def _find_or_create_role(db, role_name):
+    def _find_or_create_role(db, role_name):
         role_obj = db.query(Role).filter(Role.name == role_name).one_or_none()
         if not role_obj:
             role_obj = Role(name=role_name)

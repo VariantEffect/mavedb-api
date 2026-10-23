@@ -172,7 +172,7 @@ def fetch_collection(
     response_model_exclude_none=True,
     summary="Create a collection",
 )
-async def create_collection(
+def create_collection(
     *,
     item_create: collection.CollectionCreate,
     db: Session = Depends(deps.get_db),
@@ -298,7 +298,7 @@ async def create_collection(
     response_model_exclude_none=True,
     summary="Update a collection",
 )
-async def update_collection(
+def update_collection(
     *,
     item_update: collection.CollectionModify,
     urn: str,
@@ -443,7 +443,7 @@ async def update_collection(
     },
     summary="Add a score set to a collection",
 )
-async def add_score_set_to_collection(
+def add_score_set_to_collection(
     *,
     body: collection.AddScoreSetToCollectionRequest,
     collection_urn: str,
@@ -517,7 +517,7 @@ async def add_score_set_to_collection(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE},
     summary="Remove a score set from a collection",
 )
-async def delete_score_set_from_collection(
+def delete_score_set_from_collection(
     *,
     collection_urn: str,
     score_set_urn: str,
@@ -602,7 +602,7 @@ async def delete_score_set_from_collection(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Add an experiment to a collection",
 )
-async def add_experiment_to_collection(
+def add_experiment_to_collection(
     *,
     body: collection.AddExperimentToCollectionRequest,
     collection_urn: str,
@@ -672,7 +672,7 @@ async def add_experiment_to_collection(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE},
     summary="Remove an experiment from a collection",
 )
-async def delete_experiment_from_collection(
+def delete_experiment_from_collection(
     *,
     collection_urn: str,
     experiment_urn: str,
@@ -753,7 +753,7 @@ async def delete_experiment_from_collection(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE},
     summary="Add a user to a collection role",
 )
-async def add_user_to_collection_role(
+def add_user_to_collection_role(
     *,
     body: collection.AddUserToCollectionRoleRequest,
     urn: str,
@@ -847,7 +847,7 @@ async def add_user_to_collection_role(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE},
     summary="Remove a user from a collection role",
 )
-async def remove_user_from_collection_role(
+def remove_user_from_collection_role(
     *,
     urn: str,
     role: ContributionRole,
@@ -938,7 +938,7 @@ async def remove_user_from_collection_role(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Delete a collection",
 )
-async def delete_collection(
+def delete_collection(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),

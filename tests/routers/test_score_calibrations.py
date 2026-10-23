@@ -190,7 +190,7 @@ def test_create_score_calibration_without_disease_defaults_to_generic(
 def test_create_score_calibration_with_disease_resolves_mondo_concept(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, monkeypatch
 ):
-    async def fake_fetch(code):
+    def fake_fetch(code):
         return {
             "code": code,
             "label": "Brugada syndrome",
@@ -230,7 +230,7 @@ def test_create_score_calibration_with_disease_resolves_mondo_concept(
 def test_cannot_create_score_calibration_with_unknown_disease(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, monkeypatch
 ):
-    async def fake_fetch(code):
+    def fake_fetch(code):
         return None
 
     monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)
@@ -265,7 +265,7 @@ def test_cannot_create_score_calibration_with_unknown_disease(
 def test_cannot_modify_score_calibration_with_unknown_disease(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, monkeypatch
 ):
-    async def fake_fetch(code):
+    def fake_fetch(code):
         return None
 
     monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)

@@ -55,7 +55,7 @@ register_url_convertor("orcid_id", OrcidIdConverter())
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="List users",
 )
-async def list_users(
+def list_users(
     *,
     db: Session = Depends(deps.get_db),
     _: UserData = Depends(RoleRequirer([UserRole.admin])),
@@ -74,7 +74,7 @@ async def list_users(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Show my user",
 )
-async def show_me(*, user_data: UserData = Depends(require_current_user)) -> User:
+def show_me(*, user_data: UserData = Depends(require_current_user)) -> User:
     """
     Return the current user.
     """
@@ -88,7 +88,7 @@ async def show_me(*, user_data: UserData = Depends(require_current_user)) -> Use
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Show user by ID",
 )
-async def show_user_admin(
+def show_user_admin(
     *,
     id: int,
     user_data: UserData = Depends(RoleRequirer([UserRole.admin])),
@@ -118,7 +118,7 @@ async def show_user_admin(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Show user by Orcid ID",
 )
-async def show_user(
+def show_user(
     *,
     orcid_id: str,
     user_data: UserData = Depends(require_current_user),
@@ -149,7 +149,7 @@ async def show_user(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Update my user",
 )
-async def update_me(
+def update_me(
     *,
     user_update: user.CurrentUserUpdate,
     db: Session = Depends(deps.get_db),
@@ -175,7 +175,7 @@ async def update_me(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Mark that the current user has logged in",
 )
-async def user_has_logged_in(
+def user_has_logged_in(
     *,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
@@ -200,7 +200,7 @@ async def user_has_logged_in(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Update user by ID",
 )
-async def update_user(
+def update_user(
     *,
     id: int,
     item_update: user.AdminUserUpdate,
@@ -229,7 +229,7 @@ async def update_user(
     if item_update.email:
         item.email = item_update.email
     if item_update.roles:
-        await item.set_roles(db, item_update.roles)
+        item.set_roles(db, item_update.roles)
 
     db.add(item)
     db.commit()
