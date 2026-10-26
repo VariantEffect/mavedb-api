@@ -39,6 +39,124 @@ from tests.helpers.util.score_calibration import (
 )
 from tests.helpers.util.score_set import create_seq_score_set_with_mapped_variants, publish_score_set
 
+
+@pytest.fixture
+def versioned_calibration_context(client, setup_router_db, session, data_provider, data_files):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+    payload = {
+        "scoreSetUrn": score_set["urn"],
+        "title": "Original calibration",
+        "baselineScore": 1.0,
+        "thresholdSources": [],
+        "methodSources": [],
+        "evidenceSources": [],
+    }
+    original = client.post("/api/v1/score-calibrations/", json=payload)
+    assert original.status_code == 200
+    original = publish_test_score_calibration_via_client(client, original.json()["urn"])
+    payload["supersededCalibrationUrn"] = original["urn"]
+    payload["title"] = "Replacement calibration"
+    return original, payload
+
+
+def test_create_score_calibration_replacement_preserves_history_and_hides_draft(
+    client, versioned_calibration_context, anonymous_app_overrides, session
+):
+    original, payload = versioned_calibration_context
+    promoted = client.post(f"/api/v1/score-calibrations/{original['urn']}/promote-to-primary")
+    assert promoted.status_code == 200
+    response = client.post("/api/v1/score-calibrations/", json=payload)
+    assert response.status_code == 200
+    draft = response.json()
+    assert draft["supersededCalibrationUrn"] == original["urn"]
+    assert draft["private"] is True
+    assert draft["primary"] is False
+
+    with DependencyOverrider(anonymous_app_overrides):
+        predecessor = client.get(f"/api/v1/score-calibrations/{original['urn']}").json()
+        assert predecessor["supersedingCalibrationUrn"] is None
+        assert predecessor["primary"] is True
+        assert client.get(f"/api/v1/score-calibrations/{draft['urn']}").status_code == 404
+
+    published = publish_test_score_calibration_via_client(client, draft["urn"])
+    assert published["primary"] is True
+    predecessor = client.get(f"/api/v1/score-calibrations/{original['urn']}").json()
+    assert predecessor["supersedingCalibrationUrn"] == published["urn"]
+    assert predecessor["primary"] is False
+    assert predecessor["title"] == original["title"]
+    assert predecessor["baselineScore"] == original["baselineScore"]
+    stored = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == original["urn"]))
+    session.refresh(stored)
+    assert stored.superseding_calibration.urn == published["urn"]
+
+
+def test_create_score_calibration_duplicate_replacement_rejected(client, versioned_calibration_context):
+    _, payload = versioned_calibration_context
+    assert client.post("/api/v1/score-calibrations/", json=payload).status_code == 200
+    response = client.post("/api/v1/score-calibrations/", json=payload)
+    assert response.status_code == 422
+    assert "already has a replacement" in response.text
+
+
+def test_create_score_calibration_other_user_cannot_replace(
+    client, versioned_calibration_context, extra_user_app_overrides
+):
+    original, payload = versioned_calibration_context
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.post("/api/v1/score-calibrations/", json=payload)
+    assert response.status_code == 403
+    assert client.get(f"/api/v1/score-calibrations/{original['urn']}").json()["supersedingCalibrationUrn"] is None
+
+
+def test_delete_score_calibration_replacement_draft_allows_new_version(client, versioned_calibration_context):
+    original, payload = versioned_calibration_context
+    draft = client.post("/api/v1/score-calibrations/", json=payload).json()
+    response = client.delete(f"/api/v1/score-calibrations/{draft['urn']}")
+    assert response.status_code == 204
+    assert client.get(f"/api/v1/score-calibrations/{draft['urn']}").status_code == 404
+    replacement = client.post("/api/v1/score-calibrations/", json=payload)
+    assert replacement.status_code == 200
+    assert replacement.json()["supersededCalibrationUrn"] == original["urn"]
+
+
+@pytest.mark.parametrize(
+    "predecessor_primary, expected_status", [(True, 403), (False, 200)], ids=["primary", "not_primary"]
+)
+def test_publish_score_calibration_community_replacement_needs_rank_permission_only_for_primary(
+    client, versioned_calibration_context, extra_user_app_overrides, session, predecessor_primary, expected_status
+):
+    _, payload = versioned_calibration_context
+    community_payload = {key: value for key, value in payload.items() if key != "supersededCalibrationUrn"}
+    with DependencyOverrider(extra_user_app_overrides):
+        community = client.post("/api/v1/score-calibrations/", json=community_payload)
+        assert community.status_code == 200
+        community = publish_test_score_calibration_via_client(client, community.json()["urn"])
+    if predecessor_primary:
+        promoted = client.post(f"/api/v1/score-calibrations/{community['urn']}/promote-to-primary")
+        assert promoted.status_code == 200
+
+    with DependencyOverrider(extra_user_app_overrides):
+        draft = client.post(
+            "/api/v1/score-calibrations/", json={**community_payload, "supersededCalibrationUrn": community["urn"]}
+        )
+        assert draft.status_code == 200
+        response = client.post(f"/api/v1/score-calibrations/{draft.json()['urn']}/publish")
+
+    assert response.status_code == expected_status
+    predecessor = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == community["urn"]))
+    replacement = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == draft.json()["urn"]))
+    session.refresh(predecessor)
+    session.refresh(replacement)
+    assert predecessor.primary is predecessor_primary
+    assert replacement.private is predecessor_primary
+    assert replacement.primary is False
+
+
 ###########################################################
 # GET /score-calibrations/{calibration_urn}
 ###########################################################

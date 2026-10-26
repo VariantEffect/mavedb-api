@@ -494,6 +494,9 @@ class ScoreCalibrationModify(ScoreCalibrationBase):
 class ScoreCalibrationCreate(ScoreCalibrationModify):
     """Model used to create a new score calibration."""
 
+    superseded_calibration_urn: Optional[str] = Field(
+        None, description="Published calibration this new draft will replace when published."
+    )
     functional_classifications: Optional[Sequence[FunctionalClassificationCreate]] = None
     threshold_sources: Sequence[PublicationIdentifierCreate]
     evidence_sources: Sequence[PublicationIdentifierCreate]
@@ -507,6 +510,9 @@ class SavedScoreCalibration(ScoreCalibrationBase):
 
     id: int
     urn: str
+
+    superseded_calibration_urn: Optional[str] = None
+    superseding_calibration_urn: Optional[str] = None
 
     score_set_id: int
 

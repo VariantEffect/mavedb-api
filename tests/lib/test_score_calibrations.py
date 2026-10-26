@@ -23,6 +23,7 @@ from mavedb.lib.score_calibrations import (
     variant_classification_df_to_dict,
     variants_for_functional_classification,
 )
+from mavedb.lib.annotation.calibration import score_calibration_may_be_used_for_annotation
 from mavedb.lib.validation.constants.general import (
     calibration_class_column_name,
     calibration_variant_column_name,
@@ -1144,6 +1145,41 @@ async def test_modify_score_calibration_does_not_commit_transaction(
 ################################################################################
 # Tests for publish_score_calibration
 ################################################################################
+
+
+def test_publish_score_calibration_replacement_transfers_primary_only_on_publication(session):
+    user = User()
+    score_set = ScoreSet(private=False)
+    predecessor = ScoreCalibration(title="Original", private=False, primary=True, score_set=score_set)
+    replacement = ScoreCalibration(
+        title="Replacement",
+        private=True,
+        primary=False,
+        research_use_only=False,
+        score_set=score_set,
+        superseded_calibration=predecessor,
+    )
+
+    assert predecessor.primary is True
+    assert predecessor.superseding_calibration is replacement
+
+    published = publish_score_calibration(session, replacement, user)
+
+    assert published.private is False
+    assert published.primary is True
+    assert predecessor.private is False
+    assert predecessor.primary is False
+    assert predecessor.title == "Original"
+    assert published.superseded_calibration is predecessor
+
+
+@pytest.mark.parametrize("private", [True, False], ids=["draft", "published"])
+def test_score_calibration_may_be_used_for_annotation_replacement_visibility_controls_eligibility(private):
+    predecessor = ScoreCalibration(research_use_only=False)
+    predecessor.functional_classifications = [ScoreCalibrationFunctionalClassification()]
+    ScoreCalibration(urn="urn:mavedb:calibration:replacement", private=private, superseded_calibration=predecessor)
+
+    assert score_calibration_may_be_used_for_annotation(predecessor, "functional") is private
 
 
 @pytest.mark.asyncio

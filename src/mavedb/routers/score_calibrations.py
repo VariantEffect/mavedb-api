@@ -3,6 +3,7 @@ from typing import Optional
 
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from mavedb import deps
@@ -341,6 +342,14 @@ async def create_score_calibration_route(
         raise HTTPException(status_code=404, detail=f"score set with URN '{calibration.score_set_urn}' not found")
 
     assert_permission(user_data, score_set, Action.ADD_CALIBRATION)
+
+    if calibration.superseded_calibration_urn:
+        predecessor = db.scalar(
+            select(ScoreCalibration).where(ScoreCalibration.urn == calibration.superseded_calibration_urn)
+        )
+        if predecessor is None:
+            raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
+        assert_permission(user_data, predecessor, Action.SUPERSEDE)
 
     if calibration.class_based and not classes_file:
         raise HTTPException(
@@ -845,6 +854,13 @@ def publish_score_calibration_route(
             status_code=400,
             detail="Score calibrations associated with private score sets cannot be published. First publish the score set, then calibrations.",
         )
+
+    # Publishing a replacement for the primary calibration promotes the replacement and demotes its predecessor,
+    # so it needs the same rank permissions as promoting with demoteExistingPrimary.
+    predecessor = item.superseded_calibration
+    if predecessor is not None and predecessor.primary:
+        assert_permission(user_data, item, Action.CHANGE_RANK)
+        assert_permission(user_data, predecessor, Action.CHANGE_RANK)
 
     item = publish_score_calibration(db, item, user_data.user)
     db.commit()

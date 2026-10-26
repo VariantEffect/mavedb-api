@@ -538,6 +538,22 @@ def test_visible_calibration_ids_filters_classifications(session, setup_lib_db_w
 
 
 @pytest.mark.integration
+def test_get_variant_detail_superseded_calibration_keeps_its_classification(session, setup_lib_db_with_score_set):
+    """A calibration with a published replacement still answers for its variants, since callers can still select
+    it; only the default-choosing callers pass it over."""
+    score_set = setup_lib_db_with_score_set
+    variant = _variant(session, score_set, 1, data={"score_data": {"score": 0.8}})
+    predecessor = _calibration(session, score_set, primary=False, classifications=[("normal", [variant])])
+    replacement = _calibration(session, score_set, primary=True, classifications=[("abnormal", [variant])])
+    replacement.superseded_calibration_id = predecessor.id
+    session.commit()
+
+    detail = get_variant_detail(session, variant)
+
+    assert [c.calibration_id for c in detail.classifications] == [replacement.id, predecessor.id]
+
+
+@pytest.mark.integration
 def test_superseded_variant_self_describes(session, setup_lib_db_with_score_set):
     """When a superseding version is passed in, the variant reports it rather than reading as current."""
     score_set = setup_lib_db_with_score_set

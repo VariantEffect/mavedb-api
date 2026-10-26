@@ -16,6 +16,7 @@ from mavedb.lib.permissions.score_calibration import (
     _handle_delete_action,
     _handle_publish_action,
     _handle_read_action,
+    _handle_supersede_action,
     _handle_update_action,
     has_permission,
 )
@@ -28,6 +29,7 @@ SCORE_CALIBRATION_SUPPORTED_ACTIONS: dict[Action, Callable] = {
     Action.DELETE: _handle_delete_action,
     Action.PUBLISH: _handle_publish_action,
     Action.CHANGE_RANK: _handle_change_rank_action,
+    Action.SUPERSEDE: _handle_supersede_action,
 }
 
 SCORE_CALIBRATION_UNSUPPORTED_ACTIONS: List[Action] = [
@@ -124,6 +126,47 @@ class TestScoreCalibrationViewer:
         self, entity_helper: EntityTestHelper
     ) -> None:
         assert ScoreCalibrationViewer().may_read(entity_helper.create_score_calibration("published")) is True
+
+
+@pytest.mark.parametrize("state", ["published", "private"], ids=["published", "private"])
+@pytest.mark.parametrize("investigator_provided", [True, False], ids=["investigator", "community"])
+@pytest.mark.parametrize(
+    "user_type, may_replace_community, may_replace_investigator",
+    [
+        ("admin", True, True),
+        ("owner", True, True),
+        ("contributor", False, True),
+        ("other_user", False, False),
+        ("anonymous", False, False),
+    ],
+    ids=["admin", "owner", "contributor", "other_user", "anonymous"],
+)
+def test_has_permission_supersede_requires_published_calibration_and_authorized_user(
+    entity_helper: EntityTestHelper,
+    state: str,
+    investigator_provided: bool,
+    user_type: str,
+    may_replace_community: bool,
+    may_replace_investigator: bool,
+) -> None:
+    calibration = entity_helper.create_score_calibration(state, investigator_provided)
+    user_data = entity_helper.create_user_data(user_type)
+
+    result = has_permission(user_data, calibration, Action.SUPERSEDE)
+
+    authorized = may_replace_investigator if investigator_provided else may_replace_community
+    assert result.permitted is (state == "published" and authorized)
+
+
+def test_has_permission_supersede_unreadable_score_set_returns_not_found(entity_helper: EntityTestHelper) -> None:
+    calibration = entity_helper.create_score_calibration(
+        "published", investigator_provided=True, score_set_state="private", score_set_owner_id=7
+    )
+
+    result = has_permission(entity_helper.create_user_data("owner"), calibration, Action.SUPERSEDE)
+
+    assert result.permitted is False
+    assert result.http_code == 404
 
 
 class TestScoreCalibrationReadActionHandler:

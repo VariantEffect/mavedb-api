@@ -122,6 +122,9 @@ def score_calibration_may_be_used_for_annotation(
     Returns:
         bool: True if the score calibration can be used for annotation, False otherwise.
     """
+    if getattr(score_calibration, "superseding_calibration_urn", None) is not None:
+        return False
+
     if score_calibration.research_use_only and not allow_research_use_only_calibrations:
         return False
 

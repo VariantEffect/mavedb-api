@@ -108,6 +108,7 @@ def _calibration(
     private=False,
     investigator_provided=False,
     research_use_only=False,
+    supersedes=None,
 ):
     user = _user(session, TEST_USER["username"])
     calibration = ScoreCalibration(
@@ -117,6 +118,7 @@ def _calibration(
         private=private,
         investigator_provided=investigator_provided,
         research_use_only=research_use_only,
+        superseded_calibration=supersedes,
         disease_term=get_generic_disease_term(session),
         created_by_id=user.id,
         modified_by_id=user.id,
@@ -610,6 +612,67 @@ def test_research_use_only_classification_does_not_rank(session, setup_lib_db_wi
 
     assert [m.variant_urn for m in result] == [classified.urn, ruo_only.urn]
     assert result[1].classification_is_research_use_only
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "replacement_private, expected_ratio",
+    [(False, 2.0), (True, 100.0)],
+    ids=["published_replacement", "draft_replacement"],
+)
+def test_get_allele_measurements_calibration_with_published_replacement_makes_no_call(
+    session, setup_lib_db_with_score_set, replacement_private, expected_ratio
+):
+    """A calibration with a published replacement drops out of the cascade, even as primary; a draft replacement
+    doesn't take its place yet."""
+    score_set = setup_lib_db_with_score_set
+    nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
+    variant = _variant(session, score_set, 1, data={"score_data": {"score": 1.0}})
+    _link(session, _record(session, variant, assay_level="cdna"), nt, is_authoritative=True)
+
+    predecessor = _calibration(session, score_set, variants=[variant], primary=True, oddspaths_ratio=100.0)
+    _calibration(
+        session,
+        score_set,
+        variants=[variant],
+        primary=False,
+        oddspaths_ratio=2.0,
+        private=replacement_private,
+        supersedes=predecessor,
+    )
+
+    result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
+
+    assert result[0].classification.oddspaths_ratio == expected_ratio
+
+
+@pytest.mark.integration
+def test_get_allele_measurements_clinical_calibration_replaced_by_research_use_only_falls_back_to_replacement(
+    session, setup_lib_db_with_score_set
+):
+    """A clinical calibration with a published replacement no longer blocks the RUO fallback, so a research use
+    only replacement's call shows."""
+    score_set = setup_lib_db_with_score_set
+    nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
+    variant = _variant(session, score_set, 1, data={"score_data": {"score": 1.0}})
+    _link(session, _record(session, variant, assay_level="cdna"), nt, is_authoritative=True)
+
+    predecessor = _calibration(session, score_set, variants=[variant], primary=False, oddspaths_ratio=2.0)
+    _calibration(
+        session,
+        score_set,
+        variants=[variant],
+        primary=False,
+        oddspaths_ratio=1000.0,
+        research_use_only=True,
+        supersedes=predecessor,
+    )
+    session.refresh(score_set)
+
+    result = get_allele_measurements(session, "CA123", user_data=_user_data(session), include_research_use_only=True)
+
+    assert result[0].classification.oddspaths_ratio == 1000.0
+    assert result[0].classification_is_research_use_only
 
 
 @pytest.mark.integration

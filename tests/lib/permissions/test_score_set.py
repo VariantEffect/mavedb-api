@@ -38,6 +38,7 @@ SCORE_SET_UNSUPPORTED_ACTIONS: List[Action] = [
     Action.LOOKUP,
     Action.ADD_BADGE,
     Action.CHANGE_RANK,
+    Action.SUPERSEDE,
 ]
 
 

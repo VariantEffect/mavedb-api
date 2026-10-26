@@ -91,12 +91,31 @@ class ScoreCalibration(Base):
 
     calibration_metadata = Column(JSONB(none_as_null=True), nullable=True)
 
+    superseded_calibration_id = Column(
+        "replaces_id", Integer, ForeignKey("score_calibrations.id"), nullable=True, unique=True, index=True
+    )
+    superseded_calibration: Mapped[ScoreCalibration | None] = relationship(
+        "ScoreCalibration", remote_side=[id], back_populates="superseding_calibration"
+    )
+    superseding_calibration: Mapped[ScoreCalibration | None] = relationship(
+        "ScoreCalibration", back_populates="superseded_calibration", uselist=False
+    )
+
     created_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     created_by: Mapped["User"] = relationship("User", foreign_keys="ScoreCalibration.created_by_id")
     modified_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     modified_by: Mapped["User"] = relationship("User", foreign_keys="ScoreCalibration.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
+
+    @property
+    def superseded_calibration_urn(self) -> str | None:
+        return self.superseded_calibration.urn if self.superseded_calibration is not None else None
+
+    @property
+    def superseding_calibration_urn(self) -> str | None:
+        successor = self.superseding_calibration
+        return successor.urn if successor is not None and not successor.private else None
 
     def __repr__(self) -> str:  # pragma: no cover - repr utility
         return (
