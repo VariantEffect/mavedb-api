@@ -1,5 +1,9 @@
 import datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mavedb.models.score_calibration import ScoreCalibration
 
 NON_FIELD_ERRORS = "__all__"
 
@@ -244,3 +248,13 @@ class NoMappedVariantsError(Exception):
     """Raised when no variants were mapped during the variant mapping process."""
 
     pass
+
+
+class CalibrationAlreadyReplacedError(ValueError):
+    """Raised when a user tries to replace a score calibration that already has a replacement, draft or published.
+
+    Carries the existing ``replacement`` so the caller can name it to users who may read it."""
+
+    def __init__(self, replacement: "ScoreCalibration"):
+        super().__init__("The score calibration already has a replacement.")
+        self.replacement = replacement

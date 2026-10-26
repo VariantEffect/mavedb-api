@@ -125,7 +125,7 @@ def _preferred_classification(
         (classification, calibration)
         for classification, calibration in classifications
         if calibration.research_use_only is research_use_only
-        and calibration.superseding_calibration_urn is None
+        and not calibration.has_published_replacement
         and has_permission(user_data, calibration, Action.READ).permitted
     ]
     if not candidates:
@@ -152,7 +152,7 @@ def _has_readable_clinical_calibration(score_set: ScoreSet, *, user_data: Option
     """
     return any(
         not calibration.research_use_only
-        and calibration.superseding_calibration_urn is None
+        and not calibration.has_published_replacement
         and calibration.functional_classifications
         and has_permission(user_data, calibration, Action.READ).permitted
         for calibration in score_set.score_calibrations

@@ -11,6 +11,7 @@ from sqlalchemy import Float, and_, select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.acmg import find_or_create_acmg_classification
+from mavedb.lib.exceptions import CalibrationAlreadyReplacedError
 from mavedb.lib.identifiers import find_or_create_publication_identifier
 from mavedb.lib.mondo_ols import resolve_disease_term
 from mavedb.lib.types.score_calibrations import (
@@ -473,6 +474,11 @@ async def create_score_calibration_in_score_set(
 
     Raises:
         ValueError: If calibration_create.score_set_urn is missing or falsy.
+        ValidationError: If calibration_create.superseded_calibration_urn names a calibration that
+            isn't published or isn't in the same score set.
+        CalibrationAlreadyReplacedError: If the calibration it would replace already has a
+            replacement, draft or published. Checked under a row lock on that calibration, so two
+            concurrent requests can't both pass.
         sqlalchemy.orm.exc.NoResultFound: If no ScoreSet exists with the provided URN.
         sqlalchemy.orm.exc.MultipleResultsFound: If multiple ScoreSets share the provided URN
             (should not occur if URNs are unique).
@@ -500,7 +506,7 @@ async def create_score_calibration_in_score_set(
         if predecessor is None or predecessor.private or predecessor.score_set_id != containing_score_set.id:
             raise ValidationError("The superseded calibration must be published and belong to the same score set.")
         if predecessor.superseding_calibration is not None:
-            raise ValidationError("The calibration already has a replacement. Edit or delete that draft first.")
+            raise CalibrationAlreadyReplacedError(predecessor.superseding_calibration)
 
     calibration = await _create_score_calibration(db, calibration_create, user, variant_classes, containing_score_set)
     calibration.superseded_calibration = predecessor
@@ -875,7 +881,7 @@ def promote_score_calibration_to_primary(
     if calibration.primary:
         raise ValueError("Calibration is already primary.")
 
-    if calibration.superseding_calibration_urn is not None:
+    if calibration.has_published_replacement:
         raise ValueError("Cannot promote a superseded calibration to primary.")
 
     if calibration.research_use_only:

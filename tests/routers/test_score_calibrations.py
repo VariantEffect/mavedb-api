@@ -95,12 +95,49 @@ def test_create_score_calibration_replacement_preserves_history_and_hides_draft(
     assert stored.superseding_calibration.urn == published["urn"]
 
 
-def test_create_score_calibration_duplicate_replacement_rejected(client, versioned_calibration_context):
+def test_create_score_calibration_duplicate_replacement_conflicts_and_names_readable_draft(
+    client, versioned_calibration_context
+):
     _, payload = versioned_calibration_context
-    assert client.post("/api/v1/score-calibrations/", json=payload).status_code == 200
+    draft = client.post("/api/v1/score-calibrations/", json=payload)
+    assert draft.status_code == 200
     response = client.post("/api/v1/score-calibrations/", json=payload)
-    assert response.status_code == 422
-    assert "already has a replacement" in response.text
+    assert response.status_code == 409
+    assert draft.json()["urn"] in response.json()["detail"]
+
+
+def test_create_score_calibration_duplicate_replacement_conflicts_without_naming_unreadable_draft(
+    client, versioned_calibration_context, admin_app_overrides
+):
+    # An admin who isn't a contributor drafts a community replacement, which the predecessor's owner can't read.
+    _, payload = versioned_calibration_context
+    with DependencyOverrider(admin_app_overrides):
+        draft = client.post("/api/v1/score-calibrations/", json=payload)
+    assert draft.status_code == 200
+    response = client.post("/api/v1/score-calibrations/", json=payload)
+    assert response.status_code == 409
+    assert draft.json()["urn"] not in response.text
+
+
+@pytest.mark.parametrize(
+    "route",
+    ["/api/v1/score-calibrations/{urn}", "/api/v1/score-calibrations/score-set/{score_set_urn}"],
+    ids=["calibration", "score_set_list"],
+)
+def test_get_score_calibration_draft_replacement_named_only_to_its_readers(
+    client, versioned_calibration_context, extra_user_app_overrides, route
+):
+    original, payload = versioned_calibration_context
+    draft = client.post("/api/v1/score-calibrations/", json=payload).json()
+
+    def superseding_urn():
+        body = client.get(route.format(urn=original["urn"], score_set_urn=payload["scoreSetUrn"])).json()
+        calibration = body if isinstance(body, dict) else next(c for c in body if c["urn"] == original["urn"])
+        return calibration["supersedingCalibrationUrn"]
+
+    assert superseding_urn() == draft["urn"]
+    with DependencyOverrider(extra_user_app_overrides):
+        assert superseding_urn() is None
 
 
 def test_create_score_calibration_other_user_cannot_replace(
