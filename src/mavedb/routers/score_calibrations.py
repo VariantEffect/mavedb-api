@@ -736,6 +736,15 @@ def delete_score_calibration_route(
         logger.debug("Primary score calibrations cannot be deleted", extra=logging_context())
         raise HTTPException(status_code=400, detail="Primary score calibrations cannot be deleted. Demote it first.")
 
+    # Only admins can delete published calibrations, so only they reach these refusals.
+    if item.superseded_calibration is not None and not item.private:
+        logger.debug("Published score calibration versions cannot be deleted", extra=logging_context())
+        raise HTTPException(status_code=400, detail="Published score calibration versions cannot be deleted")
+
+    if item.superseding_calibration is not None:
+        logger.debug("Score calibrations with a replacement cannot be deleted", extra=logging_context())
+        raise HTTPException(status_code=400, detail="Score calibrations with a replacement cannot be deleted")
+
     delete_score_calibration(db, item)
     db.commit()
 
@@ -796,6 +805,10 @@ def promote_score_calibration_to_primary_route(
     if item.private:
         logger.debug("Private score calibrations cannot be promoted to primary", extra=logging_context())
         raise HTTPException(status_code=400, detail="Private score calibrations cannot be promoted to primary")
+
+    if item.has_published_replacement:
+        logger.debug("Superseded score calibrations cannot be promoted to primary", extra=logging_context())
+        raise HTTPException(status_code=400, detail="Superseded score calibrations cannot be promoted to primary")
 
     # We've already checked whether the item matching the calibration URN is primary, so this
     # will necessarily be a different calibration, if it exists.
@@ -915,6 +928,14 @@ def publish_score_calibration_route(
     if predecessor is not None and predecessor.primary:
         assert_permission(user_data, item, Action.CHANGE_RANK)
         assert_permission(user_data, predecessor, Action.CHANGE_RANK)
+
+        if item.research_use_only:
+            logger.debug(
+                "Research use only score calibrations cannot replace a primary calibration", extra=logging_context()
+            )
+            raise HTTPException(
+                status_code=400, detail="Research use only score calibrations cannot replace a primary calibration"
+            )
 
     item = publish_score_calibration(db, item, user_data.user)
     db.commit()
