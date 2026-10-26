@@ -790,6 +790,9 @@ async def modify_score_calibration(
 def publish_score_calibration(db: Session, calibration: ScoreCalibration, user: User) -> ScoreCalibration:
     """Publish a private ScoreCalibration, marking it as publicly accessible.
 
+    When the calibration replaces a primary calibration, publishing it also moves primary status from the
+    predecessor to it. The predecessor is otherwise left unchanged.
+
     Parameters
     ----------
     db : Session
@@ -807,13 +810,16 @@ def publish_score_calibration(db: Session, calibration: ScoreCalibration, user: 
     Raises
     ------
     ValueError
-        If the calibration is already published (i.e., `private` is False), or if its
-        score set is still private.
+        If the calibration is already published (i.e., `private` is False), if its
+        score set is still private, if the calibration it replaces isn't a published
+        calibration in the same score set, or if it is research use only and replaces
+        a primary calibration.
 
     Notes
     -----
     This function adds the modified calibration to the session but does not commit;
-    the caller is responsible for committing the transaction.
+    the caller is responsible for committing the transaction. It doesn't check who may
+    move primary status; the publish route does.
     """
     if not calibration.private:
         raise ValueError("Calibration is already published.")
@@ -847,9 +853,10 @@ def promote_score_calibration_to_primary(
 
     This function enforces several business rules before promotion:
     1. The calibration must not already be primary.
-    2. It must not be marked as research-use-only.
-    3. It must not be private.
-    4. If another primary calibration already exists for the same score set, promotion is blocked
+    2. It must not have been replaced by a published calibration.
+    3. It must not be marked as research-use-only.
+    4. It must not be private.
+    5. If another primary calibration already exists for the same score set, promotion is blocked
         unless force=True is provided. When force=True, any existing primary calibration(s) are
         demoted (their primary flag set to False) and updated with the acting user.
 
@@ -866,6 +873,7 @@ def promote_score_calibration_to_primary(
     Raises:
          ValueError:
               - If the calibration is already primary.
+              - If the calibration has been replaced by a published calibration.
               - If the calibration is research-use-only.
               - If the calibration is private.
               - If another primary calibration exists for the score set and force is False.
@@ -952,14 +960,18 @@ def delete_score_calibration(db: Session, calibration: ScoreCalibration) -> None
 
     This function removes the provided ScoreCalibration instance from the SQLAlchemy
     session. Primary calibrations are protected from deletion and must be demoted
-    (i.e., have their `primary` flag unset) before they can be deleted.
+    (i.e., have their `primary` flag unset) before they can be deleted. Versions are
+    protected too, so a calibration's history can't be broken: only a draft replacement
+    may be deleted.
 
     Parameters:
         db (Session): An active SQLAlchemy session used to perform the delete operation.
         calibration (ScoreCalibration): The calibration object to be deleted.
 
     Raises:
-        ValueError: If the calibration is marked as primary.
+        ValueError: If the calibration is marked as primary, if it is a published
+            replacement for another calibration, or if it has a replacement, draft
+            or published.
 
     Returns:
         None
