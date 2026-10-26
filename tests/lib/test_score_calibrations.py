@@ -11,6 +11,7 @@ from pydantic import create_model
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
+from mavedb.lib.annotation.calibration import score_calibration_may_be_used_for_annotation
 from mavedb.lib.score_calibrations import (
     create_functional_classification,
     create_score_calibration,
@@ -23,7 +24,6 @@ from mavedb.lib.score_calibrations import (
     variant_classification_df_to_dict,
     variants_for_functional_classification,
 )
-from mavedb.lib.annotation.calibration import score_calibration_may_be_used_for_annotation
 from mavedb.lib.validation.constants.general import (
     calibration_class_column_name,
     calibration_variant_column_name,
