@@ -5,7 +5,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from mavedb import deps
 from mavedb.lib.authentication import get_current_user
@@ -22,6 +22,7 @@ from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.publications import ensure_publication_keys, record_publication_citations
+from mavedb.lib.score_calibrations import score_calibration_response_loads
 from mavedb.lib.score_sets import find_superseded_score_set_tail, readable_score_set_urns
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.utils import distinct_identifiers
@@ -209,6 +210,7 @@ def get_experiment_score_sets(
         db.query(ScoreSet)
         .filter(ScoreSet.experiment_id == experiment.id)
         .filter(~ScoreSet.superseding_score_set.has())
+        .options(selectinload(ScoreSet.score_calibrations).options(*score_calibration_response_loads()))
         .all()
     )
 

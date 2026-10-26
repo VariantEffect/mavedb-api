@@ -27,7 +27,7 @@ from zipfile import ZipFile
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
-from sqlalchemy.orm import Session, joinedload, lazyload
+from sqlalchemy.orm import Session, joinedload, lazyload, selectinload
 
 from mavedb.lib.allele_annotations import get_allele_cross_references
 from mavedb.lib.alleles import get_live_record_allele_links, with_chunk_inputs
@@ -43,6 +43,7 @@ from mavedb.lib.csv.score_set import (
 )
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
+from mavedb.lib.score_calibrations import score_calibration_response_loads
 from mavedb.lib.score_sets import get_annotatable_variants, readable_score_set_urns
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
@@ -375,7 +376,7 @@ def published_experiment_sets(db: Session) -> list[ExperimentSet]:
                             ScoreSet.published_date.is_not(None),
                             ScoreSet.license.has(License.short_name == PUBLIC_DUMP_LICENSE),
                         )
-                    )
+                    ).options(selectinload(ScoreSet.score_calibrations).options(*score_calibration_response_loads()))
                 )
             )
             .execution_options(populate_existing=True)
