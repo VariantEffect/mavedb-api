@@ -116,7 +116,7 @@ def _preferred_classification(
 
     Mirrors the UI's calibration cascade — ``primary`` then ``investigator_provided``, strongest evidence
     within a tier, then ``id`` for determinism. Calibrations the caller can't read are skipped rather than
-    blanking a readable call.
+    blanking a readable call, and so are calibrations with a published replacement, which no longer make a call.
 
     Draws from one side of the RUO line only: non-RUO calibrations by default (the call MaveDB asserts, matching
     the annotation layer's default), or RUO calibrations alone when ``research_use_only`` is set, for display.
@@ -125,6 +125,7 @@ def _preferred_classification(
         (classification, calibration)
         for classification, calibration in classifications
         if calibration.research_use_only is research_use_only
+        and calibration.superseding_calibration_urn is None
         and has_permission(user_data, calibration, Action.READ).permitted
     ]
     if not candidates:
@@ -146,10 +147,12 @@ def _has_readable_clinical_calibration(score_set: ScoreSet, *, user_data: Option
     """Whether the score set has any non-RUO calibration the caller can read, classifying this variant or not.
 
     A calibration without functional classifications (one that only records controls or a baseline score) can't
-    classify any variant, so its silence is no answer and it doesn't count.
+    classify any variant, so its silence is no answer and it doesn't count. Nor does one with a published
+    replacement, which :func:`_preferred_classification` never draws from.
     """
     return any(
         not calibration.research_use_only
+        and calibration.superseding_calibration_urn is None
         and calibration.functional_classifications
         and has_permission(user_data, calibration, Action.READ).permitted
         for calibration in score_set.score_calibrations

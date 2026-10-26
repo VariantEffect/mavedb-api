@@ -37,6 +37,7 @@ COLLECTION_UNSUPPORTED_ACTIONS: List[Action] = [
     Action.CHANGE_RANK,
     Action.SET_SCORES,
     Action.ADD_CALIBRATION,
+    Action.SUPERSEDE,
 ]
 
 COLLECTION_ROLE_MAP = {

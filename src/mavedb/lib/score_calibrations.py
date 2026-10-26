@@ -424,6 +424,7 @@ def _create_score_calibration(
                 "evidence_sources",
                 "method_sources",
                 "score_set_urn",
+                "superseded_calibration_urn",
             },
         ),
         publication_identifier_associations=calibration_pub_assocs,
@@ -494,7 +495,19 @@ def create_score_calibration_in_score_set(
     require_phi_affirmation(bool(submitted_controls), getattr(calibration_create, "controls_not_phi", None))
 
     containing_score_set = db.query(ScoreSet).where(ScoreSet.urn == calibration_create.score_set_urn).one()
+    predecessor = None
+    predecessor_urn = getattr(calibration_create, "superseded_calibration_urn", None)
+    if predecessor_urn:
+        predecessor = db.scalar(
+            select(ScoreCalibration).where(ScoreCalibration.urn == predecessor_urn).with_for_update()
+        )
+        if predecessor is None or predecessor.private or predecessor.score_set_id != containing_score_set.id:
+            raise ValidationError("The superseded calibration must be published and belong to the same score set.")
+        if predecessor.superseding_calibration is not None:
+            raise ValidationError("The calibration already has a replacement. Edit or delete that draft first.")
+
     calibration = _create_score_calibration(db, calibration_create, user, variant_classes, containing_score_set)
+    calibration.superseded_calibration = predecessor
 
     if user.username in [contributor.orcid_id for contributor in containing_score_set.contributors] + [
         containing_score_set.created_by.username,
@@ -565,6 +578,9 @@ def create_score_calibration(
     """
     if calibration_create.score_set_urn:
         raise ValueError("score_set_urn must not be provided to create a score calibration outside a score set.")
+
+    if getattr(calibration_create, "superseded_calibration_urn", None):
+        raise ValidationError("A replacement calibration must be created within its predecessor's score set.")
 
     created_calibration = _create_score_calibration(
         db, calibration_create, user, variant_classes, containing_score_set=None
@@ -658,6 +674,10 @@ def modify_score_calibration(
         raise ValueError("score_set_urn must be provided to modify a score calibration.")
 
     containing_score_set = db.query(ScoreSet).where(ScoreSet.urn == calibration_update.score_set_urn).one()
+    if (
+        calibration.superseded_calibration is not None or calibration.superseding_calibration is not None
+    ) and containing_score_set.id != calibration.score_set_id:
+        raise ValidationError("A versioned calibration cannot be moved to another score set.")
 
     # Replace semantics: a provided controls list (even empty) replaces all existing controls, while None
     # leaves them untouched. Re-acknowledgment: an explicit controls_not_phi in the request always wins;
@@ -782,6 +802,17 @@ def publish_score_calibration(db: Session, calibration: ScoreCalibration, user: 
     if calibration.score_set.private:
         raise ValueError("Cannot publish a calibration whose score set is private.")
 
+    predecessor = calibration.superseded_calibration
+    if predecessor is not None:
+        if predecessor.private or predecessor.score_set_id != calibration.score_set_id:
+            raise ValueError("A replacement must supersede a published calibration in the same score set.")
+        if predecessor.primary and calibration.research_use_only:
+            raise ValueError("Cannot replace a primary calibration with a research use only calibration.")
+        if predecessor.primary:
+            predecessor.primary = False
+            predecessor.modified_by = user
+            calibration.primary = True
+
     calibration.private = False
     calibration.modified_by = user
 
@@ -830,6 +861,9 @@ def promote_score_calibration_to_primary(
     """
     if calibration.primary:
         raise ValueError("Calibration is already primary.")
+
+    if calibration.superseding_calibration_urn is not None:
+        raise ValueError("Cannot promote a superseded calibration to primary.")
 
     if calibration.research_use_only:
         raise ValueError("Cannot promote a research use only calibration to primary.")
@@ -913,6 +947,11 @@ def delete_score_calibration(db: Session, calibration: ScoreCalibration) -> None
     """
     if calibration.primary:
         raise ValueError("Cannot delete a primary calibration. Demote it first.")
+
+    if calibration.superseded_calibration is not None and not calibration.private:
+        raise ValueError("Cannot delete a published calibration version.")
+    if calibration.superseding_calibration is not None:
+        raise ValueError("Cannot delete a calibration with a replacement.")
 
     db.delete(calibration)
     return None
