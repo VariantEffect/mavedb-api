@@ -18,6 +18,7 @@ from sqlalchemy import event, select
 from mavedb.models.mondo_term import MondoTerm as MondoTermDbModel
 from mavedb.models.score_calibration import ScoreCalibration as CalibrationDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.models.variant import Variant
 from tests.helpers.constants import (
     EXTRA_USER,
     TEST_BIORXIV_IDENTIFIER,
@@ -31,6 +32,7 @@ from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.common import deepcamelize
 from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.experiment import create_experiment
+from tests.helpers.util.query_plan import captured_statements
 from tests.helpers.util.score_calibration import (
     create_publish_and_promote_score_calibration,
     create_test_score_calibration_in_score_set_via_client,
@@ -5943,3 +5945,66 @@ def test_score_set_owner_cannot_rank_or_see_private_community_calibration(
 
     assert response.status_code == 404
     assert "functionalClassifications" not in response.json()
+
+
+###########################################################
+# Query counts (#953)
+###########################################################
+
+
+def _add_published_calibrations(client, session, score_set_urn, count):
+    """Publish ``count`` calibrations on the score set, each with classifications, publications and a control."""
+    score_set_id = session.scalar(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set_urn))
+    variant_urn = session.scalars(select(Variant.urn).where(Variant.score_set_id == score_set_id)).first()
+    for _ in range(count):
+        payload = {
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+            "scoreSetUrn": score_set_urn,
+            "controls": [{"variantUrn": variant_urn, "clinicalStatus": "pathogenic"}],
+            "controlsNotPhi": True,
+        }
+        created = client.post("/api/v1/score-calibrations/", json=payload)
+        assert created.status_code == 200, created.text
+        publish_test_score_calibration_via_client(client, created.json()["urn"])
+
+
+def _query_count(client, session, url):
+    session.expire_all()
+    with captured_statements(session) as statements:
+        response = client.get(url)
+    assert response.status_code == 200, response.text
+    return len(statements)
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+@pytest.mark.parametrize(
+    "route",
+    [
+        "/api/v1/score-sets/{score_set_urn}",
+        "/api/v1/experiments/{experiment_urn}/score-sets",
+        "/api/v1/score-sets/recently-published",
+        "/api/v1/score-calibrations/score-set/{score_set_urn}",
+        "/api/v1/score-calibrations/me",
+    ],
+    ids=["score_set", "experiment_score_sets", "recently_published", "calibration_list", "my_calibrations"],
+)
+def test_calibration_serializing_routes_query_count_does_not_grow_with_calibrations(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, route
+):
+    score_set = _published_score_set(client, session, data_provider, data_files)
+    url = route.format(score_set_urn=score_set["urn"], experiment_urn=score_set["experiment"]["urn"])
+    _add_published_calibrations(client, session, score_set["urn"], 1)
+    with_one_calibration = _query_count(client, session, url)
+
+    _add_published_calibrations(client, session, score_set["urn"], 4)
+
+    assert _query_count(client, session, url) == with_one_calibration

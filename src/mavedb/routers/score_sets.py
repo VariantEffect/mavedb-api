@@ -19,7 +19,7 @@ from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResu
 from pydantic import ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError, MultipleResultsFound
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from mavedb import deps
 from mavedb.data_providers.services import CSV_UPLOAD_S3_BUCKET_NAME, s3_client
@@ -66,7 +66,11 @@ from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
-from mavedb.lib.score_calibrations import create_score_calibration, visible_superseding_calibration_urn
+from mavedb.lib.score_calibrations import (
+    create_score_calibration,
+    score_calibration_response_loads,
+    visible_superseding_calibration_urn,
+)
 from mavedb.lib.score_set_variants import get_lean_score_set_variants
 from mavedb.lib.score_sets import (
     csv_data_to_df,
@@ -556,7 +560,12 @@ async def parse_score_set_variants_uploads(
 
 
 async def fetch_score_set_by_urn(
-    db, urn: str, user: Optional[UserData], owner_or_contributor: Optional[UserData], only_published: bool
+    db,
+    urn: str,
+    user: Optional[UserData],
+    owner_or_contributor: Optional[UserData],
+    only_published: bool,
+    with_calibrations: bool = False,
 ) -> ScoreSet:
     """
     Fetch one score set by URN, ensuring that the user has read permission.
@@ -569,6 +578,8 @@ async def fetch_score_set_by_urn(
       contributor. This is an ownership requirement, not a visibility one: it does not admit score sets that are
       merely public. Combining it with only_published therefore yields published score sets owned by this user.
     :param only_published: If true, only return the score set if it is published.
+    :param with_calibrations: If true, load the score set's calibrations and the relations their responses
+      serialize in batches. Pass it from routes that return the calibrations; others never touch them.
     :return: The score set.
     :raises HTTPException: 404 if no score set matches the URN and the supplied filters, or 500 if more than one
         does. Read permission is asserted on the result and raises through assert_permission.
@@ -584,6 +595,10 @@ async def fetch_score_set_by_urn(
             )
         if only_published:
             query = query.filter(ScoreSet.private.is_(False))
+        if with_calibrations:
+            query = query.options(
+                selectinload(ScoreSet.score_calibrations).options(*score_calibration_response_loads())
+            )
         item = query.one_or_none()
     except MultipleResultsFound:
         logger.info(
@@ -856,6 +871,7 @@ def list_recently_published_score_sets(
         db.query(ScoreSet)
         .filter(ScoreSet.published_date.isnot(None), ScoreSet.private.is_(False))
         .order_by(ScoreSet.published_date.desc(), ScoreSet.urn.desc())
+        .options(selectinload(ScoreSet.score_calibrations).options(*score_calibration_response_loads()))
         .limit(limit)
         .all()
     )
@@ -890,7 +906,7 @@ async def show_score_sets(
     save_to_logging_context({"requested_resource": urn_list})
     response_items: list[score_set.ScoreSet] = []
     for urn in urn_list:
-        item = await fetch_score_set_by_urn(db, urn, user_data, None, False)
+        item = await fetch_score_set_by_urn(db, urn, user_data, None, False, with_calibrations=True)
         response_items.append(_score_set_response(item, principal))
 
     return response_items
@@ -915,7 +931,7 @@ async def show_score_set(
     Fetch a single score set by URN.
     """
     save_to_logging_context({"requested_resource": urn})
-    item = await fetch_score_set_by_urn(db, urn, user_data, None, False)
+    item = await fetch_score_set_by_urn(db, urn, user_data, None, False, with_calibrations=True)
     return _score_set_response(item, principal)
 
 
