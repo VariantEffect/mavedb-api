@@ -313,6 +313,28 @@ def test_delete_score_calibration_published_version_rejected_even_for_admins(
     assert client.get(f"/api/v1/score-calibrations/{replacement['urn']}").status_code == 200
 
 
+@pytest.mark.parametrize(
+    "replacement_published, expected_status", [(True, 400), (False, 200)], ids=["superseded", "draft_replacement"]
+)
+def test_modify_score_calibration_by_admin_rejected_only_once_replacement_published(
+    client, versioned_calibration_context, admin_app_overrides, session, replacement_published, expected_status
+):
+    original, payload = versioned_calibration_context
+    draft = client.post("/api/v1/score-calibrations/", json=payload).json()
+    if replacement_published:
+        publish_test_score_calibration_via_client(client, draft["urn"])
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.put(
+            f"/api/v1/score-calibrations/{original['urn']}", json={**payload, "title": "Rewritten history"}
+        )
+
+    assert response.status_code == expected_status
+    stored = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == original["urn"]))
+    session.refresh(stored)
+    assert stored.title == ("Rewritten history" if expected_status == 200 else original["title"])
+
+
 ###########################################################
 # GET /score-calibrations/{calibration_urn}
 ###########################################################

@@ -644,7 +644,12 @@ async def modify_score_calibration(
     Raises
     ------
     ValueError
-         If score_set_urn is missing in the update model.
+         If score_set_urn is missing in the update model, or if a published calibration has
+         replaced this one. A superseded calibration is frozen; remove_score_calibration_controls
+         is the one change it allows.
+    ValidationError
+         If the update would move a versioned calibration to another score set, or store
+         controls without a PHI affirmation.
     sqlalchemy.orm.exc.NoResultFound
          If no ScoreSet exists with the provided URN.
     sqlalchemy.orm.exc.MultipleResultsFound
@@ -673,6 +678,10 @@ async def modify_score_calibration(
     """
     if not calibration_update.score_set_urn:
         raise ValueError("score_set_urn must be provided to modify a score calibration.")
+
+    # Annotations cite a calibration by URN, so a replaced version must keep the content they cited.
+    if getattr(calibration, "has_published_replacement", False):
+        raise ValueError("Cannot modify a calibration that a published calibration has replaced.")
 
     containing_score_set = db.query(ScoreSet).where(ScoreSet.urn == calibration_update.score_set_urn).one()
     if (
@@ -782,6 +791,31 @@ async def modify_score_calibration(
         calibration.controls = build_calibration_controls(db, containing_score_set, submitted_controls, user)
 
     calibration.controls_not_phi = controls_not_phi
+
+    db.add(calibration)
+    return calibration
+
+
+def remove_score_calibration_controls(db: Session, calibration: ScoreCalibration, user: User) -> ScoreCalibration:
+    """Delete a calibration's controls and withdraw its PHI affirmation, changing nothing else.
+
+    The one change a superseded calibration allows, so protected health information found in an old version
+    can be removed without rewriting it. Works on any calibration. Leaves ``controls_not_phi`` as ``False``
+    (declined), as a modify that withdraws the affirmation does. Stages the change without committing.
+
+    Args:
+        db (Session): An active SQLAlchemy session.
+        calibration (ScoreCalibration): The calibration whose controls to delete.
+        user (User): The user making the change; recorded in ``modified_by``.
+
+    Returns:
+        ScoreCalibration: The calibration, now without controls.
+    """
+    for control in list(calibration.controls):
+        db.delete(control)
+    calibration.controls.clear()
+    calibration.controls_not_phi = False
+    calibration.modified_by = user
 
     db.add(calibration)
     return calibration

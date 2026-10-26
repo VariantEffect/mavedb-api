@@ -24,6 +24,7 @@ from mavedb.lib.score_calibrations import (
     modify_score_calibration,
     promote_score_calibration_to_primary,
     publish_score_calibration,
+    remove_score_calibration_controls,
     variant_classification_df_to_dict,
 )
 from mavedb.lib.score_sets import csv_data_to_df
@@ -617,6 +618,15 @@ async def modify_score_calibration_route(
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
 
     assert_permission(user_data, item, Action.UPDATE)
+
+    if item.has_published_replacement:
+        logger.debug("Superseded score calibrations cannot be modified", extra=logging_context())
+        raise HTTPException(
+            status_code=400,
+            detail="Superseded score calibrations cannot be modified. To remove their controls, use "
+            f"DELETE /api/v1/score-calibrations/{urn}/controls.",
+        )
+
     score_set = score_set_update or item.score_set
 
     if calibration_update.class_based and not classes_file:
@@ -741,6 +751,45 @@ async def delete_score_calibration_route(
         raise HTTPException(status_code=400, detail="Score calibrations with a replacement cannot be deleted")
 
     delete_score_calibration(db, item)
+    db.commit()
+
+    return None
+
+
+@router.delete(
+    "/{urn}/controls",
+    response_model=None,
+    responses={404: {}},
+    status_code=204,
+)
+def delete_score_calibration_controls_route(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(require_current_user_with_email),
+) -> None:
+    """
+    Delete a score calibration's controls and withdraw its PHI affirmation, changing nothing else.
+
+    This is the only change allowed to a calibration that a newer version has replaced, so protected health
+    information found in an old version can be removed. It needs the same permission as modifying the
+    calibration.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "controls"})
+
+    item = (
+        db.query(ScoreCalibration)
+        .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
+        .where(ScoreCalibration.urn == urn)
+        .one_or_none()
+    )
+    if not item:
+        logger.debug("The requested score calibration does not exist", extra=logging_context())
+        raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
+
+    assert_permission(user_data, item, Action.UPDATE)
+
+    remove_score_calibration_controls(db, item, user_data.user)
     db.commit()
 
     return None
