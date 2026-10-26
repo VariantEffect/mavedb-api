@@ -24,6 +24,30 @@ if TYPE_CHECKING:
 
 
 class ScoreCalibration(Base):
+    """A mapping from a score set's functional scores to functional classifications and, optionally, clinical
+    evidence strengths.
+
+    Published calibrations can't be edited by their owners, so a correction is a new version. A calibration
+    can name the published calibration in the same score set that it replaces (``superseded_calibration``,
+    stored as ``replaces_id``). Each calibration has at most one replacement, so a calibration's versions
+    form a chain.
+
+    A replacement starts as a private draft and the older version is unaffected: it remains current, keeps
+    primary status and still backs annotations. Publishing the replacement is the handover. From then on
+    the older version has a published replacement (``has_published_replacement``): it no longer backs
+    annotations or MaveMD's default call, can't be promoted to primary, and passes primary status to its
+    replacement if it held it.
+
+    A replaced version is frozen, even for admins, because annotations cite calibrations by URN and should
+    keep meaning what they cited. The one change it allows is removing its controls
+    (``remove_score_calibration_controls``), so protected health information found in an old version can
+    still be deleted.
+
+    ``superseding_calibration_urn`` names only a published replacement, so serializations that don't check
+    READ never reveal a draft. The calibration routes name a draft to callers who may read it, as score set
+    supersession does.
+    """
+
     __tablename__ = "score_calibrations"
     # TODO#544: Add a partial unique index to enforce only one primary calibration per score set.
 
