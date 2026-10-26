@@ -40,14 +40,18 @@ from tests.helpers.util.score_calibration import (
 from tests.helpers.util.score_set import create_seq_score_set_with_mapped_variants, publish_score_set
 
 
-@pytest.fixture
-def versioned_calibration_context(client, setup_router_db, session, data_provider, data_files):
+def _published_score_set(client, session, data_provider, data_files):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
         client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        return publish_score_set(client, score_set["urn"])
+
+
+@pytest.fixture
+def versioned_calibration_context(client, setup_router_db, session, data_provider, data_files):
+    score_set = _published_score_set(client, session, data_provider, data_files)
     payload = {
         "scoreSetUrn": score_set["urn"],
         "title": "Original calibration",
@@ -192,6 +196,121 @@ def test_publish_score_calibration_community_replacement_needs_rank_permission_o
     assert predecessor.primary is predecessor_primary
     assert replacement.private is predecessor_primary
     assert replacement.primary is False
+
+
+def test_create_score_calibration_contributor_replaces_investigator_calibration(
+    client, versioned_calibration_context, extra_user_app_overrides, session
+):
+    original, payload = versioned_calibration_context
+    add_contributor(
+        session,
+        payload["scoreSetUrn"],
+        ScoreSetDbModel,
+        EXTRA_USER["username"],
+        EXTRA_USER["first_name"],
+        EXTRA_USER["last_name"],
+    )
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.post("/api/v1/score-calibrations/", json=payload)
+    assert response.status_code == 200
+    assert response.json()["supersededCalibrationUrn"] == original["urn"]
+    assert response.json()["investigatorProvided"] is True
+
+
+def test_create_score_calibration_replacement_of_unknown_calibration_not_found(client, versioned_calibration_context):
+    _, payload = versioned_calibration_context
+    response = client.post(
+        "/api/v1/score-calibrations/", json={**payload, "supersededCalibrationUrn": VALID_CALIBRATION_URN}
+    )
+    assert response.status_code == 404
+
+
+def test_create_score_calibration_replacement_from_other_score_set_rejected(
+    client, versioned_calibration_context, session, data_provider, data_files
+):
+    _, payload = versioned_calibration_context
+    other_score_set = _published_score_set(client, session, data_provider, data_files)
+    elsewhere = client.post(
+        "/api/v1/score-calibrations/",
+        json={key: value for key, value in payload.items() if key != "supersededCalibrationUrn"}
+        | {"scoreSetUrn": other_score_set["urn"]},
+    )
+    elsewhere = publish_test_score_calibration_via_client(client, elsewhere.json()["urn"])
+
+    response = client.post(
+        "/api/v1/score-calibrations/", json={**payload, "supersededCalibrationUrn": elsewhere["urn"]}
+    )
+
+    assert response.status_code == 422
+    stored = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == elsewhere["urn"]))
+    session.refresh(stored)
+    assert stored.superseding_calibration is None
+
+
+def test_modify_score_calibration_versioned_move_to_other_score_set_rejected(
+    client, versioned_calibration_context, session, data_provider, data_files
+):
+    _, payload = versioned_calibration_context
+    draft = client.post("/api/v1/score-calibrations/", json=payload).json()
+    other_score_set = _published_score_set(client, session, data_provider, data_files)
+
+    response = client.put(
+        f"/api/v1/score-calibrations/{draft['urn']}", json={**payload, "scoreSetUrn": other_score_set["urn"]}
+    )
+
+    assert response.status_code == 422
+    stored = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == draft["urn"]))
+    session.refresh(stored)
+    assert stored.score_set.urn == payload["scoreSetUrn"]
+
+
+def test_publish_score_calibration_research_use_only_replacement_of_primary_rejected(
+    client, versioned_calibration_context, session
+):
+    original, payload = versioned_calibration_context
+    assert client.post(f"/api/v1/score-calibrations/{original['urn']}/promote-to-primary").status_code == 200
+    draft = client.post("/api/v1/score-calibrations/", json={**payload, "researchUseOnly": True})
+    assert draft.status_code == 200
+
+    response = client.post(f"/api/v1/score-calibrations/{draft.json()['urn']}/publish")
+
+    assert response.status_code == 400
+    predecessor = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == original["urn"]))
+    replacement = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == draft.json()["urn"]))
+    session.refresh(predecessor)
+    session.refresh(replacement)
+    assert predecessor.primary is True
+    assert replacement.private is True
+
+
+def test_promote_score_calibration_superseded_rejected(client, versioned_calibration_context, session):
+    original, payload = versioned_calibration_context
+    draft = client.post("/api/v1/score-calibrations/", json=payload).json()
+    publish_test_score_calibration_via_client(client, draft["urn"])
+
+    response = client.post(f"/api/v1/score-calibrations/{original['urn']}/promote-to-primary")
+
+    assert response.status_code == 400
+    stored = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == original["urn"]))
+    session.refresh(stored)
+    assert stored.primary is False
+
+
+@pytest.mark.parametrize("deleted", ["predecessor", "replacement"], ids=["predecessor", "replacement"])
+def test_delete_score_calibration_published_version_rejected_even_for_admins(
+    client, versioned_calibration_context, admin_app_overrides, deleted
+):
+    original, payload = versioned_calibration_context
+    draft = client.post("/api/v1/score-calibrations/", json=payload).json()
+    replacement = publish_test_score_calibration_via_client(client, draft["urn"])
+    urn = original["urn"] if deleted == "predecessor" else replacement["urn"]
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.delete(f"/api/v1/score-calibrations/{urn}")
+
+    assert response.status_code == 400
+    assert client.get(f"/api/v1/score-calibrations/{original['urn']}").status_code == 200
+    assert client.get(f"/api/v1/score-calibrations/{replacement['urn']}").status_code == 200
 
 
 ###########################################################
