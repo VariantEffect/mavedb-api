@@ -95,7 +95,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import click
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.acmg import ACMGCriterion, StrengthOfEvidenceProvided
@@ -382,14 +382,26 @@ def main(db: Session, csv_path: str, delimiter: str, overwrite: bool, purge_publ
                     errors += 1
                     continue
 
-                existing_calibration_object = (
-                    db.query(score_calibration.ScoreCalibration)
-                    .filter(
+                existing_calibrations = db.scalars(
+                    select(score_calibration.ScoreCalibration).where(
                         score_calibration.ScoreCalibration.score_set_id == score_set.id,
                         score_calibration.ScoreCalibration.title == calibration_name,
                     )
-                    .one_or_none()
-                )
+                ).all()
+                # Versions of a calibration usually share its title, and deleting one would break its chain.
+                # Correct a versioned calibration by publishing a new version instead.
+                if len(existing_calibrations) > 1 or any(
+                    c.superseded_calibration is not None or c.superseding_calibration is not None
+                    for c in existing_calibrations
+                ):
+                    errors += 1
+                    click.echo(
+                        f"Calibration {calibration_name} for {urn} matches several calibrations or a versioned one; skipping row {processed_rows}",
+                        err=True,
+                    )
+                    continue
+                existing_calibration_object = existing_calibrations[0] if existing_calibrations else None
+
                 if overwrite and existing_calibration_object:
                     replaced = True
                     db.delete(existing_calibration_object)
