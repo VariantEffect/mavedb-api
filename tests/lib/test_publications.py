@@ -11,7 +11,10 @@ from sqlalchemy import event, func, select
 
 from mavedb.lib.exceptions import PublicationServiceError, PublicationServiceTimeoutError
 from mavedb.lib.external_publications import (
+    PUBLICATION_FETCH_TIMEOUT,
     ExternalPublication,
+    fetch_biorxiv_article,
+    fetch_crossref_work,
     fetch_pubmed_article,
 )
 from mavedb.lib.publications import (
@@ -25,7 +28,7 @@ from mavedb.models.mixins.publication_citation import PublicationKey
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.view_models.publication_identifier import PublicationIdentifierCreate
-from tests.helpers.constants import TEST_BIORXIV_IDENTIFIER, TEST_PUBMED_IDENTIFIER
+from tests.helpers.constants import TEST_BIORXIV_IDENTIFIER, TEST_CROSSREF_IDENTIFIER, TEST_PUBMED_IDENTIFIER
 
 PUBMED_EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 
@@ -98,6 +101,33 @@ def test_fetch_pubmed_article_ncbi_error_raises_service_error(requests_mock, ncb
 
     with pytest.raises(PublicationServiceError):
         fetch_pubmed_article(TEST_PUBMED_IDENTIFIER)
+
+
+@pytest.mark.parametrize(
+    "fetch, identifier, url, not_found",
+    [
+        (
+            fetch_crossref_work,
+            TEST_CROSSREF_IDENTIFIER,
+            f"https://api.crossref.org/works/{TEST_CROSSREF_IDENTIFIER}",
+            {"status_code": 404},
+        ),
+        (
+            fetch_biorxiv_article,
+            TEST_BIORXIV_IDENTIFIER,
+            biorxiv_url(TEST_BIORXIV_IDENTIFIER),
+            {"json": {"messages": [{"status": "no posts found"}], "collection": []}},
+        ),
+    ],
+    ids=["crossref", "biorxiv"],
+)
+def test_fetch_publication_request_sets_timeout(requests_mock, fetch, identifier, url, not_found):
+    """A stalled publication database must time out, so the caller gets a 504 rather than a hung request."""
+    requests_mock.get(url, **not_found)
+
+    fetch(identifier)
+
+    assert requests_mock.last_request.timeout == PUBLICATION_FETCH_TIMEOUT
 
 
 def test_find_generic_article_drops_candidate_with_malformed_response(session, requests_mock):

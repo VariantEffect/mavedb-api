@@ -24,6 +24,9 @@ from mavedb.lib.validation.publication import validate_db_name
 
 logger = logging.getLogger(__name__)
 
+# Seconds to wait for Crossref or bioRxiv/medRxiv. eutils, which fetches from PubMed, takes no timeout.
+PUBLICATION_FETCH_TIMEOUT = 10
+
 
 def _publication_service_error(database: str, exc: Exception) -> PublicationServiceError:
     """The service error to raise for a failed request to a publication database, logged."""
@@ -280,7 +283,7 @@ class Crossref:
 
     def _fetch(self, url) -> Optional[dict]:
         try:
-            result = requests.get(url)
+            result = requests.get(url, timeout=PUBLICATION_FETCH_TIMEOUT)
 
             if result.status_code == 404:
                 return None
@@ -585,7 +588,7 @@ class Rxiv:
         and load as JSON if desired.
         """
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=PUBLICATION_FETCH_TIMEOUT)
 
             if response.status_code == 404:
                 return []
