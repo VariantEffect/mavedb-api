@@ -16,15 +16,16 @@ from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.experiments import search_experiments as _search_experiments
-from mavedb.lib.identifiers import distinct_identifiers, find_or_create_publication_identifier
 from mavedb.lib.keywords import search_keyword
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
+from mavedb.lib.publications import find_or_create_publication_identifier
 from mavedb.lib.score_sets import find_superseded_score_set_tail, readable_score_set_urns
 from mavedb.lib.types.authentication import UserData
+from mavedb.lib.utils import distinct_identifiers
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import validate_keyword_list
 from mavedb.models.contributor import Contributor

@@ -58,16 +58,12 @@ from mavedb.lib.deprecation import MAPPED_VARIANT_SUNSET, deprecation_headers, r
 from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.gnomad import get_gnomad_variants_with_variant_urns
-from mavedb.lib.identifiers import (
-    distinct_identifiers,
-    find_or_create_publication_identifier,
-    target_gene_external_identifiers,
-)
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
+from mavedb.lib.publications import find_or_create_publication_identifier
 from mavedb.lib.score_calibrations import create_score_calibration
 from mavedb.lib.score_set_variants import get_lean_score_set_variants
 from mavedb.lib.score_sets import (
@@ -83,7 +79,11 @@ from mavedb.lib.score_sets import (
     search_score_sets as _search_score_sets,
 )
 from mavedb.lib.slack import send_slack_error
-from mavedb.lib.target_genes import find_or_create_target_gene_by_accession, find_or_create_target_gene_by_sequence
+from mavedb.lib.target_genes import (
+    find_or_create_target_gene_by_accession,
+    find_or_create_target_gene_by_sequence,
+    target_gene_external_identifiers,
+)
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.urn_redirects import record_urn_redirect
@@ -93,6 +93,7 @@ from mavedb.lib.urns import (
     generate_score_set_urn,
     lock_urn_assignment,
 )
+from mavedb.lib.utils import distinct_identifiers
 from mavedb.lib.validation.exceptions import ValidationError as MaveDBValidationError
 from mavedb.lib.variant_detail import load_variant_detail_inputs
 from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set_from_thread

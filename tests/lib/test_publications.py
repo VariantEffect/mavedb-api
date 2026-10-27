@@ -6,7 +6,7 @@ pytest.importorskip("psycopg2")
 
 import requests
 
-from mavedb.lib.identifiers import find_generic_article
+from mavedb.lib.publications import find_generic_article
 from tests.helpers.constants import TEST_BIORXIV_IDENTIFIER, TEST_PUBMED_IDENTIFIER
 
 PUBMED_EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
