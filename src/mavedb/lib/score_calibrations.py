@@ -187,17 +187,19 @@ def build_calibration_controls(
     ]
 
 
-def calibration_preference_key(calibration: ScoreCalibration) -> tuple[int, int, int]:
+def calibration_preference_key(calibration: ScoreCalibration) -> tuple[int, int, int, int]:
     """The UI's default-calibration preference cascade as a sort key (lower sorts first = more preferred):
-    ``primary``, then ``investigator_provided``, then non-``research_use_only``. Mirrors the UI's
-    ``activeCalibrationOptions`` default selection, so the API and UI agree on which calibration is "the
-    default" for a score set.
+    current versions before those with a published replacement, then ``primary``, then
+    ``investigator_provided``, then non-``research_use_only``. Mirrors the UI's ``activeCalibrationOptions``
+    default selection, which never picks a superseded version, so the API and UI agree on which calibration
+    is "the default" for a score set.
 
     Intentionally stops at the cascade tiers and carries **no** evidence strength (a variant-specific
     concern) and **no** id — callers append their own deterministic tiebreak (calibration id or urn), and, where
     a within-tier strongest-evidence tiebreak is wanted, :func:`classification_evidence_strength`.
     """
     return (
+        1 if calibration.has_published_replacement else 0,
         0 if calibration.primary else 1,
         0 if calibration.investigator_provided else 1,
         0 if not calibration.research_use_only else 1,
