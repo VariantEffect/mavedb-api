@@ -5,7 +5,6 @@ import pytest
 pytest.importorskip("arq")
 
 import contextlib
-from asyncio.unix_events import _UnixSelectorEventLoop
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
@@ -230,7 +229,11 @@ async def _map_variants(session, mock_worker_ctx, mapping_run, score_set, with_l
     async def dummy_mapping_job():
         return await construct_mock_mapping_output(session=session, score_set=score_set, with_layers=with_layers)
 
-    with patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=dummy_mapping_job()):
+    with patch(
+        "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+        new_callable=MagicMock,
+        return_value=dummy_mapping_job(),
+    ):
         result = await map_variants_for_score_set(
             mock_worker_ctx,
             mapping_run.id,

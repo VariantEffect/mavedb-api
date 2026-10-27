@@ -23,7 +23,7 @@ from mavedb.lib.exceptions import (
     NonexistentMappingResultsError,
     NonexistentMappingScoresError,
 )
-from mavedb.lib.logging.context import format_raised_exception_info_as_dict
+from mavedb.lib.logging.context import format_raised_exception_info_as_dict, run_in_executor_with_logging_context
 from mavedb.lib.mapping import EXCLUDED_PREMAPPED_ANNOTATION_KEYS
 from mavedb.lib.mapping.schema import MappingOutcome
 from mavedb.lib.types.workflow import JobExecutionOutcome
@@ -148,8 +148,6 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         # Do not block Worker event loop during mapping, see: https://arq-docs.helpmanual.io/#synchronous-jobs.
         vrs = vrs_mapper()
         blocking = functools.partial(vrs.map_score_set, score_set.urn)
-        loop = asyncio.get_running_loop()
-
         mapping_results = None
 
         variant_count = job_manager.db.scalar(
@@ -162,7 +160,9 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         # Keepalive heartbeat + size-aware budget around the opaque map call (see module docstring above).
         keepalive = asyncio.create_task(_keepalive_progress(job_manager, MAP_PROGRESS_KEEPALIVE_SECONDS))
         try:
-            mapping_results = await asyncio.wait_for(loop.run_in_executor(ctx["pool"], blocking), timeout=map_budget)
+            mapping_results = await asyncio.wait_for(
+                run_in_executor_with_logging_context(ctx["pool"], blocking), timeout=map_budget
+            )
         except asyncio.TimeoutError as e:
             raise TimeoutError(
                 f"Mapping for {score_set.urn} exceeded its {map_budget}s budget ({variant_count} variants); "

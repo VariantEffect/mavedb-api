@@ -6,7 +6,6 @@ pytest.importorskip("arq")
 
 import asyncio
 import contextlib
-from asyncio.unix_events import _UnixSelectorEventLoop
 from datetime import date
 from unittest.mock import MagicMock, patch
 
@@ -75,9 +74,13 @@ class TestMapVariantsForScoreSetUnit:
         """Test mapping variants when no mapping results are found."""
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         with (
-            patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=self.dummy_mapping_output({})),
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
+                return_value=self.dummy_mapping_output({}),
+            ),
         ):
             result = await map_variants_for_score_set(
                 mock_worker_ctx,
@@ -116,11 +119,11 @@ class TestMapVariantsForScoreSetUnit:
         """Test mapping variants when no scores are mapped."""
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=self.dummy_mapping_output(
                     {
                         "mapped_scores": [],
@@ -163,11 +166,11 @@ class TestMapVariantsForScoreSetUnit:
         """Test mapping variants when no reference data is available."""
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=self.dummy_mapping_output(
                     {
                         "mapped_scores": [MagicMock()],
@@ -210,11 +213,11 @@ class TestMapVariantsForScoreSetUnit:
         """Test mapping variants when the target gene does not exist."""
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=self.dummy_mapping_output(
                     {
                         "mapped_scores": [MagicMock()],
@@ -270,11 +273,11 @@ class TestMapVariantsForScoreSetUnit:
         mapping_output["mapped_scores"].append({"variant_id": "not_in_score_set", "some_other_data": "value"})
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=self.dummy_mapping_output(mapping_output),
             ),
             pytest.raises(NoResultFound),
@@ -312,7 +315,7 @@ class TestMapVariantsForScoreSetUnit:
         """Test successful mapping variants with missing gene info."""
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
                 session=session,
@@ -334,9 +337,9 @@ class TestMapVariantsForScoreSetUnit:
         session.commit()
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
         ):
@@ -409,9 +412,9 @@ class TestMapVariantsForScoreSetUnit:
         session.commit()
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
         ):
@@ -465,9 +468,9 @@ class TestMapVariantsForScoreSetUnit:
         session.commit()
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
         ):
@@ -507,7 +510,7 @@ class TestMapVariantsForScoreSetUnit:
         """Test successful mapping variants with annotation layer permutations."""
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
                 session=session,
@@ -529,9 +532,9 @@ class TestMapVariantsForScoreSetUnit:
         session.commit()
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
         ):
@@ -625,7 +628,11 @@ class TestMapVariantsForScoreSetUnit:
                 session=session, score_set=sample_score_set, with_layers={"g", "c"}
             )
 
-        with patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=dummy_mapping_job()):
+        with patch(
+            "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+            new_callable=MagicMock,
+            return_value=dummy_mapping_job(),
+        ):
             result = await map_variants_for_score_set(
                 mock_worker_ctx,
                 sample_independent_variant_mapping_run.id,
@@ -655,7 +662,7 @@ class TestMapVariantsForScoreSetUnit:
         """Test successful mapping variants with no successful mapping."""
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
                 session=session,
@@ -677,9 +684,9 @@ class TestMapVariantsForScoreSetUnit:
         session.commit()
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
         ):
@@ -724,7 +731,7 @@ class TestMapVariantsForScoreSetUnit:
         """Test successful mapping variants with incomplete mapping."""
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
                 session=session,
@@ -757,9 +764,9 @@ class TestMapVariantsForScoreSetUnit:
         session.commit()
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
         ):
@@ -856,9 +863,9 @@ class TestMapVariantsForScoreSetUnit:
         session.commit()
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
         ):
@@ -906,7 +913,7 @@ class TestMapVariantsForScoreSetUnit:
         """Test successful mapping variants with complete mapping."""
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
                 session=session,
@@ -939,9 +946,9 @@ class TestMapVariantsForScoreSetUnit:
         session.commit()
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
         ):
@@ -992,7 +999,7 @@ class TestMapVariantsForScoreSetUnit:
         """Test mapping variants updates existing mapped variants."""
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
                 session=session,
@@ -1041,9 +1048,9 @@ class TestMapVariantsForScoreSetUnit:
         session.commit()
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
         ):
@@ -1144,9 +1151,9 @@ class TestMapVariantsForScoreSetIntegration:
 
         # Mock mapping output
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
         ):
@@ -1235,9 +1242,9 @@ class TestMapVariantsForScoreSetIntegration:
 
         # Mock mapping output
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
         ):
@@ -1326,9 +1333,13 @@ class TestMapVariantsForScoreSetIntegration:
             return {}
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         with (
-            patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=dummy_mapping_job()),
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
+                return_value=dummy_mapping_job(),
+            ),
             patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_send_slack_job_failure,
         ):
             result = await map_variants_for_score_set(
@@ -1401,11 +1412,11 @@ class TestMapVariantsForScoreSetIntegration:
             )
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
             patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_send_slack_job_failure,
@@ -1478,11 +1489,11 @@ class TestMapVariantsForScoreSetIntegration:
             )
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
             patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_send_slack_job_failure,
@@ -1571,11 +1582,11 @@ class TestMapVariantsForScoreSetIntegration:
             )
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
         ):
@@ -1655,11 +1666,11 @@ class TestMapVariantsForScoreSetIntegration:
             )
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
             patch("mavedb.worker.lib.decorators.job_management.send_slack_job_failure") as mock_send_slack_job_failure,
@@ -1704,14 +1715,14 @@ class TestMapVariantsForScoreSetIntegration:
         """Test mapping variants when an exception occurs during mapping."""
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         async def dummy_mapping_job():
             raise ValueError("test exception during mapping")
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
             patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
@@ -1796,9 +1807,9 @@ class TestMapVariantsForScoreSetArqContext:
             )
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
         ):
@@ -1883,9 +1894,9 @@ class TestMapVariantsForScoreSetArqContext:
 
         # Mock mapping output
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
         ):
@@ -1953,14 +1964,14 @@ class TestMapVariantsForScoreSetArqContext:
         """Test mapping variants with ARQ context when an exception occurs during mapping."""
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         async def dummy_mapping_job():
             raise ValueError("test exception during mapping")
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
             patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
@@ -2007,14 +2018,14 @@ class TestMapVariantsForScoreSetArqContext:
         """Test mapping variants with ARQ context in pipeline when an exception occurs during mapping."""
 
         # Network requests occur within an event loop. Mock result of mapping call
-        # with return value from run_in_executor.
+        # with return value from run_in_executor_with_logging_context.
         async def dummy_mapping_job():
             raise ValueError("test exception during mapping")
 
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_mapping_job(),
             ),
             patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
@@ -2121,7 +2132,11 @@ async def test_map_variants_for_score_set_budget_timeout_fails_the_job(
     result = None
     with (
         patch(f"{MAP_MODULE}._map_budget_seconds", return_value=0.05),
-        patch.object(_UnixSelectorEventLoop, "run_in_executor", return_value=slow_map()),
+        patch(
+            "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+            new_callable=MagicMock,
+            return_value=slow_map(),
+        ),
     ):
         try:
             result = await map_variants_for_score_set(

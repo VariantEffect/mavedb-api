@@ -8,7 +8,6 @@ These jobs enable integration with the ClinGen ecosystem for clinical
 variant interpretation and data sharing.
 """
 
-import asyncio
 import functools
 import logging
 from collections.abc import Sequence
@@ -32,6 +31,7 @@ from mavedb.lib.clingen.services import (
     ClinGenAlleleRegistryService,
     ClinGenLdhService,
 )
+from mavedb.lib.logging.context import run_in_executor_with_logging_context
 from mavedb.lib.types.clingen import ClinGenAllele
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.utils import batched
@@ -641,8 +641,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
     blocking = functools.partial(
         ldh_service.dispatch_submissions, submission_content, DEFAULT_LDH_SUBMISSION_BATCH_SIZE
     )
-    loop = asyncio.get_running_loop()
-    submission_successes, submission_failures = await loop.run_in_executor(ctx["pool"], blocking)
+    submission_successes, submission_failures = await run_in_executor_with_logging_context(ctx["pool"], blocking)
     job_manager.update_progress(90, 100, "Finalizing LDH mapped resource submission.")
     job_manager.save_to_context(
         {

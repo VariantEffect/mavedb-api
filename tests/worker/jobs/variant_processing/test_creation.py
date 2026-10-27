@@ -1555,9 +1555,9 @@ class TestCreateVariantsForScoreSetCalibrationRelinking:
         recorded_context: dict = {}
         original_save_to_context = JobManager.save_to_context
 
-        def _capture_context(self, ctx):
+        def _capture_context(self, ctx, **kwargs):
             recorded_context.update(ctx)
-            return original_save_to_context(self, ctx)
+            return original_save_to_context(self, ctx, **kwargs)
 
         with patch.object(JobManager, "save_to_context", _capture_context):
             await _run_creation_job(
@@ -1636,9 +1636,9 @@ class TestCreateVariantsForScoreSetCalibrationRelinking:
         recorded_context: dict = {}
         original_save_to_context = JobManager.save_to_context
 
-        def _capture_context(self, ctx):
+        def _capture_context(self, ctx, **kwargs):
             recorded_context.update(ctx)
-            return original_save_to_context(self, ctx)
+            return original_save_to_context(self, ctx, **kwargs)
 
         with patch.object(JobManager, "save_to_context", _capture_context):
             await _run_creation_job(
@@ -1713,9 +1713,9 @@ class TestCreateVariantsForScoreSetCalibrationRelinking:
         recorded_context: dict = {}
         original_save_to_context = JobManager.save_to_context
 
-        def _capture_context(self, ctx):
+        def _capture_context(self, ctx, **kwargs):
             recorded_context.update(ctx)
-            return original_save_to_context(self, ctx)
+            return original_save_to_context(self, ctx, **kwargs)
 
         with patch.object(JobManager, "save_to_context", _capture_context):
             await _run_creation_job(
@@ -1766,9 +1766,9 @@ class TestCreateVariantsForScoreSetCalibrationRelinking:
         recorded_context: dict = {}
         original_save_to_context = JobManager.save_to_context
 
-        def _capture_context(self, ctx):
+        def _capture_context(self, ctx, **kwargs):
             recorded_context.update(ctx)
-            return original_save_to_context(self, ctx)
+            return original_save_to_context(self, ctx, **kwargs)
 
         with patch.object(JobManager, "save_to_context", _capture_context):
             await _run_creation_job(
