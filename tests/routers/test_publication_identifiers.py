@@ -19,10 +19,10 @@ def test_show_publication_identifiers_multiple_exist(client, setup_router_db, se
     """
     new_journal_name = "New Journal"
 
-    # Create a duplicate publication identifier (skip PK/dates)
+    # Create a second publication from the first one's metadata (skip PK/dates)
     existing_item = session.scalars(select(PublicationIdentifier)).first()
     duplicate_item = PublicationIdentifier(
-        identifier=existing_item.identifier,
+        identifier=f"{existing_item.identifier}0",
         db_name=existing_item.db_name,
         db_version=existing_item.db_version,
         title=existing_item.title,

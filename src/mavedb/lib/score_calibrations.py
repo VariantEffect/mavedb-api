@@ -11,8 +11,8 @@ from sqlalchemy import Float, and_, select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.acmg import find_or_create_acmg_classification
-from mavedb.lib.identifiers import find_or_create_publication_identifier
 from mavedb.lib.mondo_ols import resolve_disease_term
+from mavedb.lib.publications import ensure_publication_keys
 from mavedb.lib.types.score_calibrations import (
     CalibrationControlSnapshot,
     CalibrationVariantLinkSnapshot,
@@ -32,6 +32,7 @@ from mavedb.lib.variants import score_from_variant_data
 from mavedb.models.calibration_control import CalibrationControl
 from mavedb.models.enums.functional_classification import FunctionalClassification
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
+from mavedb.models.mixins.publication_citation import PublicationKey
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_calibration_functional_classification_variant_association import (
@@ -326,6 +327,23 @@ def create_functional_classification(
     return functional_classification
 
 
+def _cited_publication_keys(
+    db: Session, calibration_sources: score_calibration.ScoreCalibrationModify
+) -> list[tuple[ScoreCalibrationRelation, PublicationKey]]:
+    """The publications a calibration cites, by relation, storing any that MaveDB doesn't hold.
+
+    Each ``(relation, key)`` pair appears once, which ``modify_score_calibration`` relies on to match each pair to
+    at most one existing citation.
+    """
+    relation_sources = (
+        (ScoreCalibrationRelation.threshold, calibration_sources.threshold_sources or []),
+        (ScoreCalibrationRelation.evidence, calibration_sources.evidence_sources or []),
+        (ScoreCalibrationRelation.method, calibration_sources.method_sources or []),
+    )
+    keys = ensure_publication_keys(db, *(sources for _, sources in relation_sources))
+    return [(relation, key) for (relation, _), relation_keys in zip(relation_sources, keys) for key in relation_keys]
+
+
 def _create_score_calibration(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
@@ -340,7 +358,7 @@ def _create_score_calibration(
     For each publication source listed in the incoming ScoreCalibrationCreate model
     (threshold_sources, evidence_sources, method_sources), this function
     ensures a corresponding PublicationIdentifier row exists (via
-    find_or_create_publication_identifier) and creates a
+    ensure_publication_keys) and creates a
     ScoreCalibrationPublicationIdentifierAssociation that links the identifier to
     the new calibration under the appropriate relation type
     (ScoreCalibrationRelation.threshold / .evidence / .method).
@@ -377,37 +395,23 @@ def _create_score_calibration(
     Side Effects
     ------------
     May read from or write to the database when resolving publication identifiers
-    (via find_or_create_publication_identifier). Does not flush, add, or commit the
+    (via ensure_publication_keys). Does not flush, add, or commit the
     returned calibration instance.
 
     Notes
     -----
     - Duplicate identifiers across different source lists result in distinct
-      association objects (no deduplication is performed here).
+      association objects; a duplicate within one list is cited once.
     - Resolving a new publication identifier calls the external publication
       databases synchronously, so callers on a request path must run in the
       thread pool.
     """
-    relation_sources = (
-        (ScoreCalibrationRelation.threshold, calibration_create.threshold_sources or []),
-        (ScoreCalibrationRelation.evidence, calibration_create.evidence_sources or []),
-        (ScoreCalibrationRelation.method, calibration_create.method_sources or []),
-    )
-
-    calibration_pub_assocs = []
-    for relation, sources in relation_sources:
-        for identifier in sources:
-            pub = find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-            calibration_pub_assocs.append(
-                ScoreCalibrationPublicationIdentifierAssociation(
-                    publication=pub,
-                    relation=relation,
-                )
-            )
-
-            # Ensure newly created publications are persisted for future loops to avoid duplicates.
-            db.add(pub)
-            db.flush()
+    calibration_pub_assocs = [
+        ScoreCalibrationPublicationIdentifierAssociation(
+            db_name=key.db_name, identifier=key.identifier, relation=relation
+        )
+        for relation, key in _cited_publication_keys(db, calibration_create)
+    ]
 
     calibration = ScoreCalibration(
         **calibration_create.model_dump(
@@ -476,6 +480,7 @@ def create_score_calibration_in_score_set(
         sqlalchemy.orm.exc.NoResultFound: If no ScoreSet exists with the provided URN.
         sqlalchemy.orm.exc.MultipleResultsFound: If multiple ScoreSets share the provided URN
             (should not occur if URNs are unique).
+        PublicationServiceError: If a publication database fails while resolving a cited source.
 
     Notes:
         - The passed Session is expected to be valid for the lifetime of this call; committing
@@ -546,6 +551,8 @@ def create_score_calibration(
         If the supplied input schema fails validation (depending on schema logic).
     ValueError
         If calibration_create.score_set_urn is provided (must be None/absent here).
+    PublicationServiceError
+        If a publication database fails while resolving a cited source.
 
     Notes
     -----
@@ -586,7 +593,7 @@ def modify_score_calibration(
         - evidence_sources -> ScoreCalibrationRelation.evidence
         - method_sources -> ScoreCalibrationRelation.method
         For each provided source identifier:
-          * Calls find_or_create_publication_identifier to obtain (or persist) the identifier row.
+          * Calls ensure_publication_keys to store the publication if needed and obtain its key.
           * Preserves an existing association if already present.
           * Creates a new association if missing.
         Any previously existing associations not referenced in the update are deleted from the session.
@@ -625,8 +632,8 @@ def modify_score_calibration(
          If no ScoreSet exists with the provided URN.
     sqlalchemy.orm.exc.MultipleResultsFound
          If more than one ScoreSet matches the provided URN.
-    Any exception raised by find_or_create_publication_identifier
-         If identifier resolution/creation fails.
+    PublicationServiceError
+         If a publication database fails while resolving a cited source.
 
     Side Effects
     ------------
@@ -670,38 +677,20 @@ def modify_score_calibration(
 
     require_phi_affirmation(bool(submitted_controls), controls_not_phi)
 
-    relation_sources = (
-        (ScoreCalibrationRelation.threshold, calibration_update.threshold_sources or []),
-        (ScoreCalibrationRelation.evidence, calibration_update.evidence_sources or []),
-        (ScoreCalibrationRelation.method, calibration_update.method_sources or []),
-    )
-
-    # Build a map of existing associations by (relation, publication_identifier_id) for easy lookup.
+    # Keep the citations the update still lists, so only the changes are written.
     existing_assocs_map = {
-        (assoc.relation, assoc.publication_identifier_id): assoc
-        for assoc in calibration.publication_identifier_associations
+        (assoc.relation, assoc.key): assoc for assoc in calibration.publication_identifier_associations
     }
-
     updated_assocs = []
-    for relation, sources in relation_sources:
-        for identifier in sources:
-            pub = find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-            assoc_key = (relation, pub.id)
-            if assoc_key in existing_assocs_map:
-                # Keep existing association
-                updated_assocs.append(existing_assocs_map.pop(assoc_key))
-            else:
-                # Create new association
-                updated_assocs.append(
-                    ScoreCalibrationPublicationIdentifierAssociation(
-                        publication=pub,
-                        relation=relation,
-                    )
+    for relation, key in _cited_publication_keys(db, calibration_update):
+        if (relation, key) in existing_assocs_map:
+            updated_assocs.append(existing_assocs_map.pop((relation, key)))
+        else:
+            updated_assocs.append(
+                ScoreCalibrationPublicationIdentifierAssociation(
+                    db_name=key.db_name, identifier=key.identifier, relation=relation
                 )
-
-            # Ensure newly created publications are persisted for future loops to avoid duplicates.
-            db.add(pub)
-            db.flush()
+            )
 
     # Remove associations and calibrations that are no longer present
     for assoc in existing_assocs_map.values():

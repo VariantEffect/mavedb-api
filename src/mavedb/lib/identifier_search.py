@@ -1,7 +1,7 @@
 """Search for the external identifiers that records cite, limited to records the caller may read.
 
-This is kept apart from :mod:`mavedb.lib.identifiers` because it needs the permission checks, which import the
-web framework, and view models import that module.
+This needs the permission checks, which import the web framework, so keep it out of modules that view models
+import.
 """
 
 from typing import Any, Sequence, Union

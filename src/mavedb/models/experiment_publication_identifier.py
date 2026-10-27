@@ -5,18 +5,16 @@ from sqlalchemy import Boolean, Column, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
+from mavedb.models.mixins.publication_citation import PublicationCitation
 
 if TYPE_CHECKING:
     from mavedb.models.experiment import Experiment
-    from mavedb.models.publication_identifier import PublicationIdentifier
 
 
-class ExperimentPublicationIdentifierAssociation(Base):
+class ExperimentPublicationIdentifierAssociation(PublicationCitation, Base):
     __tablename__ = "experiment_publication_identifiers"
 
     experiment_id = Column(Integer, ForeignKey("experiments.id"), primary_key=True)
-    publication_identifier_id = Column(Integer, ForeignKey("publication_identifiers.id"), primary_key=True)
-    primary = Column(Boolean, nullable=True, default=False)
+    primary = Column(Boolean, nullable=False, default=False, server_default="false")
 
     experiment: Mapped["Experiment"] = relationship("Experiment", back_populates="publication_identifier_associations")
-    publication: Mapped["PublicationIdentifier"] = relationship("PublicationIdentifier")

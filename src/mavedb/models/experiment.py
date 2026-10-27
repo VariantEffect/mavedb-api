@@ -113,7 +113,6 @@ class Experiment(Base):
     publication_identifiers: AssociationProxy[List[PublicationIdentifier]] = association_proxy(
         "publication_identifier_associations",
         "publication",
-        creator=lambda p: ExperimentPublicationIdentifierAssociation(publication=p, primary=p.primary),
     )
 
     raw_read_identifiers: Mapped[list[ExperimentRawReadIdentifier]] = relationship(

@@ -12,7 +12,6 @@ from mavedb.lib.temp_urns import generate_temp_urn
 from .contributor import Contributor
 from .doi_identifier import ExperimentSetDoiIdentifier
 from .legacy_keyword import LegacyKeyword
-from .publication_identifier import PublicationIdentifier
 from .raw_read_identifier import ExperimentSetRawReadIdentifier
 from .user import User
 
@@ -32,13 +31,6 @@ experiment_sets_legacy_keywords_association_table = Table(
     Base.metadata,
     Column("experiment_set_id", ForeignKey("experiment_sets.id"), primary_key=True),
     Column("keyword_id", ForeignKey("keywords.id"), primary_key=True),
-)
-
-experiment_sets_publication_identifiers_association_table = Table(
-    "experiment_set_publication_identifiers",
-    Base.metadata,
-    Column("experiment_set_id", ForeignKey("experiment_sets.id"), primary_key=True),
-    Column("publication_identifier_id", ForeignKey("publication_identifiers.id"), primary_key=True),
 )
 
 
@@ -76,11 +68,6 @@ class ExperimentSet(Base):
     )
     doi_identifiers: Mapped[list[ExperimentSetDoiIdentifier]] = relationship(
         cascade="all, delete-orphan", order_by=ExperimentSetDoiIdentifier.identifier
-    )
-    publication_identifiers: Mapped[list[PublicationIdentifier]] = relationship(
-        "PublicationIdentifier",
-        secondary=experiment_sets_publication_identifiers_association_table,
-        backref="experiment_sets",
     )
     raw_read_identifiers: Mapped[list[ExperimentSetRawReadIdentifier]] = relationship(
         cascade="all, delete-orphan", order_by=ExperimentSetRawReadIdentifier.identifier
