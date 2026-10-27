@@ -284,7 +284,7 @@ def get_experiment_score_sets(
     },
     response_model_exclude_none=True,
 )
-async def create_experiment(
+def create_experiment(
     *,
     item_create: experiment.ExperimentCreate,
     db: Session = Depends(deps.get_db),
@@ -317,7 +317,7 @@ async def create_experiment(
     contributors: list[Contributor] = []
     try:
         contributors = [
-            await find_or_create_contributor(db, contributor.orcid_id) for contributor in item_create.contributors or []
+            find_or_create_contributor(db, contributor.orcid_id) for contributor in item_create.contributors or []
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
@@ -325,19 +325,18 @@ async def create_experiment(
 
     try:
         doi_identifiers = [
-            await find_or_create_doi_identifier(db, identifier.identifier)
-            for identifier in item_create.doi_identifiers or []
+            find_or_create_doi_identifier(db, identifier.identifier) for identifier in item_create.doi_identifiers or []
         ]
         raw_read_identifiers = [
-            await find_or_create_raw_read_identifier(db, identifier.identifier)
+            find_or_create_raw_read_identifier(db, identifier.identifier)
             for identifier in item_create.raw_read_identifiers or []
         ]
         primary_publication_identifiers = [
-            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             for identifier in item_create.primary_publication_identifiers or []
         ]
         publication_identifiers = [
-            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             for identifier in item_create.secondary_publication_identifiers or []
         ] + primary_publication_identifiers
 
@@ -427,7 +426,7 @@ async def create_experiment(
     },
     response_model_exclude_none=True,
 )
-async def update_experiment(
+def update_experiment(
     *,
     item_update: experiment.ExperimentUpdate,
     urn: str,
@@ -468,7 +467,7 @@ async def update_experiment(
 
     try:
         item.contributors = [
-            await find_or_create_contributor(db, contributor.orcid_id) for contributor in item_update.contributors or []
+            find_or_create_contributor(db, contributor.orcid_id) for contributor in item_update.contributors or []
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
@@ -476,20 +475,19 @@ async def update_experiment(
 
     try:
         doi_identifiers = [
-            await find_or_create_doi_identifier(db, identifier.identifier)
-            for identifier in item_update.doi_identifiers or []
+            find_or_create_doi_identifier(db, identifier.identifier) for identifier in item_update.doi_identifiers or []
         ]
         raw_read_identifiers = [
-            await find_or_create_raw_read_identifier(db, identifier.identifier)
+            find_or_create_raw_read_identifier(db, identifier.identifier)
             for identifier in item_update.raw_read_identifiers or []
         ]
 
         primary_publication_identifiers = [
-            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             for identifier in item_update.primary_publication_identifiers or []
         ]
         publication_identifiers = [
-            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             for identifier in item_update.secondary_publication_identifiers or []
         ] + primary_publication_identifiers
 
@@ -557,7 +555,7 @@ async def update_experiment(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Delete an experiment",
 )
-async def delete_experiment(
+def delete_experiment(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),

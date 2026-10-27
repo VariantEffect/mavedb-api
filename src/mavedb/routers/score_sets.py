@@ -11,6 +11,7 @@ import pandas as pd
 import requests
 from arq import ArqRedis
 from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import StreamingResponse
@@ -20,6 +21,7 @@ from pydantic import ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError, MultipleResultsFound
 from sqlalchemy.orm import Session
+from starlette.datastructures import FormData
 
 from mavedb import deps
 from mavedb.data_providers.services import CSV_UPLOAD_S3_BUCKET_NAME, s3_client
@@ -93,7 +95,7 @@ from mavedb.lib.urns import (
 )
 from mavedb.lib.validation.exceptions import ValidationError as MaveDBValidationError
 from mavedb.lib.variant_detail import load_variant_detail_inputs
-from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set
+from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set_from_thread
 from mavedb.models.contributor import Contributor
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
@@ -131,7 +133,7 @@ SCORE_SET_SEARCH_MAX_LIMIT = 100
 SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS = 40
 
 
-async def enqueue_variant_creation(
+def enqueue_variant_creation(
     *,
     item: ScoreSet,
     user_data: UserData,
@@ -198,7 +200,7 @@ async def enqueue_variant_creation(
             )
 
     try:
-        await enqueue_pipeline_for_score_set(
+        enqueue_pipeline_for_score_set_from_thread(
             db=db,
             redis=worker,
             pipeline_name="validate_map_annotate_score_set",
@@ -239,7 +241,7 @@ class ScoreSetUpdateResult(TypedDict):
     should_create_variants: bool
 
 
-async def score_set_update(
+def score_set_update(
     *,
     db: Session,
     urn: str,
@@ -299,7 +301,7 @@ async def score_set_update(
             DoiIdentifierCreate(**identifier) for identifier in item_update_dict.get("doi_identifiers") or []
         ]
         item.doi_identifiers = [
-            await find_or_create_doi_identifier(db, identifier.identifier) for identifier in doi_identifiers_list
+            find_or_create_doi_identifier(db, identifier.identifier) for identifier in doi_identifiers_list
         ]
 
     if any(key in item_update_dict for key in ["primary_publication_identifiers", "secondary_publication_identifiers"]):
@@ -310,7 +312,7 @@ async def score_set_update(
             ]
             try:
                 primary_publication_identifiers = [
-                    await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+                    find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
                     for identifier in primary_publication_identifiers_list
                 ]
             except requests.exceptions.ConnectTimeout:
@@ -339,7 +341,7 @@ async def score_set_update(
             ]
             try:
                 secondary_publication_identifiers = [
-                    await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+                    find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
                     for identifier in secondary_publication_identifiers_list
                 ]
             except requests.exceptions.ConnectTimeout:
@@ -379,9 +381,7 @@ async def score_set_update(
             contributors = [
                 ContributorCreate(**contributor) for contributor in item_update_dict.get("contributors") or []
             ]
-            item.contributors = [
-                await find_or_create_contributor(db, contributor.orcid_id) for contributor in contributors
-            ]
+            item.contributors = [find_or_create_contributor(db, contributor.orcid_id) for contributor in contributors]
         except NonexistentOrcidUserError as e:
             logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
             raise HTTPException(status_code=404, detail=str(e))
@@ -411,7 +411,7 @@ async def score_set_update(
 
                     upload_taxonomy = gene.target_sequence.taxonomy
                     save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.code})
-                    taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
+                    taxonomy = find_or_create_taxonomy(db, upload_taxonomy)
 
                     if not taxonomy:
                         logger.info(
@@ -480,7 +480,7 @@ async def score_set_update(
                 for external_gene_identifier_offset_create in gene.external_identifiers:
                     offset = external_gene_identifier_offset_create.offset
                     identifier_create = external_gene_identifier_offset_create.identifier
-                    await create_external_gene_identifier_offset(
+                    create_external_gene_identifier_offset(
                         db,
                         target_gene,
                         identifier_create.db_name,
@@ -515,7 +515,7 @@ class ParseScoreSetUpdate(TypedDict):
     counts_df: Optional[pd.DataFrame]
 
 
-async def parse_score_set_variants_uploads(
+def parse_score_set_variants_uploads(
     scores_file: Optional[UploadFile] = File(None),
     counts_file: Optional[UploadFile] = File(None),
 ) -> ParseScoreSetUpdate:
@@ -555,7 +555,7 @@ async def parse_score_set_variants_uploads(
     }
 
 
-async def fetch_score_set_by_urn(
+def fetch_score_set_by_urn(
     db, urn: str, user: Optional[UserData], owner_or_contributor: Optional[UserData], only_published: bool
 ) -> ScoreSet:
     """
@@ -868,7 +868,7 @@ def list_recently_published_score_sets(
     response_model_exclude_none=True,
     summary="Fetch score sets by URN list",
 )
-async def show_score_sets(
+def show_score_sets(
     *,
     urns: str = Query(..., description="Comma-separated list of score set URNs"),
     db: Session = Depends(deps.get_db),
@@ -885,7 +885,7 @@ async def show_score_sets(
     save_to_logging_context({"requested_resource": urn_list})
     response_items: list[score_set.ScoreSet] = []
     for urn in urn_list:
-        item = await fetch_score_set_by_urn(db, urn, user_data, None, False)
+        item = fetch_score_set_by_urn(db, urn, user_data, None, False)
         response_items.append(_score_set_response(item, principal))
 
     return response_items
@@ -899,7 +899,7 @@ async def show_score_sets(
     response_model_exclude_none=True,
     summary="Fetch score set by URN",
 )
-async def show_score_set(
+def show_score_set(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
@@ -910,7 +910,7 @@ async def show_score_set(
     Fetch a single score set by URN.
     """
     save_to_logging_context({"requested_resource": urn})
-    item = await fetch_score_set_by_urn(db, urn, user_data, None, False)
+    item = fetch_score_set_by_urn(db, urn, user_data, None, False)
     return _score_set_response(item, principal)
 
 
@@ -985,7 +985,7 @@ def get_score_set_csv_namespaces(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Get the lean whole-set variant view for a score set",
 )
-async def get_score_set_lean_variants(
+def get_score_set_lean_variants(
     *,
     urn: str,
     response: Response,
@@ -1013,7 +1013,7 @@ async def get_score_set_lean_variants(
     save_to_logging_context({"requested_resource": urn, "resource_property": "lean-variants", "as_of": as_of})
     response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
 
-    score_set = await fetch_score_set_by_urn(db, urn, user_data, None, False)
+    score_set = fetch_score_set_by_urn(db, urn, user_data, None, False)
     return get_lean_score_set_variants(db, score_set, as_of=as_of)
 
 
@@ -1062,7 +1062,7 @@ def _stream_score_set_variant_details(
     },
     summary="Download a score set's variant details (VRS + Cat-VRS + annotations)",
 )
-async def get_score_set_variant_details(
+def get_score_set_variant_details(
     *,
     urn: str,
     as_of: Optional[datetime] = Query(
@@ -1093,7 +1093,7 @@ async def get_score_set_variant_details(
     """
     save_to_logging_context({"requested_resource": urn, "resource_property": "variant-details", "as_of": as_of})
 
-    score_set = await fetch_score_set_by_urn(db, urn, user_data, None, False)
+    score_set = fetch_score_set_by_urn(db, urn, user_data, None, False)
 
     # Resolved here rather than inherited: fetch_score_set_by_urn returns the score set as it actually
     # is, leaving narrowing to each response path. Mirrors the single-variant route, which must agree
@@ -1944,7 +1944,7 @@ def get_score_set_annotated_variants_functional_study_result(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE, **GATEWAY_ERROR_RESPONSES},
     summary="Create a score set",
 )
-async def create_score_set(
+def create_score_set(
     *,
     item_create: score_set.ScoreSetCreate,
     db: Session = Depends(deps.get_db),
@@ -1993,7 +1993,7 @@ async def create_score_set(
     if item_create.superseded_score_set_urn is not None:
         # Passing user_data as owner_or_contributor is what authorizes the supersession: the fetch returns
         # only published score sets this user owns or contributes to. There is no Action for supersession yet.
-        superseded_score_set = await fetch_score_set_by_urn(
+        superseded_score_set = fetch_score_set_by_urn(
             db, item_create.superseded_score_set_urn, user_data, user_data, True
         )
 
@@ -2023,8 +2023,7 @@ async def create_score_set(
     meta_analyzes_score_sets = [
         ss
         for ss in [
-            await fetch_score_set_by_urn(db, urn, user_data, None, True)
-            for urn in distinct_meta_analyzes_score_set_urns
+            fetch_score_set_by_urn(db, urn, user_data, None, True) for urn in distinct_meta_analyzes_score_set_urns
         ]
         if ss is not None
     ]
@@ -2109,7 +2108,7 @@ async def create_score_set(
     contributors: list[Contributor] = []
     try:
         contributors = [
-            await find_or_create_contributor(db, contributor.orcid_id) for contributor in item_create.contributors or []
+            find_or_create_contributor(db, contributor.orcid_id) for contributor in item_create.contributors or []
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
@@ -2117,15 +2116,14 @@ async def create_score_set(
 
     try:
         doi_identifiers = [
-            await find_or_create_doi_identifier(db, identifier.identifier)
-            for identifier in item_create.doi_identifiers or []
+            find_or_create_doi_identifier(db, identifier.identifier) for identifier in item_create.doi_identifiers or []
         ]
         primary_publication_identifiers = [
-            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             for identifier in item_create.primary_publication_identifiers or []
         ]
         publication_identifiers = [
-            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             for identifier in item_create.secondary_publication_identifiers or []
         ] + primary_publication_identifiers
 
@@ -2175,7 +2173,7 @@ async def create_score_set(
                 )
 
             try:
-                created_calibration_item = await create_score_calibration(
+                created_calibration_item = create_score_calibration(
                     db, calibration_create, user_data.user, variant_classes=None
                 )
             except MaveDBValidationError as e:
@@ -2208,7 +2206,7 @@ async def create_score_set(
                 )
             upload_taxonomy = gene.target_sequence.taxonomy
             save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.code})
-            taxonomy = await find_or_create_taxonomy(db, upload_taxonomy)
+            taxonomy = find_or_create_taxonomy(db, upload_taxonomy)
 
             if not taxonomy:
                 logger.info(
@@ -2271,7 +2269,7 @@ async def create_score_set(
         for external_gene_identifier_offset_create in gene.external_identifiers:
             offset = external_gene_identifier_offset_create.offset
             identifier_create = external_gene_identifier_offset_create.identifier
-            await create_external_gene_identifier_offset(
+            create_external_gene_identifier_offset(
                 db,
                 target_gene,
                 identifier_create.db_name,
@@ -2391,12 +2389,43 @@ async def upload_score_set_variant_data(
     Upload scores and variant count files for a score set, and initiate processing these files to
     create variants.
     """
+    # `async` only to read the multipart form, the one real await. Parsing, the database work and the
+    # enqueue run in the thread pool so they don't stall the event loop. Making this `def` would mean
+    # declaring every form field, which changes the OpenAPI schema; revisit with #629 (#950).
+    try:
+        form_data = await data.form()
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    return await run_in_threadpool(
+        _upload_score_set_variant_data,
+        urn=urn,
+        form_data=form_data,
+        counts_file=counts_file,
+        scores_file=scores_file,
+        db=db,
+        user_data=user_data,
+        worker=worker,
+        principal=principal,
+    )
+
+
+def _upload_score_set_variant_data(
+    *,
+    urn: str,
+    form_data: FormData,
+    counts_file: Optional[UploadFile],
+    scores_file: Optional[UploadFile],
+    db: Session,
+    user_data: UserData,
+    worker: ArqRedis,
+    principal: Principal,
+) -> Any:
     save_to_logging_context({"requested_resource": urn, "resource_property": "variants"})
 
     try:
-        score_set_variants_data = await parse_score_set_variants_uploads(scores_file, counts_file)
+        score_set_variants_data = parse_score_set_variants_uploads(scores_file, counts_file)
 
-        form_data = await data.form()
         # Parse variants dataset column metadata JSON strings
         dataset_column_metadata = {
             key: json.loads(str(value))
@@ -2423,7 +2452,7 @@ async def upload_score_set_variant_data(
     logger.info(msg="Enqueuing variant creation job.", extra=logging_context())
 
     try:
-        await enqueue_variant_creation(
+        enqueue_variant_creation(
             item=item,
             user_data=user_data,
             new_scores_df=score_set_variants_data["scores_df"],
@@ -2522,6 +2551,38 @@ async def update_score_set_with_variants(
     """
     Update a score set and variants.
     """
+    # `async` only to read the multipart form, the one real await. Parsing, the database work and the
+    # enqueue run in the thread pool so they don't stall the event loop. Making this `def` would mean
+    # declaring every form field, which changes the OpenAPI schema; revisit with #629 (#950).
+    try:
+        form_data = await request.form()
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    return await run_in_threadpool(
+        _update_score_set_with_variants,
+        urn=urn,
+        form_data=form_data,
+        counts_file=counts_file,
+        scores_file=scores_file,
+        db=db,
+        user_data=user_data,
+        worker=worker,
+        principal=principal,
+    )
+
+
+def _update_score_set_with_variants(
+    *,
+    urn: str,
+    form_data: FormData,
+    counts_file: Optional[UploadFile],
+    scores_file: Optional[UploadFile],
+    db: Session,
+    user_data: UserData,
+    worker: ArqRedis,
+    principal: Principal,
+) -> Any:
     logger.info(msg="Began score set with variants update.", extra=logging_context())
 
     # TODO#629: Use `flexible_model_loader` utility here to support both form data and JSON body.
@@ -2532,9 +2593,6 @@ async def update_score_set_with_variants(
     #           set update fields as separate form fields and parsing them into an object. Doing so will also
     #           simplify the OpenAPI schema for this endpoint.
     try:
-        # Get all form data from the request
-        form_data = await request.form()
-
         # Convert form data to dictionary, excluding file and associated column metadata fields
         form_dict = {
             key: value
@@ -2545,7 +2603,7 @@ async def update_score_set_with_variants(
         item_update_partial = score_set.ScoreSetUpdateAllOptional.as_form(**form_dict)
 
         # parse uploaded CSV files
-        score_set_variants_data = await parse_score_set_variants_uploads(
+        score_set_variants_data = parse_score_set_variants_uploads(
             scores_file,
             counts_file,
         )
@@ -2600,7 +2658,7 @@ async def update_score_set_with_variants(
     if request_sets_scores:
         assert_permission(user_data, existing_item, Action.SET_SCORES)
 
-    itemUpdateResult = await score_set_update(
+    itemUpdateResult = score_set_update(
         db=db,
         urn=urn,
         item_update=item_update_partial,
@@ -2620,7 +2678,7 @@ async def update_score_set_with_variants(
         logger.info(msg="Enqueuing variant creation job.", extra=logging_context())
 
         try:
-            await enqueue_variant_creation(
+            enqueue_variant_creation(
                 item=updatedItem,
                 user_data=user_data,
                 worker=worker,
@@ -2673,7 +2731,7 @@ async def update_score_set_with_variants(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE, **GATEWAY_ERROR_RESPONSES},
     summary="Update a score set",
 )
-async def update_score_set(
+def update_score_set(
     *,
     urn: str,
     item_update: score_set.ScoreSetUpdate,
@@ -2691,7 +2749,7 @@ async def update_score_set(
     # this object will contain all required fields because item_update type is ScoreSetUpdate, but
     # is converted to instance of ScoreSetUpdateAllOptional to match expected input of score_set_update function
     score_set_update_item = score_set.ScoreSetUpdateAllOptional.model_validate(item_update.model_dump())
-    itemUpdateResult = await score_set_update(
+    itemUpdateResult = score_set_update(
         db=db, urn=urn, item_update=score_set_update_item, exclude_unset=False, user_data=user_data
     )
     updatedItem = itemUpdateResult["item"]
@@ -2710,7 +2768,7 @@ async def update_score_set(
 
         logger.info(msg="Enqueuing variant creation job.", extra=logging_context())
         try:
-            await enqueue_variant_creation(
+            enqueue_variant_creation(
                 item=updatedItem,
                 user_data=user_data,
                 worker=worker,
@@ -2754,7 +2812,7 @@ async def update_score_set(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Delete a score set",
 )
-async def delete_score_set(
+def delete_score_set(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
@@ -2793,7 +2851,7 @@ async def delete_score_set(
     response_model_exclude_none=True,
     responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE},
 )
-async def publish_score_set(
+def publish_score_set(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),
@@ -2908,7 +2966,7 @@ async def publish_score_set(
     db.refresh(item)
 
     try:
-        await enqueue_pipeline_for_score_set(
+        enqueue_pipeline_for_score_set_from_thread(
             db=db,
             redis=worker,
             pipeline_name="publish_score_set",
@@ -2933,7 +2991,7 @@ async def publish_score_set(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Get clinical controls for a score set",
 )
-async def get_clinical_controls_for_score_set(
+def get_clinical_controls_for_score_set(
     *,
     urn: str,
     response: Response,
@@ -3021,7 +3079,7 @@ async def get_clinical_controls_for_score_set(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Get clinical control options for a score set",
 )
-async def get_clinical_controls_options_for_score_set(
+def get_clinical_controls_options_for_score_set(
     *,
     urn: str,
     as_of: Optional[datetime] = Query(
@@ -3085,7 +3143,7 @@ async def get_clinical_controls_options_for_score_set(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Get gnomad variants for a score set",
 )
-async def get_gnomad_variants_for_score_set(
+def get_gnomad_variants_for_score_set(
     *,
     urn: str,
     response: Response,

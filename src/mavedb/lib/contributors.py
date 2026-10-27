@@ -10,7 +10,7 @@ from mavedb.models.contributor import Contributor
 logger = logging.getLogger(__name__)
 
 
-async def find_or_create_contributor(db: Session, orcid_id: str):
+def find_or_create_contributor(db: Session, orcid_id: str):
     """
     Find an existing contributor record with the specified ORCID ID, or create a new one and fetch the contributor name
     from ORCID.

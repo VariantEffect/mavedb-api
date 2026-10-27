@@ -78,6 +78,8 @@ def lookup_orcid_user(
     summary="Exchange an ORCID authorization code for an access token",
     include_in_schema=False,
 )
+# `async` because it only waits on ORCID and never touches the database, so awaiting the request holds no
+# thread from the pool (#950).
 async def get_token_from_code(*, request: orcid.OrcidAuthTokenRequest) -> Any:
     """
     Perform the second step of three-legged Oauth2. The user has signed into ORCID in the browser, and the client has

@@ -312,8 +312,7 @@ def test_create_functional_classification_does_not_commit_transaction(setup_lib_
 ### create_score_calibration_in_score_set
 
 
-@pytest.mark.asyncio
-async def test_create_score_set_in_score_set_raises_value_error_when_score_set_urn_is_missing(
+def test_create_score_set_in_score_set_raises_value_error_when_score_set_urn_is_missing(
     setup_lib_db, session, mock_user
 ):
     MockCalibrationCreate = create_model("MockCalibrationCreate", score_set_urn=(str | None, None))
@@ -321,11 +320,10 @@ async def test_create_score_set_in_score_set_raises_value_error_when_score_set_u
         ValueError,
         match="score_set_urn must be provided to create a score calibration.",
     ):
-        await create_score_calibration_in_score_set(session, MockCalibrationCreate(), mock_user)
+        create_score_calibration_in_score_set(session, MockCalibrationCreate(), mock_user)
 
 
-@pytest.mark.asyncio
-async def test_create_score_set_in_score_set_raises_no_result_found_error_when_score_set_does_not_exist(
+def test_create_score_set_in_score_set_raises_no_result_found_error_when_score_set_does_not_exist(
     setup_lib_db, session, mock_user
 ):
     MockCalibrationCreate = create_model("MockCalibrationCreate", score_set_urn=(str | None, "urn:invalid"))
@@ -333,11 +331,10 @@ async def test_create_score_set_in_score_set_raises_no_result_found_error_when_s
         NoResultFound,
         match="No row was found when one was required",
     ):
-        await create_score_calibration_in_score_set(session, MockCalibrationCreate(), mock_user)
+        create_score_calibration_in_score_set(session, MockCalibrationCreate(), mock_user)
 
 
-@pytest.mark.asyncio
-async def test_create_score_calibration_in_score_set_creates_score_calibration_when_score_set_exists(
+def test_create_score_calibration_in_score_set_creates_score_calibration_when_score_set_exists(
     setup_lib_db_with_score_set, session
 ):
     test_user = session.execute(select(User)).scalars().first()
@@ -351,13 +348,12 @@ async def test_create_score_calibration_in_score_set_creates_score_calibration_w
         functional_classifications=(list, []),
     )
 
-    calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), test_user)
+    calibration = create_score_calibration_in_score_set(session, MockCalibrationCreate(), test_user)
     assert calibration is not None
     assert calibration.score_set == setup_lib_db_with_score_set
 
 
-@pytest.mark.asyncio
-async def test_create_score_calibration_in_score_set_investigator_provided_set_when_creator_is_owner(
+def test_create_score_calibration_in_score_set_investigator_provided_set_when_creator_is_owner(
     setup_lib_db_with_score_set, session, mock_user
 ):
     test_user = session.execute(select(User)).scalars().first()
@@ -371,7 +367,7 @@ async def test_create_score_calibration_in_score_set_investigator_provided_set_w
         functional_classifications=(list, []),
     )
 
-    calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), test_user)
+    calibration = create_score_calibration_in_score_set(session, MockCalibrationCreate(), test_user)
     assert calibration is not None
     assert calibration.score_set == setup_lib_db_with_score_set
     assert calibration.created_by == test_user
@@ -379,8 +375,7 @@ async def test_create_score_calibration_in_score_set_investigator_provided_set_w
     assert calibration.investigator_provided is True
 
 
-@pytest.mark.asyncio
-async def test_create_score_calibration_in_score_set_investigator_provided_set_when_creator_is_contributor(
+def test_create_score_calibration_in_score_set_investigator_provided_set_when_creator_is_contributor(
     setup_lib_db_with_score_set, session
 ):
     extra_user = session.execute(select(User).where(User.username == EXTRA_USER["username"])).scalars().first()
@@ -403,7 +398,7 @@ async def test_create_score_calibration_in_score_set_investigator_provided_set_w
         functional_classifications=(list, []),
     )
 
-    calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), extra_user)
+    calibration = create_score_calibration_in_score_set(session, MockCalibrationCreate(), extra_user)
     assert calibration is not None
     assert calibration.score_set == setup_lib_db_with_score_set
     assert calibration.created_by == extra_user
@@ -411,8 +406,7 @@ async def test_create_score_calibration_in_score_set_investigator_provided_set_w
     assert calibration.investigator_provided is True
 
 
-@pytest.mark.asyncio
-async def test_create_score_calibration_in_score_set_investigator_provided_not_set_when_creator_not_owner(
+def test_create_score_calibration_in_score_set_investigator_provided_not_set_when_creator_not_owner(
     setup_lib_db_with_score_set, session
 ):
     MockCalibrationCreate = create_model(
@@ -427,7 +421,7 @@ async def test_create_score_calibration_in_score_set_investigator_provided_not_s
     # invoke from a different user context
     extra_user = session.execute(select(User).where(User.username == EXTRA_USER["username"])).scalars().first()
 
-    calibration = await create_score_calibration_in_score_set(session, MockCalibrationCreate(), extra_user)
+    calibration = create_score_calibration_in_score_set(session, MockCalibrationCreate(), extra_user)
     assert calibration is not None
     assert calibration.score_set == setup_lib_db_with_score_set
     assert calibration.created_by == extra_user
@@ -438,20 +432,16 @@ async def test_create_score_calibration_in_score_set_investigator_provided_not_s
 ### create_score_calibration
 
 
-@pytest.mark.asyncio
-async def test_create_score_calibration_raises_value_error_when_score_set_urn_is_provided(
-    setup_lib_db, session, mock_user
-):
+def test_create_score_calibration_raises_value_error_when_score_set_urn_is_provided(setup_lib_db, session, mock_user):
     MockCalibrationCreate = create_model("MockCalibrationCreate", score_set_urn=(str | None, "urn:provided"))
     with pytest.raises(
         ValueError,
         match="score_set_urn must not be provided to create a score calibration outside a score set.",
     ):
-        await create_score_calibration(session, MockCalibrationCreate(), mock_user)
+        create_score_calibration(session, MockCalibrationCreate(), mock_user)
 
 
-@pytest.mark.asyncio
-async def test_create_score_calibration_creates_score_calibration_when_score_set_urn_is_absent(setup_lib_db, session):
+def test_create_score_calibration_creates_score_calibration_when_score_set_urn_is_absent(setup_lib_db, session):
     test_user = session.execute(select(User)).scalars().first()
 
     MockCalibrationCreate = create_model(
@@ -463,7 +453,7 @@ async def test_create_score_calibration_creates_score_calibration_when_score_set
         functional_classifications=(list, []),
     )
 
-    calibration = await create_score_calibration(session, MockCalibrationCreate(), test_user)
+    calibration = create_score_calibration(session, MockCalibrationCreate(), test_user)
     assert calibration is not None
     assert calibration.score_set is None
 
@@ -471,7 +461,6 @@ async def test_create_score_calibration_creates_score_calibration_when_score_set
 ### Shared tests for create_score_calibration_in_score_set and create_score_calibration
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "create_function_to_call,score_set_urn",
     [
@@ -479,7 +468,7 @@ async def test_create_score_calibration_creates_score_calibration_when_score_set
         (create_score_calibration, None),
     ],
 )
-async def test_create_score_calibration_propagates_errors_from_publication_find_create(
+def test_create_score_calibration_propagates_errors_from_publication_find_create(
     setup_lib_db_with_score_set, session, mock_user, create_function_to_call, score_set_urn
 ):
     MockCalibrationCreate = create_model(
@@ -507,10 +496,9 @@ async def test_create_score_calibration_propagates_errors_from_publication_find_
             side_effect=ValueError("Propagated error"),
         ),
     ):
-        await create_function_to_call(session, MockCalibrationCreate(), mock_user)
+        create_function_to_call(session, MockCalibrationCreate(), mock_user)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "create_function_to_call,score_set_urn",
     [
@@ -533,7 +521,7 @@ async def test_create_score_calibration_propagates_errors_from_publication_find_
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_create_score_calibration_publication_identifier_associations_created_with_appropriate_relation(
+def test_create_score_calibration_publication_identifier_associations_created_with_appropriate_relation(
     setup_lib_db_with_score_set,
     session,
     mock_publication_fetch,
@@ -560,14 +548,13 @@ async def test_create_score_calibration_publication_identifier_associations_crea
         [create_model("MockPublicationCreate", db_name=(str, "PubMed"), identifier=(str, TEST_PUBMED_IDENTIFIER))()],
     )
 
-    calibration = await create_function_to_call(session, mocked_calibration, test_user)
+    calibration = create_function_to_call(session, mocked_calibration, test_user)
     assert calibration.publication_identifier_associations[0].publication.db_name == "PubMed"
     assert calibration.publication_identifier_associations[0].publication.identifier == TEST_PUBMED_IDENTIFIER
     assert calibration.publication_identifier_associations[0].relation == expected_relation
     assert len(calibration.publication_identifier_associations) == 1
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "create_function_to_call,score_set_urn",
     [
@@ -575,7 +562,7 @@ async def test_create_score_calibration_publication_identifier_associations_crea
         (create_score_calibration, None),
     ],
 )
-async def test_create_score_calibration_user_is_set_as_creator_and_modifier(
+def test_create_score_calibration_user_is_set_as_creator_and_modifier(
     setup_lib_db_with_score_set, session, create_function_to_call, score_set_urn
 ):
     MockCalibrationCreate = create_model(
@@ -589,12 +576,11 @@ async def test_create_score_calibration_user_is_set_as_creator_and_modifier(
 
     test_user = session.execute(select(User)).scalars().first()
 
-    calibration = await create_function_to_call(session, MockCalibrationCreate(), test_user)
+    calibration = create_function_to_call(session, MockCalibrationCreate(), test_user)
     assert calibration.created_by == test_user
     assert calibration.modified_by == test_user
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "create_function_to_call,score_set_urn",
     [
@@ -619,7 +605,7 @@ async def test_create_score_calibration_user_is_set_as_creator_and_modifier(
         TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED,
     ],
 )
-async def test_create_score_calibration_fully_valid_calibration(
+def test_create_score_calibration_fully_valid_calibration(
     setup_lib_db_with_score_set,
     session,
     create_function_to_call,
@@ -631,7 +617,7 @@ async def test_create_score_calibration_fully_valid_calibration(
 
     test_user = session.execute(select(User)).scalars().first()
 
-    calibration = await create_function_to_call(session, calibration_create, test_user)
+    calibration = create_function_to_call(session, calibration_create, test_user)
 
     for field in valid_score_calibration_data:
         # Sources are tested elsewhere.
@@ -646,7 +632,6 @@ async def test_create_score_calibration_fully_valid_calibration(
             )
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "create_function_to_call,score_set_urn",
     [
@@ -664,7 +649,7 @@ async def test_create_score_calibration_fully_valid_calibration(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_create_score_calibration_does_not_commit_transaction(
+def test_create_score_calibration_does_not_commit_transaction(
     setup_lib_db_with_score_set, session, mock_user, create_function_to_call, score_set_urn, mock_publication_fetch
 ):
     calibration_create = ScoreCalibrationCreate(
@@ -673,7 +658,7 @@ async def test_create_score_calibration_does_not_commit_transaction(
     test_user = session.execute(select(User)).scalars().first()
 
     with mock.patch.object(session, "commit") as mock_commit:
-        await create_function_to_call(session, calibration_create, test_user)
+        create_function_to_call(session, calibration_create, test_user)
         mock_commit.assert_not_called()
 
 
@@ -682,8 +667,7 @@ async def test_create_score_calibration_does_not_commit_transaction(
 ################################################################################
 
 
-@pytest.mark.asyncio
-async def test_modify_score_calibration_raises_value_error_when_score_set_urn_is_missing(
+def test_modify_score_calibration_raises_value_error_when_score_set_urn_is_missing(
     setup_lib_db_with_score_set, session, mock_user, mock_functional_calibration
 ):
     MockCalibrationModify = create_model("MockCalibrationModify", score_set_urn=(str | None, None))
@@ -691,11 +675,10 @@ async def test_modify_score_calibration_raises_value_error_when_score_set_urn_is
         ValueError,
         match="score_set_urn must be provided to modify a score calibration.",
     ):
-        await modify_score_calibration(session, mock_functional_calibration, MockCalibrationModify(), mock_user)
+        modify_score_calibration(session, mock_functional_calibration, MockCalibrationModify(), mock_user)
 
 
-@pytest.mark.asyncio
-async def test_modify_score_calibration_raises_no_result_found_error_when_score_set_does_not_exist(
+def test_modify_score_calibration_raises_no_result_found_error_when_score_set_does_not_exist(
     setup_lib_db, session, mock_user, mock_functional_calibration
 ):
     MockCalibrationModify = create_model("MockCalibrationModify", score_set_urn=(str | None, "urn:invalid"))
@@ -703,10 +686,9 @@ async def test_modify_score_calibration_raises_no_result_found_error_when_score_
         NoResultFound,
         match="No row was found when one was required",
     ):
-        await modify_score_calibration(session, mock_functional_calibration, MockCalibrationModify(), mock_user)
+        modify_score_calibration(session, mock_functional_calibration, MockCalibrationModify(), mock_user)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -717,12 +699,12 @@ async def test_modify_score_calibration_raises_no_result_found_error_when_score_
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_modify_score_calibration_modifies_score_calibration_when_score_set_exists(
+def test_modify_score_calibration_modifies_score_calibration_when_score_set_exists(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
 
@@ -736,15 +718,12 @@ async def test_modify_score_calibration_modifies_score_calibration_when_score_se
         functional_classifications=(list, []),
     )
 
-    modified_calibration = await modify_score_calibration(
-        session, existing_calibration, MockCalibrationModify(), test_user
-    )
+    modified_calibration = modify_score_calibration(session, existing_calibration, MockCalibrationModify(), test_user)
     assert modified_calibration is not None
     assert modified_calibration.description == "Modified description"
     assert modified_calibration.score_set == setup_lib_db_with_score_set
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -755,12 +734,12 @@ async def test_modify_score_calibration_modifies_score_calibration_when_score_se
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_modify_score_calibration_clears_existing_publication_identifier_associations(
+def test_modify_score_calibration_clears_existing_publication_identifier_associations(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
 
@@ -775,11 +754,10 @@ async def test_modify_score_calibration_clears_existing_publication_identifier_a
 
     mocked_calibration = MockCalibrationModify()
 
-    calibration = await modify_score_calibration(session, existing_calibration, mocked_calibration, test_user)
+    calibration = modify_score_calibration(session, existing_calibration, mocked_calibration, test_user)
     assert len(calibration.publication_identifier_associations) == 0
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "relation,expected_relation",
     [
@@ -798,7 +776,7 @@ async def test_modify_score_calibration_clears_existing_publication_identifier_a
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_modify_score_calibration_publication_identifier_associations_created_with_appropriate_relation(
+def test_modify_score_calibration_publication_identifier_associations_created_with_appropriate_relation(
     setup_lib_db_with_score_set,
     session,
     mock_publication_fetch,
@@ -807,7 +785,7 @@ async def test_modify_score_calibration_publication_identifier_associations_crea
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
 
@@ -827,14 +805,13 @@ async def test_modify_score_calibration_publication_identifier_associations_crea
         [create_model("MockPublicationCreate", db_name=(str, "PubMed"), identifier=(str, TEST_PUBMED_IDENTIFIER))()],
     )
 
-    calibration = await modify_score_calibration(session, existing_calibration, mocked_calibration, test_user)
+    calibration = modify_score_calibration(session, existing_calibration, mocked_calibration, test_user)
     assert calibration.publication_identifier_associations[0].publication.db_name == "PubMed"
     assert calibration.publication_identifier_associations[0].publication.identifier == TEST_PUBMED_IDENTIFIER
     assert calibration.publication_identifier_associations[0].relation == expected_relation
     assert len(calibration.publication_identifier_associations) == 1
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -845,12 +822,12 @@ async def test_modify_score_calibration_publication_identifier_associations_crea
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_modify_score_calibration_retains_existing_publication_relationships_when_not_modified(
+def test_modify_score_calibration_retains_existing_publication_relationships_when_not_modified(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     calibration_publication_relations = existing_calibration.publication_identifier_associations.copy()
@@ -894,14 +871,11 @@ async def test_modify_score_calibration_retains_existing_publication_relationshi
         functional_classifications=(list, []),
     )
 
-    modified_calibration = await modify_score_calibration(
-        session, existing_calibration, MockCalibrationModify(), test_user
-    )
+    modified_calibration = modify_score_calibration(session, existing_calibration, MockCalibrationModify(), test_user)
     assert modified_calibration is not None
     assert modified_calibration.publication_identifier_associations == calibration_publication_relations
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -913,12 +887,12 @@ async def test_modify_score_calibration_retains_existing_publication_relationshi
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_modify_score_calibration_adds_new_publication_association(
+def test_modify_score_calibration_adds_new_publication_association(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
 
@@ -940,9 +914,7 @@ async def test_modify_score_calibration_adds_new_publication_association(
         functional_classifications=(list, []),
     )
 
-    modified_calibration = await modify_score_calibration(
-        session, existing_calibration, MockCalibrationModify(), test_user
-    )
+    modified_calibration = modify_score_calibration(session, existing_calibration, MockCalibrationModify(), test_user)
     assert modified_calibration is not None
     assert modified_calibration.publication_identifier_associations[0].publication.db_name == "Crossref"
     assert (
@@ -952,7 +924,6 @@ async def test_modify_score_calibration_adds_new_publication_association(
     assert len(modified_calibration.publication_identifier_associations) == 1
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -963,12 +934,10 @@ async def test_modify_score_calibration_adds_new_publication_association(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_modify_score_calibration_user_is_set_as_modifier(
-    setup_lib_db_with_score_set, session, mock_publication_fetch
-):
+def test_modify_score_calibration_user_is_set_as_modifier(setup_lib_db_with_score_set, session, mock_publication_fetch):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
 
@@ -982,15 +951,12 @@ async def test_modify_score_calibration_user_is_set_as_modifier(
     )
 
     modify_user = session.execute(select(User).where(User.id != test_user.id)).scalars().first()
-    modified_calibration = await modify_score_calibration(
-        session, existing_calibration, MockCalibrationModify(), modify_user
-    )
+    modified_calibration = modify_score_calibration(session, existing_calibration, MockCalibrationModify(), modify_user)
     assert modified_calibration is not None
     assert modified_calibration.modified_by == modify_user
     assert modified_calibration.created_by == test_user
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1001,7 +967,7 @@ async def test_modify_score_calibration_user_is_set_as_modifier(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_modify_score_calibration_new_score_set(setup_lib_db_with_score_set, session, mock_publication_fetch):
+def test_modify_score_calibration_new_score_set(setup_lib_db_with_score_set, session, mock_publication_fetch):
     existing_experiment = setup_lib_db_with_score_set.experiment
     score_set_scaffold = TEST_SEQ_SCORESET.copy()
     score_set_scaffold.pop("target_genes")
@@ -1018,7 +984,7 @@ async def test_modify_score_calibration_new_score_set(setup_lib_db_with_score_se
     session.refresh(new_containing_score_set)
 
     test_user = session.execute(select(User)).scalars().first()
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, new_containing_score_set.urn, test_user
     )
 
@@ -1031,14 +997,11 @@ async def test_modify_score_calibration_new_score_set(setup_lib_db_with_score_se
         functional_classifications=(list, []),
     )
 
-    modified_calibration = await modify_score_calibration(
-        session, existing_calibration, MockCalibrationModify(), test_user
-    )
+    modified_calibration = modify_score_calibration(session, existing_calibration, MockCalibrationModify(), test_user)
     assert modified_calibration is not None
     assert modified_calibration.score_set == new_containing_score_set
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1049,12 +1012,12 @@ async def test_modify_score_calibration_new_score_set(setup_lib_db_with_score_se
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_modify_score_calibration_clears_functional_classifications(
+def test_modify_score_calibration_clears_functional_classifications(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
 
@@ -1067,14 +1030,11 @@ async def test_modify_score_calibration_clears_functional_classifications(
         functional_classifications=(list, []),
     )
 
-    modified_calibration = await modify_score_calibration(
-        session, existing_calibration, MockCalibrationModify(), test_user
-    )
+    modified_calibration = modify_score_calibration(session, existing_calibration, MockCalibrationModify(), test_user)
     assert modified_calibration is not None
     assert len(modified_calibration.functional_classifications) == 0
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1085,19 +1045,17 @@ async def test_modify_score_calibration_clears_functional_classifications(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_modify_score_calibration_fully_valid_calibration(
-    setup_lib_db_with_score_set, session, mock_publication_fetch
-):
+def test_modify_score_calibration_fully_valid_calibration(setup_lib_db_with_score_set, session, mock_publication_fetch):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
 
     modify_calibration = ScoreCalibrationModify(
         **TEST_PATHOGENICITY_SCORE_CALIBRATION, score_set_urn=setup_lib_db_with_score_set.urn
     )
-    modified_calibration = await modify_score_calibration(session, existing_calibration, modify_calibration, test_user)
+    modified_calibration = modify_score_calibration(session, existing_calibration, modify_calibration, test_user)
 
     for field in TEST_PATHOGENICITY_SCORE_CALIBRATION:
         # Sources are tested elsewhere.
@@ -1112,7 +1070,6 @@ async def test_modify_score_calibration_fully_valid_calibration(
             )
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1123,12 +1080,12 @@ async def test_modify_score_calibration_fully_valid_calibration(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_modify_score_calibration_does_not_commit_transaction(
+def test_modify_score_calibration_does_not_commit_transaction(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
 
@@ -1146,7 +1103,6 @@ async def test_modify_score_calibration_does_not_commit_transaction(
 ################################################################################
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1157,12 +1113,10 @@ async def test_modify_score_calibration_does_not_commit_transaction(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_cannot_publish_already_published_calibration(
-    setup_lib_db_with_score_set, session, mock_publication_fetch
-):
+def test_cannot_publish_already_published_calibration(setup_lib_db_with_score_set, session, mock_publication_fetch):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_calibration.private = False
@@ -1174,7 +1128,6 @@ async def test_cannot_publish_already_published_calibration(
         publish_score_calibration(session, existing_calibration, test_user)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1185,12 +1138,12 @@ async def test_cannot_publish_already_published_calibration(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_publish_score_calibration_marks_calibration_public(
+def test_publish_score_calibration_marks_calibration_public(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_calibration.score_set.private = False
@@ -1200,7 +1153,6 @@ async def test_publish_score_calibration_marks_calibration_public(
     assert published_calibration.private is False
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1211,12 +1163,12 @@ async def test_publish_score_calibration_marks_calibration_public(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_cannot_publish_calibration_when_score_set_is_private(
+def test_cannot_publish_calibration_when_score_set_is_private(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     assert existing_calibration.score_set.private is True
@@ -1226,7 +1178,6 @@ async def test_cannot_publish_calibration_when_score_set_is_private(
     assert existing_calibration.private is True
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1237,12 +1188,12 @@ async def test_cannot_publish_calibration_when_score_set_is_private(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_publish_score_calibration_user_is_set_as_modifier(
+def test_publish_score_calibration_user_is_set_as_modifier(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_calibration.score_set.private = False
@@ -1259,7 +1210,6 @@ async def test_publish_score_calibration_user_is_set_as_modifier(
 ################################################################################
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1270,10 +1220,10 @@ async def test_publish_score_calibration_user_is_set_as_modifier(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_cannot_promote_already_primary_calibration(setup_lib_db_with_score_set, session, mock_publication_fetch):
+def test_cannot_promote_already_primary_calibration(setup_lib_db_with_score_set, session, mock_publication_fetch):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_calibration.primary = True
@@ -1285,7 +1235,6 @@ async def test_cannot_promote_already_primary_calibration(setup_lib_db_with_scor
         promote_score_calibration_to_primary(session, existing_calibration, test_user, force=False)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1296,12 +1245,12 @@ async def test_cannot_promote_already_primary_calibration(setup_lib_db_with_scor
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_cannot_promote_calibration_when_calibration_is_research_use_only(
+def test_cannot_promote_calibration_when_calibration_is_research_use_only(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_calibration.research_use_only = True
@@ -1313,7 +1262,6 @@ async def test_cannot_promote_calibration_when_calibration_is_research_use_only(
         promote_score_calibration_to_primary(session, existing_calibration, test_user, force=False)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1324,12 +1272,12 @@ async def test_cannot_promote_calibration_when_calibration_is_research_use_only(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_cannot_promote_calibration_when_calibration_is_private(
+def test_cannot_promote_calibration_when_calibration_is_private(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_calibration.private = True
@@ -1341,7 +1289,6 @@ async def test_cannot_promote_calibration_when_calibration_is_private(
         promote_score_calibration_to_primary(session, existing_calibration, test_user, force=False)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1352,15 +1299,15 @@ async def test_cannot_promote_calibration_when_calibration_is_private(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_cannot_promote_calibration_when_another_primary_exists(
+def test_cannot_promote_calibration_when_another_primary_exists(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_primary_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_primary_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_primary_calibration.private = False
@@ -1378,7 +1325,6 @@ async def test_cannot_promote_calibration_when_another_primary_exists(
         promote_score_calibration_to_primary(session, existing_calibration, test_user, force=False)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1389,12 +1335,12 @@ async def test_cannot_promote_calibration_when_another_primary_exists(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_promote_score_calibration_to_primary_marks_calibration_primary(
+def test_promote_score_calibration_to_primary_marks_calibration_primary(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_calibration.private = False
@@ -1407,7 +1353,6 @@ async def test_promote_score_calibration_to_primary_marks_calibration_primary(
     assert promoted_calibration.primary is True
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1418,15 +1363,15 @@ async def test_promote_score_calibration_to_primary_marks_calibration_primary(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_promote_score_calibration_to_primary_demotes_existing_primary_when_forced(
+def test_promote_score_calibration_to_primary_demotes_existing_primary_when_forced(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_primary_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_primary_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_primary_calibration.private = False
@@ -1450,7 +1395,6 @@ async def test_promote_score_calibration_to_primary_demotes_existing_primary_whe
     assert existing_primary_calibration.primary is False
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1461,12 +1405,12 @@ async def test_promote_score_calibration_to_primary_demotes_existing_primary_whe
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_promote_score_calibration_to_primary_user_is_set_as_modifier(
+def test_promote_score_calibration_to_primary_user_is_set_as_modifier(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_calibration.private = False
@@ -1484,7 +1428,6 @@ async def test_promote_score_calibration_to_primary_user_is_set_as_modifier(
     assert promoted_calibration.created_by == test_user
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1495,15 +1438,15 @@ async def test_promote_score_calibration_to_primary_user_is_set_as_modifier(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_promote_score_calibration_to_primary_demoted_existing_primary_user_is_set_as_modifier(
+def test_promote_score_calibration_to_primary_demoted_existing_primary_user_is_set_as_modifier(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_primary_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_primary_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_primary_calibration.private = False
@@ -1530,7 +1473,6 @@ async def test_promote_score_calibration_to_primary_demoted_existing_primary_use
     assert promoted_calibration.created_by == test_user
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1541,12 +1483,12 @@ async def test_promote_score_calibration_to_primary_demoted_existing_primary_use
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_promote_score_calibration_to_primary_does_not_commit_transaction(
+def test_promote_score_calibration_to_primary_does_not_commit_transaction(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_calibration.private = False
@@ -1565,7 +1507,6 @@ async def test_promote_score_calibration_to_primary_does_not_commit_transaction(
 ################################################################################
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1576,10 +1517,10 @@ async def test_promote_score_calibration_to_primary_does_not_commit_transaction(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_cannot_demote_non_primary_calibration(setup_lib_db_with_score_set, session, mock_publication_fetch):
+def test_cannot_demote_non_primary_calibration(setup_lib_db_with_score_set, session, mock_publication_fetch):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_calibration.primary = False
@@ -1591,7 +1532,6 @@ async def test_cannot_demote_non_primary_calibration(setup_lib_db_with_score_set
         demote_score_calibration_from_primary(session, existing_calibration, test_user)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1602,12 +1542,12 @@ async def test_cannot_demote_non_primary_calibration(setup_lib_db_with_score_set
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_demote_score_calibration_from_primary_marks_calibration_non_primary(
+def test_demote_score_calibration_from_primary_marks_calibration_non_primary(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_calibration.primary = True
@@ -1620,7 +1560,6 @@ async def test_demote_score_calibration_from_primary_marks_calibration_non_prima
     assert demoted_calibration.primary is False
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1631,12 +1570,12 @@ async def test_demote_score_calibration_from_primary_marks_calibration_non_prima
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_demote_score_calibration_from_primary_user_is_set_as_modifier(
+def test_demote_score_calibration_from_primary_user_is_set_as_modifier(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_calibration.primary = True
@@ -1651,7 +1590,6 @@ async def test_demote_score_calibration_from_primary_user_is_set_as_modifier(
     assert demoted_calibration.created_by == test_user
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1662,12 +1600,12 @@ async def test_demote_score_calibration_from_primary_user_is_set_as_modifier(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_demote_score_calibration_from_primary_does_not_commit_transaction(
+def test_demote_score_calibration_from_primary_does_not_commit_transaction(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_calibration.primary = True
@@ -1685,7 +1623,6 @@ async def test_demote_score_calibration_from_primary_does_not_commit_transaction
 ################################################################################
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1696,10 +1633,10 @@ async def test_demote_score_calibration_from_primary_does_not_commit_transaction
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_cannot_delete_primary_calibration(setup_lib_db_with_score_set, session, mock_publication_fetch):
+def test_cannot_delete_primary_calibration(setup_lib_db_with_score_set, session, mock_publication_fetch):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     existing_calibration.primary = True
@@ -1711,7 +1648,6 @@ async def test_cannot_delete_primary_calibration(setup_lib_db_with_score_set, se
         delete_score_calibration(session, existing_calibration)
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1722,12 +1658,10 @@ async def test_cannot_delete_primary_calibration(setup_lib_db_with_score_set, se
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_delete_score_calibration_deletes_calibration(
-    session, setup_lib_db_with_score_set, mock_publication_fetch
-):
+def test_delete_score_calibration_deletes_calibration(session, setup_lib_db_with_score_set, mock_publication_fetch):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
     calibration_id = existing_calibration.id
@@ -1739,7 +1673,6 @@ async def test_delete_score_calibration_deletes_calibration(
         session.execute(select(ScoreCalibration).where(ScoreCalibration.id == calibration_id)).scalars().one()
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mock_publication_fetch",
     [
@@ -1750,12 +1683,12 @@ async def test_delete_score_calibration_deletes_calibration(
     ],
     indirect=["mock_publication_fetch"],
 )
-async def test_delete_score_calibration_does_not_commit_transaction(
+def test_delete_score_calibration_does_not_commit_transaction(
     setup_lib_db_with_score_set, session, mock_publication_fetch
 ):
     test_user = session.execute(select(User)).scalars().first()
 
-    existing_calibration = await create_test_range_based_score_calibration_in_score_set(
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
         session, setup_lib_db_with_score_set.urn, test_user
     )
 

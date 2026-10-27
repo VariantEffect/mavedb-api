@@ -174,7 +174,7 @@ class ExternalPublication:
         )
 
 
-async def find_or_create_doi_identifier(db: Session, identifier: str):
+def find_or_create_doi_identifier(db: Session, identifier: str):
     """
     Find an existing DOI identifier record with the specified identifier string, or create a new one.
 
@@ -188,7 +188,7 @@ async def find_or_create_doi_identifier(db: Session, identifier: str):
     return doi_identifier
 
 
-async def fetch_pubmed_article(identifier: str) -> Optional[PubmedArticle]:
+def fetch_pubmed_article(identifier: str) -> Optional[PubmedArticle]:
     """
     Fetch an existing PubMed article from NCBI
     """
@@ -216,7 +216,7 @@ async def fetch_pubmed_article(identifier: str) -> Optional[PubmedArticle]:
 #
 # NOTE: The most up to date version of a preprint will be the last element in the
 #       content detail list.
-async def fetch_biorxiv_article(identifier: str) -> Optional[RxivContentDetail]:
+def fetch_biorxiv_article(identifier: str) -> Optional[RxivContentDetail]:
     """
     Fetch an existing bioRxiv article from Rxiv
     """
@@ -228,7 +228,7 @@ async def fetch_biorxiv_article(identifier: str) -> Optional[RxivContentDetail]:
         return None
 
 
-async def fetch_medrxiv_article(identifier: str) -> Optional[RxivContentDetail]:
+def fetch_medrxiv_article(identifier: str) -> Optional[RxivContentDetail]:
     """
     Fetch an existing medRxiv article from Rxiv
     """
@@ -240,12 +240,12 @@ async def fetch_medrxiv_article(identifier: str) -> Optional[RxivContentDetail]:
         return None
 
 
-async def fetch_crossref_work(identifier: str) -> Optional[CrossrefWork]:
+def fetch_crossref_work(identifier: str) -> Optional[CrossrefWork]:
     fetch = Crossref(endpoint="works")
     return fetch.doi(identifier)
 
 
-async def find_generic_article(
+def find_generic_article(
     db: Session, identifier: str, db_name: Optional[str] = None
 ) -> Mapping[str, Union[PublicationIdentifier, ExternalPublication, None]]:
     """
@@ -282,7 +282,7 @@ async def find_generic_article(
         ).scalar_one_or_none()
 
         if not existing_publication:
-            external_publication = await db_specific_fetches[db_name](identifier)
+            external_publication = db_specific_fetches[db_name](identifier)
             db_specific_match = {
                 db_name: (
                     ExternalPublication(identifier, db_name, external_publication) if external_publication else None
@@ -304,7 +304,7 @@ async def find_generic_article(
         ).scalar_one_or_none()
 
         if not existing_publication:
-            external_publication = await fetch_crossref_work(identifier)
+            external_publication = fetch_crossref_work(identifier)
             found_articles["Crossref"] = (
                 ExternalPublication(identifier, "Crossref", external_publication) if external_publication else None
             )
@@ -329,7 +329,7 @@ async def find_generic_article(
 
             if not existing_publication:
                 try:
-                    external_publication = await db_specific_fetches[publication_db](identifier)
+                    external_publication = db_specific_fetches[publication_db](identifier)
                 except (json.JSONDecodeError, requests.exceptions.RequestException) as exc:
                     logger.warning(
                         "Failed to fetch identifier %r from %s while fanning out over candidate databases.",
@@ -374,7 +374,7 @@ def create_generic_article(article: ExternalPublication) -> PublicationIdentifie
     )
 
 
-async def find_or_create_publication_identifier(
+def find_or_create_publication_identifier(
     db: Session, identifier: str, db_name: Optional[str] = None
 ) -> PublicationIdentifier:
     """
@@ -384,7 +384,7 @@ async def find_or_create_publication_identifier(
     :param identifier: A valid publication identifier
     :return: An existing PublicationIdentifier containing the specified identifier string, or a new, unsaved PublicationIdentifier
     """
-    article_matches = await find_generic_article(db, identifier, db_name)
+    article_matches = find_generic_article(db, identifier, db_name)
 
     if not any(article_matches.values()):
         raise NonexistentIdentifierError(
@@ -408,7 +408,7 @@ async def find_or_create_publication_identifier(
     return create_generic_article(matched_article)
 
 
-async def find_or_create_raw_read_identifier(db: Session, identifier: str):
+def find_or_create_raw_read_identifier(db: Session, identifier: str):
     raw_read_identifier = db.query(RawReadIdentifier).filter(RawReadIdentifier.identifier == identifier).one_or_none()
     if not raw_read_identifier:
         raw_read_identifier = RawReadIdentifier(
@@ -417,7 +417,7 @@ async def find_or_create_raw_read_identifier(db: Session, identifier: str):
     return raw_read_identifier
 
 
-async def find_or_create_external_gene_identifier(db: Session, db_name: str, identifier: str):
+def find_or_create_external_gene_identifier(db: Session, db_name: str, identifier: str):
     """
     Find an existing gene identifier record with the specified gene database name and identifier string, or create a new
     one.
@@ -446,10 +446,10 @@ async def find_or_create_external_gene_identifier(db: Session, db_name: str, ide
     return external_gene_identifier
 
 
-async def create_external_gene_identifier_offset(
+def create_external_gene_identifier_offset(
     db: Session, target_gene: TargetGene, db_name: str, identifier: str, offset: int
 ):
-    external_gene_identifier = await find_or_create_external_gene_identifier(db, db_name, identifier)
+    external_gene_identifier = find_or_create_external_gene_identifier(db, db_name, identifier)
 
     # TODO Handle key errors.
     offset_class = EXTERNAL_GENE_IDENTIFIER_OFFSET_CLASSES[external_gene_identifier.db_name]

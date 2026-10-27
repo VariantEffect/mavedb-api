@@ -36,32 +36,32 @@ class _FakeResponse:
         return self._payload
 
 
-class _FakeAsyncClient:
-    """Minimal stand-in for httpx.AsyncClient returning a canned OLS payload."""
+class _FakeClient:
+    """Minimal stand-in for httpx.Client returning a canned OLS payload."""
 
     def __init__(self, payload):
         self._payload = payload
 
-    async def __aenter__(self):
+    def __enter__(self):
         return self
 
-    async def __aexit__(self, *exc):
+    def __exit__(self, *exc):
         return False
 
-    async def get(self, url, params=None):
+    def get(self, url, params=None):
         return _FakeResponse(self._payload)
 
 
-class _FailingAsyncClient:
-    """Stand-in for httpx.AsyncClient whose request fails, as when OLS is unreachable."""
+class _FailingClient:
+    """Stand-in for httpx.Client whose request fails, as when OLS is unreachable."""
 
-    async def __aenter__(self):
+    def __enter__(self):
         return self
 
-    async def __aexit__(self, *exc):
+    def __exit__(self, *exc):
         return False
 
-    async def get(self, url, params=None):
+    def get(self, url, params=None):
         raise httpx.ConnectError("ols down")
 
 
@@ -98,9 +98,8 @@ class TestMondoSerialization:
         assert concept.primaryCoding.iris[0].root == "https://example.org/MONDO_0015263"
 
 
-@pytest.mark.asyncio
 class TestMondoOlsSearch:
-    async def test_search_mondo_parses_ols_docs(self, monkeypatch):
+    def test_search_mondo_parses_ols_docs(self, monkeypatch):
         payload = _ols_payload(
             [
                 {
@@ -111,9 +110,9 @@ class TestMondoOlsSearch:
                 {"obo_id": "MONDO:0000001", "label": "disease or disorder"},  # missing iri → derived
             ]
         )
-        monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: _FakeAsyncClient(payload))
+        monkeypatch.setattr(httpx, "Client", lambda *a, **k: _FakeClient(payload))
 
-        results = await search_mondo("brugada")
+        results = search_mondo("brugada")
         assert results[0] == {
             "code": "MONDO:0015263",
             "label": "Brugada syndrome",
@@ -121,86 +120,85 @@ class TestMondoOlsSearch:
         }
         assert results[1]["iri"] == mondo_iri("MONDO:0000001")
 
-    async def test_search_mondo_empty_query_skips_request(self, monkeypatch):
+    def test_search_mondo_empty_query_skips_request(self, monkeypatch):
         # No network expected; if a request were made the fake would still be needed, so assert on the shortcut.
-        assert await search_mondo("   ") == []
+        assert search_mondo("   ") == []
 
-    async def test_fetch_mondo_term_returns_none_when_absent(self, monkeypatch):
-        monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: _FakeAsyncClient(_ols_payload([])))
-        assert await fetch_mondo_term("MONDO:9999999") is None
+    def test_fetch_mondo_term_returns_none_when_absent(self, monkeypatch):
+        monkeypatch.setattr(httpx, "Client", lambda *a, **k: _FakeClient(_ols_payload([])))
+        assert fetch_mondo_term("MONDO:9999999") is None
 
-    async def test_search_mondo_wraps_http_errors_in_service_error(self, monkeypatch):
-        monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: _FailingAsyncClient())
-
-        with pytest.raises(MondoServiceError):
-            await search_mondo("brugada")
-
-    async def test_fetch_mondo_term_wraps_http_errors_in_service_error(self, monkeypatch):
-        monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: _FailingAsyncClient())
+    def test_search_mondo_wraps_http_errors_in_service_error(self, monkeypatch):
+        monkeypatch.setattr(httpx, "Client", lambda *a, **k: _FailingClient())
 
         with pytest.raises(MondoServiceError):
-            await fetch_mondo_term("MONDO:0015263")
+            search_mondo("brugada")
+
+    def test_fetch_mondo_term_wraps_http_errors_in_service_error(self, monkeypatch):
+        monkeypatch.setattr(httpx, "Client", lambda *a, **k: _FailingClient())
+
+        with pytest.raises(MondoServiceError):
+            fetch_mondo_term("MONDO:0015263")
 
 
-@pytest.mark.asyncio
 class TestFindOrCreateMondoTerm:
-    async def test_creates_from_ols_and_is_idempotent(self, session, monkeypatch):
-        async def fake_fetch(code):
+    def test_creates_from_ols_and_is_idempotent(self, session, monkeypatch):
+        def fake_fetch(code):
             return {"code": code, "label": "Brugada syndrome", "iri": mondo_iri(code)}
 
         monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)
 
-        term = await find_or_create_mondo_term(session, "MONDO:0015263")
+        term = find_or_create_mondo_term(session, "MONDO:0015263")
         assert term.code == "MONDO:0015263"
         assert term.label == "Brugada syndrome"
         assert term.system == MONDO_SYSTEM
 
         # A second call reuses the row rather than creating a duplicate.
-        again = await find_or_create_mondo_term(session, "MONDO:0015263")
+        again = find_or_create_mondo_term(session, "MONDO:0015263")
         assert again.id == term.id
         assert session.query(MondoTerm).filter(MondoTerm.code == "MONDO:0015263").count() == 1
 
-    async def test_non_canonical_code_reuses_existing_canonical_row(self, session, monkeypatch):
+    def test_non_canonical_code_reuses_existing_canonical_row(self, session, monkeypatch):
         # OLS normalizes both spellings to the same canonical code; the lookup must key on the resolved
         # code so a second submission reuses the row instead of tripping UNIQUE(system, code).
-        async def fake_fetch(code):
+        def fake_fetch(code):
             return {"code": "MONDO:0015263", "label": "Brugada syndrome", "iri": mondo_iri("MONDO:0015263")}
 
         monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)
 
-        canonical = await find_or_create_mondo_term(session, "MONDO:0015263")
+        canonical = find_or_create_mondo_term(session, "MONDO:0015263")
         # A differently-spelled submission (here lowercase) resolves to the same canonical term.
-        aliased = await find_or_create_mondo_term(session, "mondo:0015263")
+        aliased = find_or_create_mondo_term(session, "mondo:0015263")
 
         assert aliased.id == canonical.id
         assert aliased.code == "MONDO:0015263"
         assert session.query(MondoTerm).filter(MondoTerm.code == "MONDO:0015263").count() == 1
 
-    async def test_generic_code_resolves_without_ols(self, session, monkeypatch):
-        async def fail_fetch(code):
+    def test_generic_code_resolves_without_ols(self, session, monkeypatch):
+        def fail_fetch(code):
             raise AssertionError("OLS should not be consulted for the generic term")
 
         monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fail_fetch)
-        term = await find_or_create_mondo_term(session, MONDO_GENERIC_CODE)
+        term = find_or_create_mondo_term(session, MONDO_GENERIC_CODE)
         assert term.code == MONDO_GENERIC_CODE
         assert term.label == MONDO_GENERIC_LABEL
 
-    async def test_rejects_unknown_code(self, session, monkeypatch):
-        async def fake_fetch(code):
+    def test_rejects_unknown_code(self, session, monkeypatch):
+        def fake_fetch(code):
             return None
 
         monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)
         with pytest.raises(ValidationError):
-            await find_or_create_mondo_term(session, "MONDO:9999999")
+            find_or_create_mondo_term(session, "MONDO:9999999")
 
-    async def test_ols_outage_propagates_service_error(self, session, monkeypatch):
+    def test_ols_outage_propagates_service_error(self, session, monkeypatch):
         # A controlled term is never persisted unvalidated: an OLS outage surfaces as MondoServiceError.
-        async def fake_fetch(code):
+        def fake_fetch(code):
             raise MondoServiceError("ols down")
 
         monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)
         with pytest.raises(MondoServiceError):
-            await find_or_create_mondo_term(session, "MONDO:0015263")
+            find_or_create_mondo_term(session, "MONDO:0015263")
 
 
 @pytest.mark.unit

@@ -96,7 +96,7 @@ def fetch_taxonomy_by_code(
 
 
 @router.post("/search", status_code=200, response_model=List[taxonomy.Taxonomy], summary="Search taxonomies")
-async def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
+def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
     Search Taxonomy.
     If no search text, return the whole taxonomy list so that front end Taxonomy component can get data to show in dropdown button.
@@ -117,7 +117,7 @@ async def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_d
     items = query.order_by(Taxonomy.organism_name).all()
 
     if not items and search.text:
-        search_taxonomy = await search_NCBI_taxonomy(db, search.text)
+        search_taxonomy = search_NCBI_taxonomy(db, search.text)
         if search_taxonomy:
             items = [search_taxonomy]
         else:

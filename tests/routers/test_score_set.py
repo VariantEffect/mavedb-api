@@ -231,7 +231,7 @@ def test_create_score_set_with_contributor(client, mock_publication_fetch, setup
 def test_cannot_create_score_set_with_score_calibration_with_unknown_disease(
     client, mock_publication_fetch, setup_router_db, monkeypatch
 ):
-    async def fake_fetch(code):
+    def fake_fetch(code):
         return None
 
     monkeypatch.setattr("mavedb.lib.mondo_ols.fetch_mondo_term", fake_fetch)

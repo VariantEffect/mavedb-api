@@ -116,7 +116,7 @@ def create_my_access_key(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Create a new access key for myself with a specified role",
 )
-async def create_my_access_key_with_role(
+def create_my_access_key_with_role(
     *,
     role: UserRole,
     db: Session = Depends(deps.get_db),
@@ -139,7 +139,7 @@ async def create_my_access_key_with_role(
         )
 
     key, private_key, item = new_access_key(user_data.user)
-    await item.set_role(db, role)
+    item.set_role(db, role)
     db.add(item)
     db.commit()
     db.refresh(item)

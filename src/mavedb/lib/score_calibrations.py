@@ -326,7 +326,7 @@ def create_functional_classification(
     return functional_classification
 
 
-async def _create_score_calibration(
+def _create_score_calibration(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
     user: User,
@@ -384,8 +384,9 @@ async def _create_score_calibration(
     -----
     - Duplicate identifiers across different source lists result in distinct
       association objects (no deduplication is performed here).
-    - The function is async because it awaits the underlying publication
-      identifier retrieval/creation calls.
+    - Resolving a new publication identifier calls the external publication
+      databases synchronously, so callers on a request path must run in the
+      thread pool.
     """
     relation_sources = (
         (ScoreCalibrationRelation.threshold, calibration_create.threshold_sources or []),
@@ -396,7 +397,7 @@ async def _create_score_calibration(
     calibration_pub_assocs = []
     for relation, sources in relation_sources:
         for identifier in sources:
-            pub = await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            pub = find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             calibration_pub_assocs.append(
                 ScoreCalibrationPublicationIdentifierAssociation(
                     publication=pub,
@@ -427,7 +428,7 @@ async def _create_score_calibration(
         modified_by=user,
     )  # type: ignore[call-arg]
 
-    calibration.disease_term = await resolve_disease_term(db, getattr(calibration_create, "disease", None))
+    calibration.disease_term = resolve_disease_term(db, getattr(calibration_create, "disease", None))
 
     if containing_score_set:
         calibration.score_set = containing_score_set
@@ -443,7 +444,7 @@ async def _create_score_calibration(
     return calibration
 
 
-async def create_score_calibration_in_score_set(
+def create_score_calibration_in_score_set(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
     user: User,
@@ -452,7 +453,7 @@ async def create_score_calibration_in_score_set(
     """
     Create a new score calibration and associate it with an existing score set.
 
-    This coroutine ensures that the provided ScoreCalibrationCreate payload includes a
+    This function ensures that the provided ScoreCalibrationCreate payload includes a
     score_set_urn, loads the corresponding ScoreSet from the database, delegates creation
     of the ScoreCalibration to an internal helper, and then links the created calibration
     to the fetched score set.
@@ -477,8 +478,6 @@ async def create_score_calibration_in_score_set(
             (should not occur if URNs are unique).
 
     Notes:
-        - This function is async because it awaits the internal _create_score_calibration
-          helper, which may perform asynchronous operations (e.g., I/O or async ORM tasks).
         - The passed Session is expected to be valid for the lifetime of this call; committing
           or flushing is assumed to be handled externally (depending on the surrounding
           transaction management strategy).
@@ -490,7 +489,7 @@ async def create_score_calibration_in_score_set(
     require_phi_affirmation(bool(submitted_controls), getattr(calibration_create, "controls_not_phi", None))
 
     containing_score_set = db.query(ScoreSet).where(ScoreSet.urn == calibration_create.score_set_urn).one()
-    calibration = await _create_score_calibration(db, calibration_create, user, variant_classes, containing_score_set)
+    calibration = _create_score_calibration(db, calibration_create, user, variant_classes, containing_score_set)
 
     if user.username in [contributor.orcid_id for contributor in containing_score_set.contributors] + [
         containing_score_set.created_by.username,
@@ -506,14 +505,14 @@ async def create_score_calibration_in_score_set(
     return calibration
 
 
-async def create_score_calibration(
+def create_score_calibration(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
     user: User,
     variant_classes: Optional[ClassificationDict] = None,
 ) -> ScoreCalibration:
     """
-    Asynchronously create and persist a new ScoreCalibration record.
+    Create and persist a new ScoreCalibration record.
 
     This is a thin wrapper that delegates to the internal _create_score_calibration
     implementation, allowing for separation of public API and internal logic.
@@ -550,9 +549,8 @@ async def create_score_calibration(
 
     Notes
     -----
-    - Because this function is asynchronous, callers must await it. Any transaction
-      management (commit / rollback) is expected to be handled by the session lifecycle
-      manager in the calling context.
+    - Any transaction management (commit / rollback) is expected to be handled by the
+      session lifecycle manager in the calling context.
     - Because the calibration database model enforces that a calibration must belong
       to a ScoreSet, callers should perform this association themselves after creation
       (e.g., by assigning the calibration's score_set attribute to an existing ScoreSet
@@ -561,7 +559,7 @@ async def create_score_calibration(
     if calibration_create.score_set_urn:
         raise ValueError("score_set_urn must not be provided to create a score calibration outside a score set.")
 
-    created_calibration = await _create_score_calibration(
+    created_calibration = _create_score_calibration(
         db, calibration_create, user, variant_classes, containing_score_set=None
     )
 
@@ -569,7 +567,7 @@ async def create_score_calibration(
     return created_calibration
 
 
-async def modify_score_calibration(
+def modify_score_calibration(
     db: Session,
     calibration: ScoreCalibration,
     calibration_update: score_calibration.ScoreCalibrationModify,
@@ -577,7 +575,7 @@ async def modify_score_calibration(
     variant_classes: Optional[ClassificationDict] = None,
 ) -> ScoreCalibration:
     """
-    Asynchronously modify an existing ScoreCalibration record and its related publication
+    Modify an existing ScoreCalibration record and its related publication
     identifier associations.
 
     This function:
@@ -602,7 +600,7 @@ async def modify_score_calibration(
     Parameters
     ----------
      db : Session
-         An active SQLAlchemy session (synchronous engine session used within an async context).
+         An active SQLAlchemy session.
      calibration : ScoreCalibration
          The existing calibration ORM instance to be modified (must be persistent or pending).
      calibration_update : score_calibration.ScoreCalibrationModify
@@ -687,7 +685,7 @@ async def modify_score_calibration(
     updated_assocs = []
     for relation, sources in relation_sources:
         for identifier in sources:
-            pub = await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
+            pub = find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
             assoc_key = (relation, pub.id)
             if assoc_key in existing_assocs_map:
                 # Keep existing association
@@ -734,7 +732,7 @@ async def modify_score_calibration(
         }:
             setattr(calibration, attr, value)
 
-    calibration.disease_term = await resolve_disease_term(db, getattr(calibration_update, "disease", None))
+    calibration.disease_term = resolve_disease_term(db, getattr(calibration_update, "disease", None))
 
     calibration.score_set = containing_score_set
     calibration.score_set_id = containing_score_set.id

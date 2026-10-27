@@ -247,7 +247,7 @@ def search_publication_identifiers(search: TextSearch, db: Session = Depends(dep
     response_model=publication_identifier.PublicationIdentifier,
     summary="Search publication identifiers by their identifier",
 )
-async def search_publications_by_identifier(*, identifier: str, db: Session = Depends(deps.get_db)) -> Any:
+def search_publications_by_identifier(*, identifier: str, db: Session = Depends(deps.get_db)) -> Any:
     """
     Search saved publication identifiers via their identifier.
     """
@@ -264,7 +264,7 @@ async def search_publications_by_identifier(*, identifier: str, db: Session = De
     response_model=list[publication_identifier.PublicationIdentifier],
     summary="Search publication identifiers by their identifier and database",
 )
-async def search_publications_by_identifier_and_db(
+def search_publications_by_identifier_and_db(
     *,
     identifier: str,
     db_name: str,
@@ -297,7 +297,7 @@ async def search_publications_by_identifier_and_db(
     },
     summary="Search external publication identifiers",
 )
-async def search_external_publication_identifiers(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
+def search_external_publication_identifiers(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
     """
     Search external publication identifiers via a TextSearch query. The provided text is searched against multiple external publication databases,
     and should be a valid identifier in at least one of those databases.
@@ -305,7 +305,7 @@ async def search_external_publication_identifiers(search: TextSearch, db: Sessio
 
     if search.text and len(search.text.strip()) > 0:
         lower_search_text = search.text.strip().lower()
-        items = await find_generic_article(db, lower_search_text)
+        items = find_generic_article(db, lower_search_text)
     else:
         raise HTTPException(status_code=400, detail="Search text is required")
 
