@@ -15,7 +15,7 @@ class ScoreSetPublicationIdentifierAssociation(PublicationCitation, Base):
     __tablename__ = "scoreset_publication_identifiers"
 
     score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), primary_key=True)
-    primary = Column(Boolean, nullable=True, default=False)
+    primary = Column(Boolean, nullable=False, default=False, server_default="false")
 
     score_set: Mapped["ScoreSet"] = relationship(
         "mavedb.models.score_set.ScoreSet", back_populates="publication_identifier_associations"

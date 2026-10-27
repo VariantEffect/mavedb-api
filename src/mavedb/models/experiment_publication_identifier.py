@@ -15,6 +15,6 @@ class ExperimentPublicationIdentifierAssociation(PublicationCitation, Base):
     __tablename__ = "experiment_publication_identifiers"
 
     experiment_id = Column(Integer, ForeignKey("experiments.id"), primary_key=True)
-    primary = Column(Boolean, nullable=True, default=False)
+    primary = Column(Boolean, nullable=False, default=False, server_default="false")
 
     experiment: Mapped["Experiment"] = relationship("Experiment", back_populates="publication_identifier_associations")
