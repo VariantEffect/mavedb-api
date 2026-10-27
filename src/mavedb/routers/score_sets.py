@@ -66,7 +66,7 @@ from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
-from mavedb.lib.score_calibrations import create_score_calibration
+from mavedb.lib.score_calibrations import create_score_calibration, visible_superseding_calibration_urn
 from mavedb.lib.score_set_variants import get_lean_score_set_variants
 from mavedb.lib.score_sets import (
     csv_data_to_df,
@@ -636,17 +636,11 @@ def _score_set_response(item: ScoreSet, principal: Principal) -> score_set.Score
     Returns:
         score_set.ScoreSet: The score set view model, carrying only what this caller may read.
     """
-    visible_calibration_ids = {
-        calibration.id for calibration in principal.viewer_for(ScoreCalibrationViewer).visible(item.score_calibrations)
-    }
-    # The model names only a published replacement. A replacement is always in the same score set, so a draft
-    # one the caller may see is in this list, and naming it reveals nothing new.
-    visible_draft_replacement_urns = {
-        calibration.id: calibration.superseding_calibration.urn
+    calibration_viewer = principal.viewer_for(ScoreCalibrationViewer)
+    visible_calibration_ids = {calibration.id for calibration in calibration_viewer.visible(item.score_calibrations)}
+    superseding_calibration_urns = {
+        calibration.id: visible_superseding_calibration_urn(calibration, calibration_viewer)
         for calibration in item.score_calibrations
-        if calibration.superseding_calibration is not None
-        and calibration.superseding_calibration.private
-        and calibration.superseding_calibration.id in visible_calibration_ids
     }
     superseding_is_visible = item.superseding_score_set is not None and (
         has_permission(principal.user_data, item.superseding_score_set, Action.READ).permitted
@@ -667,10 +661,8 @@ def _score_set_response(item: ScoreSet, principal: Principal) -> score_set.Score
             "official_collections": readable_official_collections(principal.user_data, item.official_collections),
             "score_calibrations": [
                 calibration.model_copy(
-                    update={"superseding_calibration_urn": visible_draft_replacement_urns[calibration.id]}
+                    update={"superseding_calibration_urn": superseding_calibration_urns[calibration.id]}
                 )
-                if calibration.id in visible_draft_replacement_urns
-                else calibration
                 for calibration in (validated_item.score_calibrations or [])
                 if calibration.id in visible_calibration_ids
             ],

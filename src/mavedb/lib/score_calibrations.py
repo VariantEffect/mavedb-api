@@ -14,6 +14,7 @@ from mavedb.lib.acmg import find_or_create_acmg_classification
 from mavedb.lib.exceptions import CalibrationAlreadyReplacedError
 from mavedb.lib.identifiers import find_or_create_publication_identifier
 from mavedb.lib.mondo_ols import resolve_disease_term
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.types.score_calibrations import (
     CalibrationControlSnapshot,
     CalibrationVariantLinkSnapshot,
@@ -185,6 +186,19 @@ def build_calibration_controls(
         )
         for control in controls
     ]
+
+
+def visible_superseding_calibration_urn(calibration: ScoreCalibration, viewer: ScoreCalibrationViewer) -> Optional[str]:
+    """The URN of the calibration's replacement as ``viewer`` may see it: a published replacement for anyone, a
+    draft only for a viewer who may read it, and otherwise ``None``.
+
+    The model's ``superseding_calibration_urn`` names only a published replacement, so serializations that don't
+    check READ (such as the data dump) never reveal a draft. Routes that serve a caller use this instead.
+    """
+    replacement = calibration.superseding_calibration
+    if replacement is None or (replacement.private and not viewer.may_read(replacement)):
+        return None
+    return replacement.urn
 
 
 def calibration_preference_key(calibration: ScoreCalibration) -> tuple[int, int, int, int]:
