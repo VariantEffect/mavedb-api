@@ -540,19 +540,18 @@ def modify_score_calibration_route(
     """
     save_to_logging_context({"requested_resource": urn})
 
-    # If the user supplies a new score_set_urn, validate it exists and the user has permission to use it.
-    if calibration_update.score_set_urn is not None:
-        score_set_update = db.query(ScoreSet).filter(ScoreSet.urn == calibration_update.score_set_urn).one_or_none()
+    # The update replaces the calibration, so it names its score set, which may move the calibration to another one.
+    if not calibration_update.score_set_urn:
+        raise HTTPException(status_code=422, detail="score_set_urn must be provided to modify a score calibration.")
 
-        if not score_set_update:
-            logger.debug("ScoreSet not found", extra=logging_context())
-            raise HTTPException(
-                status_code=404, detail=f"score set with URN '{calibration_update.score_set_urn}' not found"
-            )
+    score_set = db.query(ScoreSet).filter(ScoreSet.urn == calibration_update.score_set_urn).one_or_none()
+    if not score_set:
+        logger.debug("ScoreSet not found", extra=logging_context())
+        raise HTTPException(
+            status_code=404, detail=f"score set with URN '{calibration_update.score_set_urn}' not found"
+        )
 
-        assert_permission(user_data, score_set_update, Action.ADD_CALIBRATION)
-    else:
-        score_set_update = None
+    assert_permission(user_data, score_set, Action.ADD_CALIBRATION)
 
     item = (
         db.query(ScoreCalibration)
@@ -565,7 +564,6 @@ def modify_score_calibration_route(
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
 
     assert_permission(user_data, item, Action.UPDATE)
-    score_set = score_set_update or item.score_set
 
     if calibration_update.class_based and not classes_file:
         raise HTTPException(
@@ -676,6 +674,10 @@ def delete_score_calibration_route(
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
 
     assert_permission(user_data, item, Action.DELETE)
+
+    if item.primary:
+        logger.debug("Primary score calibrations cannot be deleted", extra=logging_context())
+        raise HTTPException(status_code=400, detail="Primary score calibrations cannot be deleted. Demote it first.")
 
     delete_score_calibration(db, item)
     db.commit()

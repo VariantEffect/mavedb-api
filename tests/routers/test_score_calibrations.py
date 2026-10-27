@@ -353,6 +353,37 @@ def test_cannot_modify_score_calibration_with_unknown_disease(
     ],
     indirect=["mock_publication_fetch"],
 )
+def test_cannot_modify_score_calibration_without_score_set_urn(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    payload = {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED), "title": "Changed title"}
+    payload.pop("scoreSetUrn", None)
+
+    response = client.put(f"/api/v1/score-calibrations/{calibration['urn']}", json=payload)
+
+    assert response.status_code == 422
+    assert "score_set_urn must be provided" in response.json()["detail"]
+    stored = client.get(f"/api/v1/score-calibrations/{calibration['urn']}").json()
+    assert stored["title"] == calibration["title"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
 def test_contributing_user_can_get_score_calibration_when_private_and_investigator_provided(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
 ):
@@ -3351,6 +3382,46 @@ def test_cannot_delete_primary_score_calibration(
     assert response.status_code == 403
     error = response.json()
     assert f"insufficient permissions on score calibration with URN '{calibration['urn']}'" in error["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_delete_primary_score_calibration_as_admin_user(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+    calibration = create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
+
+    assert response.status_code == 400
+    assert "Demote it first" in response.json()["detail"]
+    assert client.get(f"/api/v1/score-calibrations/{calibration['urn']}").json()["primary"] is True
+
+
+###########################################################
+# POST /score-calibrations/{calibration_urn}/promote-to-primary
+###########################################################
 
 
 def test_cannot_promote_score_calibration_when_not_exists(client, setup_router_db, session, data_provider, data_files):
