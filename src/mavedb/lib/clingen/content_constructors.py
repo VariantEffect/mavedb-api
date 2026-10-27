@@ -1,11 +1,11 @@
 from datetime import datetime
-from uuid import uuid4
 from urllib.parse import quote_plus
+from uuid import uuid4
 
 from mavedb import __version__
 from mavedb.constants import MAVEDB_BASE_GIT, MAVEDB_FRONTEND_URL
-from mavedb.lib.types.clingen import LdhContentLinkedData, LdhContentSubject, LdhEvent, LdhSubmission
 from mavedb.lib.clingen.constants import LDH_ENTITY_NAME, LDH_SUBMISSION_TYPE
+from mavedb.lib.types.clingen import LdhContentLinkedData, LdhContentSubject, LdhEvent, LdhSubmission
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.variant import Variant

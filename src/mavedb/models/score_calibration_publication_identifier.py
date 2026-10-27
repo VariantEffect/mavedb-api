@@ -1,7 +1,7 @@
 # Prevent circular imports
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Column, ForeignKey, Integer, Enum
+from sqlalchemy import Column, Enum, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base

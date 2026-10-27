@@ -29,8 +29,8 @@ from mavedb.lib.validation.constants.general import (
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import inf_or_float
 from mavedb.lib.variants import score_from_variant_data
-from mavedb.models.enums.functional_classification import FunctionalClassification
 from mavedb.models.calibration_control import CalibrationControl
+from mavedb.models.enums.functional_classification import FunctionalClassification
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification

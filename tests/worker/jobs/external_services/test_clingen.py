@@ -13,14 +13,14 @@ from sqlalchemy import select
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.allele import Allele
+from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
+from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
-from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.variant import Variant
-from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.worker.jobs.external_services.clingen import (
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,

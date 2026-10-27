@@ -14,18 +14,18 @@ from ga4gh.cat_vrs.models import CategoricalVariant, DefiningAlleleConstraint
 from ga4gh.cat_vrs.relations import Relation
 from ga4gh.core.models import Relation as MappingRelation
 
+from mavedb.lib.allele_annotations import AlleleCrossReferences, GnomadReference
 from mavedb.lib.allele_identity import AlleleDerivation
 from mavedb.lib.cat_vrs import (
     _SPEC_EQUIVALENT,
-    _relation_concept,
     CatVrsMode,
     CatVrsRelation,
+    _relation_concept,
     build_categorical_variant,
     categorical_member_links,
     is_projection_partner,
     member_label,
 )
-from mavedb.lib.allele_annotations import AlleleCrossReferences, GnomadReference
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 

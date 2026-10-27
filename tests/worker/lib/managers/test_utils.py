@@ -10,6 +10,7 @@ from arq.constants import default_queue_name
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import DependencyType, FailureCategory, JobStatus
+from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.managers.constants import (
     ACTIVE_JOB_STATUSES,
     COMPLETED_JOB_STATUSES,
@@ -17,7 +18,6 @@ from mavedb.worker.lib.managers.constants import (
     STARTABLE_JOB_STATUSES,
     TERMINAL_JOB_STATUSES,
 )
-from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.managers.utils import (
     FAST_LANE_QUEUE_NAME,
     arq_queue_name,

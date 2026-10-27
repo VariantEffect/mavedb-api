@@ -16,7 +16,6 @@ from typing import List, Optional
 from mavedb.lib.csv.namespaces import CsvNamespace
 from mavedb.lib.deprecation import deprecation_headers, record_deprecated_usage
 
-
 DROP_NA_COLUMNS_DESCRIPTION = (
     "Deprecated: use `drop_unused_hgvs_columns`, which names what it actually does. This parameter only"
     " ever dropped the HGVS coordinate columns a score set does not use, never every NA column. It will"

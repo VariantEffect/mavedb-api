@@ -6,13 +6,13 @@ see tests/worker/conftest_optional.py for the same pattern.
 
 import pytest
 
+from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.score_calibrations import variants_for_functional_classification
 from mavedb.models.acmg_classification import ACMGClassification
 from mavedb.models.enums.acmg_criterion import ACMGCriterion
 from mavedb.models.enums.functional_classification import FunctionalClassification
-from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 

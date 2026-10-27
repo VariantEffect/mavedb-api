@@ -5,13 +5,12 @@ from unittest import mock
 
 import pytest
 
-from mavedb.models.enums import JobStatus
-from mavedb.models.job_run import JobRun
-
 from mavedb.models.acmg_classification import ACMGClassification
+from mavedb.models.enums import JobStatus
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
+from mavedb.models.job_run import JobRun
 from mavedb.models.license import License
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.publication_identifier import PublicationIdentifier

@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import get_principal, require_current_user, require_current_user_with_email
+from mavedb.lib.collections import readable_official_collections
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import NonexistentOrcidUserError
-from mavedb.lib.collections import readable_official_collections
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.experiments import search_experiments as _search_experiments
 from mavedb.lib.identifiers import (

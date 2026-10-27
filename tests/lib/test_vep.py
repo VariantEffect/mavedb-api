@@ -19,7 +19,6 @@ pytest.importorskip("psycopg2")
 pytest.importorskip("fastapi")
 
 from sqlalchemy import select
-
 from variant_annotation.lib.vep import (
     RESOLVER_VERSION,
     ConsequenceOutcome,

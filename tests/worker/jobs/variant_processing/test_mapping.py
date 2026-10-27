@@ -15,14 +15,14 @@ from sqlalchemy.exc import NoResultFound
 from mavedb.lib.mapping import EXCLUDED_PREMAPPED_ANNOTATION_KEYS
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.allele import Allele
-from mavedb.models.enums.sequence_level import SequenceLevel
+from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.enums.mapping_state import MappingState
+from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.target_gene_mapping import TargetGeneMapping
 from mavedb.models.variant import Variant
-from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.worker.jobs.variant_processing.mapping import (
     MAP_BUDGET_BASE_SECONDS,
     MAP_BUDGET_MAX_SECONDS,

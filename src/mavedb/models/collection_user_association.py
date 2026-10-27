@@ -1,15 +1,15 @@
 # Prevent circular imports
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum, Column, ForeignKey, Integer
+from sqlalchemy import Column, Enum, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
 from mavedb.models.enums.contribution_role import ContributionRole
 
 if TYPE_CHECKING:
-    from mavedb.models.user import User
     from mavedb.models.collection import Collection
+    from mavedb.models.user import User
 
 
 class CollectionUserAssociation(Base):

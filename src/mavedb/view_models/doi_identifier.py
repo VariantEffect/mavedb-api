@@ -1,5 +1,4 @@
 import idutils
-
 from pydantic import field_validator
 
 from mavedb.lib.validation.exceptions import ValidationError

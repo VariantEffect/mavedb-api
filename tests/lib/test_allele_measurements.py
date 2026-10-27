@@ -29,8 +29,8 @@ from mavedb.lib.allele_measurements import (
 )
 from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.lib.types.authentication import UserData
-from mavedb.models.enums.measurement_relationship import MeasurementRelationship
 from mavedb.models.allele import Allele
+from mavedb.models.enums.measurement_relationship import MeasurementRelationship
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_calibration import ScoreCalibration
