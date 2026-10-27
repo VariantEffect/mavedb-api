@@ -802,7 +802,8 @@ def remove_score_calibration_controls(db: Session, calibration: ScoreCalibration
 
     The one change a superseded calibration allows, so protected health information found in an old version
     can be removed without rewriting it. Works on any calibration. Leaves ``controls_not_phi`` as ``False``
-    (declined), as a modify that withdraws the affirmation does. Stages the change without committing.
+    (declined), as a modify that withdraws the affirmation does. A calibration without controls is left
+    untouched, so a frozen version isn't marked as modified for nothing. Stages the change without committing.
 
     Args:
         db (Session): An active SQLAlchemy session.
@@ -812,6 +813,9 @@ def remove_score_calibration_controls(db: Session, calibration: ScoreCalibration
     Returns:
         ScoreCalibration: The calibration, now without controls.
     """
+    if not calibration.controls:
+        return calibration
+
     for control in list(calibration.controls):
         db.delete(control)
     calibration.controls.clear()
