@@ -135,19 +135,38 @@ def validate_calibration_controls_in_score_set(
 
 
 # _AbstractLoad is private, but it's what selectinload() is annotated to return and all a chained .options() takes.
-def score_calibration_response_loads() -> tuple[_AbstractLoad, ...]:
+def score_calibration_response_loads(*, with_controls: bool = True) -> tuple[_AbstractLoad, ...]:
     """Loader options for the relations a calibration response serializes, so each loads in one batch for all the
-    calibrations a query returns rather than once per calibration (#953).
+    calibrations a query returns rather than once per calibration or per control (#953).
 
     Apply them to a calibration query (``.options(*score_calibration_response_loads())``), or chain them from the
     relationship that reaches the calibrations (``selectinload(ScoreSet.score_calibrations).options(...)``).
+
+    Args:
+        with_controls: Whether to load each calibration's controls, with their variants and users. Leave it off for
+            responses that carry only ``controls_count``.
     """
-    return (
-        selectinload(ScoreCalibration.publication_identifier_associations),
-        selectinload(ScoreCalibration.functional_classifications),
-        selectinload(ScoreCalibration.controls),
+    loads: tuple[_AbstractLoad, ...] = (
+        selectinload(ScoreCalibration.publication_identifier_associations).selectinload(
+            ScoreCalibrationPublicationIdentifierAssociation.publication
+        ),
+        selectinload(ScoreCalibration.functional_classifications).selectinload(
+            ScoreCalibrationFunctionalClassification.acmg_classification
+        ),
         selectinload(ScoreCalibration.superseding_calibration),
+        selectinload(ScoreCalibration.disease_term),
+        selectinload(ScoreCalibration.created_by),
+        selectinload(ScoreCalibration.modified_by),
     )
+    if with_controls:
+        loads += (
+            selectinload(ScoreCalibration.controls).options(
+                selectinload(CalibrationControl.variant),
+                selectinload(CalibrationControl.created_by),
+                selectinload(CalibrationControl.modified_by),
+            ),
+        )
+    return loads
 
 
 def require_phi_affirmation(has_controls: bool, controls_not_phi: Optional[bool]) -> None:

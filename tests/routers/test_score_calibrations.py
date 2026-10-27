@@ -15,6 +15,7 @@ import pandas as pd
 from arq import ArqRedis
 from sqlalchemy import event, select
 
+from mavedb.models.calibration_control import CalibrationControl
 from mavedb.models.mondo_term import MondoTerm as MondoTermDbModel
 from mavedb.models.score_calibration import ScoreCalibration as CalibrationDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
@@ -5953,10 +5954,16 @@ def test_score_set_owner_cannot_rank_or_see_private_community_calibration(
 
 
 def _add_published_calibrations(client, session, score_set_urn, count):
-    """Publish ``count`` calibrations on the score set, each with classifications, publications and a control."""
+    """Publish ``count`` calibrations on the score set, each with classifications, publications and a control. Each
+    control is on a variant no other control uses, so a per-control load can't be answered from the session's
+    identity map and shows up in the query count."""
     score_set_id = session.scalar(select(ScoreSetDbModel.id).where(ScoreSetDbModel.urn == score_set_urn))
-    variant_urn = session.scalars(select(Variant.urn).where(Variant.score_set_id == score_set_id)).first()
-    for _ in range(count):
+    used = set(session.scalars(select(CalibrationControl.variant_id)))
+    unused = session.scalars(
+        select(Variant.urn).where(Variant.score_set_id == score_set_id, Variant.id.notin_(used)).order_by(Variant.id)
+    ).all()
+    assert len(unused) >= count, "the score set has too few variants for distinct controls"
+    for variant_urn in unused[:count]:
         payload = {
             **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
             "scoreSetUrn": score_set_urn,
@@ -6005,6 +6012,7 @@ def test_calibration_serializing_routes_query_count_does_not_grow_with_calibrati
     _add_published_calibrations(client, session, score_set["urn"], 1)
     with_one_calibration = _query_count(client, session, url)
 
-    _add_published_calibrations(client, session, score_set["urn"], 4)
+    # The score set has three variants, one per control.
+    _add_published_calibrations(client, session, score_set["urn"], 2)
 
     assert _query_count(client, session, url) == with_one_calibration

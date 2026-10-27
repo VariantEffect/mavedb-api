@@ -128,7 +128,7 @@ def list_my_calibrations(
         .filter(ScoreCalibration.created_by_id == user_data.user.id)
         .options(
             selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors),
-            *score_calibration_response_loads(),
+            *score_calibration_response_loads(with_controls=False),
         )
         .all()
     )
@@ -200,7 +200,7 @@ async def get_score_calibrations_for_score_set(
         .filter(ScoreCalibration.score_set_id == score_set.id)
         .options(
             selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors),
-            *score_calibration_response_loads(),
+            *score_calibration_response_loads(with_controls=False),
         )
         .all()
     )
