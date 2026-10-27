@@ -541,6 +541,11 @@ class SavedScoreCalibration(ScoreCalibrationBase):
     modified_by: Optional[SavedUser] = None
     creation_date: date
     modification_date: date
+    published_date: Optional[date] = Field(
+        None,
+        description="The day the calibration was published. Null for a draft, and for a calibration published before "
+        "MaveDB recorded publication times.",
+    )
 
     _record_type_factory = record_type_validator()(set_record_type)
 
