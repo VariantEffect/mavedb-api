@@ -397,11 +397,3 @@ def target_gene_external_identifiers(
         )
         for db_name, external_identifier in by_db_name.items()
     ]
-
-
-def sanitize_target_sequence_label(label: str):
-    """
-    Strip whitespace from the supplied string and replace any
-    internal whitespace with an underscore.
-    """
-    return label.strip().replace(" ", "_")

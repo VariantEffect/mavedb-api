@@ -5,7 +5,6 @@ from fqfa import infer_sequence_type
 from pydantic import ValidationInfo, field_validator, model_validator
 from typing_extensions import Self
 
-from mavedb.lib.identifiers import sanitize_target_sequence_label
 from mavedb.lib.validation import target
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models import record_type_validator, set_record_type
@@ -62,7 +61,7 @@ class TargetSequenceModify(TargetSequenceBase):
 
             # Sanitize the label by stripping leading/trailing whitespace and replacing any internal whitespace with
             # underscores. Fully qualified variants should never contain whitespace.
-            return sanitize_target_sequence_label(field_value)
+            return field_value.strip().replace(" ", "_")
 
         return field_value
 
