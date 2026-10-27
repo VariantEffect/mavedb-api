@@ -985,9 +985,14 @@ def publish_score_calibration_route(
             detail="Score calibrations associated with private score sets cannot be published. First publish the score set, then calibrations.",
         )
 
+    # Publishing is what supersedes the predecessor, and the right to supersede it can lapse after the draft is
+    # created, as when its author stops being a contributor to the score set.
+    predecessor = item.superseded_calibration
+    if predecessor is not None:
+        assert_permission(user_data, predecessor, Action.SUPERSEDE)
+
     # Publishing a replacement for the primary calibration promotes the replacement and demotes its predecessor,
     # so it needs the same rank permissions as promoting with demoteExistingPrimary.
-    predecessor = item.superseded_calibration
     if predecessor is not None and predecessor.primary:
         assert_permission(user_data, item, Action.CHANGE_RANK)
         assert_permission(user_data, predecessor, Action.CHANGE_RANK)

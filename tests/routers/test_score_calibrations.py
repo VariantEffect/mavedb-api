@@ -310,6 +310,36 @@ def test_create_score_calibration_contributor_replaces_investigator_calibration(
     assert response.json()["investigatorProvided"] is True
 
 
+def test_publish_score_calibration_replacement_refused_after_author_stops_contributing(
+    client, versioned_calibration_context, extra_user_app_overrides, session
+):
+    original, payload = versioned_calibration_context
+    add_contributor(
+        session,
+        payload["scoreSetUrn"],
+        ScoreSetDbModel,
+        EXTRA_USER["username"],
+        EXTRA_USER["first_name"],
+        EXTRA_USER["last_name"],
+    )
+    with DependencyOverrider(extra_user_app_overrides):
+        draft = client.post("/api/v1/score-calibrations/", json=payload)
+    assert draft.status_code == 200
+
+    score_set = session.scalar(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == payload["scoreSetUrn"]))
+    score_set.contributors = [c for c in score_set.contributors if c.orcid_id != EXTRA_USER["username"]]
+    session.commit()
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.post(f"/api/v1/score-calibrations/{draft.json()['urn']}/publish")
+
+    assert response.status_code == 403
+    replacement = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == draft.json()["urn"]))
+    session.refresh(replacement)
+    assert replacement.private is True
+    assert client.get(f"/api/v1/score-calibrations/{original['urn']}").json()["hasPublishedReplacement"] is False
+
+
 def test_create_score_calibration_replacement_of_unknown_calibration_not_found(client, versioned_calibration_context):
     _, payload = versioned_calibration_context
     response = client.post(
