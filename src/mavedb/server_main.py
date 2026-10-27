@@ -29,6 +29,8 @@ from mavedb.lib.exceptions import (
     MixedTargetError,
     MondoServiceError,
     NonexistentIdentifierError,
+    PublicationServiceError,
+    PublicationServiceTimeoutError,
 )
 from mavedb.lib.logging.canonical import log_request
 from mavedb.lib.logging.context import (
@@ -196,6 +198,34 @@ async def hgnc_service_error_exception_handler(request: Request, exc: HGNCServic
 @app.exception_handler(MondoServiceError)
 async def mondo_service_error_exception_handler(request: Request, exc: MondoServiceError):
     response = JSONResponse(status_code=503, content={"message": "Disease ontology service temporarily unavailable"})
+    save_to_logging_context(format_raised_exception_info_as_dict(exc))
+    log_request(request, response, time.time_ns())
+    return response
+
+
+# Starlette picks the handler for the most specific class, so a timeout gets the 504. These answer with `detail`,
+# not `message`, because the ui's record editors show `detail` when a save fails.
+@app.exception_handler(PublicationServiceTimeoutError)
+async def publication_service_timeout_error_exception_handler(request: Request, exc: PublicationServiceTimeoutError):
+    response = JSONResponse(
+        status_code=504,
+        content={
+            "detail": "Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later."
+        },
+    )
+    save_to_logging_context(format_raised_exception_info_as_dict(exc))
+    log_request(request, response, time.time_ns())
+    return response
+
+
+@app.exception_handler(PublicationServiceError)
+async def publication_service_error_exception_handler(request: Request, exc: PublicationServiceError):
+    response = JSONResponse(
+        status_code=502,
+        content={
+            "detail": "Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later."
+        },
+    )
     save_to_logging_context(format_raised_exception_info_as_dict(exc))
     log_request(request, response, time.time_ns())
     return response

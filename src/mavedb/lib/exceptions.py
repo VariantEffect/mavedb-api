@@ -228,6 +228,18 @@ class MondoServiceError(Exception):
     pass
 
 
+class PublicationServiceError(Exception):
+    """Raised when a publication database (PubMed, bioRxiv, medRxiv or Crossref) fails to answer a lookup."""
+
+    pass
+
+
+class PublicationServiceTimeoutError(PublicationServiceError):
+    """Raised when a publication database doesn't answer a lookup in time."""
+
+    pass
+
+
 class LDHSubmissionFailureError(Exception):
     """Raised when submission to ClinGen Linked Data Hub (LDH) fails for all submissions."""
 

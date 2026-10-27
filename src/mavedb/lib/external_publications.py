@@ -18,10 +18,22 @@ from eutils._internal.xmlfacades.pubmedarticleset import PubmedArticleSet  # typ
 from idutils import is_doi
 from typing_extensions import TypedDict
 
-from mavedb.lib.exceptions import AmbiguousIdentifierError
+from mavedb.lib.exceptions import AmbiguousIdentifierError, PublicationServiceError, PublicationServiceTimeoutError
+from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
 from mavedb.lib.validation.publication import validate_db_name
 
 logger = logging.getLogger(__name__)
+
+
+def _publication_service_error(database: str, exc: Exception) -> PublicationServiceError:
+    """The service error to raise for a failed request to a publication database, logged."""
+    save_to_logging_context(format_raised_exception_info_as_dict(exc))
+    if isinstance(exc, requests.exceptions.Timeout):
+        logger.error(msg=f"{database} request timed out.", exc_info=exc, extra=logging_context())
+        return PublicationServiceTimeoutError(f"{database} did not respond in time")
+
+    logger.error(msg=f"{database} request failed.", exc_info=exc, extra=logging_context())
+    return PublicationServiceError(f"{database} could not provide the publication")
 
 
 class PublicationAuthors(TypedDict):
@@ -267,13 +279,18 @@ class Crossref:
         self.endpoint = endpoint
 
     def _fetch(self, url) -> Optional[dict]:
-        result = requests.get(url)
+        try:
+            result = requests.get(url)
 
-        if result.status_code == 404:
-            return None
+            if result.status_code == 404:
+                return None
 
-        result.raise_for_status()
-        return result.json()["message"]
+            result.raise_for_status()
+            return result.json()["message"]
+
+        # ValueError covers a body that isn't JSON.
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            raise _publication_service_error("Crossref", exc) from exc
 
     def doi(self, identifier: str) -> Optional[CrossrefWork]:
         result = self._fetch(f"{self.url}/{self.endpoint}/{identifier}")
@@ -286,7 +303,7 @@ class Crossref:
 
 class Rxiv:
     """
-    Interact with the bioRxiv and medRxiv pre-print servers via thier web APIs.
+    Interact with the bioRxiv and medRxiv pre-print servers via their web APIs.
 
     For more detailed API documentation, see:
     - https://api.biorxiv.org/
@@ -567,14 +584,19 @@ class Rxiv:
         Fetch content from the provided url, verify the request was successful,
         and load as JSON if desired.
         """
-        response = requests.get(url)
+        try:
+            response = requests.get(url)
 
-        if response.status_code == 404:
-            return []
+            if response.status_code == 404:
+                return []
 
-        response.raise_for_status()
+            response.raise_for_status()
 
-        return json.loads(response.text) if return_format == "json" else response.text
+            return json.loads(response.text) if return_format == "json" else response.text
+
+        # ValueError covers a body that isn't JSON.
+        except (requests.exceptions.RequestException, ValueError) as exc:
+            raise _publication_service_error(self.server or "Rxiv", exc) from exc
 
 
 class ExternalPublication:
@@ -708,6 +730,8 @@ class ExternalPublication:
 def fetch_pubmed_article(identifier: str) -> Optional[PubmedArticle]:
     """
     Fetch an existing PubMed article from NCBI
+
+    :raises PublicationServiceError: PubMed couldn't be reached, or answered with an error.
     """
     fetch = eutils.QueryService(api_key=os.getenv("NCBI_API_KEY"))
     try:
@@ -718,6 +742,8 @@ def fetch_pubmed_article(identifier: str) -> Optional[PubmedArticle]:
         raise AmbiguousIdentifierError(f"Fetched more than 1 PubMed article associated with PMID {identifier}") from exc
     except EutilsNCBIError:
         return None
+    except requests.exceptions.RequestException as exc:
+        raise _publication_service_error("PubMed", exc) from exc
 
     if fetched_articles:
         return fetched_articles[0]
@@ -736,6 +762,8 @@ def fetch_pubmed_article(identifier: str) -> Optional[PubmedArticle]:
 def fetch_biorxiv_article(identifier: str) -> Optional[RxivContentDetail]:
     """
     Fetch an existing bioRxiv article from Rxiv
+
+    :raises PublicationServiceError: bioRxiv couldn't be reached, or answered with an error.
     """
     fetch = Rxiv("https://api.biorxiv.org", "biorxiv")
     articles = fetch.content_detail(identifier=identifier)
@@ -748,6 +776,8 @@ def fetch_biorxiv_article(identifier: str) -> Optional[RxivContentDetail]:
 def fetch_medrxiv_article(identifier: str) -> Optional[RxivContentDetail]:
     """
     Fetch an existing medRxiv article from Rxiv
+
+    :raises PublicationServiceError: medRxiv couldn't be reached, or answered with an error.
     """
     fetch = Rxiv("https://api.biorxiv.org", "medrxiv")
     articles = fetch.content_detail(identifier=identifier)
@@ -758,5 +788,10 @@ def fetch_medrxiv_article(identifier: str) -> Optional[RxivContentDetail]:
 
 
 def fetch_crossref_work(identifier: str) -> Optional[CrossrefWork]:
+    """
+    Fetch an existing work from Crossref by its DOI
+
+    :raises PublicationServiceError: Crossref couldn't be reached, or answered with an error.
+    """
     fetch = Crossref(endpoint="works")
     return fetch.doi(identifier)

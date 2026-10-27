@@ -86,7 +86,6 @@ class ScoreCalibration(Base):
     publication_identifiers: AssociationProxy[list[PublicationIdentifier]] = association_proxy(
         "publication_identifier_associations",
         "publication",
-        creator=lambda p: ScoreCalibrationPublicationIdentifierAssociation(publication=p, relation=p.relation),
     )
 
     calibration_metadata = Column(JSONB(none_as_null=True), nullable=True)

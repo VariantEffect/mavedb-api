@@ -12,6 +12,7 @@ import json
 from unittest.mock import patch
 
 import pandas as pd
+import requests
 from arq import ArqRedis
 from sqlalchemy import select
 
@@ -23,6 +24,7 @@ from tests.helpers.constants import (
     TEST_BIORXIV_IDENTIFIER,
     TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED,
     TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+    TEST_CROSSREF_IDENTIFIER,
     TEST_PATHOGENICITY_SCORE_CALIBRATION,
     TEST_PUBMED_IDENTIFIER,
     VALID_CALIBRATION_URN,
@@ -250,6 +252,56 @@ def test_cannot_create_score_calibration_with_unknown_disease(
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["body", "disease"]
     assert "MONDO:9999999" in response.json()["detail"][0]["msg"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+@pytest.mark.parametrize(
+    "crossref_response, expected_status",
+    [
+        ({"exc": requests.exceptions.ConnectTimeout}, 504),
+        ({"exc": requests.exceptions.ReadTimeout}, 504),
+        ({"status_code": 503}, 502),
+    ],
+    ids=["connect_timeout", "read_timeout", "upstream_error"],
+)
+def test_create_score_calibration_publication_database_failure_returns_gateway_error(
+    client,
+    setup_router_db,
+    mock_publication_fetch,
+    requests_mock,
+    session,
+    data_provider,
+    data_files,
+    crossref_response,
+    expected_status,
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    requests_mock.get(f"https://api.crossref.org/works/{TEST_CROSSREF_IDENTIFIER}", **crossref_response)
+    payload = {
+        **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        "thresholdSources": [{"identifier": TEST_CROSSREF_IDENTIFIER, "dbName": "Crossref"}],
+        "scoreSetUrn": score_set["urn"],
+    }
+    calibrations_before = session.scalars(select(CalibrationDbModel.id)).all()
+
+    response = client.post("/api/v1/score-calibrations/", json=payload)
+
+    assert response.status_code == expected_status
+    # The ui's record editors show `detail` when a save fails.
+    assert "PubMed/bioRxiv/medRxiv/Crossref" in response.json()["detail"]
+    assert session.scalars(select(CalibrationDbModel.id)).all() == calibrations_before
 
 
 @pytest.mark.parametrize(
@@ -3299,11 +3351,6 @@ def test_cannot_delete_primary_score_calibration(
     assert response.status_code == 403
     error = response.json()
     assert f"insufficient permissions on score calibration with URN '{calibration['urn']}'" in error["detail"]
-
-
-###########################################################
-# POST /score-calibrations/{calibration_urn}/promote-to-primary
-###########################################################
 
 
 def test_cannot_promote_score_calibration_when_not_exists(client, setup_router_db, session, data_provider, data_files):
