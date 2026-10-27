@@ -9,11 +9,11 @@ from mavedb import deps
 from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import require_current_user, require_current_user_with_email
 from mavedb.lib.flexible_model_loader import json_or_form_loader
-from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
     logging_context,
     save_to_logging_context,
 )
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.score_calibrations import (
     create_score_calibration_in_score_set,

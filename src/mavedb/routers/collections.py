@@ -11,12 +11,12 @@ from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
 from mavedb import deps
 from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import require_current_user, require_current_user_with_email
-from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
-    format_raised_exception_info_as_dict,
     logging_context,
+    record_exception,
     save_to_logging_context,
 )
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.types.authentication import UserData
 from mavedb.models.collection import Collection
@@ -222,7 +222,7 @@ def create_collection(
                 user_orcid_ids.add(viewer_orcid)
 
     except NoResultFound as e:
-        save_to_logging_context(format_raised_exception_info_as_dict(e))
+        record_exception(e)
         logger.error(
             msg="No existing user found with the given ORCID iD",
             extra=logging_context(),
@@ -230,7 +230,7 @@ def create_collection(
         raise HTTPException(status_code=404, detail="No MaveDB user found with the given ORCID iD")
 
     except MultipleResultsFound as e:
-        save_to_logging_context(format_raised_exception_info_as_dict(e))
+        record_exception(e)
         logger.error(msg="Multiple users found with the given ORCID iD", extra=logging_context())
         raise HTTPException(
             status_code=500,
@@ -254,12 +254,12 @@ def create_collection(
             experiment_associations.append(CollectionExperimentAssociation(experiment=experiment, position=position))
 
     except NoResultFound as e:
-        save_to_logging_context(format_raised_exception_info_as_dict(e))
+        record_exception(e)
         logger.error(msg="No resource found with the given URN", extra=logging_context())
         raise HTTPException(status_code=404, detail="No resource found with the given URN")
 
     except MultipleResultsFound as e:
-        save_to_logging_context(format_raised_exception_info_as_dict(e))
+        record_exception(e)
         logger.error(msg="Multiple resources found with the given URN", extra=logging_context())
         raise HTTPException(status_code=500, detail="Multiple resources found with the given URN")
 

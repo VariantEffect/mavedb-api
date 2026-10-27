@@ -7,7 +7,7 @@ from fastapi.responses import RedirectResponse
 from ga4gh.core.identifiers import GA4GH_IR_REGEXP
 
 from mavedb.lib.deprecation import MAPPED_VARIANT_SUNSET, deprecation_headers, record_deprecated_usage
-from mavedb.lib.logging import LoggedRoute
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.routers.shared import ROUTER_BASE_PREFIX
 
 TAG_NAME = "Variants"

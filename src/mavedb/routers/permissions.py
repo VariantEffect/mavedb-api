@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.authentication import get_current_user
-from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.permissions import Action, has_permission
 from mavedb.lib.types.authentication import UserData
 from mavedb.models.collection import Collection
