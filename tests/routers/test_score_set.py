@@ -4224,6 +4224,49 @@ def test_csv_routes_refuse_large_builds_when_every_slot_is_held(
     assert preview.status_code == 200
 
 
+@pytest.mark.parametrize("path", ["variants", "variant-details"], ids=["lean-view", "variant-details"])
+def test_whole_set_views_every_slot_held_refuses_large_score_sets(
+    session, data_provider, client, setup_router_db, data_files, monkeypatch, path
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    held = threading.BoundedSemaphore(1)
+    held.acquire()
+    monkeypatch.setattr(build_limiter, "_slots", held)
+    monkeypatch.setattr(build_limiter, "CSV_BUILD_MIN_ROWS", 1)
+    monkeypatch.setattr(build_limiter, "CSV_BUILD_WAIT_SECONDS", 0.01)
+
+    refused = client.get(f"/api/v1/score-sets/{score_set['urn']}/{path}")
+
+    assert refused.status_code == 503
+    assert refused.headers["retry-after"] == str(build_limiter.RETRY_AFTER_SECONDS)
+    # A score set under the threshold is never refused.
+    monkeypatch.setattr(build_limiter, "CSV_BUILD_MIN_ROWS", 1000)
+    assert client.get(f"/api/v1/score-sets/{score_set['urn']}/{path}").status_code == 200
+
+
+@pytest.mark.parametrize("path", ["variants", "variant-details"], ids=["lean-view", "variant-details"])
+def test_whole_set_views_response_sent_releases_the_build_slot(
+    session, data_provider, client, setup_router_db, data_files, monkeypatch, path
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+
+    one_slot = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(build_limiter, "_slots", one_slot)
+    monkeypatch.setattr(build_limiter, "CSV_BUILD_MIN_ROWS", 1)
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/{path}")
+
+    assert response.status_code == 200
+    assert one_slot.acquire(blocking=False)
+
+
 # Deprecated query-parameter aliases. Galaxy and other external tooling call these endpoints, so the old
 # names keep working for a release rather than being silently ignored.
 def test_deprecated_drop_na_columns_still_drops_unused_hgvs_columns(

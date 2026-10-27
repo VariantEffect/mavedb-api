@@ -1,8 +1,9 @@
-"""Load shedding for the score set CSV exports.
+"""Load shedding for whole-score-set responses: the CSV exports, the lean variant view and the variant details.
 
-Building a large CSV is CPU-bound Python, and Python runs one thread at a time per process. A few large builds
-running at once in one API process starve everything else that process serves, so each process runs only a few at a
-time and refuses the rest with a 503 the client can retry.
+Building a large whole-set response is CPU-bound Python, and Python runs one thread at a time per process. A few
+large builds running at once in one API process starve everything else that process serves, so each process runs
+only a few at a time and refuses the rest with a 503 the client can retry. All of these responses share one set of
+slots, since they compete for the same CPU.
 
 TODO(#845, #771): A stopgap. Remove it once full exports are cheap or served from cache, and ``csv_build_refused``
 no longer appears in the request logs.
@@ -11,9 +12,9 @@ no longer appears in the request logs.
 import logging
 import os
 import threading
-from collections.abc import Iterator
-from contextlib import contextmanager
-from typing import Optional
+from collections.abc import Iterable, Iterator
+from contextlib import ExitStack, contextmanager
+from typing import Optional, TypeVar
 
 from fastapi import HTTPException
 
@@ -21,6 +22,8 @@ from mavedb.constants import MAVEDB_BULK_DOWNLOAD_URL
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 # Large builds one API process runs at once; 0 disables the cap.
 CSV_BUILD_SLOTS = int(os.getenv("CSV_BUILD_SLOTS", "2"))
@@ -65,3 +68,25 @@ def csv_build_slot(rows: int) -> Iterator[None]:
         yield
     finally:
         _slots.release()
+
+
+def stream_in_build_slot(slot: ExitStack, chunks: Iterable[T]) -> Iterator[T]:
+    """Keep the build slot held by ``slot`` until a streamed response has sent ``chunks``.
+
+    A streamed response is built while it's sent, after the route returns, so the slot has to outlive the route.
+    Take it with ``slot.enter_context(csv_build_slot(rows))``, so a refusal is a 503 before the response starts,
+    do any up-front queries, then hand the slot over with ``slot.pop_all()``. It's released when the stream
+    finishes, fails or is closed because the client went away.
+    """
+
+    def held() -> Iterator[Optional[T]]:
+        with slot:
+            yield None
+            yield from chunks
+
+    stream = held()
+
+    # A generator only runs its cleanup once it has started, so start it now: the slot is then released even if
+    # the response is never sent.
+    next(stream)
+    return stream  # type: ignore[return-value]

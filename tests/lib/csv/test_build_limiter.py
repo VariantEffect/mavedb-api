@@ -1,6 +1,8 @@
 # ruff: noqa: E402
 
+import gc
 import threading
+from contextlib import ExitStack
 
 import pytest
 
@@ -9,7 +11,7 @@ pytest.importorskip("fastapi")
 from fastapi import HTTPException
 
 from mavedb.lib.csv import build_limiter
-from mavedb.lib.csv.build_limiter import csv_build_slot, rows_to_build
+from mavedb.lib.csv.build_limiter import csv_build_slot, rows_to_build, stream_in_build_slot
 
 
 @pytest.fixture
@@ -67,3 +69,46 @@ class TestCsvBuildSlot:
 
         with csv_build_slot(10_000_000):
             pass
+
+
+def _held_slot(rows: int) -> ExitStack:
+    with ExitStack() as setup:
+        setup.enter_context(csv_build_slot(rows))
+        return setup.pop_all()
+
+
+@pytest.mark.unit
+class TestStreamInBuildSlot:
+    def test_stream_in_build_slot_holds_the_slot_until_the_stream_is_sent(self, one_slot):
+        stream = stream_in_build_slot(_held_slot(5000), iter(["a", "b"]))
+
+        assert not one_slot.acquire(blocking=False)
+        assert list(stream) == ["a", "b"]
+        assert one_slot.acquire(blocking=False)
+
+    def test_stream_in_build_slot_client_disconnects_releases_the_slot(self, one_slot):
+        stream = stream_in_build_slot(_held_slot(5000), iter(["a", "b"]))
+        next(stream)
+
+        stream.close()
+
+        assert one_slot.acquire(blocking=False)
+
+    def test_stream_in_build_slot_build_fails_releases_the_slot(self, one_slot):
+        def failing():
+            yield "a"
+            raise RuntimeError("build failed")
+
+        stream = stream_in_build_slot(_held_slot(5000), failing())
+
+        with pytest.raises(RuntimeError):
+            list(stream)
+        assert one_slot.acquire(blocking=False)
+
+    def test_stream_in_build_slot_never_sent_releases_the_slot(self, one_slot):
+        stream = stream_in_build_slot(_held_slot(5000), iter(["a"]))
+
+        del stream
+        gc.collect()
+
+        assert one_slot.acquire(blocking=False)
