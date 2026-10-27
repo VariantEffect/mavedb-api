@@ -149,6 +149,16 @@ def test_get_score_calibration_draft_replacement_named_only_to_its_readers(
         assert superseding_urn() is None
 
 
+def test_publish_score_calibration_names_readable_draft_replacement(client, versioned_calibration_context):
+    original, payload = versioned_calibration_context
+    draft = client.post("/api/v1/score-calibrations/", json=payload).json()
+
+    response = client.post(f"/api/v1/score-calibrations/{original['urn']}/publish")
+
+    assert response.status_code == 200
+    assert response.json()["supersedingCalibrationUrn"] == draft["urn"]
+
+
 @pytest.mark.parametrize(
     "route",
     [
