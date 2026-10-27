@@ -538,13 +538,19 @@ def test_visible_calibration_ids_filters_classifications(session, setup_lib_db_w
 
 
 @pytest.mark.integration
-def test_get_variant_detail_superseded_calibration_keeps_its_classification(session, setup_lib_db_with_score_set):
+@pytest.mark.parametrize("replacement_primary", [True, False], ids=["primary_replacement", "non_primary_replacement"])
+def test_get_variant_detail_superseded_calibration_keeps_its_classification(
+    session, setup_lib_db_with_score_set, replacement_primary
+):
     """A calibration with a published replacement still answers for its variants, since callers can still select
-    it; only the default-choosing callers pass it over."""
+    it; only the default-choosing callers pass it over. It sorts after its replacement whatever their tiers, so
+    the first entry stays the UI's default."""
     score_set = setup_lib_db_with_score_set
     variant = _variant(session, score_set, 1, data={"score_data": {"score": 0.8}})
     predecessor = _calibration(session, score_set, primary=False, classifications=[("normal", [variant])])
-    replacement = _calibration(session, score_set, primary=True, classifications=[("abnormal", [variant])])
+    replacement = _calibration(
+        session, score_set, primary=replacement_primary, classifications=[("abnormal", [variant])]
+    )
     replacement.superseded_calibration_id = predecessor.id
     session.commit()
 
