@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from mavedb import deps
+from mavedb.db.principal import bind_principal
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
 from mavedb.lib.orcid import fetch_orcid_user_email
 from mavedb.lib.types.authentication import UserData
@@ -175,6 +176,23 @@ def get_current_user(
     # Custom header for the role the authenticated user would like to assume.
     # Namespaced with x_ to indicate this is a custom application header.
     x_active_roles: Optional[str] = Header(default=None),
+) -> Optional[UserData]:
+    """Authenticate the caller and bind them as the principal of the request's database session.
+
+    ``db`` is the same session the route receives, because FastAPI caches ``deps.get_db`` per request, so every
+    transaction the route runs carries the caller. An anonymous caller binds nothing, so reads as no principal.
+    A rejected role request raises before anything is bound.
+    """
+    user_data = _resolve_current_user(api_key_user_data, token_payload, db, x_active_roles)
+    bind_principal(db, user_data)
+    return user_data
+
+
+def _resolve_current_user(
+    api_key_user_data: Optional[UserData],
+    token_payload: Optional[dict],
+    db: Session,
+    x_active_roles: Optional[str],
 ) -> Optional[UserData]:
     save_to_logging_context({"requested_roles": x_active_roles})
 
