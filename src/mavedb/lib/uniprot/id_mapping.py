@@ -5,7 +5,11 @@ from typing import Any, Dict, List, Optional
 import requests
 from requests.adapters import HTTPAdapter, Retry
 
-from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.logging.context import (
+    append_to_logging_context,
+    logging_context,
+    save_to_logging_context,
+)
 from mavedb.lib.types import uniprot
 from mavedb.lib.uniprot.constants import SWISS_PROT_ENTRY_TYPE, UNIPROT_ID_MAPPING_API_URL
 
@@ -91,7 +95,7 @@ class UniProtIDMappingAPI:
         logger.debug(msg="Checking status of UniProt ID mapping job.", extra=logging_context())
 
         for attempt in range(self.polling_tries):
-            save_to_logging_context({"polling_attempt": attempt + 1})
+            save_to_logging_context({"polling_attempt": attempt + 1}, overwrite=True)
             logger.debug(msg="Polling status for Uniprot mapping job.", extra=logging_context())
 
             resp = self.session.get(f"{self.API_URL}/idmapping/status/{job_id}")
@@ -99,7 +103,7 @@ class UniProtIDMappingAPI:
             status_response = resp.json()
 
             if "jobStatus" in status_response:
-                save_to_logging_context({"uniprot_job_status": status_response["jobStatus"]})
+                save_to_logging_context({"uniprot_job_status": status_response["jobStatus"]}, overwrite=True)
 
                 if status_response["jobStatus"] == "FINISHED":
                     logger.info(msg=f"UniProt ID mapping job {job_id} finished successfully.", extra=logging_context())
@@ -179,7 +183,7 @@ class UniProtIDMappingAPI:
             if from_id and to_id:
                 uniprot_mappings.append({from_id: {"uniprot_id": to_id, "entry_type": entry_type}})
             else:
-                save_to_logging_context({"skipped_uniprot_mapping_result": r})
+                append_to_logging_context("skipped_uniprot_mapping_results", r)
                 logger.warning(
                     msg="Skipping mapping for result due to missing 'from' or 'to' ID.", extra=logging_context()
                 )

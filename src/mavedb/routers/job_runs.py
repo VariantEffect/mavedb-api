@@ -16,8 +16,8 @@ from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.authorization import RoleRequirer
-from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.types.authentication import UserData
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.models.enums.user_role import UserRole

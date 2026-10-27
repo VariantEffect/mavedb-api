@@ -9,8 +9,8 @@ from starlette.convertors import Convertor, register_url_convertor
 from mavedb import deps
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.hgnc.client import fetch_gene_info
-from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.models.ensembl_offset import EnsemblOffset
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation

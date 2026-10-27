@@ -168,7 +168,7 @@ def link_vep_consequences_to_alleles(
     caller reads that as "no result". This is the single source of truth for per-allele status; callers
     must not re-derive it from consequence state.
     """
-    save_to_logging_context({"num_alleles_to_link_vep": len(resolutions_by_allele_id)})
+    save_to_logging_context({"vep.alleles_to_link": len(resolutions_by_allele_id)})
     logger.debug(msg="Linking VEP consequences to alleles", extra=logging_context())
 
     verdicts: dict[int, VepLinkVerdict] = {}

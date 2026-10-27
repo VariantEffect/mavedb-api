@@ -1,6 +1,5 @@
 from typing import Optional
 
-from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.models import PermissionResponse
 from mavedb.lib.permissions.utils import deny_action_for_entity, roles_permitted
@@ -50,14 +49,6 @@ def has_permission(user_data: Optional[UserData], entity: Collection, action: Ac
             collection_roles = [assoc.contribution_role for assoc in user_associations]
 
         active_roles = user_data.active_roles
-
-    save_to_logging_context(
-        {
-            "resource_is_private": entity.private,
-            "user_is_owner": user_is_owner,
-            "collection_roles": [role.value for role in collection_roles] if collection_roles else None,
-        }
-    )
 
     handlers = {
         Action.READ: _handle_read_action,

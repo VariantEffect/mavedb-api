@@ -12,7 +12,6 @@ ProjectionGroup row, and both of its links point at it. A pair holding the measu
 variant itself, so its other member joins the measured group instead; so does the protein consequence.
 """
 
-import asyncio
 import dataclasses
 import functools
 import logging
@@ -35,6 +34,7 @@ from variant_annotation.lib.translation.types import (
 
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.hgvs import extract_accession, is_cis_phased_hgvs, strip_protein_prediction_parens
+from mavedb.lib.logging.context import run_in_executor_with_logging_context
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variant_translations import get_or_create_allele
 from mavedb.lib.vrs_utils import translate_hgvs_to_variation, verify_allele_refget
@@ -449,7 +449,6 @@ async def reverse_translate_variants_for_score_set(
 
     # construct_equivalent_variants is I/O-bound (blocks on a subprocess); run in the
     # default thread pool rather than the process pool to avoid pickling the port objects.
-    loop = asyncio.get_running_loop()
     job_manager.update_progress(20, 100, "Running reverse translation subprocess.")
     # WtCodonMode.ALL reads the reference codon via TranscriptSource.codon_at, so pass a
     # live UTA-backed source. codon_at is only touched in the post-subprocess WT-codon step,
@@ -457,7 +456,7 @@ async def reverse_translate_variants_for_score_set(
     # (transcript_for_protein is redundant here -- the job already resolved every transcript
     # and supplies it via VariantInput.transcript.)
     with uta_transcript_source() as transcripts:
-        results, errors = await loop.run_in_executor(
+        results, errors = await run_in_executor_with_logging_context(
             None,
             functools.partial(
                 construct_equivalent_variants,

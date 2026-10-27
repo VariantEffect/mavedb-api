@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from sqlalchemy import select
 
+from mavedb.lib.logging.context import increment_logging_context, logging_context, save_to_logging_context
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
 from mavedb.models.job_run import JobRun
@@ -490,6 +491,44 @@ class TestManagedJobDecoratorIntegration:
         # After completion, status should be SUCCEEDED
         job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
         assert job.status == JobStatus.SUCCEEDED
+
+    async def test_decorator_integrated_library_context_lands_in_job_context(
+        self, session, arq_redis, sample_job_run, standalone_worker_context, with_populated_job_data
+    ):
+        seen = {}
+
+        @with_job_management
+        async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
+            # Library code records into the open logging context, not the job manager.
+            save_to_logging_context({"library_fact": "recorded"})
+            increment_logging_context("library_counter")
+            seen["context"] = job_manager.context
+            return JobExecutionOutcome.succeeded()
+
+        await sample_job(standalone_worker_context, sample_job_run.id)
+
+        context = seen["context"]
+        assert context["library_fact"] == "recorded"
+        assert context["library_counter"] == 1
+        assert context["job_run_id"] == str(sample_job_run.id)
+        assert "job_id" not in context
+        assert logging_context() == {}
+
+    async def test_decorator_in_test_mode_binds_the_passed_job_managers_context(
+        self, session, monkeypatch, sample_job_run, standalone_worker_context, with_populated_job_data
+    ):
+        monkeypatch.setenv("MAVEDB_TEST_MODE", "1")
+
+        @with_job_management
+        async def sample_job(ctx: dict, job_id: int, job_manager: JobManager):
+            save_to_logging_context({"library_fact": "recorded"})
+            return JobExecutionOutcome.succeeded()
+
+        job_manager = JobManager(session, standalone_worker_context["redis"], sample_job_run.id)
+        await sample_job(standalone_worker_context, sample_job_run.id, job_manager)
+
+        assert job_manager.context["library_fact"] == "recorded"
+        assert logging_context() == {}
 
     async def test_decorator_integrated_job_lifecycle_skipped(
         self, session, arq_redis, sample_job_run, standalone_worker_context, with_populated_job_data

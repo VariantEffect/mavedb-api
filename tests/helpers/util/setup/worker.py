@@ -1,6 +1,5 @@
-from asyncio.unix_events import _UnixSelectorEventLoop
 from copy import deepcopy
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from sqlalchemy import select
 
@@ -76,9 +75,9 @@ async def create_mappings_in_score_set(
         return await construct_mock_mapping_output(session, score_set, with_layers={"g", "c", "p"})
 
     with (
-        patch.object(
-            _UnixSelectorEventLoop,
-            "run_in_executor",
+        patch(
+            "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+            new_callable=MagicMock,
             return_value=dummy_mapping_job(),
         ),
     ):

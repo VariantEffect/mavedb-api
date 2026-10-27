@@ -19,6 +19,7 @@ from sqlalchemy.pool import NullPool
 os.environ.setdefault("CLINGEN_CACHE_BACKEND", "memory")
 
 from mavedb.db.base import Base
+from mavedb.lib.logging.context import set_strict_collisions
 from mavedb.models import *  # noqa: F403
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
@@ -117,6 +118,14 @@ def pytest_runtest_setup(item):
             pytest_socket.enable_socket()
         except ImportError:
             pass
+
+
+@pytest.fixture(autouse=True, scope="session")
+def strict_logging_context():
+    """Fail on a logging-context collision, which production only records in ``context_collisions``."""
+    set_strict_collisions(True)
+    yield
+    set_strict_collisions(False)
 
 
 @pytest.fixture()

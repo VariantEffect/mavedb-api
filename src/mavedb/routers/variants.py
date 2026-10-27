@@ -27,8 +27,8 @@ from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import get_principal
 from mavedb.lib.csv.namespaces import CSV_NAMESPACES_PARAM_DESCRIPTION, CsvNamespaceStr
 from mavedb.lib.csv.variant import available_variant_csv_namespaces, get_variant_csv
-from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer

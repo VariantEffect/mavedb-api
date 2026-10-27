@@ -12,7 +12,6 @@ import pandas as pd
 from sqlalchemy import delete, null, select
 
 from mavedb.data_providers.services import CSV_UPLOAD_S3_BUCKET_NAME, RESTDataProvider, s3_client
-from mavedb.lib.logging.context import format_raised_exception_info_as_dict
 from mavedb.lib.score_calibrations import (
     restore_calibration_variant_links,
     snapshot_calibration_variant_links,
@@ -148,7 +147,8 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
         score_set.mapping_state = MappingState.pending_variant_processing
 
         job_manager.save_to_context(
-            {"processing_state": score_set.processing_state.name, "mapping_state": score_set.mapping_state.name}
+            {"processing_state": score_set.processing_state.name, "mapping_state": score_set.mapping_state.name},
+            overwrite=True,
         )
 
         # Flush initial score set state
@@ -257,14 +257,12 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
                 f"Update failed, variants were not updated. {score_set.processing_errors.get('exception', '')}"
             )
 
+        job_manager.record_exception(e)
         job_manager.save_to_context(
-            {
-                "processing_state": score_set.processing_state.name,
-                "mapping_state": score_set.mapping_state.name,
-                **format_raised_exception_info_as_dict(e),
-                "created_variants": 0,
-            }
+            {"processing_state": score_set.processing_state.name, "mapping_state": score_set.mapping_state.name},
+            overwrite=True,
         )
+        job_manager.save_to_context({"created_variants": 0})
 
         # Persist score set state to survive any decorator rollback.
         job_manager.db.add(score_set)
@@ -289,14 +287,12 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
                 f"Update failed, variants were not updated. {score_set.processing_errors.get('exception', '')}"
             )
 
+        job_manager.record_exception(e)
         job_manager.save_to_context(
-            {
-                "processing_state": score_set.processing_state.name,
-                "mapping_state": score_set.mapping_state.name,
-                **format_raised_exception_info_as_dict(e),
-                "created_variants": 0,
-            }
+            {"processing_state": score_set.processing_state.name, "mapping_state": score_set.mapping_state.name},
+            overwrite=True,
         )
+        job_manager.save_to_context({"created_variants": 0})
 
         # Persist score set state to survive any decorator rollback.
         job_manager.db.add(score_set)
@@ -313,12 +309,10 @@ async def create_variants_for_score_set(ctx: dict, job_id: int, job_manager: Job
     score_set.processing_errors = null()
 
     job_manager.save_to_context(
-        {
-            "processing_state": score_set.processing_state.name,
-            "mapping_state": score_set.mapping_state.name,
-            "created_variants": score_set.num_variants,
-        }
+        {"processing_state": score_set.processing_state.name, "mapping_state": score_set.mapping_state.name},
+        overwrite=True,
     )
+    job_manager.save_to_context({"created_variants": score_set.num_variants})
 
     job_manager.db.add(score_set)
     job_manager.db.flush()
