@@ -144,6 +144,36 @@ def test_get_score_calibration_draft_replacement_named_only_to_its_readers(
         assert superseding_urn() is None
 
 
+@pytest.mark.parametrize(
+    "route",
+    [
+        "/api/v1/score-calibrations/{urn}",
+        "/api/v1/score-calibrations/score-set/{score_set_urn}",
+        "/api/v1/score-sets/{score_set_urn}",
+    ],
+    ids=["calibration", "calibration_list", "score_set"],
+)
+def test_get_score_calibration_has_published_replacement_only_once_replacement_published(
+    client, versioned_calibration_context, route
+):
+    original, payload = versioned_calibration_context
+
+    def predecessor():
+        body = client.get(route.format(urn=original["urn"], score_set_urn=payload["scoreSetUrn"])).json()
+        calibrations = body.get("scoreCalibrations", [body]) if isinstance(body, dict) else body
+        return next(c for c in calibrations if c["urn"] == original["urn"])
+
+    assert predecessor()["hasPublishedReplacement"] is False
+    draft = client.post("/api/v1/score-calibrations/", json=payload).json()
+    # The draft's creator may read it, so some routes name it, but it doesn't supersede anything yet.
+    assert predecessor()["hasPublishedReplacement"] is False
+
+    publish_test_score_calibration_via_client(client, draft["urn"])
+
+    assert predecessor()["hasPublishedReplacement"] is True
+    assert predecessor()["supersedingCalibrationUrn"] == draft["urn"]
+
+
 def test_create_score_calibration_other_user_cannot_replace(
     client, versioned_calibration_context, extra_user_app_overrides
 ):

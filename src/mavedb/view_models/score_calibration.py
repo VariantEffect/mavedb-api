@@ -513,6 +513,12 @@ class SavedScoreCalibration(ScoreCalibrationBase):
 
     superseded_calibration_urn: Optional[str] = None
     superseding_calibration_urn: Optional[str] = None
+    has_published_replacement: bool = Field(
+        False,
+        description="Whether a published calibration has replaced this one. supersedingCalibrationUrn can also name a "
+        "draft replacement, for callers who may read the draft, so use this to decide whether this calibration is "
+        "superseded.",
+    )
 
     score_set_id: int
 
