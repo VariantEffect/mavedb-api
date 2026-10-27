@@ -7,7 +7,7 @@ from datetime import date
 from typing import Optional, Sequence, Union, cast
 
 import pandas as pd
-from sqlalchemy import Float, and_, select
+from sqlalchemy import Float, and_, func, select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.acmg import find_or_create_acmg_classification
@@ -873,6 +873,7 @@ def publish_score_calibration(db: Session, calibration: ScoreCalibration, user: 
             calibration.primary = True
 
     calibration.private = False
+    calibration.published_at = func.now()
     calibration.modified_by = user
 
     db.add(calibration)

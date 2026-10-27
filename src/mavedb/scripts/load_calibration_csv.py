@@ -95,6 +95,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import click
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from mavedb.lib.acmg import ACMGCriterion, StrengthOfEvidenceProvided
@@ -419,6 +420,7 @@ def main(db: Session, csv_path: str, delimiter: str, overwrite: bool, purge_publ
                 )
                 new_calibration_object.primary = primary
                 new_calibration_object.private = False
+                new_calibration_object.published_at = func.now()
 
                 db.add(new_calibration_object)
                 db.flush()

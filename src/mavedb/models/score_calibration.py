@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Column, Date, Float, ForeignKey, Integer, String, func, select
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
-from sqlalchemy.orm import Mapped, column_property, relationship
+from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
 from mavedb.db.base import Base
 from mavedb.lib.urns import generate_calibration_urn
@@ -131,6 +131,10 @@ class ScoreCalibration(Base):
     modified_by: Mapped["User"] = relationship("User", foreign_keys="ScoreCalibration.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
+    # When the calibration was published, by the database's clock as ValidTime rows are, so a point-in-time query
+    # can compare the two. A version stopped being current when its successor was published. Null while private, and
+    # for calibrations published before this was recorded, whose publication time is unknown.
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     @property
     def superseded_calibration_urn(self) -> str | None:

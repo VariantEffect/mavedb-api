@@ -179,6 +179,21 @@ def test_get_score_calibration_has_published_replacement_only_once_replacement_p
     assert predecessor()["supersedingCalibrationUrn"] == draft["urn"]
 
 
+def test_publish_score_calibration_records_publication_time(client, versioned_calibration_context, session):
+    original, payload = versioned_calibration_context
+    draft = client.post("/api/v1/score-calibrations/", json=payload).json()
+
+    def published_at(urn):
+        return session.scalar(select(CalibrationDbModel.published_at).where(CalibrationDbModel.urn == urn))
+
+    assert published_at(original["urn"]) is not None
+    assert published_at(draft["urn"]) is None
+
+    publish_test_score_calibration_via_client(client, draft["urn"])
+
+    assert published_at(draft["urn"]) >= published_at(original["urn"])
+
+
 def test_create_score_calibration_other_user_cannot_replace(
     client, versioned_calibration_context, extra_user_app_overrides
 ):

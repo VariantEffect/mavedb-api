@@ -46,6 +46,7 @@ import json
 from typing import Dict, List, Optional, Tuple
 
 import click
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from mavedb.lib.score_calibrations import create_score_calibration_in_score_set
@@ -243,6 +244,7 @@ def main(db: Session, csv_path: str, dataset_map: str, overwrite: bool, remove: 
                 )
                 new_calibration_object.primary = False
                 new_calibration_object.private = False
+                new_calibration_object.published_at = func.now()
                 db.add(new_calibration_object)
 
                 click.echo(f"      Successfully created calibration '{calibration_name}' for Score Set {score_set.urn}")
