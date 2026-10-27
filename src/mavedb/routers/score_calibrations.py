@@ -938,7 +938,7 @@ def publish_score_calibration_route(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
-) -> ScoreCalibration:
+) -> score_calibration.ScoreCalibrationDetailWithScoreSetUrn:
     """
     Publish a score calibration, making it publicly visible.
 
@@ -960,7 +960,7 @@ def publish_score_calibration_route(
 
     if not item.private:
         logger.debug("The requested score calibration is already public", extra=logging_context())
-        return item
+        return _with_readable_replacement(item, user_data, score_calibration.ScoreCalibrationDetailWithScoreSetUrn)
 
     if item.score_set.private:
         logger.debug(
@@ -990,7 +990,7 @@ def publish_score_calibration_route(
     db.commit()
     db.refresh(item)
 
-    return item
+    return _with_readable_replacement(item, user_data, score_calibration.ScoreCalibrationDetailWithScoreSetUrn)
 
 
 @router.get(
