@@ -8,7 +8,8 @@ from typing import Optional, Sequence, Union, cast
 
 import pandas as pd
 from sqlalchemy import Float, and_, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.strategy_options import _AbstractLoad
 
 from mavedb.lib.acmg import find_or_create_acmg_classification
 from mavedb.lib.exceptions import CalibrationAlreadyReplacedError
@@ -131,6 +132,41 @@ def validate_calibration_controls_in_score_set(
     variants_by_urn = _fetch_control_variants_by_urn(db, score_set, controls)
     _validate_control_submission(controls, variants_by_urn)
     return [control.variant_urn for control in controls]
+
+
+# _AbstractLoad is private, but it's what selectinload() is annotated to return and all a chained .options() takes.
+def score_calibration_response_loads(*, with_controls: bool = True) -> tuple[_AbstractLoad, ...]:
+    """Loader options for the relations a calibration response serializes, so each loads in one batch for all the
+    calibrations a query returns rather than once per calibration or per control (#953).
+
+    Apply them to a calibration query (``.options(*score_calibration_response_loads())``), or chain them from the
+    relationship that reaches the calibrations (``selectinload(ScoreSet.score_calibrations).options(...)``).
+
+    Args:
+        with_controls: Whether to load each calibration's controls, with their variants and users. Leave it off for
+            responses that carry only ``controls_count``.
+    """
+    loads: tuple[_AbstractLoad, ...] = (
+        selectinload(ScoreCalibration.publication_identifier_associations).selectinload(
+            ScoreCalibrationPublicationIdentifierAssociation.publication
+        ),
+        selectinload(ScoreCalibration.functional_classifications).selectinload(
+            ScoreCalibrationFunctionalClassification.acmg_classification
+        ),
+        selectinload(ScoreCalibration.superseding_calibration),
+        selectinload(ScoreCalibration.disease_term),
+        selectinload(ScoreCalibration.created_by),
+        selectinload(ScoreCalibration.modified_by),
+    )
+    if with_controls:
+        loads += (
+            selectinload(ScoreCalibration.controls).options(
+                selectinload(CalibrationControl.variant),
+                selectinload(CalibrationControl.created_by),
+                selectinload(CalibrationControl.modified_by),
+            ),
+        )
+    return loads
 
 
 def require_phi_affirmation(has_controls: bool, controls_not_phi: Optional[bool]) -> None:

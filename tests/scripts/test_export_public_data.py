@@ -44,6 +44,7 @@ from mavedb.scripts.export_public_data import (
     write_public_dump,
 )
 from mavedb.view_models.experiment_set import ExperimentSetPublicDump
+from tests.helpers.util.query_plan import captured_statements
 
 
 def _parse_csv(csv_text):
@@ -930,6 +931,29 @@ class TestPublicDumpMetadata:
         metadata, _ = public_dump_metadata(session, anonymous_principal)
 
         assert _metadata_calibration_ids(metadata) == {calibration_id}
+
+    def test_query_count_does_not_grow_with_calibrations(
+        self, session, make_dump_score_set, make_dump_calibration, anonymous_principal, sample_user
+    ):
+        """Calibration relations load in batches, not once per calibration (#953). Research use only keeps the
+        calibrations from all being primary."""
+        score_set = make_dump_score_set()
+        make_dump_calibration(score_set, research_use_only=True)
+        session.expunge_all()
+        with captured_statements(session) as with_one_calibration:
+            public_dump_metadata(session, anonymous_principal)
+
+        # The dump's query expects a session without these objects, so they were detached; reattach them to add more.
+        session.expunge_all()
+        session.add_all([sample_user, score_set])
+        for _ in range(4):
+            make_dump_calibration(score_set, research_use_only=True)
+        session.expunge_all()
+        with captured_statements(session) as with_five_calibrations:
+            metadata, _ = public_dump_metadata(session, anonymous_principal)
+
+        assert len(_metadata_calibration_ids(metadata)) == 5
+        assert len(with_five_calibrations) == len(with_one_calibration)
 
     @pytest.mark.parametrize(
         "successor_published,successor_cc0,expect_named",

@@ -28,6 +28,7 @@ from mavedb.lib.score_calibrations import (
     promote_score_calibration_to_primary,
     publish_score_calibration,
     remove_score_calibration_controls,
+    score_calibration_response_loads,
     variant_classification_df_to_dict,
     visible_superseding_calibration_urn,
 )
@@ -127,7 +128,7 @@ def list_my_calibrations(
         .filter(ScoreCalibration.created_by_id == user_data.user.id)
         .options(
             selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors),
-            selectinload(ScoreCalibration.superseding_calibration),
+            *score_calibration_response_loads(with_controls=False),
         )
         .all()
     )
@@ -199,7 +200,7 @@ async def get_score_calibrations_for_score_set(
         .filter(ScoreCalibration.score_set_id == score_set.id)
         .options(
             selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors),
-            selectinload(ScoreCalibration.superseding_calibration),
+            *score_calibration_response_loads(with_controls=False),
         )
         .all()
     )
