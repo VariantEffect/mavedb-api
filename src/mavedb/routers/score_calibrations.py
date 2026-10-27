@@ -1,13 +1,16 @@
 import logging
-from typing import Optional
+from typing import Optional, TypeVar
 
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from mavedb import deps
 from mavedb.lib.authentication import get_current_user
-from mavedb.lib.authorization import require_current_user, require_current_user_with_email
+from mavedb.lib.authorization import get_principal, require_current_user, require_current_user_with_email
+from mavedb.lib.exceptions import CalibrationAlreadyReplacedError
 from mavedb.lib.flexible_model_loader import json_or_form_loader
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
@@ -15,6 +18,8 @@ from mavedb.lib.logging.context import (
     save_to_logging_context,
 )
 from mavedb.lib.permissions import Action, assert_permission, has_permission
+from mavedb.lib.permissions.principal import Principal
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.score_calibrations import (
     create_score_calibration_in_score_set,
     delete_score_calibration,
@@ -22,7 +27,9 @@ from mavedb.lib.score_calibrations import (
     modify_score_calibration,
     promote_score_calibration_to_primary,
     publish_score_calibration,
+    remove_score_calibration_controls,
     variant_classification_df_to_dict,
+    visible_superseding_calibration_urn,
 )
 from mavedb.lib.score_sets import csv_data_to_df
 from mavedb.lib.types.authentication import UserData
@@ -64,6 +71,37 @@ calibration_modify_loader = json_or_form_loader(
     field_name="calibration_json",
 )
 
+CalibrationView = TypeVar("CalibrationView", bound=score_calibration.SavedScoreCalibration)
+
+
+def _with_readable_replacement(
+    item: ScoreCalibration, principal: Principal, view: type[CalibrationView]
+) -> CalibrationView:
+    """Serialize ``item`` as ``view``, naming its replacement as the caller may see it.
+
+    See :func:`visible_superseding_calibration_urn`; score set responses name replacements the same way.
+    """
+    return view.model_validate(item).model_copy(
+        update={
+            "superseding_calibration_urn": visible_superseding_calibration_urn(
+                item, principal.viewer_for(ScoreCalibrationViewer)
+            )
+        }
+    )
+
+
+def _already_replaced(replacement: Optional[ScoreCalibration], principal: Principal) -> HTTPException:
+    """The 409 for a second replacement of a calibration.
+
+    Names the replacement only to a caller who may read it, as score set supersession does, so that whoever is
+    blocked can find the draft without revealing it to anyone else.
+    """
+    detail = "This score calibration already has a replacement."
+    if replacement is not None and principal.viewer_for(ScoreCalibrationViewer).may_read(replacement):
+        detail = f"This score calibration already has a replacement: {replacement.urn}."
+    logger.info(msg="Failed to create score calibration; it already has a replacement.", extra=logging_context())
+    return HTTPException(status_code=409, detail=detail)
+
 
 @router.get(
     "/me",
@@ -76,7 +114,8 @@ def list_my_calibrations(
     *,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user),
-) -> list[ScoreCalibration]:
+    principal: Principal = Depends(get_principal),
+) -> list[score_calibration.ScoreCalibrationWithScoreSetUrn]:
     """
     List the score calibrations created by the current user that the user may still read.
 
@@ -86,12 +125,17 @@ def list_my_calibrations(
     calibrations = (
         db.query(ScoreCalibration)
         .filter(ScoreCalibration.created_by_id == user_data.user.id)
-        .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
+        .options(
+            selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors),
+            selectinload(ScoreCalibration.superseding_calibration),
+        )
         .all()
     )
 
     return [
-        calibration for calibration in calibrations if has_permission(user_data, calibration, Action.READ).permitted
+        _with_readable_replacement(calibration, principal, score_calibration.ScoreCalibrationWithScoreSetUrn)
+        for calibration in calibrations
+        if has_permission(user_data, calibration, Action.READ).permitted
     ]
 
 
@@ -105,7 +149,8 @@ def get_score_calibration(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
-) -> ScoreCalibration:
+    principal: Principal = Depends(get_principal),
+) -> score_calibration.ScoreCalibrationDetailWithScoreSetUrn:
     """
     Retrieve a score calibration by its URN.
     """
@@ -122,7 +167,7 @@ def get_score_calibration(
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
 
     assert_permission(user_data, item, Action.READ)
-    return item
+    return _with_readable_replacement(item, principal, score_calibration.ScoreCalibrationDetailWithScoreSetUrn)
 
 
 @router.get(
@@ -135,7 +180,8 @@ async def get_score_calibrations_for_score_set(
     score_set_urn: str,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
-) -> list[ScoreCalibration]:
+    principal: Principal = Depends(get_principal),
+) -> list[score_calibration.ScoreCalibrationWithScoreSetUrn]:
     """
     Retrieve all score calibrations for a given score set URN.
     """
@@ -151,7 +197,10 @@ async def get_score_calibrations_for_score_set(
     calibrations = (
         db.query(ScoreCalibration)
         .filter(ScoreCalibration.score_set_id == score_set.id)
-        .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
+        .options(
+            selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors),
+            selectinload(ScoreCalibration.superseding_calibration),
+        )
         .all()
     )
 
@@ -162,7 +211,10 @@ async def get_score_calibrations_for_score_set(
         logger.debug("No score calibrations found for the requested score set", extra=logging_context())
         raise HTTPException(status_code=404, detail="No score calibrations found for the requested score set")
 
-    return permitted_calibrations
+    return [
+        _with_readable_replacement(calibration, principal, score_calibration.ScoreCalibrationWithScoreSetUrn)
+        for calibration in permitted_calibrations
+    ]
 
 
 @router.get(
@@ -175,7 +227,8 @@ async def get_primary_score_calibrations_for_score_set(
     score_set_urn: str,
     db: Session = Depends(deps.get_db),
     user_data: Optional[UserData] = Depends(get_current_user),
-) -> ScoreCalibration:
+    principal: Principal = Depends(get_principal),
+) -> score_calibration.ScoreCalibrationDetailWithScoreSetUrn:
     """
     Retrieve the primary score calibration for a given score set URN.
     """
@@ -216,7 +269,9 @@ async def get_primary_score_calibrations_for_score_set(
             detail="Multiple primary score calibrations found for the requested score set",
         )
 
-    return primary_calibrations[0]
+    return _with_readable_replacement(
+        primary_calibrations[0], principal, score_calibration.ScoreCalibrationDetailWithScoreSetUrn
+    )
 
 
 @router.post(
@@ -269,6 +324,7 @@ async def create_score_calibration_route(
     ),
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
+    principal: Principal = Depends(get_principal),
 ) -> ScoreCalibration:
     """
     Create a new score calibration.
@@ -342,6 +398,14 @@ async def create_score_calibration_route(
 
     assert_permission(user_data, score_set, Action.ADD_CALIBRATION)
 
+    if calibration.superseded_calibration_urn:
+        predecessor = db.scalar(
+            select(ScoreCalibration).where(ScoreCalibration.urn == calibration.superseded_calibration_urn)
+        )
+        if predecessor is None:
+            raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
+        assert_permission(user_data, predecessor, Action.SUPERSEDE)
+
     if calibration.class_based and not classes_file:
         raise HTTPException(
             status_code=422,
@@ -408,13 +472,25 @@ async def create_score_calibration_route(
         created_calibration = await create_score_calibration_in_score_set(
             db, calibration, user_data.user, variant_classes if classes_file else None
         )
+    except CalibrationAlreadyReplacedError as e:
+        raise _already_replaced(e.replacement, principal)
     except ValidationError as e:
         raise HTTPException(
             status_code=422,
             detail=[{"loc": e.custom_loc or ["body"], "msg": str(e), "type": "value_error"}],
         )
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as e:
+        # A concurrent request replaced the same calibration after the check above passed.
+        db.rollback()
+        if getattr(getattr(e.orig, "diag", None), "constraint_name", None) != "ix_score_calibrations_replaces_id":
+            raise
+        predecessor = db.scalar(
+            select(ScoreCalibration).where(ScoreCalibration.urn == calibration.superseded_calibration_urn)
+        )
+        raise _already_replaced(predecessor.superseding_calibration if predecessor else None, principal)
     db.refresh(created_calibration)
 
     return created_calibration
@@ -471,7 +547,8 @@ async def modify_score_calibration_route(
     ),
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
-) -> ScoreCalibration:
+    principal: Principal = Depends(get_principal),
+) -> score_calibration.ScoreCalibrationDetailWithScoreSetUrn:
     """
     Modify an existing score calibration by its URN.
 
@@ -565,6 +642,15 @@ async def modify_score_calibration_route(
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
 
     assert_permission(user_data, item, Action.UPDATE)
+
+    if item.has_published_replacement:
+        logger.debug("Superseded score calibrations cannot be modified", extra=logging_context())
+        raise HTTPException(
+            status_code=400,
+            detail="Superseded score calibrations cannot be modified. To remove their controls, use "
+            f"DELETE /api/v1/score-calibrations/{urn}/controls.",
+        )
+
     score_set = score_set_update or item.score_set
 
     if calibration_update.class_based and not classes_file:
@@ -645,7 +731,9 @@ async def modify_score_calibration_route(
     db.commit()
     db.refresh(updated_calibration)
 
-    return updated_calibration
+    return _with_readable_replacement(
+        updated_calibration, principal, score_calibration.ScoreCalibrationDetailWithScoreSetUrn
+    )
 
 
 @router.delete(
@@ -677,7 +765,55 @@ async def delete_score_calibration_route(
 
     assert_permission(user_data, item, Action.DELETE)
 
+    # Only admins can delete published calibrations, so only they reach these refusals.
+    if item.superseded_calibration is not None and not item.private:
+        logger.debug("Published score calibration versions cannot be deleted", extra=logging_context())
+        raise HTTPException(status_code=400, detail="Published score calibration versions cannot be deleted")
+
+    if item.superseding_calibration is not None:
+        logger.debug("Score calibrations with a replacement cannot be deleted", extra=logging_context())
+        raise HTTPException(status_code=400, detail="Score calibrations with a replacement cannot be deleted")
+
     delete_score_calibration(db, item)
+    db.commit()
+
+    return None
+
+
+@router.delete(
+    "/{urn}/controls",
+    response_model=None,
+    responses={404: {}},
+    status_code=204,
+)
+def delete_score_calibration_controls_route(
+    *,
+    urn: str,
+    db: Session = Depends(deps.get_db),
+    user_data: UserData = Depends(require_current_user_with_email),
+) -> None:
+    """
+    Delete a score calibration's controls and withdraw its PHI affirmation, changing nothing else.
+
+    This is the only change allowed to a calibration that a newer version has replaced, so protected health
+    information found in an old version can be removed. It needs the same permission as modifying the
+    calibration.
+    """
+    save_to_logging_context({"requested_resource": urn, "resource_property": "controls"})
+
+    item = (
+        db.query(ScoreCalibration)
+        .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
+        .where(ScoreCalibration.urn == urn)
+        .one_or_none()
+    )
+    if not item:
+        logger.debug("The requested score calibration does not exist", extra=logging_context())
+        raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
+
+    assert_permission(user_data, item, Action.UPDATE)
+
+    remove_score_calibration_controls(db, item, user_data.user)
     db.commit()
 
     return None
@@ -696,7 +832,8 @@ async def promote_score_calibration_to_primary_route(
     ),
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
-) -> ScoreCalibration:
+    principal: Principal = Depends(get_principal),
+) -> score_calibration.ScoreCalibrationDetailWithScoreSetUrn:
     """
     Promote a score calibration to be the primary calibration for its associated score set.
     """
@@ -726,7 +863,7 @@ async def promote_score_calibration_to_primary_route(
 
     if item.primary:
         logger.debug("The requested score calibration is already primary", extra=logging_context())
-        return item
+        return _with_readable_replacement(item, principal, score_calibration.ScoreCalibrationDetailWithScoreSetUrn)
 
     if item.research_use_only:
         logger.debug("Research use only score calibrations cannot be promoted to primary", extra=logging_context())
@@ -737,6 +874,10 @@ async def promote_score_calibration_to_primary_route(
     if item.private:
         logger.debug("Private score calibrations cannot be promoted to primary", extra=logging_context())
         raise HTTPException(status_code=400, detail="Private score calibrations cannot be promoted to primary")
+
+    if item.has_published_replacement:
+        logger.debug("Superseded score calibrations cannot be promoted to primary", extra=logging_context())
+        raise HTTPException(status_code=400, detail="Superseded score calibrations cannot be promoted to primary")
 
     # We've already checked whether the item matching the calibration URN is primary, so this
     # will necessarily be a different calibration, if it exists.
@@ -757,7 +898,9 @@ async def promote_score_calibration_to_primary_route(
     db.commit()
     db.refresh(promoted_calibration)
 
-    return promoted_calibration
+    return _with_readable_replacement(
+        promoted_calibration, principal, score_calibration.ScoreCalibrationDetailWithScoreSetUrn
+    )
 
 
 @router.post(
@@ -770,7 +913,8 @@ def demote_score_calibration_from_primary_route(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
-) -> ScoreCalibration:
+    principal: Principal = Depends(get_principal),
+) -> score_calibration.ScoreCalibrationDetailWithScoreSetUrn:
     """
     Demote a score calibration from being the primary calibration for its associated score set.
     """
@@ -794,13 +938,15 @@ def demote_score_calibration_from_primary_route(
 
     if not item.primary:
         logger.debug("The requested score calibration is not primary", extra=logging_context())
-        return item
+        return _with_readable_replacement(item, principal, score_calibration.ScoreCalibrationDetailWithScoreSetUrn)
 
     demoted_calibration = demote_score_calibration_from_primary(db, item, user_data.user)
     db.commit()
     db.refresh(demoted_calibration)
 
-    return demoted_calibration
+    return _with_readable_replacement(
+        demoted_calibration, principal, score_calibration.ScoreCalibrationDetailWithScoreSetUrn
+    )
 
 
 @router.post(
@@ -813,7 +959,8 @@ def publish_score_calibration_route(
     urn: str,
     db: Session = Depends(deps.get_db),
     user_data: UserData = Depends(require_current_user_with_email),
-) -> ScoreCalibration:
+    principal: Principal = Depends(get_principal),
+) -> score_calibration.ScoreCalibrationDetailWithScoreSetUrn:
     """
     Publish a score calibration, making it publicly visible.
 
@@ -835,7 +982,7 @@ def publish_score_calibration_route(
 
     if not item.private:
         logger.debug("The requested score calibration is already public", extra=logging_context())
-        return item
+        return _with_readable_replacement(item, principal, score_calibration.ScoreCalibrationDetailWithScoreSetUrn)
 
     if item.score_set.private:
         logger.debug(
@@ -846,11 +993,31 @@ def publish_score_calibration_route(
             detail="Score calibrations associated with private score sets cannot be published. First publish the score set, then calibrations.",
         )
 
+    # Publishing is what supersedes the predecessor, and the right to supersede it can lapse after the draft is
+    # created, as when its author stops being a contributor to the score set.
+    predecessor = item.superseded_calibration
+    if predecessor is not None:
+        assert_permission(user_data, predecessor, Action.SUPERSEDE)
+
+    # Publishing a replacement for the primary calibration promotes the replacement and demotes its predecessor,
+    # so it needs the same rank permissions as promoting with demoteExistingPrimary.
+    if predecessor is not None and predecessor.primary:
+        assert_permission(user_data, item, Action.CHANGE_RANK)
+        assert_permission(user_data, predecessor, Action.CHANGE_RANK)
+
+        if item.research_use_only:
+            logger.debug(
+                "Research use only score calibrations cannot replace a primary calibration", extra=logging_context()
+            )
+            raise HTTPException(
+                status_code=400, detail="Research use only score calibrations cannot replace a primary calibration"
+            )
+
     item = publish_score_calibration(db, item, user_data.user)
     db.commit()
     db.refresh(item)
 
-    return item
+    return _with_readable_replacement(item, principal, score_calibration.ScoreCalibrationDetailWithScoreSetUrn)
 
 
 @router.get(

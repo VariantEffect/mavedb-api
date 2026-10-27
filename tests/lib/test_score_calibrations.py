@@ -11,7 +11,10 @@ from pydantic import create_model
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
 
+from mavedb.lib.annotation.calibration import score_calibration_may_be_used_for_annotation
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.score_calibrations import (
+    calibration_preference_key,
     create_functional_classification,
     create_score_calibration,
     create_score_calibration_in_score_set,
@@ -22,6 +25,7 @@ from mavedb.lib.score_calibrations import (
     publish_score_calibration,
     variant_classification_df_to_dict,
     variants_for_functional_classification,
+    visible_superseding_calibration_urn,
 )
 from mavedb.lib.validation.constants.general import (
     calibration_class_column_name,
@@ -50,6 +54,7 @@ from tests.helpers.constants import (
 )
 from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.score_calibration import create_test_range_based_score_calibration_in_score_set
+from tests.lib.permissions.conftest import EntityTestHelper
 
 ################################################################################
 # Tests for create_functional_classification
@@ -1144,6 +1149,41 @@ async def test_modify_score_calibration_does_not_commit_transaction(
 ################################################################################
 # Tests for publish_score_calibration
 ################################################################################
+
+
+def test_publish_score_calibration_replacement_transfers_primary_only_on_publication(session):
+    user = User()
+    score_set = ScoreSet(private=False)
+    predecessor = ScoreCalibration(title="Original", private=False, primary=True, score_set=score_set)
+    replacement = ScoreCalibration(
+        title="Replacement",
+        private=True,
+        primary=False,
+        research_use_only=False,
+        score_set=score_set,
+        superseded_calibration=predecessor,
+    )
+
+    assert predecessor.primary is True
+    assert predecessor.superseding_calibration is replacement
+
+    published = publish_score_calibration(session, replacement, user)
+
+    assert published.private is False
+    assert published.primary is True
+    assert predecessor.private is False
+    assert predecessor.primary is False
+    assert predecessor.title == "Original"
+    assert published.superseded_calibration is predecessor
+
+
+@pytest.mark.parametrize("private", [True, False], ids=["draft", "published"])
+def test_score_calibration_may_be_used_for_annotation_replacement_visibility_controls_eligibility(private):
+    predecessor = ScoreCalibration(research_use_only=False)
+    predecessor.functional_classifications = [ScoreCalibrationFunctionalClassification()]
+    ScoreCalibration(urn="urn:mavedb:calibration:replacement", private=private, superseded_calibration=predecessor)
+
+    assert score_calibration_may_be_used_for_annotation(predecessor, "functional") is private
 
 
 @pytest.mark.asyncio
@@ -2744,3 +2784,50 @@ def test_variant_classification_df_to_dict_with_mixed_type_classes():
     }
     assert result["classifications"] == expected["classifications"]
     assert result["indexed_by"] == expected["indexed_by"]
+
+
+################################################################################
+# Tests for calibration versions
+################################################################################
+
+
+def test_calibration_preference_key_orders_superseded_versions_last():
+    def calibration(**flags):
+        return ScoreCalibration(
+            **{"primary": False, "investigator_provided": False, "research_use_only": False, **flags}
+        )
+
+    superseded = calibration(investigator_provided=True, superseding_calibration=calibration(private=False))
+    research_use_only = calibration(research_use_only=True)
+    community = calibration()
+    investigator = calibration(investigator_provided=True)
+    primary = calibration(primary=True)
+
+    ordered = sorted([superseded, research_use_only, community, investigator, primary], key=calibration_preference_key)
+
+    assert ordered == [primary, investigator, community, research_use_only, superseded]
+
+
+@pytest.mark.parametrize(
+    "replacement_state, user_type, expected",
+    [
+        (None, "owner", None),
+        ("published", "anonymous", "urn:replacement"),
+        ("private", "anonymous", None),
+        ("private", "other_user", None),
+        ("private", "owner", "urn:replacement"),
+    ],
+    ids=["no_replacement", "published_to_anyone", "draft_to_anonymous", "draft_to_other_user", "draft_to_reader"],
+)
+def test_visible_superseding_calibration_urn_names_a_draft_only_to_its_readers(replacement_state, user_type, expected):
+    calibration = EntityTestHelper.create_score_calibration("published")
+    calibration.superseding_calibration = None
+    if replacement_state is not None:
+        replacement = EntityTestHelper.create_score_calibration(replacement_state)
+        # The viewer caches by id, and the helper gives every calibration id 1.
+        replacement.id, replacement.urn = 2, "urn:replacement"
+        calibration.superseding_calibration = replacement
+
+    viewer = ScoreCalibrationViewer(EntityTestHelper.create_user_data(user_type))
+
+    assert visible_superseding_calibration_urn(calibration, viewer) == expected

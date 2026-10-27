@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Column, Date, Float, ForeignKey, Integer, String, func, select
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
-from sqlalchemy.orm import Mapped, column_property, relationship
+from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
 from mavedb.db.base import Base
 from mavedb.lib.urns import generate_calibration_urn
@@ -24,6 +24,30 @@ if TYPE_CHECKING:
 
 
 class ScoreCalibration(Base):
+    """A mapping from a score set's functional scores to functional classifications and, optionally, clinical
+    evidence strengths.
+
+    Published calibrations can't be edited by their owners, so a correction is a new version. A calibration
+    can name the published calibration in the same score set that it replaces (``superseded_calibration``,
+    stored as ``replaces_id``). Each calibration has at most one replacement, so a calibration's versions
+    form a chain.
+
+    A replacement starts as a private draft and the older version is unaffected: it remains current, keeps
+    primary status and still backs annotations. Publishing the replacement is the handover. From then on
+    the older version has a published replacement (``has_published_replacement``): it no longer backs
+    annotations or MaveMD's default call, can't be promoted to primary, and passes primary status to its
+    replacement if it held it.
+
+    A replaced version is frozen, even for admins, because annotations cite calibrations by URN and should
+    keep meaning what they cited. The one change it allows is removing its controls
+    (``remove_score_calibration_controls``), so protected health information found in an old version can
+    still be deleted.
+
+    ``superseding_calibration_urn`` names only a published replacement, so serializations that don't check
+    READ never reveal a draft. The calibration and score set routes name a draft to callers who may read it, as
+    score set supersession does.
+    """
+
     __tablename__ = "score_calibrations"
     # TODO#544: Add a partial unique index to enforce only one primary calibration per score set.
 
@@ -91,12 +115,49 @@ class ScoreCalibration(Base):
 
     calibration_metadata = Column(JSONB(none_as_null=True), nullable=True)
 
+    superseded_calibration_id = Column(
+        "replaces_id", Integer, ForeignKey("score_calibrations.id"), nullable=True, unique=True, index=True
+    )
+    superseded_calibration: Mapped[ScoreCalibration | None] = relationship(
+        "ScoreCalibration", remote_side=[id], back_populates="superseding_calibration"
+    )
+    superseding_calibration: Mapped[ScoreCalibration | None] = relationship(
+        "ScoreCalibration", back_populates="superseded_calibration", uselist=False
+    )
+
     created_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     created_by: Mapped["User"] = relationship("User", foreign_keys="ScoreCalibration.created_by_id")
     modified_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     modified_by: Mapped["User"] = relationship("User", foreign_keys="ScoreCalibration.modified_by_id")
     creation_date = Column(Date, nullable=False, default=date.today)
     modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
+    # When the calibration was published, by the database's clock as ValidTime rows are, so a point-in-time query
+    # can compare the two. A version stopped being current when its successor was published. Null while private, and
+    # for calibrations published before this was recorded, whose publication time is unknown.
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    @property
+    def superseded_calibration_urn(self) -> str | None:
+        return self.superseded_calibration.urn if self.superseded_calibration is not None else None
+
+    @property
+    def published_date(self) -> date | None:
+        # The day of published_at, matching the publishedDate that score sets and experiments expose.
+        return self.published_at.date() if self.published_at is not None else None
+
+    @property
+    def has_published_replacement(self) -> bool:
+        """Whether a published calibration has replaced this one. A draft replacement doesn't count until it's
+        published, so until then this calibration keeps its standing."""
+        successor = self.superseding_calibration
+        return successor is not None and not successor.private
+
+    @property
+    def superseding_calibration_urn(self) -> str | None:
+        # Names only a published replacement, so serializations that don't check READ never reveal a draft. The
+        # calibration and score set routes name a draft for callers who may read it.
+        successor = self.superseding_calibration
+        return successor.urn if successor is not None and not successor.private else None
 
     def __repr__(self) -> str:  # pragma: no cover - repr utility
         return (

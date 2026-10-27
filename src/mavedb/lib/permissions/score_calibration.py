@@ -58,6 +58,7 @@ def has_permission(user_data: Optional[UserData], entity: ScoreCalibration, acti
 
     handlers = {
         Action.READ: _handle_read_action,
+        Action.SUPERSEDE: _handle_supersede_action,
         Action.UPDATE: _handle_update_action,
         Action.DELETE: _handle_delete_action,
         Action.PUBLISH: _handle_publish_action,
@@ -79,6 +80,28 @@ def has_permission(user_data: Optional[UserData], entity: ScoreCalibration, acti
         entity.private,
         active_roles,
     )
+
+
+def _handle_supersede_action(
+    user_data: Optional[UserData],
+    entity: ScoreCalibration,
+    user_is_owner: bool,
+    user_is_contributor_to_score_set: bool,
+    private: bool,
+    active_roles: list[UserRole],
+) -> PermissionResponse:
+    readable = _handle_read_action(
+        user_data, entity, user_is_owner, user_is_contributor_to_score_set, private, active_roles
+    )
+    if not readable.permitted:
+        return readable
+    if not private and (
+        user_is_owner
+        or (entity.investigator_provided and user_is_contributor_to_score_set)
+        or roles_permitted(active_roles, [UserRole.admin])
+    ):
+        return PermissionResponse(True)
+    return deny_action_for_entity(entity, private, user_data, user_is_owner, "score calibration")
 
 
 @dataclass(frozen=True)

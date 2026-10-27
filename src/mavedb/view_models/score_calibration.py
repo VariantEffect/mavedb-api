@@ -494,6 +494,9 @@ class ScoreCalibrationModify(ScoreCalibrationBase):
 class ScoreCalibrationCreate(ScoreCalibrationModify):
     """Model used to create a new score calibration."""
 
+    superseded_calibration_urn: Optional[str] = Field(
+        None, description="Published calibration this new draft will replace when published."
+    )
     functional_classifications: Optional[Sequence[FunctionalClassificationCreate]] = None
     threshold_sources: Sequence[PublicationIdentifierCreate]
     evidence_sources: Sequence[PublicationIdentifierCreate]
@@ -507,6 +510,15 @@ class SavedScoreCalibration(ScoreCalibrationBase):
 
     id: int
     urn: str
+
+    superseded_calibration_urn: Optional[str] = None
+    superseding_calibration_urn: Optional[str] = None
+    has_published_replacement: bool = Field(
+        False,
+        description="Whether a published calibration has replaced this one. supersedingCalibrationUrn can also name a "
+        "draft replacement, for callers who may read the draft, so use this to decide whether this calibration is "
+        "superseded.",
+    )
 
     score_set_id: int
 
@@ -529,6 +541,11 @@ class SavedScoreCalibration(ScoreCalibrationBase):
     modified_by: Optional[SavedUser] = None
     creation_date: date
     modification_date: date
+    published_date: Optional[date] = Field(
+        None,
+        description="The day the calibration was published. Null for a draft, and for a calibration published before "
+        "MaveDB recorded publication times.",
+    )
 
     _record_type_factory = record_type_validator()(set_record_type)
 

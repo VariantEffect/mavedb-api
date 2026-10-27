@@ -46,6 +46,7 @@ import json
 from typing import Dict, List, Optional, Tuple
 
 import click
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.score_calibrations import create_score_calibration_in_score_set
@@ -101,6 +102,11 @@ def parse_range_value(value: str) -> Optional[Tuple[Optional[float], Optional[fl
     return (lower, upper)
 
 
+def _is_versioned(calibration: ScoreCalibration) -> bool:
+    """Whether the calibration replaces another or has a replacement, so deleting it would break a version chain."""
+    return calibration.superseded_calibration is not None or calibration.superseding_calibration is not None
+
+
 @click.command()
 @with_database_session
 @click.argument("csv_path", type=click.Path(exists=True, dir_okay=False))
@@ -121,6 +127,7 @@ def main(db: Session, csv_path: str, dataset_map: str, overwrite: bool, remove: 
 
     created_calibrations = 0
     updated_calibrations = 0
+    versioned_calibrations = 0
     non_existing_score_sets = 0
     unmapped_rows = []
     total_rows = 0
@@ -184,12 +191,22 @@ def main(db: Session, csv_path: str, dataset_map: str, overwrite: bool, remove: 
 
                 existing_calibration = None
                 if overwrite:
-                    existing_calibration = (
-                        db.query(ScoreCalibration)
-                        .filter(ScoreCalibration.score_set_id == score_set.id)
-                        .filter(ScoreCalibration.title.in_([calibration_name, legacy_name]))
-                        .one_or_none()
-                    )
+                    existing_calibrations = db.scalars(
+                        select(ScoreCalibration).where(
+                            ScoreCalibration.score_set_id == score_set.id,
+                            ScoreCalibration.title.in_([calibration_name, legacy_name]),
+                        )
+                    ).all()
+                    # Versions of a calibration usually share its title, and deleting one would break its chain.
+                    # Correct a versioned calibration by publishing a new version instead.
+                    if len(existing_calibrations) > 1 or any(_is_versioned(c) for c in existing_calibrations):
+                        click.echo(
+                            f"      '{calibration_name}' in Score Set {score_set.urn} matches several calibrations or a versioned one; skipping...",
+                            err=True,
+                        )
+                        versioned_calibrations += 1
+                        continue
+                    existing_calibration = existing_calibrations[0] if existing_calibrations else None
 
                     if existing_calibration:
                         db.delete(existing_calibration)
@@ -243,6 +260,7 @@ def main(db: Session, csv_path: str, dataset_map: str, overwrite: bool, remove: 
                 )
                 new_calibration_object.primary = False
                 new_calibration_object.private = False
+                new_calibration_object.published_at = func.now()
                 db.add(new_calibration_object)
 
                 click.echo(f"      Successfully created calibration '{calibration_name}' for Score Set {score_set.urn}")
@@ -259,7 +277,8 @@ def main(db: Session, csv_path: str, dataset_map: str, overwrite: bool, remove: 
         f"Processed {total_rows} CSV rows. "
         f"Created {created_calibrations} calibrations, updated {updated_calibrations} calibrations "
         f"({created_calibrations + updated_calibrations} total). "
-        f"Non-existing score sets: {non_existing_score_sets}."
+        f"Non-existing score sets: {non_existing_score_sets}. "
+        f"Skipped versioned calibrations: {versioned_calibrations}."
     )
     if unmapped_rows:
         click.echo(f"{len(unmapped_rows)} unmapped rows out of {total_rows} rows:")
@@ -278,7 +297,12 @@ def main(db: Session, csv_path: str, dataset_map: str, overwrite: bool, remove: 
         if loaded_calibration_ids:
             stale_query = stale_query.filter(ScoreCalibration.id.notin_(loaded_calibration_ids))
 
-        stale_calibrations = stale_query.all()
+        stale_calibrations = []
+        for cal in stale_query.all():
+            if _is_versioned(cal):
+                click.echo(f"\nKeeping '{cal.title}' on Score Set {cal.score_set.urn} (id={cal.id}): it has versions.")
+            else:
+                stale_calibrations.append(cal)
 
         if stale_calibrations:
             click.echo(f"\nRemoving {len(stale_calibrations)} ExCALIBR calibration(s) not loaded by this run:")
