@@ -141,6 +141,11 @@ class ScoreCalibration(Base):
         return self.superseded_calibration.urn if self.superseded_calibration is not None else None
 
     @property
+    def published_date(self) -> date | None:
+        # The day of published_at, matching the publishedDate that score sets and experiments expose.
+        return self.published_at.date() if self.published_at is not None else None
+
+    @property
     def has_published_replacement(self) -> bool:
         """Whether a published calibration has replaced this one. A draft replacement doesn't count until it's
         published, so until then this calibration keeps its standing."""

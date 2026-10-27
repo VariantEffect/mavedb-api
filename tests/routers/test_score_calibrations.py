@@ -188,10 +188,12 @@ def test_publish_score_calibration_records_publication_time(client, versioned_ca
 
     assert published_at(original["urn"]) is not None
     assert published_at(draft["urn"]) is None
+    assert draft["publishedDate"] is None
 
-    publish_test_score_calibration_via_client(client, draft["urn"])
+    published = publish_test_score_calibration_via_client(client, draft["urn"])
 
     assert published_at(draft["urn"]) >= published_at(original["urn"])
+    assert published["publishedDate"] == published_at(draft["urn"]).date().isoformat()
 
 
 def test_create_score_calibration_other_user_cannot_replace(
