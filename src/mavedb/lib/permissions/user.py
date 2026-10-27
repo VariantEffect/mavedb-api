@@ -1,6 +1,5 @@
 from typing import Optional
 
-from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.models import PermissionResponse
 from mavedb.lib.permissions.utils import deny_action_for_entity, roles_permitted
@@ -38,13 +37,6 @@ def has_permission(user_data: Optional[UserData], entity: User, action: Action) 
     if user_data is not None:
         user_is_self = entity.id == user_data.user.id
         active_roles = user_data.active_roles
-
-    save_to_logging_context(
-        {
-            "user_is_self": user_is_self,
-            "target_user_id": entity.id,
-        }
-    )
 
     handlers = {
         Action.READ: _handle_read_action,

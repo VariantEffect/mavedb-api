@@ -72,7 +72,8 @@ def record_deprecated_usage(surface: str, *, successor: Optional[str] = None) ->
     is its replacement, if one exists.
     """
     surfaces = sorted({*logging_context().get("deprecated_surfaces", []), surface})
-    save_to_logging_context({"deprecated_surfaces": surfaces, "deprecation_marker": True})
+    # ``surfaces`` already folds in what earlier calls recorded, so replacing it is how it accumulates.
+    save_to_logging_context({"deprecated_surfaces": surfaces, "deprecation_marker": True}, overwrite=True)
     logger.warning(
         "Request used the deprecated surface %r; it will be removed in a future release.%s",
         surface,
