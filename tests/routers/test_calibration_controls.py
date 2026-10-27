@@ -773,6 +773,26 @@ def test_delete_score_calibration_controls_on_superseded_calibration_removes_onl
 
 
 @pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
+def test_delete_score_calibration_controls_without_controls_changes_nothing(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+):
+    score_set, _ = _score_set_with_variant_urns(client, session, data_provider, data_files)
+    calibration = client.post("/api/v1/score-calibrations/", json=_calibration_payload(score_set["urn"]))
+    assert calibration.status_code == 200, calibration.text
+    stored = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == calibration.json()["urn"]))
+    modified_by_id, controls_not_phi = stored.modified_by_id, stored.controls_not_phi
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.delete(f"/api/v1/score-calibrations/{calibration.json()['urn']}/controls")
+
+    assert response.status_code == 204
+    session.expire_all()
+    stored = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == calibration.json()["urn"]))
+    assert stored.modified_by_id == modified_by_id
+    assert stored.controls_not_phi == controls_not_phi
+
+
+@pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
 @pytest.mark.parametrize(
     "published, expected_status", [(True, 403), (False, 404)], ids=["owner_of_published", "other_user_on_private"]
 )
