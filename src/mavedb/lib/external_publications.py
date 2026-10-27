@@ -19,7 +19,6 @@ from idutils import is_doi
 from typing_extensions import TypedDict
 
 from mavedb.lib.exceptions import AmbiguousIdentifierError, PublicationServiceError, PublicationServiceTimeoutError
-from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
 from mavedb.lib.validation.publication import validate_db_name
 
 logger = logging.getLogger(__name__)
@@ -30,12 +29,13 @@ PUBLICATION_FETCH_TIMEOUT = 10
 
 def _publication_service_error(database: str, exc: Exception) -> PublicationServiceError:
     """The service error to raise for a failed request to a publication database, logged."""
-    save_to_logging_context(format_raised_exception_info_as_dict(exc))
+    # View models import this module, and they must import without the server extras, so this logs without the
+    # request's logging context. The exception handler records the exception in that context.
     if isinstance(exc, requests.exceptions.Timeout):
-        logger.error(msg=f"{database} request timed out.", exc_info=exc, extra=logging_context())
+        logger.error(msg=f"{database} request timed out.", exc_info=exc)
         return PublicationServiceTimeoutError(f"{database} did not respond in time")
 
-    logger.error(msg=f"{database} request failed.", exc_info=exc, extra=logging_context())
+    logger.error(msg=f"{database} request failed.", exc_info=exc)
     return PublicationServiceError(f"{database} could not provide the publication")
 
 
