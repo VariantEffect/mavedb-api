@@ -321,8 +321,11 @@ def get_allele_measurements(
                 .joinedload(ScoreSet.experiment)
                 .selectinload(Experiment.keyword_objs)
                 .joinedload(ExperimentControlledKeywordAssociation.controlled_keyword),
-                # Read per measurement below; loaded once per score set rather than lazily per row.
-                joinedload(Variant.score_set).selectinload(ScoreSet.score_calibrations),
+                # Read per measurement below; loaded once per score set rather than lazily per row. A calibration's
+                # replacement decides whether it may make a call.
+                joinedload(Variant.score_set)
+                .selectinload(ScoreSet.score_calibrations)
+                .selectinload(ScoreCalibration.superseding_calibration),
                 joinedload(Variant.score_set).selectinload(ScoreSet.superseding_score_set),
             )
         )
