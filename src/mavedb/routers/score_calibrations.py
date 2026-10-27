@@ -41,7 +41,13 @@ from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_set import ScoreSet
-from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES
+from mavedb.routers.shared import (
+    ACCESS_CONTROL_ERROR_RESPONSES,
+    BASE_400_RESPONSE,
+    GATEWAY_ERROR_RESPONSES,
+    PUBLIC_ERROR_RESPONSES,
+    VALIDATION_ERROR_RESPONSES,
+)
 from mavedb.view_models import score_calibration
 
 logger = logging.getLogger(__name__)
@@ -98,7 +104,6 @@ def list_my_calibrations(
 @router.get(
     "/{urn}",
     response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
-    responses={404: {}},
 )
 def get_score_calibration(
     *,
@@ -128,7 +133,6 @@ def get_score_calibration(
 @router.get(
     "/score-set/{score_set_urn}",
     response_model=list[score_calibration.ScoreCalibrationWithScoreSetUrn],
-    responses={404: {}},
 )
 def get_score_calibrations_for_score_set(
     *,
@@ -168,7 +172,6 @@ def get_score_calibrations_for_score_set(
 @router.get(
     "/score-set/{score_set_urn}/primary",
     response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
-    responses={404: {}},
 )
 def get_primary_score_calibrations_for_score_set(
     *,
@@ -222,7 +225,7 @@ def get_primary_score_calibrations_for_score_set(
 @router.post(
     "/",
     response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
-    responses={404: {}, 422: {"description": "Validation Error"}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES, **VALIDATION_ERROR_RESPONSES, **GATEWAY_ERROR_RESPONSES},
     openapi_extra={
         "requestBody": {
             "content": {
@@ -423,7 +426,7 @@ def create_score_calibration_route(
 @router.put(
     "/{urn}",
     response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
-    responses={404: {}, 422: {"description": "Validation Error"}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES, **VALIDATION_ERROR_RESPONSES, **GATEWAY_ERROR_RESPONSES},
     openapi_extra={
         "requestBody": {
             "content": {
@@ -649,7 +652,7 @@ def modify_score_calibration_route(
 @router.delete(
     "/{urn}",
     response_model=None,
-    responses={404: {}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_400_RESPONSE},
     status_code=204,
 )
 def delete_score_calibration_route(
@@ -688,7 +691,7 @@ def delete_score_calibration_route(
 @router.post(
     "/{urn}/promote-to-primary",
     response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
-    responses={404: {}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_400_RESPONSE},
 )
 def promote_score_calibration_to_primary_route(
     *,
@@ -765,7 +768,7 @@ def promote_score_calibration_to_primary_route(
 @router.post(
     "/{urn}/demote-from-primary",
     response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
-    responses={404: {}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES},
 )
 def demote_score_calibration_from_primary_route(
     *,
@@ -808,7 +811,7 @@ def demote_score_calibration_from_primary_route(
 @router.post(
     "/{urn}/publish",
     response_model=score_calibration.ScoreCalibrationDetailWithScoreSetUrn,
-    responses={404: {}},
+    responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_400_RESPONSE},
 )
 def publish_score_calibration_route(
     *,
@@ -858,7 +861,6 @@ def publish_score_calibration_route(
 @router.get(
     "/{urn}/functional-classifications/{classification_id}/variants",
     response_model=score_calibration.FunctionalClassificationVariants,
-    responses={404: {}},
 )
 def get_functional_classification_variants(
     *,
@@ -916,7 +918,6 @@ def get_functional_classification_variants(
 @router.get(
     "/{urn}/variants",
     response_model=list[score_calibration.FunctionalClassificationVariants],
-    responses={404: {}},
 )
 def get_calibration_all_variants(
     *,
