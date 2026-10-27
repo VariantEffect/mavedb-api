@@ -39,6 +39,7 @@ from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from tests.helpers.constants import EXTRA_USER, TEST_MINIMAL_VARIANT, TEST_SEQ_SCORESET, TEST_USER
+from tests.helpers.util.query_plan import captured_statements
 
 
 def _user(session, username):
@@ -673,6 +674,33 @@ def test_get_allele_measurements_clinical_calibration_replaced_by_research_use_o
 
     assert result[0].classification.oddspaths_ratio == 1000.0
     assert result[0].classification_is_research_use_only
+
+
+@pytest.mark.integration
+def test_get_allele_measurements_query_count_does_not_grow_with_calibrations(session, setup_lib_db_with_score_set):
+    """Each calibration's replacement decides whether it makes a call, so it's loaded with the calibrations rather
+    than once per calibration."""
+    score_set = setup_lib_db_with_score_set
+    nt = _allele(session, "nt-N", level="cdna", clingen_allele_id="CA123")
+    variant = _variant(session, score_set, 1, data={"score_data": {"score": 1.0}})
+    _link(session, _record(session, variant, assay_level="cdna"), nt, is_authoritative=True)
+    user_data = _user_data(session)
+
+    def query_count():
+        session.expire_all()
+        with captured_statements(session) as statements:
+            get_allele_measurements(session, "CA123", user_data=user_data)
+        return len(statements)
+
+    predecessor = _calibration(session, score_set, variants=[variant], primary=False)
+    _calibration(session, score_set, variants=[variant], primary=False, supersedes=predecessor)
+    with_one_version_chain = query_count()
+
+    for _ in range(3):
+        predecessor = _calibration(session, score_set, variants=[variant], primary=False)
+        _calibration(session, score_set, variants=[variant], primary=False, supersedes=predecessor)
+
+    assert query_count() == with_one_version_chain
 
 
 @pytest.mark.integration
