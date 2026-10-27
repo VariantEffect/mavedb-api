@@ -479,8 +479,9 @@ async def create_score_calibration_in_score_set(
         ValidationError: If calibration_create.superseded_calibration_urn names a calibration that
             isn't published or isn't in the same score set.
         CalibrationAlreadyReplacedError: If the calibration it would replace already has a
-            replacement, draft or published. Checked under a row lock on that calibration, so two
-            concurrent requests can't both pass.
+            replacement, draft or published. Two concurrent requests can both pass this check; the
+            unique index on ``replaces_id`` refuses the second when it's flushed, with an
+            ``IntegrityError`` the caller must handle.
         sqlalchemy.orm.exc.NoResultFound: If no ScoreSet exists with the provided URN.
         sqlalchemy.orm.exc.MultipleResultsFound: If multiple ScoreSets share the provided URN
             (should not occur if URNs are unique).
@@ -502,9 +503,7 @@ async def create_score_calibration_in_score_set(
     predecessor = None
     predecessor_urn = getattr(calibration_create, "superseded_calibration_urn", None)
     if predecessor_urn:
-        predecessor = db.scalar(
-            select(ScoreCalibration).where(ScoreCalibration.urn == predecessor_urn).with_for_update()
-        )
+        predecessor = db.scalar(select(ScoreCalibration).where(ScoreCalibration.urn == predecessor_urn))
         if predecessor is None or predecessor.private or predecessor.score_set_id != containing_score_set.id:
             raise ValidationError("The superseded calibration must be published and belong to the same score set.")
         if predecessor.superseding_calibration is not None:

@@ -4,6 +4,7 @@ from typing import Optional, TypeVar
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from mavedb import deps
@@ -88,6 +89,19 @@ def _with_readable_replacement(
     ):
         response = response.model_copy(update={"superseding_calibration_urn": replacement.urn})
     return response
+
+
+def _already_replaced(replacement: Optional[ScoreCalibration], user_data: Optional[UserData]) -> HTTPException:
+    """The 409 for a second replacement of a calibration.
+
+    Names the replacement only to a caller who may read it, as score set supersession does, so that whoever is
+    blocked can find the draft without revealing it to anyone else.
+    """
+    detail = "This score calibration already has a replacement."
+    if replacement is not None and has_permission(user_data, replacement, Action.READ).permitted:
+        detail = f"This score calibration already has a replacement: {replacement.urn}."
+    logger.info(msg="Failed to create score calibration; it already has a replacement.", extra=logging_context())
+    return HTTPException(status_code=409, detail=detail)
 
 
 @router.get(
@@ -455,20 +469,24 @@ async def create_score_calibration_route(
             db, calibration, user_data.user, variant_classes if classes_file else None
         )
     except CalibrationAlreadyReplacedError as e:
-        # Name the replacement only to a caller who may read it, as score set supersession does, so that whoever
-        # is blocked can find the draft without revealing it to anyone else.
-        detail = "This score calibration already has a replacement."
-        if has_permission(user_data, e.replacement, Action.READ).permitted:
-            detail = f"This score calibration already has a replacement: {e.replacement.urn}."
-        logger.info(msg="Failed to create score calibration; it already has a replacement.", extra=logging_context())
-        raise HTTPException(status_code=409, detail=detail)
+        raise _already_replaced(e.replacement, user_data)
     except ValidationError as e:
         raise HTTPException(
             status_code=422,
             detail=[{"loc": e.custom_loc or ["body"], "msg": str(e), "type": "value_error"}],
         )
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as e:
+        # A concurrent request replaced the same calibration after the check above passed.
+        db.rollback()
+        if getattr(getattr(e.orig, "diag", None), "constraint_name", None) != "ix_score_calibrations_replaces_id":
+            raise
+        predecessor = db.scalar(
+            select(ScoreCalibration).where(ScoreCalibration.urn == calibration.superseded_calibration_urn)
+        )
+        raise _already_replaced(predecessor.superseding_calibration if predecessor else None, user_data)
     db.refresh(created_calibration)
 
     return created_calibration

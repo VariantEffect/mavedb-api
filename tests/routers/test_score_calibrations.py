@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pandas as pd
 from arq import ArqRedis
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from mavedb.models.mondo_term import MondoTerm as MondoTermDbModel
 from mavedb.models.score_calibration import ScoreCalibration as CalibrationDbModel
@@ -121,6 +121,37 @@ def test_create_score_calibration_duplicate_replacement_conflicts_without_naming
     response = client.post("/api/v1/score-calibrations/", json=payload)
     assert response.status_code == 409
     assert draft.json()["urn"] not in response.text
+
+
+def test_create_score_calibration_concurrent_replacement_conflicts(client, versioned_calibration_context, session):
+    original, payload = versioned_calibration_context
+    predecessor = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == original["urn"]))
+    predecessor_id, score_set_id = predecessor.id, predecessor.score_set_id
+    disease_term_id, user_id = predecessor.disease_term_id, predecessor.created_by_id
+
+    # Another request's replacement lands after this request's duplicate check but before its commit.
+    @event.listens_for(session, "before_commit", once=True)
+    def add_competing_replacement(session):
+        session.add(
+            CalibrationDbModel(
+                score_set_id=score_set_id,
+                title="Competing replacement",
+                disease_term_id=disease_term_id,
+                created_by_id=user_id,
+                modified_by_id=user_id,
+                superseded_calibration_id=predecessor_id,
+            )
+        )
+
+    response = client.post("/api/v1/score-calibrations/", json=payload)
+
+    assert response.status_code == 409
+    assert (
+        session.scalars(
+            select(CalibrationDbModel).where(CalibrationDbModel.superseded_calibration_id == predecessor_id)
+        ).all()
+        == []
+    )
 
 
 @pytest.mark.parametrize(
