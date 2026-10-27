@@ -125,8 +125,12 @@ def test_create_score_calibration_duplicate_replacement_conflicts_without_naming
 
 @pytest.mark.parametrize(
     "route",
-    ["/api/v1/score-calibrations/{urn}", "/api/v1/score-calibrations/score-set/{score_set_urn}"],
-    ids=["calibration", "score_set_list"],
+    [
+        "/api/v1/score-calibrations/{urn}",
+        "/api/v1/score-calibrations/score-set/{score_set_urn}",
+        "/api/v1/score-sets/{score_set_urn}",
+    ],
+    ids=["calibration", "score_set_list", "score_set"],
 )
 def test_get_score_calibration_draft_replacement_named_only_to_its_readers(
     client, versioned_calibration_context, extra_user_app_overrides, route
@@ -136,8 +140,9 @@ def test_get_score_calibration_draft_replacement_named_only_to_its_readers(
 
     def superseding_urn():
         body = client.get(route.format(urn=original["urn"], score_set_urn=payload["scoreSetUrn"])).json()
-        calibration = body if isinstance(body, dict) else next(c for c in body if c["urn"] == original["urn"])
-        return calibration["supersedingCalibrationUrn"]
+        calibrations = body.get("scoreCalibrations", [body]) if isinstance(body, dict) else body
+        # The score set route leaves out null fields.
+        return next(c for c in calibrations if c["urn"] == original["urn"]).get("supersedingCalibrationUrn")
 
     assert superseding_urn() == draft["urn"]
     with DependencyOverrider(extra_user_app_overrides):

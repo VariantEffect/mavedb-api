@@ -639,6 +639,15 @@ def _score_set_response(item: ScoreSet, principal: Principal) -> score_set.Score
     visible_calibration_ids = {
         calibration.id for calibration in principal.viewer_for(ScoreCalibrationViewer).visible(item.score_calibrations)
     }
+    # The model names only a published replacement. A replacement is always in the same score set, so a draft
+    # one the caller may see is in this list, and naming it reveals nothing new.
+    visible_draft_replacement_urns = {
+        calibration.id: calibration.superseding_calibration.urn
+        for calibration in item.score_calibrations
+        if calibration.superseding_calibration is not None
+        and calibration.superseding_calibration.private
+        and calibration.superseding_calibration.id in visible_calibration_ids
+    }
     superseding_is_visible = item.superseding_score_set is not None and (
         has_permission(principal.user_data, item.superseding_score_set, Action.READ).permitted
     )
@@ -657,7 +666,11 @@ def _score_set_response(item: ScoreSet, principal: Principal) -> score_set.Score
             ],
             "official_collections": readable_official_collections(principal.user_data, item.official_collections),
             "score_calibrations": [
-                calibration
+                calibration.model_copy(
+                    update={"superseding_calibration_urn": visible_draft_replacement_urns[calibration.id]}
+                )
+                if calibration.id in visible_draft_replacement_urns
+                else calibration
                 for calibration in (validated_item.score_calibrations or [])
                 if calibration.id in visible_calibration_ids
             ],

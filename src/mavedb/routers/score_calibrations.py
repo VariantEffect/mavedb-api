@@ -75,8 +75,9 @@ def _with_readable_replacement(
 ) -> CalibrationView:
     """Serialize ``item`` as ``view``, naming its draft replacement when the caller may read that draft.
 
-    The model names only a published replacement, so serializations that don't check READ (score set responses,
-    the data dump) never reveal a draft. Score set supersession shows a draft successor to its readers the same way.
+    The model names only a published replacement, so serializations that don't check READ (such as the data dump)
+    never reveal a draft. Score set responses name a draft their caller may see in ``_score_set_response``, and score
+    set supersession shows a draft successor to its readers the same way.
     """
     response = view.model_validate(item)
     replacement = item.superseding_calibration

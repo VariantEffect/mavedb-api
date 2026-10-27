@@ -44,8 +44,8 @@ class ScoreCalibration(Base):
     still be deleted.
 
     ``superseding_calibration_urn`` names only a published replacement, so serializations that don't check
-    READ never reveal a draft. The calibration routes name a draft to callers who may read it, as score set
-    supersession does.
+    READ never reveal a draft. The calibration and score set routes name a draft to callers who may read it, as
+    score set supersession does.
     """
 
     __tablename__ = "score_calibrations"
@@ -146,7 +146,7 @@ class ScoreCalibration(Base):
     @property
     def superseding_calibration_urn(self) -> str | None:
         # Names only a published replacement, so serializations that don't check READ never reveal a draft. The
-        # calibration routes name a draft for callers who may read it.
+        # calibration and score set routes name a draft for callers who may read it.
         successor = self.superseding_calibration
         return successor.urn if successor is not None and not successor.private else None
 
