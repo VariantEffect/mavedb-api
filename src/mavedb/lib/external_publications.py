@@ -12,7 +12,7 @@ from typing import Any, Optional, Union
 
 import eutils  # type: ignore
 import requests
-from eutils import EutilsNCBIError  # type: ignore
+from eutils import EutilsNCBIError, EutilsRequestError  # type: ignore
 from eutils._internal.xmlfacades.pubmedarticle import PubmedArticle  # type: ignore
 from eutils._internal.xmlfacades.pubmedarticleset import PubmedArticleSet  # type: ignore
 from idutils import is_doi
@@ -740,9 +740,10 @@ def fetch_pubmed_article(identifier: str) -> Optional[PubmedArticle]:
 
     except AssertionError as exc:
         raise AmbiguousIdentifierError(f"Fetched more than 1 PubMed article associated with PMID {identifier}") from exc
-    except EutilsNCBIError:
-        return None
-    except requests.exceptions.RequestException as exc:
+    # NCBI answers an unknown PMID with an empty article set, not an error, so any error here means PubMed failed:
+    # eutils raises EutilsRequestError for a JSON error body such as a rate limit, and EutilsNCBIError for one it
+    # can't parse, such as an outage page.
+    except (EutilsRequestError, EutilsNCBIError, requests.exceptions.RequestException) as exc:
         raise _publication_service_error("PubMed", exc) from exc
 
     if fetched_articles:

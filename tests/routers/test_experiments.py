@@ -1439,6 +1439,24 @@ def test_create_experiment_crossref_unavailable(client, setup_router_db, db_name
         assert r.status_code == 502
 
 
+def test_create_experiment_pubmed_rate_limited_returns_bad_gateway(client, setup_router_db):
+    # setup_router_db stores TEST_PUBMED_IDENTIFIER, which would skip the fetch.
+    unstored_pmid = "29999999"
+    with requests_mock.mock() as m:
+        m.post(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+            status_code=429,
+            json={"error": "API rate limit exceeded"},
+            headers={"Content-Type": "application/json"},
+        )
+        payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+        payload["primaryPublicationIdentifiers"] = [{"identifier": unstored_pmid, "dbName": "PubMed"}]
+        r = client.post("/api/v1/experiments/", json=payload)
+
+        assert m.called
+        assert r.status_code == 502
+
+
 def test_create_experiment_with_invalid_doi(client, setup_router_db):
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload.update({"doiIdentifiers": [{"identifier": "20711194"}]})

@@ -9,9 +9,10 @@ from contextlib import contextmanager
 import requests
 from sqlalchemy import event, func, select
 
-from mavedb.lib.exceptions import PublicationServiceTimeoutError
+from mavedb.lib.exceptions import PublicationServiceError, PublicationServiceTimeoutError
 from mavedb.lib.external_publications import (
     ExternalPublication,
+    fetch_pubmed_article,
 )
 from mavedb.lib.publications import (
     ensure_publication_keys,
@@ -68,6 +69,35 @@ def medrxiv_url(identifier):
 
 def biorxiv_url(identifier):
     return f"https://api.biorxiv.org/details/biorxiv/10.1101/{identifier}/na/json"
+
+
+def test_fetch_pubmed_article_unknown_pmid_returns_none(requests_mock):
+    requests_mock.post(PUBMED_EFETCH_URL, text='<?xml version="1.0" ?><PubmedArticleSet></PubmedArticleSet>')
+
+    assert fetch_pubmed_article(TEST_PUBMED_IDENTIFIER) is None
+
+
+@pytest.mark.parametrize(
+    "ncbi_error",
+    [
+        {
+            "status_code": 429,
+            "json": {"error": "API rate limit exceeded"},
+            "headers": {"Content-Type": "application/json"},
+        },
+        {
+            "status_code": 503,
+            "text": "<html><body>Service unavailable</body></html>",
+            "headers": {"Content-Type": "text/html"},
+        },
+    ],
+    ids=["rate_limited", "outage_page"],
+)
+def test_fetch_pubmed_article_ncbi_error_raises_service_error(requests_mock, ncbi_error):
+    requests_mock.post(PUBMED_EFETCH_URL, **ncbi_error)
+
+    with pytest.raises(PublicationServiceError):
+        fetch_pubmed_article(TEST_PUBMED_IDENTIFIER)
 
 
 def test_find_generic_article_drops_candidate_with_malformed_response(session, requests_mock):
