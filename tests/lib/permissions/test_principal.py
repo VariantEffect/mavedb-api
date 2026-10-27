@@ -1,14 +1,8 @@
-# ruff: noqa: E402
-
 """Tests for the Principal.
 
 A principal is what gets threaded through a fan-out read, so these cases cover both halves of its job:
 handing out the right viewer for a caller, and never becoming shared state between callers.
 """
-
-import pytest
-
-pytest.importorskip("fastapi", reason="Skipping permissions tests; FastAPI is required but not installed.")
 
 import importlib
 import inspect
