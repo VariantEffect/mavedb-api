@@ -17,6 +17,7 @@ from mavedb.db.timeouts import (
     CSV_STATEMENT_TIMEOUT_SECONDS,
     allow_long_statements,
     apply_api_timeouts,
+    apply_worker_timeouts,
     observe_statements,
 )
 
@@ -73,6 +74,19 @@ class TestApplyApiTimeouts:
     def test_other_engines_are_unbounded(self, engine):
         with engine.connect() as conn:
             assert _show(conn, "statement_timeout") == "0"
+
+
+@pytest.mark.unit
+class TestApplyWorkerTimeouts:
+    def test_apply_worker_timeouts_new_connections_bound_only_lock_waits(self, engine):
+        worker_engine = create_engine(engine.url, poolclass=NullPool)
+        apply_worker_timeouts(worker_engine)
+        apply_worker_timeouts(worker_engine)  # idempotent
+
+        with worker_engine.connect() as conn:
+            assert _show(conn, "lock_timeout") == "1min"
+            assert _show(conn, "statement_timeout") == "0"
+            assert _show(conn, "idle_in_transaction_session_timeout") == "0"
 
 
 @pytest.mark.unit
