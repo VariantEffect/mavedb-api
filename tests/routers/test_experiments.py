@@ -9,6 +9,7 @@ import jsonschema
 import pytest
 import requests
 import requests_mock
+from sqlalchemy import select
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
@@ -18,7 +19,9 @@ from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
+from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.view_models.orcid import OrcidUser
 from tests.helpers.constants import (
@@ -1627,6 +1630,51 @@ def test_search_experiments_rejects_explicit_unpublished_search(session, client,
         response.json()["detail"]
         == "Cannot search for private experiments except in the context of the current user's data."
     )
+
+
+def _cite_seeded_publication(session, score_set_urn):
+    publication = session.scalars(
+        select(PublicationIdentifier).where(PublicationIdentifier.identifier == TEST_PUBMED_IDENTIFIER)
+    ).one()
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
+    score_set.publication_identifier_associations.append(
+        ScoreSetPublicationIdentifierAssociation(publication=publication, primary=False)
+    )
+    session.commit()
+
+
+def test_search_experiments_publication_filter_matches_only_own_visible_score_sets(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """`uncited` catches a filter not tied to the experiment; `cited_privately` one that ignores visibility."""
+    cited = _publish_experiment(session, data_provider, client, data_files, update={"title": "Cited"})
+    _cite_seeded_publication(session, cited["scoreSetUrns"][0])
+
+    cited_privately = _publish_experiment(session, data_provider, client, data_files, update={"title": "Private"})
+    private_score_set = create_seq_score_set(client, cited_privately["urn"])
+    _cite_seeded_publication(session, private_score_set["urn"])
+
+    uncited = _publish_experiment(session, data_provider, client, data_files, update={"title": "Uncited"})
+
+    response = client.post("/api/v1/experiments/search", json={"publicationIdentifiers": [TEST_PUBMED_IDENTIFIER]})
+
+    assert response.status_code == 200
+    returned_urns = [item["urn"] for item in response.json()]
+    assert returned_urns == [cited["urn"]]
+    assert cited_privately["urn"] not in returned_urns
+    assert uncited["urn"] not in returned_urns
+
+
+def test_search_my_experiments_publication_filter_matches_own_private_score_sets(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    _cite_seeded_publication(session, score_set["urn"])
+    create_experiment(client, update={"title": "Uncited"})
+
+    response = client.post("/api/v1/me/experiments/search", json={"publicationIdentifiers": [TEST_PUBMED_IDENTIFIER]})
+
+    assert response.status_code == 200
+    assert [item["urn"] for item in response.json()] == [experiment["urn"]]
 
 
 def test_search_my_experiments(session, client, setup_router_db):
