@@ -112,21 +112,20 @@ trio = ["trio (>=0.32.0)"]
 
 [[package]]
 name = "arq"
-version = "0.25.0"
+version = "0.26.3"
 description = "Job queues in python with asyncio and redis"
 optional = true
-python-versions = ">=3.7"
+python-versions = ">=3.8"
 groups = ["main"]
 markers = "extra == \"server\""
 files = [
-    {file = "arq-0.25.0-py3-none-any.whl", hash = "sha256:db072d0f39c0bc06b436db67ae1f315c81abc1527563b828955670531815290b"},
-    {file = "arq-0.25.0.tar.gz", hash = "sha256:d176ebadfba920c039dc578814d19b7814d67fa15f82fdccccaedb4330d65dae"},
+    {file = "arq-0.26.3-py3-none-any.whl", hash = "sha256:9f4b78149a58c9dc4b88454861a254b7c4e7a159f2c973c89b548288b77e9005"},
+    {file = "arq-0.26.3.tar.gz", hash = "sha256:362063ea3c726562fb69c723d5b8ee80827fdefda782a8547da5be3d380ac4b1"},
 ]
 
 [package.dependencies]
 click = ">=8.0"
-redis = {version = ">=4.2.0", extras = ["hiredis"]}
-typing-extensions = ">=4.1.0"
+redis = {version = ">=4.2.0,<6", extras = ["hiredis"]}
 
 [package.extras]
 watch = ["watchfiles (>=0.16)"]
@@ -5333,4 +5332,4 @@ server = ["aiocache", "alembic", "alembic-utils", "arq", "authlib", "bbi-variant
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "4d5a1195254e38f8f62fc0db01994510a5f2cf4aebdb258bed1518943a121fea"
+content-hash = "4247b6b3ea8af1961978ee597a53c8add1c36ce027db70396383eb015431f90d"

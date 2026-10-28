@@ -6,7 +6,7 @@ from datetime import datetime
 import pytest
 import requests
 
-from mavedb.lib.clinvar.constants import CLINVAR_FIELDS_TO_KEEP
+from mavedb.lib.clinvar.constants import CLINVAR_FIELDS_TO_KEEP, NCBI_HTTP_TIMEOUT
 from mavedb.lib.clinvar.utils import (
     clinvar_variation_url,
     fetch_clinvar_variant_data,
@@ -147,6 +147,22 @@ class TestFetchClinvarVariantData:
         monkeypatch.setattr("mavedb.lib.clinvar.utils._ncbi_session", lambda: _mock_session(mock_get))
         with pytest.raises(requests.RequestException, match="Not found"):
             await fetch_clinvar_variant_data(3, 2018)
+
+    @pytest.mark.asyncio
+    async def test_fetch_clinvar_variant_data_downloads_bounded_by_ncbi_timeout(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("mavedb.lib.clinvar.utils.CLINVAR_CACHE_DIR", tmp_path)
+        timeouts = []
+
+        def mock_get(url, **kwargs):
+            timeouts.append(kwargs.get("timeout"))
+            if len(timeouts) == 1:
+                return MockResponse(b"", status_code=404, raise_exc=requests.exceptions.HTTPError("404"))
+            return MockResponse(MOCK_TSV_CONTENT)
+
+        monkeypatch.setattr("mavedb.lib.clinvar.utils._ncbi_session", lambda: _mock_session(mock_get))
+        await fetch_clinvar_variant_data(4, 2019)
+
+        assert timeouts == [NCBI_HTTP_TIMEOUT, NCBI_HTTP_TIMEOUT]
 
     @pytest.mark.asyncio
     async def test_invalid_date_raises(self, monkeypatch, tmp_path):
