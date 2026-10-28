@@ -275,7 +275,7 @@ def search_publications_by_identifier_and_db(
     """
     query = (
         db.query(PublicationIdentifier)
-        .filter(PublicationIdentifier.identifier == identifier and PublicationIdentifier.db_name == db_name)
+        .filter(PublicationIdentifier.identifier == identifier, PublicationIdentifier.db_name == db_name)
         .all()
     )
 

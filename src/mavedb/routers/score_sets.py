@@ -1959,20 +1959,21 @@ def create_score_set(
     experiment: Optional[Experiment] = None
     if item_create.experiment_urn is not None:
         experiment = db.query(Experiment).filter(Experiment.urn == item_create.experiment_urn).one_or_none()
-        if not experiment:
+        if not experiment or not has_permission(user_data, experiment, Action.READ).permitted:
             logger.info(
                 msg="Failed to create score set; The requested experiment does not exist.", extra=logging_context()
             )
-            raise HTTPException(status_code=404, detail="The requested experiment does not exist")
+            raise HTTPException(status_code=404, detail=f"experiment with URN '{item_create.experiment_urn}' not found")
+
+        save_to_logging_context({"experiment": experiment.urn})
+        assert_permission(user_data, experiment, Action.ADD_SCORE_SET)
+
         # Not allow add score set in meta-analysis experiments.
         if any(s.meta_analyzes_score_sets for s in experiment.score_sets):
             raise HTTPException(
                 status_code=409,
                 detail="Score sets may not be added to a meta-analysis experiment.",
             )
-
-        save_to_logging_context({"experiment": experiment.urn})
-        assert_permission(user_data, experiment, Action.ADD_SCORE_SET)
 
     license_ = db.query(License).filter(License.id == item_create.license_id).one_or_none()
     save_to_logging_context({"requested_license": item_create.license_id})
@@ -2007,15 +2008,18 @@ def create_score_set(
                 detail="The requested superseded score set does not exist",
             )
 
-        if superseded_score_set.superseding_score_set:
+        superseding_score_set = superseded_score_set.superseding_score_set
+        if superseding_score_set:
             logger.info(
-                msg=f"Failed to create score set. This score set has been superseded by score set: {superseded_score_set.superseding_score_set.urn}.",
+                msg=f"Failed to create score set. This score set has been superseded by score set: {superseding_score_set.urn}.",
                 extra=logging_context(),
             )
-            raise HTTPException(
-                status_code=409,
-                detail=f"This score set has been superseded by score set: {superseded_score_set.superseding_score_set.urn}.",
-            )
+            # It may be another contributor's private draft.
+            if has_permission(user_data, superseding_score_set, Action.READ).permitted:
+                detail = f"This score set has been superseded by score set: {superseding_score_set.urn}."
+            else:
+                detail = "This score set has already been superseded."
+            raise HTTPException(status_code=409, detail=detail)
     else:
         superseded_score_set = None
 
