@@ -1,5 +1,6 @@
 # ruff: noqa: E402
 
+import asyncio
 import csv
 import json
 import re
@@ -14,7 +15,8 @@ import jsonschema
 import pandas as pd
 import pytest
 from humps import camelize
-from sqlalchemy import select
+from sqlalchemy import insert, select, text
+from sqlalchemy.exc import OperationalError
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
@@ -24,6 +26,7 @@ from mavedb.lib.annotation.annotate import variant_study_result
 from mavedb.lib.csv import build_limiter
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.exceptions import NonexistentOrcidUserError
+from mavedb.lib.score_set_variants import LEAN_VARIANT_BATCH_SIZE, get_lean_score_set_variants
 from mavedb.lib.score_distribution import summarize_scores
 from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
 from mavedb.models.annotation_event import AnnotationEvent
@@ -42,7 +45,7 @@ from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.lean_variant import LeanVariant
 from mavedb.models.score_calibration import ScoreCalibration as ScoreCalibrationDbModel
-from mavedb.routers.score_sets import _annotation_stream_record
+from mavedb.routers.score_sets import _LEAN_VARIANTS, _annotation_stream_record
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
 from tests.helpers.constants import (
@@ -6383,6 +6386,147 @@ def test_get_lean_variants_admin_can_read_private(
 
     assert response.status_code == 200
     assert len(response.json()) == 3
+
+
+def _seed_past_one_lean_batch(client, session):
+    """A score set with one more variant than a lean-view batch holds, so the route streams at least two batches.
+
+    Inserted directly rather than uploaded: the upload path would make every test that uses this take seconds.
+    """
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set_db = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    count = LEAN_VARIANT_BATCH_SIZE + 1
+    # A Core insert on the table: the ORM's bulk insert path takes seconds for this many rows.
+    session.execute(
+        insert(VariantDbModel.__table__),
+        [
+            {
+                "urn": f"{score_set['urn']}#{n}",
+                "scoreset_id": score_set_db.id,
+                "data": {"score_data": {"score": n / 10}, "count_data": {}},
+                "hgvs_nt": f"c.{n}A>T",
+                # Every other variant has no protein HGVS, so exclude_none drops fields in both batches.
+                "hgvs_pro": f"p.Thr{n}Ser" if n % 2 else None,
+            }
+            for n in range(1, count + 1)
+        ],
+    )
+    score_set_db.num_variants = count
+    session.commit()
+    return score_set, count
+
+
+def test_get_lean_variants_streamed_body_is_byte_identical_to_one_encoded_list(
+    client, session, data_provider, data_files, setup_router_db
+):
+    score_set, count = _seed_past_one_lean_batch(client, session)
+    _seed_lean_mapping(session, f"{score_set['urn']}#1")
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants")
+
+    # The body the route built before it streamed: every record validated and encoded as one list.
+    score_set_db = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    records = [r for batch in get_lean_score_set_variants(session, score_set_db) for r in batch]
+    expected = _LEAN_VARIANTS.dump_json(
+        _LEAN_VARIANTS.validate_python(records, from_attributes=True), by_alias=True, exclude_none=True
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json"
+    assert response.headers["x-as-of"] == "current"
+    assert len(records) == count
+    assert response.content == expected
+
+
+def test_get_lean_variants_empty_score_set_streams_an_empty_array(client, session, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants")
+
+    assert response.status_code == 200
+    assert response.content == b"[]"
+
+
+def _get_streamed(app, path, on_body):
+    """Run a GET through the ASGI app, calling ``on_body`` with each body chunk as it's sent.
+
+    TestClient collects the whole body before returning, which hides whether a response streams.
+    """
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "root_path": "",
+        "query_string": b"",
+        "headers": [(b"host", b"testserver")],
+        "client": ("testclient", 50000),
+        "server": ("testserver", 80),
+    }
+
+    requested = False
+
+    async def receive():
+        nonlocal requested
+        if not requested:
+            requested = True
+            return {"type": "http.request", "body": b"", "more_body": False}
+        # The client stays connected; returning at once would spin the response's disconnect listener.
+        await asyncio.Event().wait()
+
+    async def send(message):
+        if message["type"] == "http.response.body" and message.get("body"):
+            on_body(message["body"])
+
+    asyncio.run(app(scope, receive, send))
+
+
+def test_get_lean_variants_sends_rows_before_the_last_row_is_read(app_, client, session, setup_router_db):
+    score_set, count = _seed_past_one_lean_batch(client, session)
+
+    # Each chunk, with whether the query's cursor still had rows to read when the chunk was sent.
+    chunks = []
+
+    def on_body(body):
+        open_cursors = session.execute(text("SELECT count(*) FROM pg_cursors")).scalar_one()
+        chunks.append((body, open_cursors > 0))
+
+    _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/variants", on_body)
+
+    first_rows, cursor_open = next((body, open_) for body, open_ in chunks if b"variantUrn" in body)
+    # The first batch went out while the last row was still unread in the database.
+    assert f'"{score_set["urn"]}#{LEAN_VARIANT_BATCH_SIZE}"'.encode() in first_rows
+    assert f'"{score_set["urn"]}#{count}"'.encode() not in first_rows
+    assert cursor_open
+    records = json.loads(b"".join(body for body, _ in chunks))
+    assert [r["variantUrn"] for r in records] == [f"{score_set['urn']}#{n}" for n in range(1, count + 1)]
+
+
+def test_get_lean_variants_failure_mid_stream_never_closes_the_array(app_, client, session, setup_router_db):
+    score_set, _ = _seed_past_one_lean_batch(client, session)
+
+    sent = []
+
+    def on_body(body):
+        sent.append(body)
+        if b"variantUrn" in body and sum(b"variantUrn" in b for b in sent) == 1:
+            # The stream's database connection drops once the first batch is on the wire.
+            stream_pid = session.connection().connection.dbapi_connection.get_backend_pid()
+            with session.get_bind().connect() as other:
+                other.execute(text("SELECT pg_terminate_backend(:pid)"), {"pid": stream_pid})
+
+    with pytest.raises(OperationalError):
+        _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/variants", on_body)
+
+    body = b"".join(sent)
+    assert body.startswith(b"[")
+    assert not body.endswith(b"]")
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(body)
 
 
 @pytest.mark.parametrize(

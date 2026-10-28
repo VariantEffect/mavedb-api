@@ -2,9 +2,11 @@ import io
 import json
 import logging
 import time
+from collections.abc import Iterable, Iterator
 from contextlib import ExitStack
 from datetime import date, datetime
 from functools import partial
+from itertools import chain
 from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
 
 import numpy as np
@@ -64,13 +66,14 @@ from mavedb.lib.identifiers import (
     find_or_create_doi_identifier,
     find_or_create_publication_identifier,
 )
+from mavedb.lib.json_stream import stream_json_array
 from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.score_calibrations import create_score_calibration
-from mavedb.lib.score_set_variants import get_lean_score_set_variants
+from mavedb.lib.score_set_variants import LeanVariantRecord, get_lean_score_set_variants
 from mavedb.lib.score_sets import (
     csv_data_to_df,
     fetch_score_set_search_filter_options,
@@ -132,6 +135,7 @@ logger = logging.getLogger(__name__)
 
 SCORE_SET_SEARCH_MAX_LIMIT = 100
 
+_LEAN_VARIANT = TypeAdapter(LeanVariant)
 _LEAN_VARIANTS = TypeAdapter(List[LeanVariant])
 SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS = 40
 
@@ -1019,18 +1023,36 @@ def get_score_set_lean_variants(
     # The whole-set query outruns the API's default statement timeout on the largest score sets.
     allow_long_statements(db)
 
-    with csv_build_slot(rows_to_build(score_set.num_variants, None, None)):
-        records = get_lean_score_set_variants(db, score_set, as_of=as_of)
-        # Validating and encoding every row is most of the build's CPU. Left to response_model, it would run after
-        # the route returns, outside the slot.
-        body = _LEAN_VARIANTS.dump_json(
-            _LEAN_VARIANTS.validate_python(records, from_attributes=True), by_alias=True, exclude_none=True
-        )
+    with ExitStack() as setup:
+        setup.enter_context(csv_build_slot(rows_to_build(score_set.num_variants, None, None)))
+        batches = get_lean_score_set_variants(db, score_set, as_of=as_of)
+        # Reading the first batch runs the query, so a timeout or a busy database is still an error status
+        # rather than a broken stream.
+        first = next(batches, [])
+        # The stream builds the rest as it's sent, so it holds the slot from here on.
+        slot = setup.pop_all()
 
-    return Response(
-        content=body,
+    return StreamingResponse(
+        stream_in_build_slot(slot, _stream_lean_variants(chain([first], batches))),
         media_type="application/json",
         headers={"X-As-Of": as_of.isoformat() if as_of is not None else "current"},
+    )
+
+
+def _stream_lean_variants(batches: Iterable[Sequence[LeanVariantRecord]]) -> Iterator[bytes]:
+    """Encode ``batches`` as one JSON array, a chunk per batch.
+
+    Validating and encoding every row is most of the lean view's CPU, so it happens here, inside the build slot,
+    rather than in ``response_model`` after the route returns.
+    """
+    # TODO#964: Serve NDJSON instead of writing the array by hand. The array keeps the response identical to the
+    # unstreamed one, so this could ship as a patch; NDJSON changes the format and needs a matching ui change.
+    return stream_json_array(
+        [
+            _LEAN_VARIANT.dump_json(variant, by_alias=True, exclude_none=True)
+            for variant in _LEAN_VARIANTS.validate_python(batch, from_attributes=True)
+        ]
+        for batch in batches
     )
 
 

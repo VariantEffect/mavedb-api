@@ -31,6 +31,11 @@ T1 = datetime(2021, 1, 1, tzinfo=timezone.utc)
 T2 = datetime(2022, 1, 1, tzinfo=timezone.utc)
 
 
+def _lean(session, score_set, **kwargs):
+    """Every record of the lean view, read through all of its batches."""
+    return [record for batch in get_lean_score_set_variants(session, score_set, **kwargs) for record in batch]
+
+
 def _variant(session, score_set, suffix, *, score=None, hgvs_nt=None, hgvs_pro=None, hgvs_splice=None):
     data = {"score_data": {"score": score}} if score is not None else TEST_MINIMAL_VARIANT["data"]
     variant = Variant(
@@ -137,7 +142,7 @@ def test_nucleotide_assay_measured_at_cdna(session, setup_lib_db_with_score_set)
     _link(session, record, protein, is_authoritative=False, group=measured_group)
     _consequence(session, measured, "missense_variant")
 
-    [record_out] = get_lean_score_set_variants(session, score_set)
+    [record_out] = _lean(session, score_set)
 
     assert record_out.variant_urn == variant.urn
     assert record_out.score == -2.3
@@ -177,7 +182,7 @@ def test_nucleotide_assay_measured_at_genomic(session, setup_lib_db_with_score_s
     _link(session, record, cdna, is_authoritative=False, group=measured_group)
     _link(session, record, protein, is_authoritative=False, group=measured_group)
 
-    [record_out] = get_lean_score_set_variants(session, score_set)
+    [record_out] = _lean(session, score_set)
 
     assert record_out.assay_level == "genomic"
     assert record_out.assay_level_digest == "gen-digest"
@@ -211,7 +216,7 @@ def test_protein_assay_serves_only_the_protein_slot(session, setup_lib_db_with_s
     candidate_group = _group(session, record, hgvs_c="NM_000546.6:c.1216G>A")
     _link(session, record, candidate, is_authoritative=False, group=candidate_group)
 
-    [record_out] = get_lean_score_set_variants(session, score_set)
+    [record_out] = _lean(session, score_set)
 
     assert record_out.assay_level == "protein"
     assert record_out.assay_level_digest == "prot-digest"
@@ -234,7 +239,7 @@ def test_unwritten_measured_group_serves_an_empty_triple(session, setup_lib_db_w
     _link(session, record, measured, is_authoritative=True)  # projection_group defaults to None
     _link(session, record, protein, is_authoritative=False)
 
-    [record_out] = get_lean_score_set_variants(session, score_set)
+    [record_out] = _lean(session, score_set)
 
     assert record_out.assay_level == "cdna"
     assert record_out.mapped == MappedTriple()
@@ -251,7 +256,7 @@ def test_genomic_assay_serves_a_coding_projection_with_no_allele(session, setup_
     measured_group = _group(session, record, hgvs_c="NM_000465.4:c.123+5A>G", hgvs_g="NC_000017.11:g.7676154C>T")
     _link(session, record, measured, is_authoritative=True, group=measured_group)
 
-    [record_out] = get_lean_score_set_variants(session, score_set)
+    [record_out] = _lean(session, score_set)
 
     assert record_out.mapped == MappedTriple(
         genomic=HgvsField(hgvs="NC_000017.11:g.7676154C>T", position=7676154, ref="C", alt="T"),
@@ -268,7 +273,7 @@ def test_hgvs_string_rides_even_when_unparseable(session, setup_lib_db_with_scor
     measured = _allele(session, "cdna-digest", level="cdna")
     _link(session, record, measured, is_authoritative=True, group=_group(session, record, hgvs_c="c.76_78del"))
 
-    [record_out] = get_lean_score_set_variants(session, score_set)
+    [record_out] = _lean(session, score_set)
 
     # Multivariant, intronic, and indel expressions are all string-only (no position/ref/alt block).
     assert record_out.hgvs_nt == HgvsField(hgvs="NM_000546.6:c.[197A>G;472T>C]")
@@ -284,7 +289,7 @@ def test_unmapped_variant_has_null_mapped_fields(session, setup_lib_db_with_scor
     score_set = setup_lib_db_with_score_set
     variant = _variant(session, score_set, 1, score=0.5, hgvs_nt="c.1A>T", hgvs_pro="p.Thr1Ser")
 
-    [record_out] = get_lean_score_set_variants(session, score_set)
+    [record_out] = _lean(session, score_set)
 
     assert record_out.variant_urn == variant.urn
     assert record_out.score == 0.5
@@ -307,7 +312,7 @@ def test_no_vep_consequence_is_none(session, setup_lib_db_with_score_set):
         session, record, measured, is_authoritative=True, group=_group(session, record, hgvs_c="NM_000546.6:c.1216G>A")
     )
 
-    [record_out] = get_lean_score_set_variants(session, score_set)
+    [record_out] = _lean(session, score_set)
 
     assert record_out.consequence is None
     assert record_out.assay_level_digest == "cdna-digest"
@@ -321,9 +326,25 @@ def test_ordered_by_variant_number(session, setup_lib_db_with_score_set):
     for suffix in (10, 2, 1):
         _variant(session, score_set, suffix, score=float(suffix))
 
-    records = get_lean_score_set_variants(session, score_set)
+    records = _lean(session, score_set)
 
     assert [r.variant_urn for r in records] == [f"{score_set.urn}#{n}" for n in (1, 2, 10)]
+
+
+@pytest.mark.integration
+def test_get_lean_score_set_variants_batches_in_variant_number_order(session, setup_lib_db_with_score_set):
+    """The records arrive in batches of at most ``batch_size``, and the batches keep variant-number order."""
+    score_set = setup_lib_db_with_score_set
+    for suffix in (5, 3, 1, 4, 2):
+        _variant(session, score_set, suffix, score=float(suffix))
+
+    batches = list(get_lean_score_set_variants(session, score_set, batch_size=2))
+
+    assert [[r.variant_urn for r in batch] for batch in batches] == [
+        [f"{score_set.urn}#1", f"{score_set.urn}#2"],
+        [f"{score_set.urn}#3", f"{score_set.urn}#4"],
+        [f"{score_set.urn}#5"],
+    ]
 
 
 @pytest.mark.integration
@@ -357,11 +378,11 @@ def test_as_of_reconstructs_the_historical_assay_level(session, setup_lib_db_wit
     )
     session.commit()
 
-    [current] = get_lean_score_set_variants(session, score_set)
+    [current] = _lean(session, score_set)
     assert current.assay_level_digest == "new-digest"
     assert current.mapped.cdna == HgvsField(hgvs="NM_000546.6:c.500A>T", position=500, ref="A", alt="T")
 
-    [historical] = get_lean_score_set_variants(session, score_set, as_of=T1 - timedelta(days=1))
+    [historical] = _lean(session, score_set, as_of=T1 - timedelta(days=1))
     assert historical.assay_level_digest == "old-digest"
     assert historical.mapped.cdna == HgvsField(hgvs="NM_000546.6:c.1216G>A", position=1216, ref="G", alt="A")
     # Submitted HGVS and score are immutable — unaffected by as_of.
@@ -369,7 +390,7 @@ def test_as_of_reconstructs_the_historical_assay_level(session, setup_lib_db_wit
     assert historical.score == -2.3
 
     # Before anything was mapped, the variant still appears with null mapped fields.
-    [pre_mapping] = get_lean_score_set_variants(session, score_set, as_of=T0 - timedelta(days=1))
+    [pre_mapping] = _lean(session, score_set, as_of=T0 - timedelta(days=1))
     assert pre_mapping.assay_level_digest is None
     assert pre_mapping.assay_level is None
     assert pre_mapping.mapped == MappedTriple()
@@ -399,7 +420,7 @@ def test_per_variant_lookups_cannot_become_whole_table_reads(session, setup_lib_
     _link(session, record, protein, is_authoritative=False, group=measured_group, valid_from=T0)
 
     with captured_statements(session) as captured:
-        get_lean_score_set_variants(session, score_set, as_of=as_of)
+        _lean(session, score_set, as_of=as_of)
     [(statement, parameters)] = [(s, p) for s, p in captured if "FROM variants" in s]
 
     assert (
