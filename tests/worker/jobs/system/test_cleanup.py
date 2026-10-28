@@ -16,9 +16,10 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
-from arq.constants import result_key_prefix
+from arq.constants import default_queue_name, in_progress_key_prefix, result_key_prefix
 from arq.jobs import JobStatus as ArqJobStatus
 from arq.jobs import job_key_prefix
+from arq.worker import Worker, func
 from sqlalchemy import select
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
@@ -32,6 +33,7 @@ from mavedb.worker.jobs.system.cleanup import (
     PIPELINE_STUCK_TIMEOUT_MINUTES,
     PROGRESS_STALL_MINUTES,
     RUNNING_TIMEOUT_MINUTES,
+    _running_job_confirmed_dead,
     cleanup_stalled_jobs,
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
@@ -2685,3 +2687,46 @@ class TestCleanupStalledJobsArqIntegration:
         session.refresh(stalled_job)
         assert stalled_job.status == JobStatus.QUEUED  # Jobs are enqueued after retry
         assert stalled_job.retry_count == 1
+
+
+async def _hang_until_cancelled(ctx):
+    await asyncio.Event().wait()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+class TestRunningJobAbortOnSaturatedWorker:
+    """The sweeper's abort-first recovery only works if ARQ cancels a job while every worker slot is taken.
+
+    That is exactly when it matters: the stalled jobs are the ones holding the slots. arq before 0.26 only
+    processed abort requests after acquiring a free slot, so the abort always timed out and the sweeper left
+    the stalled jobs in place.
+    """
+
+    async def test_running_job_confirmed_dead_saturated_worker_aborts_job(self, arq_redis):
+        worker = Worker(
+            functions=[func(_hang_until_cancelled, name="hang_until_cancelled")],
+            redis_pool=arq_redis,
+            max_jobs=1,
+            poll_delay=0.05,
+            allow_abort_jobs=True,
+            handle_signals=False,
+        )
+        job_id = "urn:mavedb:job-saturated#0"
+
+        # `fakeredis` does not support `INFO`
+        with patch("arq.worker.log_redis_info"):
+            worker_task = asyncio.create_task(worker.async_run())
+            try:
+                await arq_redis.enqueue_job("hang_until_cancelled", _job_id=job_id)
+                async with asyncio.timeout(5):
+                    while not await arq_redis.exists(in_progress_key_prefix + job_id):
+                        await asyncio.sleep(0.05)
+
+                assert await _running_job_confirmed_dead(job_id, default_queue_name, arq_redis) is True
+                assert worker.jobs_failed == 1
+                assert await arq_redis.zscore(default_queue_name, job_id) is None
+            finally:
+                worker_task.cancel()
+                await asyncio.gather(worker_task, return_exceptions=True)
+                await worker.close()
