@@ -620,3 +620,19 @@ class TestCsvNamespaceDiscovery:
         response = client.get(f"/api/v1/variants/{quote('urn:mavedb:00000000-a-1#1', safe='')}/csv-namespaces")
 
         assert response.status_code == 404
+
+
+def test_clingen_allele_id_lookups_is_permanently_removed(client):
+    """Integrators still send the old batch request, so it must answer 410 with the successor and deprecation
+    headers, not a 405 or a validation error that hides the removal."""
+    response = client.post(
+        "/api/v1/variants/clingen-allele-id-lookups", json={"clingenAlleleIds": ["CA001182", "PA2573056653"]}
+    )
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == (
+        "POST /variants/clingen-allele-id-lookups has been removed. "
+        "Use GET /clingen-alleles/{clingen_allele_id}/measurements for each allele instead."
+    )
+    assert response.headers["Deprecation"] == "true"
+    assert "/clingen-alleles/{clingen_allele_id}/measurements" in response.headers["Warning"]
