@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Any, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import Select, Table, func, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from mavedb.deps import get_db
@@ -44,7 +44,6 @@ metadata = {
 
 RecordModels = Union[type[Experiment], type[ScoreSet]]
 RecordAssociationTables = Union[
-    Table,
     type[ExperimentControlledKeywordAssociation],
     type[ExperimentPublicationIdentifierAssociation],
     type[ScoreSetPublicationIdentifierAssociation],

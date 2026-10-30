@@ -16,8 +16,6 @@ from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifie
 from mavedb.lib.external_publications import Crossref, CrossrefWork, PublicationAuthors, Rxiv, RxivContentDetail
 from mavedb.lib.validation.publication import identifier_valid_for, infer_identifier_from_url, validate_db_name
 from mavedb.models.publication_identifier import PublicationIdentifier
-from mavedb.models.target_gene_external_identifier import TargetGeneExternalIdentifier
-from mavedb.view_models.external_gene_identifier_offset import ExternalGeneIdentifierOffsetCreate
 
 logger = logging.getLogger(__name__)
 
@@ -376,27 +374,6 @@ def distinct_identifiers(identifiers: Iterable[str]) -> list[str]:
     A record stores each identifier once, so a repeat in the submission would collide with itself.
     """
     return list(dict.fromkeys(identifiers))
-
-
-def target_gene_external_identifiers(
-    external_identifiers: Iterable[ExternalGeneIdentifierOffsetCreate],
-) -> list[TargetGeneExternalIdentifier]:
-    """Rows for a target gene's submitted external identifiers.
-
-    A target gene holds one identifier per database. When a submission names a database twice, the last one
-    wins, as it did when each database had its own offset table.
-    """
-    by_db_name = {
-        external_identifier.identifier.db_name: external_identifier for external_identifier in external_identifiers
-    }
-    return [
-        TargetGeneExternalIdentifier(
-            db_name=db_name,
-            identifier=external_identifier.identifier.identifier,
-            offset=external_identifier.offset,
-        )
-        for db_name, external_identifier in by_db_name.items()
-    ]
 
 
 def sanitize_target_sequence_label(label: str):
