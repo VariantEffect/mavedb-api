@@ -12,11 +12,13 @@ no longer appears in the request logs.
 import logging
 import os
 import threading
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable, Iterator
 from contextlib import ExitStack, contextmanager
-from typing import Optional, TypeVar
+from typing import Any, Optional, TypeVar
 
 from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
+from starlette.types import Receive, Scope, Send
 
 from mavedb.constants import MAVEDB_BULK_DOWNLOAD_URL
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
@@ -70,13 +72,14 @@ def csv_build_slot(rows: int) -> Iterator[None]:
         _slots.release()
 
 
-def stream_in_build_slot(slot: ExitStack, chunks: Iterable[T]) -> Iterator[T]:
+def stream_in_build_slot(slot: ExitStack, chunks: Iterable[T]) -> Generator[T, None, None]:
     """Keep the build slot held by ``slot`` until a streamed response has sent ``chunks``.
 
     A streamed response is built while it's sent, after the route returns, so the slot has to outlive the route.
     Take it with ``slot.enter_context(csv_build_slot(rows))``, so a refusal is a 503 before the response starts,
     do any up-front queries, then hand the slot over with ``slot.pop_all()``. It's released when the stream
-    finishes, fails or is closed because the client went away.
+    finishes, fails or is closed. Send it with :class:`BuildSlotStreamingResponse`, which closes it when the client
+    goes away.
     """
 
     def held() -> Iterator[Optional[T]]:
@@ -90,3 +93,23 @@ def stream_in_build_slot(slot: ExitStack, chunks: Iterable[T]) -> Iterator[T]:
     # the response is never sent.
     next(stream)
     return stream  # type: ignore[return-value]
+
+
+class BuildSlotStreamingResponse(StreamingResponse):
+    """A streamed response that holds the build slot in ``slot`` until it's sent or the client goes away.
+
+    Pass the slot as :func:`stream_in_build_slot` describes. Starlette abandons a sync stream without closing it
+    when the client disconnects, which would leave the slot held until the garbage collector finds the stream, so
+    this response closes the stream itself once it's done.
+    """
+
+    def __init__(self, slot: ExitStack, content: Iterable[Any], **kwargs: Any) -> None:
+        self._stream = stream_in_build_slot(slot, content)
+        super().__init__(self._stream, **kwargs)
+
+    # Async because Starlette's response interface is.
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._stream.close()

@@ -1,6 +1,8 @@
 # ruff: noqa: E402
 
+import asyncio
 import gc
+import itertools
 import threading
 from contextlib import ExitStack
 
@@ -11,7 +13,12 @@ pytest.importorskip("fastapi")
 from fastapi import HTTPException
 
 from mavedb.lib.csv import build_limiter
-from mavedb.lib.csv.build_limiter import csv_build_slot, rows_to_build, stream_in_build_slot
+from mavedb.lib.csv.build_limiter import (
+    BuildSlotStreamingResponse,
+    csv_build_slot,
+    rows_to_build,
+    stream_in_build_slot,
+)
 
 
 @pytest.fixture
@@ -112,3 +119,31 @@ class TestStreamInBuildSlot:
         gc.collect()
 
         assert one_slot.acquire(blocking=False)
+
+
+class TestBuildSlotStreamingResponse:
+    def test_build_slot_streaming_response_client_disconnects_releases_the_slot(self, one_slot):
+        response = BuildSlotStreamingResponse(_held_slot(5000), itertools.repeat(b"x"))
+
+        async def send_until_the_client_leaves():
+            first_chunk_sent = asyncio.Event()
+
+            async def receive():
+                await first_chunk_sent.wait()
+                return {"type": "http.disconnect"}
+
+            async def send(message):
+                if message["type"] == "http.response.body":
+                    first_chunk_sent.set()
+
+            # ASGI 2.3, as uvicorn reports, is the version where Starlette listens for the disconnect.
+            await response({"type": "http", "asgi": {"spec_version": "2.3"}}, receive, send)
+
+        # The stream and the cancelled send form a reference cycle, so the garbage collector would release the
+        # slot too; this checks the response does it without waiting for that.
+        gc.disable()
+        try:
+            asyncio.run(send_until_the_client_leaves())
+            assert one_slot.acquire(blocking=False)
+        finally:
+            gc.enable()

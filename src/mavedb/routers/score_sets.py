@@ -45,7 +45,7 @@ from mavedb.lib.authorization import (
 from mavedb.lib.clinical_controls import get_clinical_control_options, get_clinical_controls_with_variant_urns
 from mavedb.lib.collections import readable_official_collections
 from mavedb.lib.contributors import find_or_create_contributor
-from mavedb.lib.csv.build_limiter import csv_build_slot, rows_to_build, stream_in_build_slot
+from mavedb.lib.csv.build_limiter import BuildSlotStreamingResponse, csv_build_slot, rows_to_build
 from mavedb.lib.csv.columns import variants_to_csv_rows
 from mavedb.lib.csv.deprecated_params import (
     DROP_NA_COLUMNS_DESCRIPTION,
@@ -1135,16 +1135,14 @@ def get_score_set_variant_details(
         # The stream builds the details as it's sent, so it holds the slot from here on.
         slot = setup.pop_all()
 
-    return StreamingResponse(
-        stream_in_build_slot(
-            slot,
-            _stream_score_set_variant_details(
-                db,
-                variants,
-                superseding,
-                visible_calibration_ids,
-                as_of=as_of,
-            ),
+    return BuildSlotStreamingResponse(
+        slot,
+        _stream_score_set_variant_details(
+            db,
+            variants,
+            superseding,
+            visible_calibration_ids,
+            as_of=as_of,
         ),
         media_type="application/x-ndjson",
         headers={
