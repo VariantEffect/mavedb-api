@@ -2,7 +2,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session, joinedload, selectinload
 from starlette.convertors import Convertor, register_url_convertor
 
@@ -59,12 +59,28 @@ metadata = {
 }
 
 
-def _gene_score_set_base_query(db: Session, symbol: str):
+def _current_public_score_sets(db: Session):
     return db.query(ScoreSet).filter(
-        ScoreSet.target_genes.any(TargetGene.mapped_hgnc_name == symbol),
         ScoreSet.private.is_(False),
         ScoreSet.published_date.isnot(None),
         ~ScoreSet.superseding_score_set.has(ScoreSet.published_date.isnot(None)),
+    )
+
+
+def _gene_score_set_base_query(db: Session, symbol: str):
+    return _current_public_score_sets(db).filter(ScoreSet.target_genes.any(TargetGene.mapped_hgnc_name == symbol))
+
+
+def _unmapped_score_set_query(db: Session, symbol: str):
+    """Score sets with a target named exactly ``symbol`` that has no mapped HGNC symbol.
+
+    The gene page lists score sets by mapped HGNC symbol, which only a successful mapping sets. These are the
+    score sets a search by that target name finds but the gene page can't list. The exact, case-sensitive
+    match is the one the search's target-name filter uses, so this count agrees with the search it links to.
+    """
+    return _current_public_score_sets(db).filter(
+        ScoreSet.target_genes.any(and_(TargetGene.name == symbol, TargetGene.mapped_hgnc_name.is_(None))),
+        ~ScoreSet.target_genes.any(TargetGene.mapped_hgnc_name == symbol),
     )
 
 
@@ -128,6 +144,7 @@ def get_gene(
         .with_entities(func.coalesce(func.sum(ScoreSet.num_variants), 0))
         .scalar()
     )
+    total_unmapped = _unmapped_score_set_query(db, gene_info.symbol).count()
     score_sets = (
         base_query.options(*_score_set_load_options())
         .order_by(ScoreSet.published_date.desc(), ScoreSet.urn.desc())
@@ -156,4 +173,5 @@ def get_gene(
         offset=offset,
         total=total,
         total_scored_variants=total_scored_variants,
+        total_unmapped=total_unmapped,
     )

@@ -42,6 +42,8 @@ def _make_score_set(
     private=False,
     published=True,
     num_variants=7,
+    target_name=None,
+    mapped=True,
 ):
     experiment = create_experiment(client, {"title": f"{title} experiment"})
     payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
@@ -54,7 +56,9 @@ def _make_score_set(
     db_score_set.published_date = date(2024, 1, 1) if published else None
     db_score_set.num_variants = num_variants
     for target_gene in db_score_set.target_genes:
-        target_gene.mapped_hgnc_name = symbol
+        target_gene.mapped_hgnc_name = symbol if mapped else None
+        if target_name is not None:
+            target_gene.name = target_name
     session.commit()
     return db_score_set.urn
 
@@ -107,6 +111,44 @@ def test_get_gene_valid_no_data(client, setup_router_db):
     assert body["scoreSets"] == []
     assert body["total"] == 0
     assert body["totalScoredVariants"] == 0
+    assert body["totalUnmapped"] == 0
+
+
+def test_get_gene_counts_unmapped_score_sets_named_for_the_gene(client, session, setup_router_db):
+    mapped_urn = _make_score_set(client, session, title="BRCA1 mapped score set", target_name=VALID_GENE)
+    _make_score_set(client, session, title="BRCA1 unmapped score set", target_name=VALID_GENE, mapped=False)
+
+    with patch("mavedb.routers.genes.fetch_gene_info") as mock_fetch:
+        mock_fetch.return_value = _hgnc_gene_info()
+        response = client.get(f"/api/v1/genes/{VALID_GENE}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [score_set["urn"] for score_set in body["scoreSets"]] == [mapped_urn]
+    assert body["total"] == 1
+    assert body["totalUnmapped"] == 1
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"target_name": VALID_GENE, "symbol": "TP53"},
+        {"target_name": VALID_GENE.lower(), "mapped": False},
+        {"target_name": "BRCA1 RING domain", "mapped": False},
+        {"target_name": VALID_GENE, "mapped": False, "private": True},
+        {"target_name": VALID_GENE, "mapped": False, "published": False},
+    ],
+    ids=["mapped-to-another-gene", "name-differs-in-case", "name-not-exact", "private", "unpublished"],
+)
+def test_get_gene_does_not_count_as_unmapped(client, session, setup_router_db, overrides):
+    _make_score_set(client, session, **overrides)
+
+    with patch("mavedb.routers.genes.fetch_gene_info") as mock_fetch:
+        mock_fetch.return_value = _hgnc_gene_info()
+        response = client.get(f"/api/v1/genes/{VALID_GENE}")
+
+    assert response.status_code == 200
+    assert response.json()["totalUnmapped"] == 0
 
 
 def test_get_gene_slash_symbol_returns_404():

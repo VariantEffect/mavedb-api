@@ -16,6 +16,8 @@ class GeneResponse(BaseModel):
     offset: int
     total: int
     total_scored_variants: int
+    # Published score sets with a target named for this gene that hasn't been mapped, so they aren't listed here.
+    total_unmapped: int
 
     class Config:
         from_attributes = True
