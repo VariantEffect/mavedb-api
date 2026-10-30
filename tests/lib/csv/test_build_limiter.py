@@ -1,6 +1,10 @@
 # ruff: noqa: E402
 
+import asyncio
+import gc
+import itertools
 import threading
+from contextlib import ExitStack
 
 import pytest
 
@@ -9,7 +13,12 @@ pytest.importorskip("fastapi")
 from fastapi import HTTPException
 
 from mavedb.lib.csv import build_limiter
-from mavedb.lib.csv.build_limiter import csv_build_slot, rows_to_build
+from mavedb.lib.csv.build_limiter import (
+    BuildSlotStreamingResponse,
+    csv_build_slot,
+    rows_to_build,
+    stream_in_build_slot,
+)
 
 
 @pytest.fixture
@@ -67,3 +76,74 @@ class TestCsvBuildSlot:
 
         with csv_build_slot(10_000_000):
             pass
+
+
+def _held_slot(rows: int) -> ExitStack:
+    with ExitStack() as setup:
+        setup.enter_context(csv_build_slot(rows))
+        return setup.pop_all()
+
+
+@pytest.mark.unit
+class TestStreamInBuildSlot:
+    def test_stream_in_build_slot_holds_the_slot_until_the_stream_is_sent(self, one_slot):
+        stream = stream_in_build_slot(_held_slot(5000), iter(["a", "b"]))
+
+        assert not one_slot.acquire(blocking=False)
+        assert list(stream) == ["a", "b"]
+        assert one_slot.acquire(blocking=False)
+
+    def test_stream_in_build_slot_client_disconnects_releases_the_slot(self, one_slot):
+        stream = stream_in_build_slot(_held_slot(5000), iter(["a", "b"]))
+        next(stream)
+
+        stream.close()
+
+        assert one_slot.acquire(blocking=False)
+
+    def test_stream_in_build_slot_build_fails_releases_the_slot(self, one_slot):
+        def failing():
+            yield "a"
+            raise RuntimeError("build failed")
+
+        stream = stream_in_build_slot(_held_slot(5000), failing())
+
+        with pytest.raises(RuntimeError):
+            list(stream)
+        assert one_slot.acquire(blocking=False)
+
+    def test_stream_in_build_slot_never_sent_releases_the_slot(self, one_slot):
+        stream = stream_in_build_slot(_held_slot(5000), iter(["a"]))
+
+        del stream
+        gc.collect()
+
+        assert one_slot.acquire(blocking=False)
+
+
+class TestBuildSlotStreamingResponse:
+    def test_build_slot_streaming_response_client_disconnects_releases_the_slot(self, one_slot):
+        response = BuildSlotStreamingResponse(_held_slot(5000), itertools.repeat(b"x"))
+
+        async def send_until_the_client_leaves():
+            first_chunk_sent = asyncio.Event()
+
+            async def receive():
+                await first_chunk_sent.wait()
+                return {"type": "http.disconnect"}
+
+            async def send(message):
+                if message["type"] == "http.response.body":
+                    first_chunk_sent.set()
+
+            # ASGI 2.3, as uvicorn reports, is the version where Starlette listens for the disconnect.
+            await response({"type": "http", "asgi": {"spec_version": "2.3"}}, receive, send)
+
+        # The stream and the cancelled send form a reference cycle, so the garbage collector would release the
+        # slot too; this checks the response does it without waiting for that.
+        gc.disable()
+        try:
+            asyncio.run(send_until_the_client_leaves())
+            assert one_slot.acquire(blocking=False)
+        finally:
+            gc.enable()

@@ -2,6 +2,7 @@ import io
 import json
 import logging
 import time
+from contextlib import ExitStack
 from datetime import date, datetime
 from functools import partial
 from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
@@ -17,7 +18,7 @@ from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import StreamingResponse
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError, MultipleResultsFound
 from sqlalchemy.orm import Session
@@ -44,7 +45,7 @@ from mavedb.lib.authorization import (
 from mavedb.lib.clinical_controls import get_clinical_control_options, get_clinical_controls_with_variant_urns
 from mavedb.lib.collections import readable_official_collections
 from mavedb.lib.contributors import find_or_create_contributor
-from mavedb.lib.csv.build_limiter import csv_build_slot, rows_to_build
+from mavedb.lib.csv.build_limiter import BuildSlotStreamingResponse, csv_build_slot, rows_to_build
 from mavedb.lib.csv.columns import variants_to_csv_rows
 from mavedb.lib.csv.deprecated_params import (
     DROP_NA_COLUMNS_DESCRIPTION,
@@ -130,6 +131,8 @@ TAG_NAME = "Score Sets"
 logger = logging.getLogger(__name__)
 
 SCORE_SET_SEARCH_MAX_LIMIT = 100
+
+_LEAN_VARIANTS = TypeAdapter(List[LeanVariant])
 SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS = 40
 
 
@@ -988,7 +991,6 @@ def get_score_set_csv_namespaces(
 def get_score_set_lean_variants(
     *,
     urn: str,
-    response: Response,
     as_of: Optional[datetime] = Query(
         default=None,
         description=(
@@ -1011,10 +1013,25 @@ def get_score_set_lean_variants(
     resolved value is echoed in the X-As-Of response header so the content-time is a visible fact.
     """
     save_to_logging_context({"requested_resource": urn, "resource_property": "lean-variants", "as_of": as_of})
-    response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
 
     score_set = fetch_score_set_by_urn(db, urn, user_data, None, False)
-    return get_lean_score_set_variants(db, score_set, as_of=as_of)
+
+    # The whole-set query outruns the API's default statement timeout on the largest score sets.
+    allow_long_statements(db)
+
+    with csv_build_slot(rows_to_build(score_set.num_variants, None, None)):
+        records = get_lean_score_set_variants(db, score_set, as_of=as_of)
+        # Validating and encoding every row is most of the build's CPU. Left to response_model, it would run after
+        # the route returns, outside the slot.
+        body = _LEAN_VARIANTS.dump_json(
+            _LEAN_VARIANTS.validate_python(records, from_attributes=True), by_alias=True, exclude_none=True
+        )
+
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"X-As-Of": as_of.isoformat() if as_of is not None else "current"},
+    )
 
 
 def _stream_score_set_variant_details(
@@ -1109,8 +1126,17 @@ def get_score_set_variant_details(
         for sc in score_set.score_calibrations
         if sc.id is not None and has_permission(user_data, sc, Action.READ).permitted
     }
-    variants = get_annotatable_variants(db, score_set, as_of=as_of)
-    return StreamingResponse(
+    # The whole-set queries outrun the API's default statement timeout on the largest score sets.
+    allow_long_statements(db)
+
+    with ExitStack() as setup:
+        setup.enter_context(csv_build_slot(rows_to_build(score_set.num_variants, None, None)))
+        variants = get_annotatable_variants(db, score_set, as_of=as_of)
+        # The stream builds the details as it's sent, so it holds the slot from here on.
+        slot = setup.pop_all()
+
+    return BuildSlotStreamingResponse(
+        slot,
         _stream_score_set_variant_details(
             db,
             variants,
