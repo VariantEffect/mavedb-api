@@ -12,7 +12,6 @@ class RawReadIdentifierCreate(RawReadIdentifierBase):
 
 # Properties shared by models stored in DB
 class SavedRawReadIdentifier(RawReadIdentifierBase):
-    id: int
     record_type: str = None  # type: ignore
     url: str
 

@@ -1,11 +1,17 @@
 from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from mavedb import deps
-from mavedb.models.raw_read_identifier import RawReadIdentifier
+from mavedb.lib.authorization import get_principal
+from mavedb.lib.identifier_search import identifier_sources_on_records, search_identifiers_on_readable_records
+from mavedb.lib.permissions.principal import Principal
+from mavedb.models.raw_read_identifier import (
+    ExperimentRawReadIdentifier,
+    ExperimentSetRawReadIdentifier,
+    ScoreSetRawReadIdentifier,
+)
 from mavedb.routers.shared import BASE_400_RESPONSE, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models import raw_read_identifier
 from mavedb.view_models.search import TextSearch
@@ -31,20 +37,22 @@ metadata = {
     responses={**BASE_400_RESPONSE},
     summary="Search Raw Read identifiers",
 )
-def search_raw_read_identifiers(search: TextSearch, db: Session = Depends(deps.get_db)) -> Any:
+def search_raw_read_identifiers(
+    search: TextSearch,
+    db: Session = Depends(deps.get_db),
+    principal: Principal = Depends(get_principal),
+) -> Any:
     """
-    Search Raw Read identifiers.
+    Search the Raw Read identifiers cited by records you can read.
     """
-
-    query = db.query(RawReadIdentifier)
-
-    if search.text and len(search.text.strip()) > 0:
-        lower_search_text = search.text.strip().lower()
-        query = query.filter(func.lower(RawReadIdentifier.identifier).contains(lower_search_text))
-    else:
+    if not search.text or not search.text.strip():
         raise HTTPException(status_code=400, detail="Search text is required")
 
-    items = query.order_by(RawReadIdentifier.identifier).limit(50).all()
-    if not items:
-        items = []
-    return items
+    return search_identifiers_on_readable_records(
+        db,
+        principal,
+        search.text.strip(),
+        identifier_sources_on_records(
+            ScoreSetRawReadIdentifier, ExperimentRawReadIdentifier, ExperimentSetRawReadIdentifier
+        ),
+    )
