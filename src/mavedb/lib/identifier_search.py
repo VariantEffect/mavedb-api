@@ -7,7 +7,7 @@ web framework, and view models import that module.
 from typing import Any, Sequence, Union
 
 from sqlalchemy import Select, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only, selectinload
 
 from mavedb.lib.permissions.experiment import ExperimentViewer
 from mavedb.lib.permissions.experiment_set import ExperimentSetViewer
@@ -52,8 +52,8 @@ def search_identifiers_on_readable_records(
     Returns:
         Up to ``IDENTIFIER_SEARCH_LIMIT`` link rows, one per distinct identifier.
     """
-    # Read access to a record is decided in Python, so the filter runs before the limit. These tables hold a
-    # few hundred rows. Once row-level security enforces reads (#808), the database does this filtering.
+    # Read access to a record is decided in Python, so the filter runs before the limit, over every matching row
+    # (thousands for a short prefix). Once row-level security enforces reads (#808), the database does this filtering.
     found: dict[str, ExternalIdentifier] = {}
     for link, viewer_class, query in sources:
         viewer = principal.viewer_for(viewer_class)
@@ -65,6 +65,18 @@ def search_identifiers_on_readable_records(
                 found[link_row.identifier] = link_row
 
     return [found[identifier] for identifier in sorted(found)][:IDENTIFIER_SEARCH_LIMIT]
+
+
+def readable_record_loads(model: Union[type[ScoreSet], type[Experiment], type[ExperimentSet]]) -> tuple:
+    """Load only what a viewer reads to decide whether a record is readable, with its contributors in one query.
+
+    Args:
+        model: The record model a source selects.
+
+    Returns:
+        Loader options for the source's query.
+    """
+    return (load_only(model.id, model.private, model.created_by_id), selectinload(model.contributors))
 
 
 def identifier_sources_on_records(
@@ -86,18 +98,22 @@ def identifier_sources_on_records(
         (
             score_set_link,
             ScoreSetViewer,
-            select(score_set_link, ScoreSet).join(ScoreSet, ScoreSet.id == score_set_link.score_set_id),
+            select(score_set_link, ScoreSet)
+            .join(ScoreSet, ScoreSet.id == score_set_link.score_set_id)
+            .options(*readable_record_loads(ScoreSet)),
         ),
         (
             experiment_link,
             ExperimentViewer,
-            select(experiment_link, Experiment).join(Experiment, Experiment.id == experiment_link.experiment_id),
+            select(experiment_link, Experiment)
+            .join(Experiment, Experiment.id == experiment_link.experiment_id)
+            .options(*readable_record_loads(Experiment)),
         ),
         (
             experiment_set_link,
             ExperimentSetViewer,
-            select(experiment_set_link, ExperimentSet).join(
-                ExperimentSet, ExperimentSet.id == experiment_set_link.experiment_set_id
-            ),
+            select(experiment_set_link, ExperimentSet)
+            .join(ExperimentSet, ExperimentSet.id == experiment_set_link.experiment_set_id)
+            .options(*readable_record_loads(ExperimentSet)),
         ),
     ]

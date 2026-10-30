@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from mavedb import deps
 from mavedb.lib.authorization import get_principal
-from mavedb.lib.identifier_search import search_identifiers_on_readable_records
+from mavedb.lib.identifier_search import readable_record_loads, search_identifiers_on_readable_records
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_set import ScoreSetViewer
 from mavedb.lib.validation.constants.identifier import valid_dbnames
@@ -67,7 +67,8 @@ def search_target_gene_identifiers(
                 select(TargetGeneExternalIdentifier, ScoreSet)
                 .join(TargetGeneExternalIdentifier.target_gene)
                 .join(TargetGene.score_set)
-                .where(TargetGeneExternalIdentifier.db_name == db_name),
+                .where(TargetGeneExternalIdentifier.db_name == db_name)
+                .options(*readable_record_loads(ScoreSet)),
             )
         ],
     )
