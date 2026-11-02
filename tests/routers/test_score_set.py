@@ -4236,6 +4236,7 @@ def test_whole_set_views_every_slot_held_refuses_large_score_sets(
     held = threading.BoundedSemaphore(1)
     held.acquire()
     monkeypatch.setattr(build_limiter, "_slots", held)
+    monkeypatch.setattr(build_limiter, "_streamed_download_slots", held)
     monkeypatch.setattr(build_limiter, "CSV_BUILD_MIN_ROWS", 1)
     monkeypatch.setattr(build_limiter, "CSV_BUILD_WAIT_SECONDS", 0.01)
 
@@ -4259,6 +4260,7 @@ def test_whole_set_views_response_sent_releases_the_build_slot(
 
     one_slot = threading.BoundedSemaphore(1)
     monkeypatch.setattr(build_limiter, "_slots", one_slot)
+    monkeypatch.setattr(build_limiter, "_streamed_download_slots", one_slot)
     monkeypatch.setattr(build_limiter, "CSV_BUILD_MIN_ROWS", 1)
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/{path}")

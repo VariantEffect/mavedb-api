@@ -2,8 +2,9 @@
 
 Building a large whole-set response is CPU-bound Python, and Python runs one thread at a time per process. A few
 large builds running at once in one API process starve everything else that process serves, so each process runs
-only a few at a time and refuses the rest with a 503 the client can retry. All of these responses share one set of
-slots, since they compete for the same CPU.
+only a few at a time and refuses the rest with a 503 the client can retry. These responses share one set of slots,
+since they compete for the same CPU, except the variant details download, which has its own (see
+``STREAMED_DOWNLOAD_SLOTS``).
 
 TODO(#845, #771): A stopgap. Remove it once full exports are cheap or served from cache, and ``csv_build_refused``
 no longer appears in the request logs.
@@ -18,6 +19,7 @@ from typing import Any, Optional, TypeVar
 
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 from starlette.types import Receive, Scope, Send
 
 from mavedb.constants import MAVEDB_BULK_DOWNLOAD_URL
@@ -29,6 +31,9 @@ T = TypeVar("T")
 
 # Large builds one API process runs at once; 0 disables the cap.
 CSV_BUILD_SLOTS = int(os.getenv("CSV_BUILD_SLOTS", "2"))
+# A streamed download holds its slot until the client has read all of it. A slow reader holds one for minutes while
+# using almost no CPU, so streamed downloads get their own slots rather than blocking the score set page.
+STREAMED_DOWNLOAD_SLOTS = int(os.getenv("STREAMED_DOWNLOAD_SLOTS", "2"))
 # Builds of fewer rows skip the cap, so previews and small score sets are never refused.
 CSV_BUILD_MIN_ROWS = int(os.getenv("CSV_BUILD_MIN_ROWS", "10000"))
 # How long a request waits for a slot. Leaves most of the load balancer's 60s idle timeout for the build itself.
@@ -41,6 +46,7 @@ BUSY_DETAIL = (
 )
 
 _slots = threading.BoundedSemaphore(CSV_BUILD_SLOTS) if CSV_BUILD_SLOTS else None
+_streamed_download_slots = threading.BoundedSemaphore(STREAMED_DOWNLOAD_SLOTS) if STREAMED_DOWNLOAD_SLOTS else None
 
 
 def rows_to_build(num_variants: Optional[int], start: Optional[int], limit: Optional[int]) -> int:
@@ -51,32 +57,41 @@ def rows_to_build(num_variants: Optional[int], start: Optional[int], limit: Opti
 
 
 @contextmanager
-def csv_build_slot(rows: int) -> Iterator[None]:
+def csv_build_slot(rows: int, db: Session, *, streamed_download: bool = False) -> Iterator[None]:
     """Hold one of this process's CSV build slots while building ``rows`` rows.
 
     Waits up to ``CSV_BUILD_WAIT_SECONDS`` for a slot, then raises a 503 with ``Retry-After``. Builds smaller than
-    ``CSV_BUILD_MIN_ROWS`` run without a slot.
+    ``CSV_BUILD_MIN_ROWS`` run without a slot. Pass ``streamed_download`` to take a slot from the streamed downloads'
+    own set.
+
+    A request that has to wait commits ``db`` first, which ends anything scoped to its transaction, so call
+    ``allow_long_statements`` inside the slot.
     """
-    if _slots is None or rows < CSV_BUILD_MIN_ROWS:
+    slots = _streamed_download_slots if streamed_download else _slots
+    if slots is None or rows < CSV_BUILD_MIN_ROWS:
         yield
         return
 
-    if not _slots.acquire(timeout=CSV_BUILD_WAIT_SECONDS):
-        save_to_logging_context({"csv_build_refused": True, "csv_build_rows": rows})
-        logger.info(msg="Refused a large CSV build; every build slot is in use.", extra=logging_context())
-        raise HTTPException(status_code=503, detail=BUSY_DETAIL, headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
+    if not slots.acquire(blocking=False):
+        # Give the request's connection back to the pool while it waits; enough waiters would otherwise hold every
+        # connection, and requests that need none of the slots would fail.
+        db.commit()
+        if not slots.acquire(timeout=CSV_BUILD_WAIT_SECONDS):
+            save_to_logging_context({"csv_build_refused": True, "csv_build_rows": rows})
+            logger.info(msg="Refused a large CSV build; every build slot is in use.", extra=logging_context())
+            raise HTTPException(status_code=503, detail=BUSY_DETAIL, headers={"Retry-After": str(RETRY_AFTER_SECONDS)})
 
     try:
         yield
     finally:
-        _slots.release()
+        slots.release()
 
 
 def stream_in_build_slot(slot: ExitStack, chunks: Iterable[T]) -> Generator[T, None, None]:
     """Keep the build slot held by ``slot`` until a streamed response has sent ``chunks``.
 
     A streamed response is built while it's sent, after the route returns, so the slot has to outlive the route.
-    Take it with ``slot.enter_context(csv_build_slot(rows))``, so a refusal is a 503 before the response starts,
+    Take it with ``slot.enter_context(csv_build_slot(rows, db))``, so a refusal is a 503 before the response starts,
     do any up-front queries, then hand the slot over with ``slot.pop_all()``. It's released when the stream
     finishes, fails or is closed. Send it with :class:`BuildSlotStreamingResponse`, which closes it when the client
     goes away.
