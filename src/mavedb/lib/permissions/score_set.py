@@ -1,9 +1,11 @@
+from dataclasses import dataclass
 from typing import Optional
 
 from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.models import PermissionResponse
 from mavedb.lib.permissions.utils import deny_action_for_entity, roles_permitted
+from mavedb.lib.permissions.viewer import Viewer
 from mavedb.lib.types.authentication import UserData
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.score_set import ScoreSet
@@ -71,6 +73,15 @@ def has_permission(user_data: Optional[UserData], entity: ScoreSet, action: Acti
         user_is_contributor,
         active_roles,
     )
+
+
+@dataclass(frozen=True)
+class ScoreSetViewer(Viewer[ScoreSet]):
+    """Which score sets a caller may read, for reads that reach a score set through something else."""
+
+    @staticmethod
+    def _has_permission(user_data: Optional[UserData], entity: ScoreSet, action: Action) -> PermissionResponse:
+        return has_permission(user_data, entity, action)
 
 
 def _handle_read_action(

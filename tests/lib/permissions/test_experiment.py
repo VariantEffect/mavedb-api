@@ -11,6 +11,7 @@ from unittest import mock
 
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.experiment import (
+    ExperimentViewer,
     _handle_add_score_set_action,
     _handle_delete_action,
     _handle_read_action,
@@ -287,3 +288,25 @@ class TestExperimentAddScoreSetActionHandler:
         assert result.permitted == test_case.should_be_permitted
         if not test_case.should_be_permitted and test_case.expected_code:
             assert result.http_code == test_case.expected_code
+
+
+class TestExperimentViewer:
+    """Test that the viewer applies experiment READ rules. The caching and fail-closed behaviour it inherits are
+    covered by test_viewer.py."""
+
+    @pytest.mark.parametrize(
+        "user_type, entity_state, expected",
+        [
+            ("anonymous", "private", False),
+            ("other_user", "private", False),
+            ("owner", "private", True),
+            ("anonymous", "published", True),
+        ],
+        ids=["anonymous-private", "other-user-private", "owner-private", "anonymous-published"],
+    )
+    def test_may_read_follows_experiment_read_rules(
+        self, entity_helper: EntityTestHelper, user_type: str, entity_state: str, expected: bool
+    ) -> None:
+        viewer = ExperimentViewer(entity_helper.create_user_data(user_type))
+
+        assert viewer.may_read(entity_helper.create_experiment(entity_state)) is expected

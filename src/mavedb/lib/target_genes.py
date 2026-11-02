@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import Iterable, Optional
 
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
@@ -9,9 +9,11 @@ from mavedb.models.contributor import Contributor
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
+from mavedb.models.target_gene_external_identifier import TargetGeneExternalIdentifier
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.models.user import User
+from mavedb.view_models.external_gene_identifier_offset import ExternalGeneIdentifierOffsetCreate
 from mavedb.view_models.search import TextSearch
 
 logger = logging.getLogger(__name__)
@@ -251,3 +253,24 @@ def get_target_coding_info(score_set: ScoreSet) -> tuple[bool, Optional[str]]:
         )
 
     return True, transcript_accession
+
+
+def target_gene_external_identifiers(
+    external_identifiers: Iterable[ExternalGeneIdentifierOffsetCreate],
+) -> list[TargetGeneExternalIdentifier]:
+    """Rows for a target gene's submitted external identifiers.
+
+    A target gene holds one identifier per database. When a submission names a database twice, the last one
+    wins, as it did when each database had its own offset table.
+    """
+    by_db_name = {
+        external_identifier.identifier.db_name: external_identifier for external_identifier in external_identifiers
+    }
+    return [
+        TargetGeneExternalIdentifier(
+            db_name=db_name,
+            identifier=external_identifier.identifier.identifier,
+            offset=external_identifier.offset,
+        )
+        for db_name, external_identifier in by_db_name.items()
+    ]

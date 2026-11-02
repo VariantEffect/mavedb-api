@@ -27,9 +27,7 @@ from mavedb.lib.validation.constants.general import null_values_list
 from mavedb.models.allele import Allele
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
-from mavedb.models.doi_identifier import DoiIdentifier
-from mavedb.models.ensembl_identifier import EnsemblIdentifier
-from mavedb.models.ensembl_offset import EnsemblOffset
+from mavedb.models.doi_identifier import ScoreSetDoiIdentifier
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
@@ -37,18 +35,15 @@ from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.publication_identifier import PublicationIdentifier
-from mavedb.models.refseq_identifier import RefseqIdentifier
-from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.score_set_publication_identifier import (
     ScoreSetPublicationIdentifierAssociation,
 )
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
+from mavedb.models.target_gene_external_identifier import TargetGeneExternalIdentifier
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.taxonomy import Taxonomy
-from mavedb.models.uniprot_identifier import UniprotIdentifier
-from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from mavedb.view_models.search import ControlledKeywordFilterOption, ScoreSetsSearch
@@ -141,26 +136,10 @@ def build_search_score_sets_query_filter(
                         f"""$[*].name ? (@ like_regex "{lower_search_text}" flag "i")""",
                     )
                 ),
-                ScoreSet.doi_identifiers.any(func.lower(DoiIdentifier.identifier).icontains(lower_search_text)),
+                ScoreSet.doi_identifiers.any(func.lower(ScoreSetDoiIdentifier.identifier).icontains(lower_search_text)),
                 ScoreSet.target_genes.any(
-                    TargetGene.uniprot_offset.has(
-                        UniprotOffset.identifier.has(
-                            func.lower(UniprotIdentifier.identifier).icontains(lower_search_text)
-                        )
-                    )
-                ),
-                ScoreSet.target_genes.any(
-                    TargetGene.refseq_offset.has(
-                        RefseqOffset.identifier.has(
-                            func.lower(RefseqIdentifier.identifier).icontains(lower_search_text)
-                        )
-                    )
-                ),
-                ScoreSet.target_genes.any(
-                    TargetGene.ensembl_offset.has(
-                        EnsemblOffset.identifier.has(
-                            func.lower(EnsemblIdentifier.identifier).icontains(lower_search_text)
-                        )
+                    TargetGene.external_identifiers.any(
+                        func.lower(TargetGeneExternalIdentifier.identifier).icontains(lower_search_text)
                     )
                 ),
             )
@@ -262,9 +241,7 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
                         ScoreSetPublicationIdentifierAssociation.publication
                     ),
                     joinedload(ScoreSet.target_genes).options(
-                        joinedload(TargetGene.ensembl_offset).joinedload(EnsemblOffset.identifier),
-                        joinedload(TargetGene.refseq_offset).joinedload(RefseqOffset.identifier),
-                        joinedload(TargetGene.uniprot_offset).joinedload(UniprotOffset.identifier),
+                        selectinload(TargetGene.external_identifiers),
                         joinedload(TargetGene.target_sequence).joinedload(TargetSequence.taxonomy),
                         joinedload(TargetGene.target_accession),
                     ),
@@ -276,9 +253,7 @@ def search_score_sets(db: Session, owner_or_contributor: Optional[User], search:
                 ScoreSetPublicationIdentifierAssociation.publication
             ),
             selectinload(ScoreSet.target_genes).options(
-                joinedload(TargetGene.ensembl_offset).joinedload(EnsemblOffset.identifier),
-                joinedload(TargetGene.refseq_offset).joinedload(RefseqOffset.identifier),
-                joinedload(TargetGene.uniprot_offset).joinedload(UniprotOffset.identifier),
+                selectinload(TargetGene.external_identifiers),
                 joinedload(TargetGene.target_sequence).joinedload(TargetSequence.taxonomy),
                 joinedload(TargetGene.target_accession),
             ),
