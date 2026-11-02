@@ -85,7 +85,8 @@ def _call_in_logging_context_scope(initial: dict[str, Any], fn: Callable[[], T])
     data = _WriteTrackingDict(initial)
     with bound_logging_context(data):
         result = fn()
-    return result, {key: data[key] for key in data.written}
+    # Plain data only on the way back too: a process pool pickles it, and an odd value must not fail the work.
+    return result, {key: value for key in data.written if (value := _portable(data[key])) is not _NOT_PORTABLE}
 
 
 class _WriteTrackingDict(dict):

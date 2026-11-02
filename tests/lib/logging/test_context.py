@@ -54,6 +54,12 @@ def record_in_child(value: str) -> str:
     return value.upper()
 
 
+def record_lock_in_child(value: str) -> str:
+    """Module level, so a process pool can pickle it."""
+    save_to_logging_context({"child_lock": threading.Lock(), "child_fact": value})
+    return value.upper()
+
+
 def test_helpers_are_no_ops_outside_a_scope():
     assert save_to_logging_context({"key": "value"}) == {}
     increment_logging_context("counter")
@@ -213,6 +219,39 @@ def test_executor_hop_leaves_values_that_are_not_plain_data_behind():
     assert ctx["lock"] is lock
     assert ctx["counter"] == 3
     assert ctx["child_fact"] == "c"
+
+
+def test_executor_hop_child_saves_value_that_is_not_plain_data_still_returns_the_result():
+    async def run():
+        with logging_context_scope() as ctx:
+            with ProcessPoolExecutor(1) as executor:
+                result = await run_in_executor_with_logging_context(
+                    executor, functools.partial(record_lock_in_child, "c")
+                )
+            return result, ctx
+
+    result, ctx = asyncio.run(run())
+
+    assert result == "C"
+    assert ctx == {"child_fact": "c"}
+
+
+def test_scopes_in_concurrent_tasks_keep_their_own_entries():
+    async def one(name: str) -> dict:
+        with logging_context_scope({"name": name}) as ctx:
+            await asyncio.sleep(0)
+            save_to_logging_context({"fact": name})
+            increment_logging_context("counter")
+            await asyncio.sleep(0)
+            return dict(ctx)
+
+    async def run():
+        return await asyncio.gather(one("a"), one("b"))
+
+    assert asyncio.run(run()) == [
+        {"name": "a", "fact": "a", "counter": 1},
+        {"name": "b", "fact": "b", "counter": 1},
+    ]
 
 
 def test_executor_hop_propagates_the_child_exception():
