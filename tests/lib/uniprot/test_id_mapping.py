@@ -9,6 +9,7 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
+from mavedb.lib.logging.context import logging_context_scope
 from mavedb.lib.uniprot.constants import SWISS_PROT_ENTRY_TYPE
 from mavedb.lib.uniprot.id_mapping import UniProtIDMappingAPI
 from tests.helpers.constants import (
@@ -294,3 +295,36 @@ def test_extract_uniprot_id_from_results_empty():
     results = {}
     mappings = UniProtIDMappingAPI.extract_uniprot_id_from_results(results)
     assert mappings == []
+
+
+### Logging across several target genes
+
+
+def test_id_mapping_one_job_per_target_gene_records_each_without_collisions(
+    uniprot_id_mapping_api: UniProtIDMappingAPI,
+):
+    def respond(payload):
+        return mock.Mock(json=mock.Mock(return_value=payload), raise_for_status=mock.Mock())
+
+    with (
+        mock.patch.object(uniprot_id_mapping_api.session, "post") as mock_post,
+        mock.patch.object(uniprot_id_mapping_api.session, "get") as mock_get,
+        logging_context_scope() as ctx,
+    ):
+        for job_id, accession in (("job-1", "NM_0001.1"), ("job-2", "NM_0002.1")):
+            mock_post.return_value = respond({"jobId": job_id})
+            mock_get.side_effect = [
+                respond(TEST_UNIPROT_FINISHED_JOB_STATUS_RESPONSE),
+                respond(TEST_UNIPROT_REDIRECT_RESPONSE),
+                respond(TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE),
+            ]
+
+            submitted = uniprot_id_mapping_api.submit_id_mapping("RefSeq_Nucleotide", "UniProtKB", [accession])
+            assert uniprot_id_mapping_api.check_id_mapping_results_ready(submitted)
+            uniprot_id_mapping_api.extract_uniprot_id_from_results(
+                uniprot_id_mapping_api.get_id_mapping_results(submitted)
+            )
+
+    assert [submission["ids"] for submission in ctx["uniprot_submissions"]] == [["NM_0001.1"], ["NM_0002.1"]]
+    assert ctx["uniprot_job_id"] == "job-2"
+    assert ctx["total_uniprot_results"] == 2 * len(TEST_UNIPROT_ID_MAPPING_SWISS_PROT_RESPONSE["results"])

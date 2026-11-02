@@ -20,6 +20,7 @@ from mavedb.lib.clingen.services import (
     ClinGenAlleleRegistryService,
     ClinGenLdhService,
 )
+from mavedb.lib.logging.context import logging_context_scope
 from mavedb.lib.utils import batched
 
 TEST_CLINGEN_URL = "https://pytest.clingen.com"
@@ -262,6 +263,23 @@ class TestClinGenAlleleRegistryService:
         assert isinstance(result, list)
         assert result[0]["@id"].endswith("CA123")
         mock_put.assert_called_once()
+
+    @patch("mavedb.lib.clingen.services.requests.put")
+    @patch("mavedb.lib.clingen.services.ClinGenAlleleRegistryService.construct_auth_url")
+    def test_dispatch_submissions_batches_of_different_sizes_count_every_submission(
+        self, mock_auth_url, mock_put, car_service
+    ):
+        mock_auth_url.return_value = "https://example.com/api?auth"
+        mock_put.side_effect = lambda url, data, timeout: MagicMock(
+            json=MagicMock(return_value=[{"@id": f"CA{i}"} for i, _ in enumerate(data.split("\n"))])
+        )
+
+        with logging_context_scope() as ctx:
+            car_service.dispatch_submissions(["NM_0001:c.1A>G", "NM_0001:c.2A>G"])
+            car_service.dispatch_submissions(["NM_0001:c.3A>G"])
+
+        assert ctx["car_submission_count"] == 3
+        assert ctx["car_submission_response_count"] == 3
 
     @patch("mavedb.lib.clingen.services.requests.put")
     @patch("mavedb.lib.clingen.services.ClinGenAlleleRegistryService.construct_auth_url")

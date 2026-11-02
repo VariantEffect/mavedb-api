@@ -15,6 +15,7 @@ from mavedb.lib.clingen.constants import (
     GENBOREE_AUTH_URL,
 )
 from mavedb.lib.logging.context import (
+    increment_logging_context,
     logging_context,
     record_exception,
     save_to_logging_context,
@@ -80,7 +81,8 @@ class ClinGenAlleleRegistryService:
     def dispatch_submissions(
         self, content_submissions: list[str]
     ) -> list[Union[ClinGenAllele, ClinGenSubmissionError]]:
-        save_to_logging_context({"car_submission_count": len(content_submissions)})
+        # A job dispatches in batches, so these count across all of them.
+        increment_logging_context("car_submission_count", len(content_submissions))
 
         try:
             logger.info(msg="Dispatching ClinGen Allele Registry submission...", extra=logging_context())
@@ -99,7 +101,7 @@ class ClinGenAlleleRegistryService:
             return []
 
         response_data: list[Union[ClinGenAllele, ClinGenSubmissionError]] = response.json()
-        save_to_logging_context({"car_submission_response_count": len(response_data)})
+        increment_logging_context("car_submission_response_count", len(response_data))
         logger.info(msg="Successfully dispatched CAR submission.", extra=logging_context())
 
         return response_data
