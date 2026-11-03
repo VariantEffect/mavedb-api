@@ -1030,20 +1030,25 @@ def get_score_set_lean_variants(
 
 
 def _stream_lean_variants(batches: Iterable[Sequence[LeanVariantRecord]]) -> Iterator[bytes]:
-    """Encode ``batches`` as one JSON array, a chunk per batch.
+    """Encode ``batches`` as one JSON array, a chunk per batch, and log how long sending it took.
 
     Validating and encoding every row is most of the lean view's CPU, so it happens here as the response is sent,
     rather than in ``response_model`` after the whole set is built.
     """
-    # TODO#964: Serve NDJSON instead of writing the array by hand. The array keeps the response identical to the
-    # unstreamed one, so this could ship as a patch; NDJSON changes the format and needs a matching ui change.
-    return stream_json_array(
-        [
-            _LEAN_VARIANT.dump_json(variant, by_alias=True, exclude_none=True)
-            for variant in _LEAN_VARIANTS.validate_python(batch, from_attributes=True)
-        ]
-        for batch in batches
-    )
+    # The request log's duration ends when the route returns, before the stream is sent.
+    start = time.monotonic_ns()
+    try:
+        # TODO#964: Serve NDJSON instead of writing the array by hand. The array keeps the response identical to the
+        # unstreamed one, so this could ship as a patch; NDJSON changes the format and needs a matching ui change.
+        yield from stream_json_array(
+            [
+                _LEAN_VARIANT.dump_json(variant, by_alias=True, exclude_none=True)
+                for variant in _LEAN_VARIANTS.validate_python(batch, from_attributes=True)
+            ]
+            for batch in batches
+        )
+    finally:
+        save_to_logging_context({"stream_duration_ns": time.monotonic_ns() - start})
 
 
 def _stream_score_set_variant_details(

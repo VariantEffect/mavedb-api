@@ -22,6 +22,8 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
+from starlette_context import context, request_cycle_context
+
 from mavedb.lib.annotation.annotate import variant_study_result
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.csv import build_limiter
@@ -44,7 +46,7 @@ from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_calibration import ScoreCalibration as ScoreCalibrationDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
-from mavedb.routers.score_sets import _LEAN_VARIANTS, _annotation_stream_record
+from mavedb.routers.score_sets import _LEAN_VARIANTS, _annotation_stream_record, _stream_lean_variants
 from mavedb.view_models.lean_variant import LeanVariant
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
@@ -6461,6 +6463,13 @@ def test_get_lean_variants_sends_rows_before_the_last_row_is_read(app_, client, 
     assert cursor_open
     records = json.loads(b"".join(body for body, _ in chunks))
     assert [r["variantUrn"] for r in records] == [f"{score_set['urn']}#{n}" for n in range(1, count + 1)]
+
+
+def test_stream_lean_variants_stream_sent_logs_its_duration():
+    with request_cycle_context({}):
+        assert b"".join(_stream_lean_variants([[]])) == b"[]"
+
+        assert context["stream_duration_ns"] >= 0
 
 
 def test_get_lean_variants_failure_mid_stream_never_closes_the_array(app_, client, session, setup_router_db):
