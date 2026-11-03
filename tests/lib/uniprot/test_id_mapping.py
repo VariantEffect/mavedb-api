@@ -7,7 +7,6 @@ from requests.exceptions import HTTPError
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
-fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.logging.context import logging_context_scope
 from mavedb.lib.uniprot.constants import SWISS_PROT_ENTRY_TYPE

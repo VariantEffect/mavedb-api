@@ -9,7 +9,6 @@ import requests
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
-fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.clingen.constants import (
     CLINGEN_HTTP_TIMEOUT,
