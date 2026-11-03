@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from typing import Mapping, Optional, Union
+from typing import Iterable, Mapping, Optional, Union
 
 import eutils  # type: ignore
 import requests
@@ -15,35 +15,9 @@ from sqlalchemy.orm import Session
 from mavedb.lib.exceptions import AmbiguousIdentifierError, NonexistentIdentifierError
 from mavedb.lib.external_publications import Crossref, CrossrefWork, PublicationAuthors, Rxiv, RxivContentDetail
 from mavedb.lib.validation.publication import identifier_valid_for, infer_identifier_from_url, validate_db_name
-from mavedb.models.doi_identifier import DoiIdentifier
-from mavedb.models.ensembl_identifier import EnsemblIdentifier
-from mavedb.models.ensembl_offset import EnsemblOffset
 from mavedb.models.publication_identifier import PublicationIdentifier
-from mavedb.models.raw_read_identifier import RawReadIdentifier
-from mavedb.models.refseq_identifier import RefseqIdentifier
-from mavedb.models.refseq_offset import RefseqOffset
-from mavedb.models.target_gene import TargetGene
-from mavedb.models.uniprot_identifier import UniprotIdentifier
-from mavedb.models.uniprot_offset import UniprotOffset
 
 logger = logging.getLogger(__name__)
-
-# XXX these classes all have an "identifier" attribute but there's no superclass
-# to unify them ...
-
-EXTERNAL_GENE_IDENTIFIER_CLASSES = {
-    "Ensembl": EnsemblIdentifier,
-    "RefSeq": RefseqIdentifier,
-    "UniProt": UniprotIdentifier,
-}
-
-EXTERNAL_GENE_IDENTIFIER_OFFSET_CLASSES = {"Ensembl": EnsemblOffset, "RefSeq": RefseqOffset, "UniProt": UniprotOffset}
-
-EXTERNAL_GENE_IDENTIFIER_OFFSET_ATTRIBUTES = {
-    "Ensembl": "ensembl_offset",
-    "RefSeq": "refseq_offset",
-    "UniProt": "uniprot_offset",
-}
 
 
 class ExternalPublication:
@@ -172,20 +146,6 @@ class ExternalPublication:
         return self._article_cit_fmt.format(
             author=author, volume=volume, pages=pages, year=year, title=title, journal=journal, doi=doi_str
         )
-
-
-def find_or_create_doi_identifier(db: Session, identifier: str):
-    """
-    Find an existing DOI identifier record with the specified identifier string, or create a new one.
-
-    :param db: An active database session
-    :param identifier: A valid DOI identifier
-    :return: An existing DoiIdentifier containing the specified identifier string, or a new, unsaved DoiIdentifier
-    """
-    doi_identifier = db.query(DoiIdentifier).filter(DoiIdentifier.identifier == identifier).one_or_none()
-    if not doi_identifier:
-        doi_identifier = DoiIdentifier(identifier=identifier, db_name="DOI", url=f"https://doi.org/{identifier}")
-    return doi_identifier
 
 
 def fetch_pubmed_article(identifier: str) -> Optional[PubmedArticle]:
@@ -408,55 +368,12 @@ def find_or_create_publication_identifier(
     return create_generic_article(matched_article)
 
 
-def find_or_create_raw_read_identifier(db: Session, identifier: str):
-    raw_read_identifier = db.query(RawReadIdentifier).filter(RawReadIdentifier.identifier == identifier).one_or_none()
-    if not raw_read_identifier:
-        raw_read_identifier = RawReadIdentifier(
-            identifier=identifier, db_name="SRA", url=f"http://www.ebi.ac.uk/ena/data/view/{identifier}"
-        )
-    return raw_read_identifier
+def distinct_identifiers(identifiers: Iterable[str]) -> list[str]:
+    """The distinct identifier strings in a submitted list, in the order given.
 
-
-def find_or_create_external_gene_identifier(db: Session, db_name: str, identifier: str):
+    A record stores each identifier once, so a repeat in the submission would collide with itself.
     """
-    Find an existing gene identifier record with the specified gene database name and identifier string, or create a new
-    one.
-
-    :param db: An active database session
-    :param identifier: A valid identifier
-    :return: An existing EnsemblIdentifier, RefseqIdentifier, or UniprotIdentifier containing the specified identifier
-      string, or a new, unsaved instance of one of these classes
-    """
-
-    # TODO Handle key errors.
-    identifier_class = EXTERNAL_GENE_IDENTIFIER_CLASSES[db_name]
-    assert hasattr(identifier_class, "identifier")
-
-    external_gene_identifier = (
-        db.query(identifier_class).filter(identifier_class.identifier == identifier).one_or_none()
-    )
-
-    if not external_gene_identifier:
-        external_gene_identifier = identifier_class(
-            identifier=identifier,
-            db_name=db_name,
-            # TODO Set URL from identifier
-            # url=f'https://doi.org/{identifier}'
-        )
-    return external_gene_identifier
-
-
-def create_external_gene_identifier_offset(
-    db: Session, target_gene: TargetGene, db_name: str, identifier: str, offset: int
-):
-    external_gene_identifier = find_or_create_external_gene_identifier(db, db_name, identifier)
-
-    # TODO Handle key errors.
-    offset_class = EXTERNAL_GENE_IDENTIFIER_OFFSET_CLASSES[external_gene_identifier.db_name]
-    external_gene_identifier_offset = offset_class(identifier=external_gene_identifier, offset=offset)
-
-    identifier_offset_attribute = EXTERNAL_GENE_IDENTIFIER_OFFSET_ATTRIBUTES[external_gene_identifier.db_name]
-    setattr(target_gene, identifier_offset_attribute, external_gene_identifier_offset)
+    return list(dict.fromkeys(identifiers))
 
 
 def sanitize_target_sequence_label(label: str):

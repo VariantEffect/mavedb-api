@@ -7,9 +7,9 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
-from mavedb.db.mixins import ValidTime
 from mavedb.lib.hgvs import extract_accession
 from mavedb.models.enums.sequence_level import SequenceLevel
+from mavedb.models.mixins.valid_time import ValidTime
 
 if TYPE_CHECKING:
     from .mapping_record_allele import MappingRecordAllele
