@@ -1705,7 +1705,9 @@ def _cite_seeded_publication(session, score_set_urn):
     ).one()
     score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
     score_set.publication_identifier_associations.append(
-        ScoreSetPublicationIdentifierAssociation(publication=publication, primary=False)
+        ScoreSetPublicationIdentifierAssociation(
+            db_name=publication.db_name, identifier=publication.identifier, primary=False
+        )
     )
     session.commit()
 
