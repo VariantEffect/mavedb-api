@@ -151,6 +151,15 @@ logger.warning("Missing expected data", extra=job_manager.logging_context())
 
 This provides structured, correlated logs across the full request lifecycle (API request → pipeline creation → multiple job executions).
 
+The context ends up as one canonical log record per job, so each key should mean one thing for the whole job:
+
+- `save_to_context()` records a fact once. Saving a different value to a key that already has one is a collision: tests fail on it, and production keeps the newer value and lists the key under `context_collisions`.
+- For state where the latest value is what matters (a score set's `mapping_state`, a running total), pass `overwrite=True`.
+- Inside a loop, use `increment_context()` for counts and `append_to_context()` for items. `append_to_context()` keeps the first ten and counts all of them under `<key>_count`. Don't save a per-item cursor such as the variant being processed; put it in a `logger.debug` line instead.
+- Record caught exceptions with `record_exception()`. It sets `captured_exception_info` to the latest and keeps the first few in `captured_exceptions`.
+
+Library code called from a job records into the same context with the module-level functions in `mavedb.lib.logging.context`. Give its keys a domain prefix (`vep.alleles_to_link`) so they can't collide with the job's. Work sent to `ctx["pool"]` or a thread keeps its context only through `run_in_executor_with_logging_context()`.
+
 ## External Service Integration Pattern
 
 Jobs that submit to external services follow a consistent pattern:

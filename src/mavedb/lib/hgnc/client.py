@@ -7,7 +7,11 @@ import requests
 
 from mavedb.lib.exceptions import HGNCGeneNotFoundError, HGNCServiceError
 from mavedb.lib.hgnc.constants import HGNC_REST_BASE_URL
-from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
+from mavedb.lib.logging.context import (
+    logging_context,
+    record_exception,
+    save_to_logging_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +49,11 @@ def fetch_gene_info(symbol: str) -> HGNCGeneInfo:
         response.raise_for_status()
         data = response.json()
     except requests.exceptions.RequestException as exc:
-        save_to_logging_context(format_raised_exception_info_as_dict(exc))
+        record_exception(exc)
         logger.error(msg="HGNC REST request failed.", exc_info=exc, extra=logging_context())
         raise HGNCServiceError("Gene information service temporarily unavailable") from exc
     except ValueError as exc:
-        save_to_logging_context(format_raised_exception_info_as_dict(exc))
+        record_exception(exc)
         logger.error(msg="HGNC REST returned invalid JSON.", exc_info=exc, extra=logging_context())
         raise HGNCServiceError("Gene information service temporarily unavailable") from exc
 

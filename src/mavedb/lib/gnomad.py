@@ -246,7 +246,8 @@ def gnomad_variant_data_for_caids(
 
         logger.debug(f"Fetched {len(rows)} gnomAD variants from Athena (batch {chunk_index}).")
 
-        save_to_logging_context({"num_gnomad_variant_rows_fetched": len(result_rows)})
+        # A running total across chunks, so the latest value is the total.
+        save_to_logging_context({"num_gnomad_variant_rows_fetched": len(result_rows)}, overwrite=True)
         logger.debug(msg="Done fetching gnomAD variants from Athena", extra=logging_context())
 
     return result_rows

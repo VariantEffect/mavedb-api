@@ -11,7 +11,6 @@ single variant shape cannot catch a payload-dependent structural regression.
 import pytest
 
 pytest.importorskip("psycopg2")
-pytest.importorskip("fastapi")
 
 from mavedb.lib.annotation.annotate import (
     variant_functional_impact_statement,

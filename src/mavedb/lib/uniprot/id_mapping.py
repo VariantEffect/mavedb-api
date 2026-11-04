@@ -5,7 +5,12 @@ from typing import Any, Dict, List, Optional
 import requests
 from requests.adapters import HTTPAdapter, Retry
 
-from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.logging.context import (
+    append_to_logging_context,
+    increment_logging_context,
+    logging_context,
+    save_to_logging_context,
+)
 from mavedb.lib.types import uniprot
 from mavedb.lib.uniprot.constants import SWISS_PROT_ENTRY_TYPE, UNIPROT_ID_MAPPING_API_URL
 
@@ -50,7 +55,8 @@ class UniProtIDMappingAPI:
             logger.warning(msg="No IDs provided for UniProt ID mapping. Skipped submission.", extra=logging_context())
             return None
 
-        save_to_logging_context({"from_db": from_db, "to_db": to_db, "ids": ids})
+        # A job submits one mapping per target gene, so each submission is appended.
+        append_to_logging_context("uniprot_submissions", {"from_db": from_db, "to_db": to_db, "ids": ids})
         logger.debug(msg=f"Submitting Uniprot ID mapping for {len(ids)} IDs.", extra=logging_context())
 
         resp = self.session.post(
@@ -63,7 +69,6 @@ class UniProtIDMappingAPI:
             logger.error(msg=f"Response from UniProt does not contain jobId: {resp.json()}", extra=logging_context())
             return None
 
-        save_to_logging_context({"uniprot_job_id": resp.json()["jobId"]})
         logger.debug(msg="Submitted new Uniprot ID mapping job.", extra=logging_context())
         return resp.json()["jobId"]
 
@@ -81,17 +86,13 @@ class UniProtIDMappingAPI:
         Returns:
             bool: True if the job status is "FINISHED" within the polling attempts, False otherwise.
         """
-        save_to_logging_context(
-            {
-                "uniprot_job_id": job_id,
-                "polling_interval": self.polling_interval,
-                "max_polling_attempts": self.polling_tries,
-            }
-        )
+        save_to_logging_context({"polling_interval": self.polling_interval, "max_polling_attempts": self.polling_tries})
+        # A job polls one mapping per target gene; the one being polled is what a failure needs.
+        save_to_logging_context({"uniprot_job_id": job_id}, overwrite=True)
         logger.debug(msg="Checking status of UniProt ID mapping job.", extra=logging_context())
 
         for attempt in range(self.polling_tries):
-            save_to_logging_context({"polling_attempt": attempt + 1})
+            save_to_logging_context({"polling_attempt": attempt + 1}, overwrite=True)
             logger.debug(msg="Polling status for Uniprot mapping job.", extra=logging_context())
 
             resp = self.session.get(f"{self.API_URL}/idmapping/status/{job_id}")
@@ -99,7 +100,7 @@ class UniProtIDMappingAPI:
             status_response = resp.json()
 
             if "jobStatus" in status_response:
-                save_to_logging_context({"uniprot_job_status": status_response["jobStatus"]})
+                save_to_logging_context({"uniprot_job_status": status_response["jobStatus"]}, overwrite=True)
 
                 if status_response["jobStatus"] == "FINISHED":
                     logger.info(msg=f"UniProt ID mapping job {job_id} finished successfully.", extra=logging_context())
@@ -137,14 +138,14 @@ class UniProtIDMappingAPI:
             requests.HTTPError: If any of the HTTP requests fail.
             KeyError: If the expected 'redirectURL' key is missing in the response.
         """
-        save_to_logging_context({"uniprot_job_id": job_id})
+        save_to_logging_context({"uniprot_job_id": job_id}, overwrite=True)
         logger.debug(msg=f"Fetching results for UniProt ID mapping job {job_id}.", extra=logging_context())
 
         result_response = self.session.get(f"{self.API_URL}/idmapping/details/{job_id}")
         result_response.raise_for_status()
 
         redirect_url = result_response.json()["redirectURL"]
-        save_to_logging_context({"uniprot_redirect_url": redirect_url})
+        save_to_logging_context({"uniprot_redirect_url": redirect_url}, overwrite=True)
         logger.debug(msg=f"Redirect URL for UniProt ID mapping job: {redirect_url}", extra=logging_context())
 
         results_resp = self.session.get(redirect_url)
@@ -168,7 +169,8 @@ class UniProtIDMappingAPI:
         swiss_prot_mappings: uniprot.MappingEntries = []
         uniprot_results = results.get("results", [])
 
-        save_to_logging_context({"total_uniprot_results": len(uniprot_results), "prefer_swiss_prot": prefer_swiss_prot})
+        save_to_logging_context({"prefer_swiss_prot": prefer_swiss_prot})
+        increment_logging_context("total_uniprot_results", len(uniprot_results))
         logger.debug(msg="Extracting UniProt ID mappings from results.", extra=logging_context())
 
         for r in uniprot_results:
@@ -179,12 +181,12 @@ class UniProtIDMappingAPI:
             if from_id and to_id:
                 uniprot_mappings.append({from_id: {"uniprot_id": to_id, "entry_type": entry_type}})
             else:
-                save_to_logging_context({"skipped_uniprot_mapping_result": r})
+                append_to_logging_context("skipped_uniprot_mapping_results", r)
                 logger.warning(
                     msg="Skipping mapping for result due to missing 'from' or 'to' ID.", extra=logging_context()
                 )
 
-        save_to_logging_context({"total_uniprot_mappings": len(uniprot_mappings)})
+        increment_logging_context("total_uniprot_mappings", len(uniprot_mappings))
 
         if prefer_swiss_prot:
             swiss_prot_mappings = [
@@ -193,7 +195,7 @@ class UniProtIDMappingAPI:
                 if mapping[next(iter(mapping))]["entry_type"] == SWISS_PROT_ENTRY_TYPE
             ]
 
-            save_to_logging_context({"total_swiss_prot_mappings": len(swiss_prot_mappings)})
+            increment_logging_context("total_swiss_prot_mappings", len(swiss_prot_mappings))
             logger.debug(
                 msg="Swiss-Prot mappings were preferred. Done extracting Swiss-Prot mappings.", extra=logging_context()
             )

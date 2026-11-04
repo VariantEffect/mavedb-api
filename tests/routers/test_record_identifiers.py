@@ -8,10 +8,12 @@ fastapi = pytest.importorskip("fastapi")
 
 from copy import deepcopy
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from mavedb.models.doi_identifier import ExperimentDoiIdentifier, ScoreSetDoiIdentifier
+from mavedb.models.experiment import Experiment
 from mavedb.models.raw_read_identifier import ExperimentRawReadIdentifier
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene_external_identifier import TargetGeneExternalIdentifier
 from tests.helpers.constants import TEST_MINIMAL_EXPERIMENT, TEST_MINIMAL_SEQ_SCORESET
 from tests.helpers.dependency_overrider import DependencyOverrider
@@ -157,34 +159,48 @@ def test_update_score_set_external_identifiers_replaces_the_target_genes_set(ses
     assert rows == [("UniProt", 9)]
 
 
-@pytest.mark.parametrize(
-    "route, text, identifier, make_record",
-    [
-        (
-            "/api/v1/doi-identifiers/search",
-            "10.1000",
-            "10.1000/182",
-            lambda client: create_experiment(client, {"doiIdentifiers": [{"identifier": "10.1000/182"}]}),
+# Each identifier search, with a private record citing an identifier it finds and the model of that record.
+SEARCHES_ON_PRIVATE_RECORDS = [
+    pytest.param(
+        "/api/v1/doi-identifiers/search",
+        "10.1000",
+        "10.1000/182",
+        lambda client: create_experiment(client, {"doiIdentifiers": [{"identifier": "10.1000/182"}]}),
+        Experiment,
+        id="doi",
+    ),
+    pytest.param(
+        "/api/v1/raw-read-identifiers/search",
+        "SRP",
+        "SRP002725",
+        lambda client: create_experiment(client, {"rawReadIdentifiers": [{"identifier": "SRP002725"}]}),
+        Experiment,
+        id="raw-read",
+    ),
+    pytest.param(
+        "/api/v1/target-gene-identifiers/search?db_name=UniProt",
+        "Q9Y",
+        "Q9Y617",
+        lambda client: create_seq_score_set(
+            client, create_experiment(client)["urn"], {"targetGenes": _target_genes_with([UNIPROT])}
         ),
-        (
-            "/api/v1/raw-read-identifiers/search",
-            "SRP",
-            "SRP002725",
-            lambda client: create_experiment(client, {"rawReadIdentifiers": [{"identifier": "SRP002725"}]}),
-        ),
-        (
-            "/api/v1/target-gene-identifiers/search?db_name=UniProt",
-            "Q9Y",
-            "Q9Y617",
-            lambda client: create_seq_score_set(
-                client, create_experiment(client)["urn"], {"targetGenes": _target_genes_with([UNIPROT])}
-            ),
-        ),
-    ],
-    ids=["doi", "raw-read", "target-gene"],
-)
+        ScoreSet,
+        id="target-gene",
+    ),
+]
+
+
+@pytest.mark.parametrize("route, text, identifier, make_record, record_model", SEARCHES_ON_PRIVATE_RECORDS)
 def test_search_identifiers_on_private_record_visible_only_to_those_who_can_read_it(
-    client, setup_router_db, anonymous_app_overrides, extra_user_app_overrides, route, text, identifier, make_record
+    client,
+    setup_router_db,
+    anonymous_app_overrides,
+    extra_user_app_overrides,
+    route,
+    text,
+    identifier,
+    make_record,
+    record_model,
 ):
     make_record(client)
 
@@ -198,6 +214,32 @@ def test_search_identifiers_on_private_record_visible_only_to_those_who_can_read
     assert [result["identifier"] for result in owner_response.json()] == [identifier]
     assert anonymous_response.json() == []
     assert other_user_response.json() == []
+
+
+@pytest.mark.parametrize("route, text, identifier, make_record, record_model", SEARCHES_ON_PRIVATE_RECORDS)
+def test_search_identifiers_on_published_record_visible_to_everyone(
+    session,
+    client,
+    setup_router_db,
+    anonymous_app_overrides,
+    extra_user_app_overrides,
+    route,
+    text,
+    identifier,
+    make_record,
+    record_model,
+):
+    record = make_record(client)
+    session.execute(update(record_model).where(record_model.urn == record["urn"]).values(private=False))
+    session.commit()
+
+    with DependencyOverrider(anonymous_app_overrides):
+        anonymous_response = client.post(route, json={"text": text})
+    with DependencyOverrider(extra_user_app_overrides):
+        other_user_response = client.post(route, json={"text": text})
+
+    assert [result["identifier"] for result in anonymous_response.json()] == [identifier]
+    assert [result["identifier"] for result in other_user_response.json()] == [identifier]
 
 
 def test_search_doi_identifiers_cited_twice_returns_one_result(client, setup_router_db):
