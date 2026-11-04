@@ -2,13 +2,14 @@ import io
 import json
 import logging
 import time
+from collections.abc import Iterable, Iterator
 from datetime import date, datetime
 from functools import partial
+from itertools import chain
 from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
 
 import numpy as np
 import pandas as pd
-import requests
 from arq import ArqRedis
 from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -17,7 +18,7 @@ from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import StreamingResponse
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError, MultipleResultsFound
 from sqlalchemy.orm import Session
@@ -58,18 +59,19 @@ from mavedb.lib.deprecation import MAPPED_VARIANT_SUNSET, deprecation_headers, r
 from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.gnomad import get_gnomad_variants_with_variant_urns
-from mavedb.lib.identifiers import (
-    create_external_gene_identifier_offset,
-    find_or_create_doi_identifier,
-    find_or_create_publication_identifier,
+from mavedb.lib.json_stream import stream_json_array
+from mavedb.lib.logging.context import (
+    append_to_logging_context,
+    logging_context,
+    save_to_logging_context,
 )
-from mavedb.lib.logging import LoggedRoute
-from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
+from mavedb.lib.publications import ensure_publication_keys, record_publication_citations
 from mavedb.lib.score_calibrations import create_score_calibration
-from mavedb.lib.score_set_variants import get_lean_score_set_variants
+from mavedb.lib.score_set_variants import LeanVariantRecord, get_lean_score_set_variants
 from mavedb.lib.score_sets import (
     csv_data_to_df,
     fetch_score_set_search_filter_options,
@@ -83,7 +85,11 @@ from mavedb.lib.score_sets import (
     search_score_sets as _search_score_sets,
 )
 from mavedb.lib.slack import send_slack_error
-from mavedb.lib.target_genes import find_or_create_target_gene_by_accession, find_or_create_target_gene_by_sequence
+from mavedb.lib.target_genes import (
+    find_or_create_target_gene_by_accession,
+    find_or_create_target_gene_by_sequence,
+    target_gene_external_identifiers,
+)
 from mavedb.lib.taxonomies import find_or_create_taxonomy
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.urn_redirects import record_urn_redirect
@@ -93,15 +99,18 @@ from mavedb.lib.urns import (
     generate_score_set_urn,
     lock_urn_assignment,
 )
+from mavedb.lib.utils import distinct_identifiers
 from mavedb.lib.validation.exceptions import ValidationError as MaveDBValidationError
 from mavedb.lib.variant_detail import load_variant_detail_inputs
 from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set_from_thread
 from mavedb.models.contributor import Contributor
+from mavedb.models.doi_identifier import ScoreSetDoiIdentifier
 from mavedb.models.enums.processing_state import ProcessingState
 from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
@@ -130,6 +139,9 @@ TAG_NAME = "Score Sets"
 logger = logging.getLogger(__name__)
 
 SCORE_SET_SEARCH_MAX_LIMIT = 100
+
+_LEAN_VARIANT = TypeAdapter(LeanVariant)
+_LEAN_VARIANTS = TypeAdapter(List[LeanVariant])
 SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS = 40
 
 
@@ -301,80 +313,27 @@ def score_set_update(
             DoiIdentifierCreate(**identifier) for identifier in item_update_dict.get("doi_identifiers") or []
         ]
         item.doi_identifiers = [
-            find_or_create_doi_identifier(db, identifier.identifier) for identifier in doi_identifiers_list
+            ScoreSetDoiIdentifier(identifier=identifier)
+            for identifier in distinct_identifiers(i.identifier for i in doi_identifiers_list)
         ]
 
     if any(key in item_update_dict for key in ["primary_publication_identifiers", "secondary_publication_identifiers"]):
-        if "primary_publication_identifiers" in item_update_dict:
-            primary_publication_identifiers_list = [
-                PublicationIdentifierCreate(**identifier)
-                for identifier in item_update_dict.get("primary_publication_identifiers") or []
-            ]
-            try:
-                primary_publication_identifiers = [
-                    find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-                    for identifier in primary_publication_identifiers_list
-                ]
-            except requests.exceptions.ConnectTimeout:
-                logger.error(msg="Gateway timed out while creating publication identifiers.", extra=logging_context())
-                raise HTTPException(
-                    status_code=504,
-                    detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-                )
+        submitted = [
+            [PublicationIdentifierCreate(**identifier) for identifier in item_update_dict.get(side) or []]
+            for side in ["primary_publication_identifiers", "secondary_publication_identifiers"]
+        ]
+        primary_keys, secondary_keys = ensure_publication_keys(db, *submitted)
 
-            except requests.exceptions.HTTPError:
-                logger.error(
-                    msg="Encountered bad gateway while creating publication identifiers.", extra=logging_context()
-                )
-                raise HTTPException(
-                    status_code=502,
-                    detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-                )
-        else:
-            # set to existing primary publication identifiers if not provided in update
-            primary_publication_identifiers = [p for p in item.publication_identifiers if getattr(p, "primary", False)]
+        # A side the update leaves out keeps the publications it cites now.
+        current_citations = item.publication_identifier_associations
+        if "primary_publication_identifiers" not in item_update_dict:
+            primary_keys = [citation.key for citation in current_citations if citation.primary]
+        if "secondary_publication_identifiers" not in item_update_dict:
+            secondary_keys = [citation.key for citation in current_citations if not citation.primary]
 
-        if "secondary_publication_identifiers" in item_update_dict:
-            secondary_publication_identifiers_list = [
-                PublicationIdentifierCreate(**identifier)
-                for identifier in item_update_dict.get("secondary_publication_identifiers") or []
-            ]
-            try:
-                secondary_publication_identifiers = [
-                    find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-                    for identifier in secondary_publication_identifiers_list
-                ]
-            except requests.exceptions.ConnectTimeout:
-                logger.error(msg="Gateway timed out while creating publication identifiers.", extra=logging_context())
-                raise HTTPException(
-                    status_code=504,
-                    detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-                )
-
-            except requests.exceptions.HTTPError:
-                logger.error(
-                    msg="Encountered bad gateway while creating publication identifiers.", extra=logging_context()
-                )
-                raise HTTPException(
-                    status_code=502,
-                    detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-                )
-
-        else:
-            # set to existing secondary publication identifiers if not provided in update
-            secondary_publication_identifiers = [
-                p for p in item.publication_identifiers if not getattr(p, "primary", False)
-            ]
-
-        publication_identifiers = primary_publication_identifiers + secondary_publication_identifiers
-
-        # create a temporary `primary` attribute on each of our publications that indicates
-        # to our association proxy whether it is a primary publication or not
-        primary_identifiers = [p.identifier for p in primary_publication_identifiers]
-        for publication in publication_identifiers:
-            setattr(publication, "primary", publication.identifier in primary_identifiers)
-
-        item.publication_identifiers = publication_identifiers
+        item.publication_identifier_associations = record_publication_citations(
+            ScoreSetPublicationIdentifierAssociation, primary=primary_keys, secondary=secondary_keys
+        )
 
     if "contributors" in item_update_dict:
         try:
@@ -410,7 +369,7 @@ def score_set_update(
                         )
 
                     upload_taxonomy = gene.target_sequence.taxonomy
-                    save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.code})
+                    append_to_logging_context("requested_taxonomies", gene.target_sequence.taxonomy.code)
                     taxonomy = find_or_create_taxonomy(db, upload_taxonomy)
 
                     if not taxonomy:
@@ -477,16 +436,7 @@ def score_set_update(
                     logger.info(msg="Failed to create score set; Could not infer target type.", extra=logging_context())
                     raise ValueError("One of either `target_accession` or `target_gene` should be present")
 
-                for external_gene_identifier_offset_create in gene.external_identifiers:
-                    offset = external_gene_identifier_offset_create.offset
-                    identifier_create = external_gene_identifier_offset_create.identifier
-                    create_external_gene_identifier_offset(
-                        db,
-                        target_gene,
-                        identifier_create.db_name,
-                        identifier_create.identifier,
-                        offset,
-                    )
+                target_gene.external_identifiers = target_gene_external_identifiers(gene.external_identifiers)
 
                 targets.append(target_gene)
 
@@ -1014,7 +964,42 @@ def get_score_set_lean_variants(
     response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
 
     score_set = fetch_score_set_by_urn(db, urn, user_data, None, False)
-    return get_lean_score_set_variants(db, score_set, as_of=as_of)
+
+    # The whole-set query outruns the API's default statement timeout on the largest score sets.
+    allow_long_statements(db)
+    batches = get_lean_score_set_variants(db, score_set, as_of=as_of)
+    # Reading the first batch starts the query, so a query that fails at once is still an error status. The rows come
+    # from a cursor, though, so a failure after the first batch, such as the statement timeout, ends the stream early
+    # under a 200.
+    first = next(batches, [])
+
+    return StreamingResponse(
+        _stream_lean_variants(chain([first], batches)),
+        media_type="application/json",
+        headers={"X-As-Of": as_of.isoformat() if as_of is not None else "current"},
+    )
+
+
+def _stream_lean_variants(batches: Iterable[Sequence[LeanVariantRecord]]) -> Iterator[bytes]:
+    """Encode ``batches`` as one JSON array, a chunk per batch, and log how long sending it took.
+
+    Validating and encoding every row is most of the lean view's CPU, so it happens here as the response is sent,
+    rather than in ``response_model`` after the whole set is built.
+    """
+    # The request log's duration ends when the route returns, before the stream is sent.
+    start = time.monotonic_ns()
+    try:
+        # TODO#964: Serve NDJSON instead of writing the array by hand. The array keeps the response identical to the
+        # unstreamed one, so this could ship as a patch; NDJSON changes the format and needs a matching ui change.
+        yield from stream_json_array(
+            [
+                _LEAN_VARIANT.dump_json(variant, by_alias=True, exclude_none=True)
+                for variant in _LEAN_VARIANTS.validate_python(batch, from_attributes=True)
+            ]
+            for batch in batches
+        )
+    finally:
+        save_to_logging_context({"stream_duration_ns": time.monotonic_ns() - start})
 
 
 def _stream_score_set_variant_details(
@@ -2114,38 +2099,17 @@ def create_score_set(
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
         raise HTTPException(status_code=404, detail=str(e))
 
-    try:
-        doi_identifiers = [
-            find_or_create_doi_identifier(db, identifier.identifier) for identifier in item_create.doi_identifiers or []
-        ]
-        primary_publication_identifiers = [
-            find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-            for identifier in item_create.primary_publication_identifiers or []
-        ]
-        publication_identifiers = [
-            find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-            for identifier in item_create.secondary_publication_identifiers or []
-        ] + primary_publication_identifiers
+    doi_identifiers = [
+        ScoreSetDoiIdentifier(identifier=identifier)
+        for identifier in distinct_identifiers(i.identifier for i in item_create.doi_identifiers or [])
+    ]
 
-    except requests.exceptions.ConnectTimeout:
-        logger.error(msg="Gateway timed out while creating experiment identifiers.", extra=logging_context())
-        raise HTTPException(
-            status_code=504,
-            detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-        )
-
-    except requests.exceptions.HTTPError:
-        logger.error(msg="Encountered bad gateway while creating experiment identifiers.", extra=logging_context())
-        raise HTTPException(
-            status_code=502,
-            detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-        )
-
-    # create a temporary `primary` attribute on each of our publications that indicates
-    # to our association proxy whether it is a primary publication or not
-    primary_identifiers = [pub.identifier for pub in primary_publication_identifiers]
-    for publication in publication_identifiers:
-        setattr(publication, "primary", publication.identifier in primary_identifiers)
+    primary_keys, secondary_keys = ensure_publication_keys(
+        db, item_create.primary_publication_identifiers or [], item_create.secondary_publication_identifiers or []
+    )
+    publication_citations = record_publication_citations(
+        ScoreSetPublicationIdentifierAssociation, primary=primary_keys, secondary=secondary_keys
+    )
 
     score_calibrations: list[ScoreCalibration] = []
     if item_create.score_calibrations:
@@ -2205,7 +2169,7 @@ def create_score_set(
                     "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                 )
             upload_taxonomy = gene.target_sequence.taxonomy
-            save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.code})
+            append_to_logging_context("requested_taxonomies", gene.target_sequence.taxonomy.code)
             taxonomy = find_or_create_taxonomy(db, upload_taxonomy)
 
             if not taxonomy:
@@ -2266,16 +2230,7 @@ def create_score_set(
             logger.info(msg="Failed to create score set; Could not infer target type.", extra=logging_context())
             raise ValueError("One of either `target_accession` or `target_gene` should be present")
 
-        for external_gene_identifier_offset_create in gene.external_identifiers:
-            offset = external_gene_identifier_offset_create.offset
-            identifier_create = external_gene_identifier_offset_create.identifier
-            create_external_gene_identifier_offset(
-                db,
-                target_gene,
-                identifier_create.db_name,
-                identifier_create.identifier,
-                offset,
-            )
+        target_gene.external_identifiers = target_gene_external_identifiers(gene.external_identifiers)
 
         targets.append(target_gene)
 
@@ -2305,7 +2260,7 @@ def create_score_set(
         target_genes=targets,
         contributors=contributors,
         doi_identifiers=doi_identifiers,
-        publication_identifiers=publication_identifiers,
+        publication_identifier_associations=publication_citations,
         processing_state=ProcessingState.incomplete,
         created_by=user_data.user,
         modified_by=user_data.user,

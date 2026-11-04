@@ -14,7 +14,12 @@ from mavedb.lib.clingen.constants import (
     GENBOREE_ACCOUNT_PASSWORD,
     GENBOREE_AUTH_URL,
 )
-from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
+from mavedb.lib.logging.context import (
+    increment_logging_context,
+    logging_context,
+    record_exception,
+    save_to_logging_context,
+)
 from mavedb.lib.types.clingen import ClinGenAllele, ClinGenSubmissionError, LdhSubmission
 from mavedb.lib.utils import batched
 
@@ -76,7 +81,8 @@ class ClinGenAlleleRegistryService:
     def dispatch_submissions(
         self, content_submissions: list[str]
     ) -> list[Union[ClinGenAllele, ClinGenSubmissionError]]:
-        save_to_logging_context({"car_submission_count": len(content_submissions)})
+        # A job dispatches in batches, so these count across all of them.
+        increment_logging_context("car_submission_count", len(content_submissions))
 
         try:
             logger.info(msg="Dispatching ClinGen Allele Registry submission...", extra=logging_context())
@@ -90,12 +96,12 @@ class ClinGenAlleleRegistryService:
             response.raise_for_status()
 
         except (requests.exceptions.RequestException, requests.exceptions.HTTPError) as exc:
-            save_to_logging_context(format_raised_exception_info_as_dict(exc))
+            record_exception(exc)
             logger.error(msg="Failed to dispatch CAR submission.", exc_info=exc, extra=logging_context())
             return []
 
         response_data: list[Union[ClinGenAllele, ClinGenSubmissionError]] = response.json()
-        save_to_logging_context({"car_submission_response_count": len(response_data)})
+        increment_logging_context("car_submission_response_count", len(response_data))
         logger.info(msg="Successfully dispatched CAR submission.", extra=logging_context())
 
         return response_data
@@ -175,7 +181,7 @@ class ClinGenLdhService:
             auth_response = requests.post(auth_url, json=auth_body, timeout=CLINGEN_HTTP_TIMEOUT)
             auth_response.raise_for_status()
         except requests.exceptions.RequestException as exc:
-            save_to_logging_context(format_raised_exception_info_as_dict(exc))
+            record_exception(exc)
             logger.error(msg="Failed to authenticate with Genboree services.", exc_info=exc, extra=logging_context())
             raise exc
 
@@ -185,7 +191,7 @@ class ClinGenLdhService:
             assert auth_jwt is not None, "No JWT in response."
         except AssertionError as exc:
             msg = "Failed to authenticate with Genboree services. Could not parse JWT from valid response."
-            save_to_logging_context(format_raised_exception_info_as_dict(exc))
+            record_exception(exc)
             logger.error(msg=msg, extra=logging_context())
             raise ValueError(msg)
 
@@ -242,7 +248,7 @@ class ClinGenLdhService:
                 )
 
             except requests.exceptions.RequestException as exc:
-                save_to_logging_context(format_raised_exception_info_as_dict(exc))
+                record_exception(exc)
                 logger.error(msg="Failed to dispatch ldh submission.", exc_info=exc, extra=logging_context())
                 submission_failures.append(content)
                 continue

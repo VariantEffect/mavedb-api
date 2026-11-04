@@ -261,7 +261,6 @@ SAVED_DOI_IDENTIFIER = {
     "recordType": "DoiIdentifier",
     "identifier": TEST_CROSSREF_IDENTIFIER,
     "url": f"https://doi.org/{TEST_CROSSREF_IDENTIFIER}",
-    "id": 1,
 }
 
 # VRS 1.X
@@ -2244,7 +2243,6 @@ TEST_MINIMAL_RAW_READ_IDENTIFIER = {"identifier": "test_raw_read"}
 
 TEST_SAVED_MINIMAL_RAW_READ_IDENTIFIER = {
     **TEST_MINIMAL_RAW_READ_IDENTIFIER,
-    "id": 1,
     "url": "https://www.test.rawreadidentifiers.org",
 }
 

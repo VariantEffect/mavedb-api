@@ -2,7 +2,6 @@ import logging
 import time
 
 import uvicorn
-from eutils._internal.exceptions import EutilsRequestError  # type: ignore
 from fastapi import Depends, FastAPI
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -13,11 +12,6 @@ from pydantic.json_schema import models_json_schema
 from sqlalchemy.orm import configure_mappers
 from starlette.requests import Request
 from starlette.responses import JSONResponse
-from starlette_context.plugins import (
-    CorrelationIdPlugin,
-    RequestIdPlugin,
-    UserAgentPlugin,
-)
 
 from mavedb import __version__
 from mavedb.db.session import engine
@@ -29,15 +23,15 @@ from mavedb.lib.exceptions import (
     MixedTargetError,
     MondoServiceError,
     NonexistentIdentifierError,
+    PublicationServiceError,
+    PublicationServiceTimeoutError,
 )
 from mavedb.lib.logging.canonical import log_request
 from mavedb.lib.logging.context import (
-    PopulatedRawContextMiddleware,
-    format_raised_exception_info_as_dict,
     logging_context,
-    save_to_logging_context,
+    record_exception,
 )
-from mavedb.lib.middleware import CatchAllErrorMiddleware
+from mavedb.lib.middleware import CatchAllErrorMiddleware, RequestContextMiddleware
 from mavedb.lib.permissions.exceptions import PermissionException
 from mavedb.lib.slack import send_slack_error
 from mavedb.lib.urn_redirects import forward_retired_urns
@@ -92,14 +86,7 @@ app = FastAPI(dependencies=[Depends(forward_retired_urns)])
 # CatchAllErrorMiddleware must sit inside both CORSMiddleware and the context middleware: CORS has to
 # decorate the 500 it produces, and the correlation id it returns comes from the context.
 app.add_middleware(CatchAllErrorMiddleware)
-app.add_middleware(
-    PopulatedRawContextMiddleware,
-    plugins=(
-        CorrelationIdPlugin(force_new_uuid=True),
-        RequestIdPlugin(force_new_uuid=True),
-        UserAgentPlugin(),
-    ),
-)
+app.add_middleware(RequestContextMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -145,7 +132,7 @@ app.include_router(alphafold.router)
 @app.exception_handler(PermissionException)
 async def permission_exception_handler(request: Request, exc: PermissionException):
     response = JSONResponse({"detail": exc.message}, status_code=exc.http_code)
-    save_to_logging_context(format_raised_exception_info_as_dict(exc))
+    record_exception(exc)
     log_request(request, response, time.time_ns())
     return response
 
@@ -156,7 +143,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         status_code=422,
         content=jsonable_encoder({"detail": list(map(lambda error: customize_validation_error(error), exc.errors()))}),
     )
-    save_to_logging_context(format_raised_exception_info_as_dict(exc))
+    record_exception(exc)
     log_request(request, response, time.time_ns())
     return response
 
@@ -164,7 +151,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(AmbiguousIdentifierError)
 async def ambiguous_identifier_error_exception_handler(request: Request, exc: AmbiguousIdentifierError):
     response = JSONResponse(status_code=400, content={"message": str(exc)})
-    save_to_logging_context(format_raised_exception_info_as_dict(exc))
+    record_exception(exc)
     log_request(request, response, time.time_ns())
     return response
 
@@ -172,7 +159,7 @@ async def ambiguous_identifier_error_exception_handler(request: Request, exc: Am
 @app.exception_handler(NonexistentIdentifierError)
 async def nonexistent_identifier_error_exception_handler(request: Request, exc: NonexistentIdentifierError):
     response = JSONResponse(status_code=404, content={"message": str(exc)})
-    save_to_logging_context(format_raised_exception_info_as_dict(exc))
+    record_exception(exc)
     log_request(request, response, time.time_ns())
     return response
 
@@ -180,7 +167,7 @@ async def nonexistent_identifier_error_exception_handler(request: Request, exc: 
 @app.exception_handler(HGNCGeneNotFoundError)
 async def hgnc_gene_not_found_error_exception_handler(request: Request, exc: HGNCGeneNotFoundError):
     response = JSONResponse(status_code=404, content={"message": str(exc)})
-    save_to_logging_context(format_raised_exception_info_as_dict(exc))
+    record_exception(exc)
     log_request(request, response, time.time_ns())
     return response
 
@@ -188,7 +175,7 @@ async def hgnc_gene_not_found_error_exception_handler(request: Request, exc: HGN
 @app.exception_handler(HGNCServiceError)
 async def hgnc_service_error_exception_handler(request: Request, exc: HGNCServiceError):
     response = JSONResponse(status_code=503, content={"message": "Gene information service temporarily unavailable"})
-    save_to_logging_context(format_raised_exception_info_as_dict(exc))
+    record_exception(exc)
     log_request(request, response, time.time_ns())
     return response
 
@@ -196,15 +183,35 @@ async def hgnc_service_error_exception_handler(request: Request, exc: HGNCServic
 @app.exception_handler(MondoServiceError)
 async def mondo_service_error_exception_handler(request: Request, exc: MondoServiceError):
     response = JSONResponse(status_code=503, content={"message": "Disease ontology service temporarily unavailable"})
-    save_to_logging_context(format_raised_exception_info_as_dict(exc))
+    record_exception(exc)
     log_request(request, response, time.time_ns())
     return response
 
 
-@app.exception_handler(EutilsRequestError)
-async def nonexistent_pmid_error_exception_handler(request: Request, exc: EutilsRequestError):
-    response = JSONResponse(status_code=404, content={"message": str(exc)})
-    save_to_logging_context(format_raised_exception_info_as_dict(exc))
+# Starlette picks the handler for the most specific class, so a timeout gets the 504. These answer with `detail`,
+# not `message`, because the ui's record editors show `detail` when a save fails.
+@app.exception_handler(PublicationServiceTimeoutError)
+async def publication_service_timeout_error_exception_handler(request: Request, exc: PublicationServiceTimeoutError):
+    response = JSONResponse(
+        status_code=504,
+        content={
+            "detail": "Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later."
+        },
+    )
+    record_exception(exc)
+    log_request(request, response, time.time_ns())
+    return response
+
+
+@app.exception_handler(PublicationServiceError)
+async def publication_service_error_exception_handler(request: Request, exc: PublicationServiceError):
+    response = JSONResponse(
+        status_code=502,
+        content={
+            "detail": "Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later."
+        },
+    )
+    record_exception(exc)
     log_request(request, response, time.time_ns())
     return response
 
@@ -212,7 +219,7 @@ async def nonexistent_pmid_error_exception_handler(request: Request, exc: Eutils
 @app.exception_handler(MixedTargetError)
 async def mixed_target_exception_handler(request: Request, exc: MixedTargetError):
     response = JSONResponse(status_code=400, content={"message": str(exc)})
-    save_to_logging_context(format_raised_exception_info_as_dict(exc))
+    record_exception(exc)
     log_request(request, response, time.time_ns())
     return response
 
@@ -233,7 +240,7 @@ def customize_validation_error(error):
 
 @app.exception_handler(Exception)
 async def exception_handler(request, err):
-    save_to_logging_context(format_raised_exception_info_as_dict(err))
+    record_exception(err)
     response = JSONResponse(status_code=500, content={"message": "Internal server error"})
 
     try:

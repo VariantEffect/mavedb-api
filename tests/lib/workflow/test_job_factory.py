@@ -1,12 +1,11 @@
 # ruff: noqa: E402
 import pytest
 
-from mavedb.models.job_dependency import JobDependency
-
-pytest.importorskip("fastapi")
+pytest.importorskip("psycopg2")
 
 from unittest.mock import patch
 
+from mavedb.models.job_dependency import JobDependency
 from mavedb.models.pipeline import Pipeline
 
 

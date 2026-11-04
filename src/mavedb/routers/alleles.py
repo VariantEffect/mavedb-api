@@ -12,8 +12,8 @@ from mavedb import deps
 from mavedb.lib.allele_detail import get_allele_detail
 from mavedb.lib.alleles import readable_score_set_ids_by_allele
 from mavedb.lib.authentication import get_current_user
-from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import save_to_logging_context
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.types.authentication import UserData
 from mavedb.models.allele import Allele
 from mavedb.models.enums.sequence_level import SequenceLevel

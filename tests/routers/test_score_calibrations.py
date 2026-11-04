@@ -12,6 +12,7 @@ import json
 from unittest.mock import patch
 
 import pandas as pd
+import requests
 from arq import ArqRedis
 from sqlalchemy import select
 
@@ -23,6 +24,7 @@ from tests.helpers.constants import (
     TEST_BIORXIV_IDENTIFIER,
     TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED,
     TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
+    TEST_CROSSREF_IDENTIFIER,
     TEST_PATHOGENICITY_SCORE_CALIBRATION,
     TEST_PUBMED_IDENTIFIER,
     VALID_CALIBRATION_URN,
@@ -262,6 +264,56 @@ def test_cannot_create_score_calibration_with_unknown_disease(
     ],
     indirect=["mock_publication_fetch"],
 )
+@pytest.mark.parametrize(
+    "crossref_response, expected_status",
+    [
+        ({"exc": requests.exceptions.ConnectTimeout}, 504),
+        ({"exc": requests.exceptions.ReadTimeout}, 504),
+        ({"status_code": 503}, 502),
+    ],
+    ids=["connect_timeout", "read_timeout", "upstream_error"],
+)
+def test_create_score_calibration_publication_database_failure_returns_gateway_error(
+    client,
+    setup_router_db,
+    mock_publication_fetch,
+    requests_mock,
+    session,
+    data_provider,
+    data_files,
+    crossref_response,
+    expected_status,
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    requests_mock.get(f"https://api.crossref.org/works/{TEST_CROSSREF_IDENTIFIER}", **crossref_response)
+    payload = {
+        **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        "thresholdSources": [{"identifier": TEST_CROSSREF_IDENTIFIER, "dbName": "Crossref"}],
+        "scoreSetUrn": score_set["urn"],
+    }
+    calibrations_before = session.scalars(select(CalibrationDbModel.id)).all()
+
+    response = client.post("/api/v1/score-calibrations/", json=payload)
+
+    assert response.status_code == expected_status
+    # The ui's record editors show `detail` when a save fails.
+    assert "PubMed/bioRxiv/medRxiv/Crossref" in response.json()["detail"]
+    assert session.scalars(select(CalibrationDbModel.id)).all() == calibrations_before
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
 def test_cannot_modify_score_calibration_with_unknown_disease(
     client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, monkeypatch
 ):
@@ -289,6 +341,37 @@ def test_cannot_modify_score_calibration_with_unknown_disease(
     assert response.json()["detail"][0]["loc"] == ["body", "disease"]
     stored = client.get(f"/api/v1/score-calibrations/{calibration['urn']}").json()
     assert stored["disease"]["primaryCoding"]["code"] == "MONDO:0000001"
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_modify_score_calibration_without_score_set_urn(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+    )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    payload = {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED), "title": "Changed title"}
+    payload.pop("scoreSetUrn", None)
+
+    response = client.put(f"/api/v1/score-calibrations/{calibration['urn']}", json=payload)
+
+    assert response.status_code == 422
+    assert "score_set_urn must be provided" in response.json()["detail"]
+    stored = client.get(f"/api/v1/score-calibrations/{calibration['urn']}").json()
+    assert stored["title"] == calibration["title"]
 
 
 @pytest.mark.parametrize(
@@ -3299,6 +3382,41 @@ def test_cannot_delete_primary_score_calibration(
     assert response.status_code == 403
     error = response.json()
     assert f"insufficient permissions on score calibration with URN '{calibration['urn']}'" in error["detail"]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_cannot_delete_primary_score_calibration_as_admin_user(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set_with_mapped_variants(
+        client,
+        session,
+        data_provider,
+        experiment["urn"],
+        data_files / "scores.csv",
+    )
+    with patch.object(ArqRedis, "enqueue_job", return_value=None):
+        score_set = publish_score_set(client, score_set["urn"])
+    calibration = create_publish_and_promote_score_calibration(
+        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
+
+    assert response.status_code == 400
+    assert "Demote it first" in response.json()["detail"]
+    assert client.get(f"/api/v1/score-calibrations/{calibration['urn']}").json()["primary"] is True
 
 
 ###########################################################

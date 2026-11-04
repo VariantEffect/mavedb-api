@@ -2,11 +2,11 @@ from datetime import date
 from typing import Optional
 
 from fqfa import infer_sequence_type
-from pydantic import ValidationInfo, field_validator, model_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from typing_extensions import Self
 
-from mavedb.lib.identifiers import sanitize_target_sequence_label
 from mavedb.lib.validation import target
+from mavedb.lib.validation.constants.target import valid_sequence_types
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
@@ -20,6 +20,9 @@ class TargetSequenceBase(BaseModel):
 
 
 class TargetSequenceModify(TargetSequenceBase):
+    # Published for clients only: the validator below keeps its own message and accepts any case.
+    sequence_type: str = Field(json_schema_extra={"enum": [*valid_sequence_types]})
+
     @field_validator("sequence_type")
     def validate_sequence_category(cls, v: str) -> str:
         v = v.lower()
@@ -62,7 +65,7 @@ class TargetSequenceModify(TargetSequenceBase):
 
             # Sanitize the label by stripping leading/trailing whitespace and replacing any internal whitespace with
             # underscores. Fully qualified variants should never contain whitespace.
-            return sanitize_target_sequence_label(field_value)
+            return field_value.strip().replace(" ", "_")
 
         return field_value
 
