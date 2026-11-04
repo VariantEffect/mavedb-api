@@ -1301,6 +1301,55 @@ def test_create_experiment_with_new_primary_crossref_publication(client, setup_r
     # TODO: add separate tests for generating the publication url and referenceHtml
 
 
+def cited_identifiers(experiment, kind):
+    return [publication["identifier"] for publication in experiment[f"{kind}PublicationIdentifiers"]]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_create_experiment_publication_in_both_lists_is_cited_once_as_primary(
+    client, setup_router_db, mock_publication_fetch
+):
+    publication = {"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}
+
+    experiment = create_experiment(
+        client, {"primaryPublicationIdentifiers": [publication], "secondaryPublicationIdentifiers": [publication]}
+    )
+
+    assert cited_identifiers(experiment, "primary") == [TEST_PUBMED_IDENTIFIER]
+    assert cited_identifiers(experiment, "secondary") == []
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_update_experiment_swapped_publication_lists_swaps_citations(client, setup_router_db, mock_publication_fetch):
+    pubmed = {"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}
+    biorxiv = {"identifier": TEST_BIORXIV_IDENTIFIER, "dbName": "bioRxiv"}
+    experiment = create_experiment(
+        client, {"primaryPublicationIdentifiers": [pubmed], "secondaryPublicationIdentifiers": [biorxiv]}
+    )
+
+    payload = deepcopy(experiment)
+    payload.update({"primaryPublicationIdentifiers": [biorxiv], "secondaryPublicationIdentifiers": [pubmed]})
+    response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=payload)
+    assert response.status_code == 200
+
+    response = client.get(f"/api/v1/experiments/{experiment['urn']}")
+    assert cited_identifiers(response.json(), "primary") == [TEST_BIORXIV_IDENTIFIER]
+    assert cited_identifiers(response.json(), "secondary") == [TEST_PUBMED_IDENTIFIER]
+
+
 @pytest.mark.parametrize(
     "db_name, identifier", [("biorxiv", TEST_BIORXIV_IDENTIFIER), ("medrxiv", TEST_MEDRXIV_IDENTIFIER)]
 )
@@ -1384,6 +1433,24 @@ def test_create_experiment_crossref_unavailable(client, setup_router_db, db_name
         m.get(f"https://api.crossref.org/works/{identifier}", status_code=503)
         payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
         payload["primaryPublicationIdentifiers"] = [{"identifier": f"{identifier}"}]
+        r = client.post("/api/v1/experiments/", json=payload)
+
+        assert m.called
+        assert r.status_code == 502
+
+
+def test_create_experiment_pubmed_rate_limited_returns_bad_gateway(client, setup_router_db):
+    # setup_router_db stores TEST_PUBMED_IDENTIFIER, which would skip the fetch.
+    unstored_pmid = "29999999"
+    with requests_mock.mock() as m:
+        m.post(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+            status_code=429,
+            json={"error": "API rate limit exceeded"},
+            headers={"Content-Type": "application/json"},
+        )
+        payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+        payload["primaryPublicationIdentifiers"] = [{"identifier": unstored_pmid, "dbName": "PubMed"}]
         r = client.post("/api/v1/experiments/", json=payload)
 
         assert m.called

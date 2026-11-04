@@ -1,5 +1,6 @@
 import logging
 import time
+from typing import Iterable
 
 import requests
 
@@ -45,3 +46,11 @@ def batched(iterable, n):
     l = len(iterable)  # noqa: E741
     for i in range(0, l, n):
         yield iterable[i : min((i + n, l))]
+
+
+def distinct_identifiers(identifiers: Iterable[str]) -> list[str]:
+    """The distinct identifier strings in a submitted list, in the order given.
+
+    A record stores each identifier once, so a repeat in the submission would collide with itself.
+    """
+    return list(dict.fromkeys(identifiers))
