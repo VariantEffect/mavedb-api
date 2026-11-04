@@ -18,8 +18,8 @@ from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.experiments import search_experiments as _search_experiments
 from mavedb.lib.identifiers import distinct_identifiers, find_or_create_publication_identifier
 from mavedb.lib.keywords import search_keyword
-from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer

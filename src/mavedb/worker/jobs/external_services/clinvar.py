@@ -184,7 +184,7 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
     versions_completed = 0
     for version_index, (year, month) in enumerate(versions):
         clinvar_version = f"{month:02d}_{year}"
-        job_manager.save_to_context({"current_version": clinvar_version, "version_index": version_index})
+        job_manager.append_to_context("clinvar_versions", clinvar_version)
 
         version_progress = int((version_index / len(versions)) * 100)
         job_manager.update_progress(

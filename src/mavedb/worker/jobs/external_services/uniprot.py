@@ -132,16 +132,12 @@ async def submit_uniprot_mapping_jobs_for_score_set(
         # by SQLAlchemy when storing job_params as JSON, so be explicit here to avoid confusion.
         mapping_jobs[str(target_gene.id)] = {"job_id": spawned_job, "accession": ac_to_map}
 
-        job_manager.save_to_context(
-            {
-                "submitted_uniprot_mapping_jobs": {
-                    **job_manager.logging_context().get("submitted_uniprot_mapping_jobs", {}),
-                    str(target_gene.id): mapping_jobs[str(target_gene.id)],
-                }
-            }
+        job_manager.append_to_context(
+            "submitted_uniprot_mapping_jobs",
+            {"target_gene_id": str(target_gene.id), **mapping_jobs[str(target_gene.id)]},
         )
         job_manager.update_progress(
-            int((idx + 1 / len(score_set.target_genes)) * 95),
+            int(((idx + 1) / len(score_set.target_genes)) * 95),
             100,
             f"Submitted UniProt mapping job for target gene {target_gene.name}.",
         )

@@ -1,4 +1,3 @@
-# ruff: noqa: E402
 """Network tests for the MONDO/OLS integration. Require a live connection to www.ebi.ac.uk (OLS4).
 
 The unit tests in ``tests/lib/mondo/test_mondo.py`` mock OLS, so these are the only exposure to real upstream
@@ -8,9 +7,6 @@ default suite.
 """
 
 import pytest
-
-# starlette is required for logging context functionality pulled in by mavedb.lib.mondo_ols.
-pytest.importorskip("starlette")
 
 from mavedb.lib.mondo import MONDO_GENERIC_CODE
 from mavedb.lib.mondo_ols import fetch_mondo_term, search_mondo

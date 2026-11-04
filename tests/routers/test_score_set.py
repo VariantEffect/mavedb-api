@@ -22,12 +22,11 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
-from starlette_context import context, request_cycle_context
-
 from mavedb.lib.annotation.annotate import variant_study_result
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.csv import build_limiter
 from mavedb.lib.exceptions import NonexistentOrcidUserError
+from mavedb.lib.logging.context import logging_context_scope
 from mavedb.lib.score_distribution import summarize_scores
 from mavedb.lib.score_set_variants import LEAN_VARIANT_BATCH_SIZE, get_lean_score_set_variants
 from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
@@ -6466,10 +6465,10 @@ def test_get_lean_variants_sends_rows_before_the_last_row_is_read(app_, client, 
 
 
 def test_stream_lean_variants_stream_sent_logs_its_duration():
-    with request_cycle_context({}):
+    with logging_context_scope() as context:
         assert b"".join(_stream_lean_variants([[]])) == b"[]"
 
-        assert context["stream_duration_ns"] >= 0
+    assert context["stream_duration_ns"] >= 0
 
 
 def test_get_lean_variants_failure_mid_stream_never_closes_the_array(app_, client, session, setup_router_db):

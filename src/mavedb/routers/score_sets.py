@@ -62,8 +62,12 @@ from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.gnomad import get_gnomad_variants_with_variant_urns
 from mavedb.lib.identifiers import distinct_identifiers, find_or_create_publication_identifier
 from mavedb.lib.json_stream import stream_json_array
-from mavedb.lib.logging import LoggedRoute
-from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.logging.context import (
+    append_to_logging_context,
+    logging_context,
+    save_to_logging_context,
+)
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
@@ -418,7 +422,7 @@ def score_set_update(
                         )
 
                     upload_taxonomy = gene.target_sequence.taxonomy
-                    save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.code})
+                    append_to_logging_context("requested_taxonomies", gene.target_sequence.taxonomy.code)
                     taxonomy = find_or_create_taxonomy(db, upload_taxonomy)
 
                     if not taxonomy:
@@ -2241,7 +2245,7 @@ def create_score_set(
                     "MaveDB does not support score-sets with both sequence and accession based targets. Please re-submit this scoreset using only one type of target."
                 )
             upload_taxonomy = gene.target_sequence.taxonomy
-            save_to_logging_context({"requested_taxonomy": gene.target_sequence.taxonomy.code})
+            append_to_logging_context("requested_taxonomies", gene.target_sequence.taxonomy.code)
             taxonomy = find_or_create_taxonomy(db, upload_taxonomy)
 
             if not taxonomy:
