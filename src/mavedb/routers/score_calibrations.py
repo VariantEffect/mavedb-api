@@ -102,9 +102,21 @@ def _already_replaced(replacement: Optional[ScoreCalibration], principal: Princi
     Names the replacement only to a caller who may read it, as score set supersession does, so that whoever is
     blocked can find the draft without revealing it to anyone else.
     """
-    detail = "This score calibration already has a replacement."
-    if replacement is not None and principal.viewer_for(ScoreCalibrationViewer).may_read(replacement):
-        detail = f"This score calibration already has a replacement: {replacement.urn}."
+    if replacement is not None and not replacement.private:
+        detail = (
+            f"This score calibration has already been replaced by {replacement.urn}. "
+            "Create a new version of that calibration instead."
+        )
+    elif replacement is not None and principal.viewer_for(ScoreCalibrationViewer).may_read(replacement):
+        detail = (
+            f"A new version of this score calibration is already being drafted ({replacement.urn}). "
+            "Continue that draft, or ask its creator or a MaveDB admin to delete it before starting another."
+        )
+    else:
+        detail = (
+            "Another user is already drafting a new version of this score calibration. "
+            "Contact a MaveDB admin if that draft should be removed."
+        )
     logger.info(msg="Failed to create score calibration; it already has a replacement.", extra=logging_context())
     return HTTPException(status_code=409, detail=detail)
 
