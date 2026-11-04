@@ -459,7 +459,7 @@ def add_score_set_to_collection(
     save_to_logging_context({"requested_resource": collection_urn})
 
     item = db.execute(select(Collection).where(Collection.urn == collection_urn)).scalars().one_or_none()
-    if not item:
+    if not item or not has_permission(user_data, item, Action.READ).permitted:
         logger.info(
             msg="Failed to add score set to collection; The requested collection does not exist.",
             extra=logging_context(),
@@ -531,7 +531,7 @@ def delete_score_set_from_collection(
     save_to_logging_context({"requested_resource": collection_urn})
 
     item = db.execute(select(Collection).where(Collection.urn == collection_urn)).scalars().one_or_none()
-    if not item:
+    if not item or not has_permission(user_data, item, Action.READ).permitted:
         logger.info(
             msg="Failed to remove score set from collection; The requested collection does not exist.",
             extra=logging_context(),
@@ -539,12 +539,15 @@ def delete_score_set_from_collection(
         raise HTTPException(status_code=404, detail=f"collection with URN '{collection_urn}' not found")
 
     score_set = db.execute(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).scalars().one_or_none()
-    if not score_set:
+    if not score_set or not has_permission(user_data, score_set, Action.READ).permitted:
         logger.info(
             msg="Failed to remove score set from collection; The requested score set does not exist.",
             extra=logging_context(),
         )
         raise HTTPException(status_code=404, detail=f"score set with URN '{score_set_urn}' not found")
+
+    # add and remove permissions are the same
+    assert_permission(user_data, item, Action.ADD_SCORE_SET)
 
     # Find and verify the association exists
     assoc_to_remove = next((a for a in item.score_set_associations if a.score_set.urn == score_set_urn), None)
@@ -557,9 +560,6 @@ def delete_score_set_from_collection(
             status_code=409,
             detail=f"association between score set '{score_set_urn}' and collection '{collection_urn}' not found",
         )
-
-    # add and remove permissions are the same
-    assert_permission(user_data, item, Action.ADD_SCORE_SET)
 
     # Remove the association
     item.score_set_associations.remove(assoc_to_remove)
@@ -618,7 +618,7 @@ def add_experiment_to_collection(
     save_to_logging_context({"requested_resource": collection_urn})
 
     item = db.execute(select(Collection).where(Collection.urn == collection_urn)).scalars().one_or_none()
-    if not item:
+    if not item or not has_permission(user_data, item, Action.READ).permitted:
         logger.info(
             msg="Failed to add experiment to collection; The requested collection does not exist.",
             extra=logging_context(),
@@ -686,7 +686,7 @@ def delete_experiment_from_collection(
     save_to_logging_context({"requested_resource": collection_urn})
 
     item = db.execute(select(Collection).where(Collection.urn == collection_urn)).scalars().one_or_none()
-    if not item:
+    if not item or not has_permission(user_data, item, Action.READ).permitted:
         logger.info(
             msg="Failed to remove experiment from collection; The requested collection does not exist.",
             extra=logging_context(),
@@ -694,12 +694,15 @@ def delete_experiment_from_collection(
         raise HTTPException(status_code=404, detail=f"collection with URN '{collection_urn}' not found")
 
     experiment = db.execute(select(Experiment).where(Experiment.urn == experiment_urn)).scalars().one_or_none()
-    if not experiment:
+    if not experiment or not has_permission(user_data, experiment, Action.READ).permitted:
         logger.info(
             msg="Failed to remove experiment from collection; The requested experiment does not exist.",
             extra=logging_context(),
         )
         raise HTTPException(status_code=404, detail=f"experiment with URN '{experiment_urn}' not found")
+
+    # add and remove permissions are the same
+    assert_permission(user_data, item, Action.ADD_EXPERIMENT)
 
     # Find and verify the association exists
     assoc_to_remove = next((a for a in item.experiment_associations if a.experiment.urn == experiment_urn), None)
@@ -712,9 +715,6 @@ def delete_experiment_from_collection(
             status_code=409,
             detail=f"association between experiment '{experiment_urn}' and collection '{collection_urn}' not found",
         )
-
-    # add and remove permissions are the same
-    assert_permission(user_data, item, Action.ADD_EXPERIMENT)
 
     # Remove the association
     item.experiment_associations.remove(assoc_to_remove)

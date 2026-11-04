@@ -87,3 +87,18 @@ def test_show_publication_journals_none_exist(client, setup_router_db, session):
     # Assert the response
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_search_publications_by_identifier_and_db_other_database_not_found(client, setup_router_db):
+    response = client.get(f"/api/v1/publication-identifiers/search/bioRxiv/{TEST_PUBMED_PUBLICATION['identifier']}")
+
+    assert response.status_code == 404
+
+
+def test_search_publications_by_identifier_and_db_matching_database_found(client, setup_router_db):
+    response = client.get(f"/api/v1/publication-identifiers/search/PubMed/{TEST_PUBMED_PUBLICATION['identifier']}")
+
+    assert response.status_code == 200
+    assert [(item["identifier"], item["dbName"]) for item in response.json()] == [
+        (TEST_PUBMED_PUBLICATION["identifier"], "PubMed")
+    ]

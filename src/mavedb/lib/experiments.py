@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 
-from sqlalchemy import func, not_, or_
+from sqlalchemy import ColumnElement, and_, func, not_, or_
 from sqlalchemy.orm import Session
 
 from mavedb.lib.collections import readable_official_collections
@@ -22,6 +22,18 @@ from mavedb.view_models import experiment
 from mavedb.view_models.search import ExperimentsSearch
 
 logger = logging.getLogger(__name__)
+
+
+def _score_set_visible_to(user: Optional[User]) -> ColumnElement[bool]:
+    # Unlike score set READ, ignores admin and mapper roles; search has never widened results for them.
+    if user is None:
+        return ScoreSet.private.is_(False)
+
+    return or_(
+        ScoreSet.private.is_(False),
+        ScoreSet.created_by_id == user.id,
+        ScoreSet.contributors.any(Contributor.orcid_id == user.username),
+    )
 
 
 def search_experiments(
@@ -77,7 +89,14 @@ def search_experiments(
 
     if search.publication_identifiers:
         query = query.filter(
-            ScoreSet.publication_identifiers.any(PublicationIdentifier.identifier.in_(search.publication_identifiers))
+            Experiment.score_sets.any(
+                and_(
+                    _score_set_visible_to(owner_or_contributor),
+                    ScoreSet.publication_identifiers.any(
+                        PublicationIdentifier.identifier.in_(search.publication_identifiers)
+                    ),
+                )
+            )
         )
 
     if search.authors:
