@@ -228,6 +228,18 @@ class MondoServiceError(Exception):
     pass
 
 
+class NCBITaxonomyNotFoundError(Exception):
+    """Raised when NCBI Taxonomy does not return a taxon for a search."""
+
+    pass
+
+
+class EmptyTaxonomySearchError(ValueError):
+    """Raised when an NCBI Taxonomy search is given no search text."""
+
+    pass
+
+
 class LDHSubmissionFailureError(Exception):
     """Raised when submission to ClinGen Linked Data Hub (LDH) fails for all submissions."""
 
