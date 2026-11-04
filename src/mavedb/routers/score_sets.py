@@ -2,8 +2,10 @@ import io
 import json
 import logging
 import time
+from collections.abc import Iterable, Iterator
 from datetime import date, datetime
 from functools import partial
+from itertools import chain
 from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
 
 import numpy as np
@@ -17,7 +19,7 @@ from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.responses import StreamingResponse
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError, MultipleResultsFound
 from sqlalchemy.orm import Session
@@ -59,6 +61,7 @@ from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.gnomad import get_gnomad_variants_with_variant_urns
 from mavedb.lib.identifiers import distinct_identifiers, find_or_create_publication_identifier
+from mavedb.lib.json_stream import stream_json_array
 from mavedb.lib.logging.context import (
     append_to_logging_context,
     logging_context,
@@ -69,7 +72,7 @@ from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.score_calibrations import create_score_calibration
-from mavedb.lib.score_set_variants import get_lean_score_set_variants
+from mavedb.lib.score_set_variants import LeanVariantRecord, get_lean_score_set_variants
 from mavedb.lib.score_sets import (
     csv_data_to_df,
     fetch_score_set_search_filter_options,
@@ -135,6 +138,9 @@ TAG_NAME = "Score Sets"
 logger = logging.getLogger(__name__)
 
 SCORE_SET_SEARCH_MAX_LIMIT = 100
+
+_LEAN_VARIANT = TypeAdapter(LeanVariant)
+_LEAN_VARIANTS = TypeAdapter(List[LeanVariant])
 SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS = 40
 
 
@@ -1011,7 +1017,42 @@ def get_score_set_lean_variants(
     response.headers["X-As-Of"] = as_of.isoformat() if as_of is not None else "current"
 
     score_set = fetch_score_set_by_urn(db, urn, user_data, None, False)
-    return get_lean_score_set_variants(db, score_set, as_of=as_of)
+
+    # The whole-set query outruns the API's default statement timeout on the largest score sets.
+    allow_long_statements(db)
+    batches = get_lean_score_set_variants(db, score_set, as_of=as_of)
+    # Reading the first batch starts the query, so a query that fails at once is still an error status. The rows come
+    # from a cursor, though, so a failure after the first batch, such as the statement timeout, ends the stream early
+    # under a 200.
+    first = next(batches, [])
+
+    return StreamingResponse(
+        _stream_lean_variants(chain([first], batches)),
+        media_type="application/json",
+        headers={"X-As-Of": as_of.isoformat() if as_of is not None else "current"},
+    )
+
+
+def _stream_lean_variants(batches: Iterable[Sequence[LeanVariantRecord]]) -> Iterator[bytes]:
+    """Encode ``batches`` as one JSON array, a chunk per batch, and log how long sending it took.
+
+    Validating and encoding every row is most of the lean view's CPU, so it happens here as the response is sent,
+    rather than in ``response_model`` after the whole set is built.
+    """
+    # The request log's duration ends when the route returns, before the stream is sent.
+    start = time.monotonic_ns()
+    try:
+        # TODO#964: Serve NDJSON instead of writing the array by hand. The array keeps the response identical to the
+        # unstreamed one, so this could ship as a patch; NDJSON changes the format and needs a matching ui change.
+        yield from stream_json_array(
+            [
+                _LEAN_VARIANT.dump_json(variant, by_alias=True, exclude_none=True)
+                for variant in _LEAN_VARIANTS.validate_python(batch, from_attributes=True)
+            ]
+            for batch in batches
+        )
+    finally:
+        save_to_logging_context({"stream_duration_ns": time.monotonic_ns() - start})
 
 
 def _stream_score_set_variant_details(
