@@ -13,6 +13,7 @@ aiocache with Redis backend:
 
 import logging
 from collections import Counter
+from collections.abc import Iterable
 from datetime import datetime
 
 import requests
@@ -57,6 +58,18 @@ def _generate_clinvar_versions() -> list[tuple[int, int]]:
     first_version = (CLINVAR_START_YEAR, CLINVAR_START_MONTH)
     archival_versions = [(year, 1) for year in range(CLINVAR_START_YEAR + 1, current_year + 1)]
     return [first_version, *archival_versions]
+
+
+async def _lookup_clinvar_allele_ids(caids: Iterable[str]) -> dict[str, str | requests.exceptions.RequestException]:
+    """Resolve each CAID's ClinVar AlleleID through ClinGen, keeping a failed lookup's exception as its result."""
+    clinvar_allele_ids: dict[str, str | requests.exceptions.RequestException] = {}
+    for caid in caids:
+        try:
+            clinvar_allele_ids[caid] = await get_associated_clinvar_allele_id(caid)
+        except requests.exceptions.RequestException as exc:
+            clinvar_allele_ids[caid] = exc
+
+    return clinvar_allele_ids
 
 
 def _annotate_clinvar(
@@ -211,183 +224,196 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
         annotation_manager = AnnotationStatusManager(
             job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
         )
-        for allele_index, (allele_id, caid) in enumerate(allele_data.items(), start=1):
-            if allele_index % CLINVAR_PROGRESS_EVERY_ALLELES == 0:
+        allele_items = list(allele_data.items())
+        for chunk_start in range(0, len(allele_items), CLINVAR_PROGRESS_EVERY_ALLELES):
+            if chunk_start:
                 job_manager.update_progress(
-                    int((version_index + allele_index / len(allele_data)) / len(versions) * 100),
+                    int((version_index + chunk_start / len(allele_data)) / len(versions) * 100),
                     100,
                     f"Processing ClinVar version {clinvar_version} ({version_index + 1}/{len(versions)}): "
-                    f"{allele_index}/{len(allele_data)} alleles.",
+                    f"{chunk_start}/{len(allele_data)} alleles.",
                 )
 
-            # ClinVar is a nucleotide-level database, skip any protein level alleles.
-            if allele_levels.get(allele_id) == SequenceLevel.protein.value:
-                annotation_counts["skipped_link_count"] += 1
-                _annotate_clinvar(
-                    annotation_manager,
-                    allele_id,
-                    Disposition.NOT_APPLICABLE,
-                    EventReason.PROTEIN_LEVEL_ALLELE,
-                    source_version=clinvar_version,
-                    error_message="Protein-level alleles are not linked to ClinVar; see the nucleotide encodings.",
-                    metadata={"clingen_allele_id": caid},
-                )
-                continue
+            chunk = allele_items[chunk_start : chunk_start + CLINVAR_PROGRESS_EVERY_ALLELES]
+            # The checkpoint above commits the previous chunk's writes and every lookup runs before this chunk's,
+            # so no await happens while this job holds a row lock. Otherwise a sibling job's synchronous upsert
+            # can wait on that lock and freeze the event loop, and this job never runs again to release it.
+            clinvar_allele_ids = await _lookup_clinvar_allele_ids(
+                caid
+                for allele_id, caid in chunk
+                if allele_levels.get(allele_id) != SequenceLevel.protein.value
+                and allele_id not in already_linked
+                and "," not in caid
+            )
+            for allele_id, caid in chunk:
+                # ClinVar is a nucleotide-level database, skip any protein level alleles.
+                if allele_levels.get(allele_id) == SequenceLevel.protein.value:
+                    annotation_counts["skipped_link_count"] += 1
+                    _annotate_clinvar(
+                        annotation_manager,
+                        allele_id,
+                        Disposition.NOT_APPLICABLE,
+                        EventReason.PROTEIN_LEVEL_ALLELE,
+                        source_version=clinvar_version,
+                        error_message="Protein-level alleles are not linked to ClinVar; see the nucleotide encodings.",
+                        metadata={"clingen_allele_id": caid},
+                    )
+                    continue
 
-            if allele_id in already_linked:
-                annotation_counts["preexisting_link_count"] += 1
+                if allele_id in already_linked:
+                    annotation_counts["preexisting_link_count"] += 1
+                    _annotate_clinvar(
+                        annotation_manager,
+                        allele_id,
+                        Disposition.PRESENT,
+                        EventReason.PREEXISTING,
+                        source_version=clinvar_version,
+                        metadata={"clingen_allele_id": caid},
+                    )
+                    continue
+
+                # A cis-block (multi-variant) CAID structurally cannot key ClinVar — a terminal gap, not
+                # a statement about ClinVar's contents.
+                if "," in caid:
+                    annotation_counts["skipped_link_count"] += 1
+                    _annotate_clinvar(
+                        annotation_manager,
+                        allele_id,
+                        Disposition.NOT_APPLICABLE,
+                        EventReason.MULTI_VARIANT_CAID,
+                        source_version=clinvar_version,
+                        error_message="Multi-variant ClinGen allele IDs cannot be associated with ClinVar data.",
+                        metadata={"clingen_allele_id": caid},
+                    )
+                    continue
+
+                clinvar_allele_id = clinvar_allele_ids[caid]
+                if isinstance(clinvar_allele_id, requests.exceptions.RequestException):
+                    exc = clinvar_allele_id
+                    annotation_counts["failed_link_count"] += 1
+                    _annotate_clinvar(
+                        annotation_manager,
+                        allele_id,
+                        Disposition.FAILED,
+                        EventReason.API_ERROR,
+                        source_version=clinvar_version,
+                        error_message=f"Failed to retrieve ClinVar allele ID from ClinGen API: {str(exc)}",
+                        metadata={"clingen_allele_id": caid},
+                    )
+                    logger.error(
+                        f"Failed to retrieve ClinVar allele ID from ClinGen API for ClinGen allele ID {caid}.",
+                        extra=job_manager.logging_context(),
+                        exc_info=exc,
+                    )
+                    continue
+
+                # ClinGen has no ClinVar AlleleID for this CAID — the allele is not a ClinVar control: an
+                # informative negative about the source, not a pipeline gap.
+                if not clinvar_allele_id:
+                    annotation_counts["skipped_link_count"] += 1
+                    _annotate_clinvar(
+                        annotation_manager,
+                        allele_id,
+                        Disposition.ABSENT,
+                        EventReason.NO_RECORD,
+                        source_version=clinvar_version,
+                        error_message="No ClinVar allele ID found for ClinGen allele ID.",
+                        metadata={"clingen_allele_id": caid},
+                    )
+                    continue
+
+                # The allele has a ClinVar AlleleID but it is absent from this release's snapshot — a
+                # genuine, version-scoped negative (ClinVar queried, nothing for this release).
+                if clinvar_allele_id not in tsv_data:
+                    annotation_counts["skipped_link_count"] += 1
+                    _annotate_clinvar(
+                        annotation_manager,
+                        allele_id,
+                        Disposition.ABSENT,
+                        EventReason.NO_RECORD,
+                        source_version=clinvar_version,
+                        error_message="No ClinVar data found for ClinVar allele ID.",
+                        metadata={"clingen_allele_id": caid, "clinvar_allele_id": clinvar_allele_id},
+                    )
+                    continue
+
+                variant_data = tsv_data[clinvar_allele_id]
+
+                # Atomic upsert — avoids a check-then-act race when two refresh_clinvar_controls jobs run
+                # concurrently for different score sets and encounter the same
+                # (db_name, db_identifier, db_version) tuple. ON CONFLICT DO UPDATE returns exactly one row.
+                upsert_stmt = (
+                    pg_insert(ClinvarControl)
+                    .values(
+                        db_identifier=str(clinvar_allele_id),
+                        db_version=clinvar_version,
+                        db_name="ClinVar",
+                        gene_symbol=variant_data.get("GeneSymbol"),
+                        clinical_significance=variant_data.get("ClinicalSignificance"),
+                        clinical_review_status=variant_data.get("ReviewStatus"),
+                        clinvar_variation_id=variant_data.get("VariationID"),
+                    )
+                    .on_conflict_do_update(
+                        constraint="uq_clinvar_controls_db_name_identifier_version",
+                        set_={
+                            "gene_symbol": variant_data.get("GeneSymbol"),
+                            "clinical_significance": variant_data.get("ClinicalSignificance"),
+                            "clinical_review_status": variant_data.get("ReviewStatus"),
+                            "clinvar_variation_id": variant_data.get("VariationID"),
+                        },
+                    )
+                    .returning(ClinvarControl)
+                )
+                clinvar_control = job_manager.db.scalars(upsert_stmt).one()
+
+                # At most one live link per (allele, release). Normally a release is immutable, so the
+                # allele's live link for this version is either a reconfirm of this same control (no-op) or
+                # absent (insert) — multi-live accumulates only across *different* releases, never supersedes.
+                # Defensive guard: if the allele already holds a live link to a *different* control of this
+                # same version, the release re-resolved under us (re-ingestion / upstream correction — should
+                # never happen for archival data). Supersede newest-wins with a shared timestamp and log.
+                live_link = job_manager.db.scalar(
+                    select(ClinvarAlleleLink)
+                    .join(ClinvarControl, ClinvarControl.id == ClinvarAlleleLink.clinvar_control_id)
+                    .where(
+                        ClinvarAlleleLink.allele_id == allele_id,
+                        ClinvarAlleleLink.current,
+                        ClinvarControl.db_version == clinvar_version,
+                    )
+                )
+                if live_link is None:
+                    job_manager.db.add(ClinvarAlleleLink(allele_id=allele_id, clinvar_control_id=clinvar_control.id))
+                    annotation_counts["created_link_count"] += 1
+                    reason = EventReason.CREATED
+                elif live_link.clinvar_control_id == clinvar_control.id:
+                    annotation_counts["preexisting_link_count"] += 1
+                    reason = EventReason.PREEXISTING
+                else:
+                    live_link.supersede_with(
+                        job_manager.db,
+                        ClinvarAlleleLink(allele_id=allele_id, clinvar_control_id=clinvar_control.id),
+                    )
+                    annotation_counts["created_link_count"] += 1
+                    reason = EventReason.SUPERSEDED
+                    logger.warning(
+                        msg=(
+                            f"Allele {allele_id} held a live ClinVar link to control "
+                            f"{live_link.clinvar_control_id} for version {clinvar_version}, but re-resolved to "
+                            f"control {clinvar_control.id} (ClinVar allele {clinvar_allele_id}). Superseding "
+                            "newest-wins; archival ClinVar data should be immutable — investigate the upstream "
+                            "re-resolution."
+                        ),
+                        extra=job_manager.logging_context(),
+                    )
+
                 _annotate_clinvar(
                     annotation_manager,
                     allele_id,
                     Disposition.PRESENT,
-                    EventReason.PREEXISTING,
+                    reason,
                     source_version=clinvar_version,
-                    metadata={"clingen_allele_id": caid},
-                )
-                continue
-
-            # A cis-block (multi-variant) CAID structurally cannot key ClinVar — a terminal gap, not
-            # a statement about ClinVar's contents.
-            if "," in caid:
-                annotation_counts["skipped_link_count"] += 1
-                _annotate_clinvar(
-                    annotation_manager,
-                    allele_id,
-                    Disposition.NOT_APPLICABLE,
-                    EventReason.MULTI_VARIANT_CAID,
-                    source_version=clinvar_version,
-                    error_message="Multi-variant ClinGen allele IDs cannot be associated with ClinVar data.",
-                    metadata={"clingen_allele_id": caid},
-                )
-                continue
-
-            try:
-                clinvar_allele_id = await get_associated_clinvar_allele_id(caid)
-            except requests.exceptions.RequestException as exc:
-                annotation_counts["failed_link_count"] += 1
-                _annotate_clinvar(
-                    annotation_manager,
-                    allele_id,
-                    Disposition.FAILED,
-                    EventReason.API_ERROR,
-                    source_version=clinvar_version,
-                    error_message=f"Failed to retrieve ClinVar allele ID from ClinGen API: {str(exc)}",
-                    metadata={"clingen_allele_id": caid},
-                )
-                logger.error(
-                    f"Failed to retrieve ClinVar allele ID from ClinGen API for ClinGen allele ID {caid}.",
-                    extra=job_manager.logging_context(),
-                    exc_info=exc,
-                )
-                continue
-
-            # ClinGen has no ClinVar AlleleID for this CAID — the allele is not a ClinVar control: an
-            # informative negative about the source, not a pipeline gap.
-            if not clinvar_allele_id:
-                annotation_counts["skipped_link_count"] += 1
-                _annotate_clinvar(
-                    annotation_manager,
-                    allele_id,
-                    Disposition.ABSENT,
-                    EventReason.NO_RECORD,
-                    source_version=clinvar_version,
-                    error_message="No ClinVar allele ID found for ClinGen allele ID.",
-                    metadata={"clingen_allele_id": caid},
-                )
-                continue
-
-            # The allele has a ClinVar AlleleID but it is absent from this release's snapshot — a
-            # genuine, version-scoped negative (ClinVar queried, nothing for this release).
-            if clinvar_allele_id not in tsv_data:
-                annotation_counts["skipped_link_count"] += 1
-                _annotate_clinvar(
-                    annotation_manager,
-                    allele_id,
-                    Disposition.ABSENT,
-                    EventReason.NO_RECORD,
-                    source_version=clinvar_version,
-                    error_message="No ClinVar data found for ClinVar allele ID.",
                     metadata={"clingen_allele_id": caid, "clinvar_allele_id": clinvar_allele_id},
                 )
-                continue
-
-            variant_data = tsv_data[clinvar_allele_id]
-
-            # Atomic upsert — avoids a check-then-act race when two refresh_clinvar_controls jobs run
-            # concurrently for different score sets and encounter the same
-            # (db_name, db_identifier, db_version) tuple. ON CONFLICT DO UPDATE returns exactly one row.
-            upsert_stmt = (
-                pg_insert(ClinvarControl)
-                .values(
-                    db_identifier=str(clinvar_allele_id),
-                    db_version=clinvar_version,
-                    db_name="ClinVar",
-                    gene_symbol=variant_data.get("GeneSymbol"),
-                    clinical_significance=variant_data.get("ClinicalSignificance"),
-                    clinical_review_status=variant_data.get("ReviewStatus"),
-                    clinvar_variation_id=variant_data.get("VariationID"),
-                )
-                .on_conflict_do_update(
-                    constraint="uq_clinvar_controls_db_name_identifier_version",
-                    set_={
-                        "gene_symbol": variant_data.get("GeneSymbol"),
-                        "clinical_significance": variant_data.get("ClinicalSignificance"),
-                        "clinical_review_status": variant_data.get("ReviewStatus"),
-                        "clinvar_variation_id": variant_data.get("VariationID"),
-                    },
-                )
-                .returning(ClinvarControl)
-            )
-            clinvar_control = job_manager.db.scalars(upsert_stmt).one()
-
-            # At most one live link per (allele, release). Normally a release is immutable, so the
-            # allele's live link for this version is either a reconfirm of this same control (no-op) or
-            # absent (insert) — multi-live accumulates only across *different* releases, never supersedes.
-            # Defensive guard: if the allele already holds a live link to a *different* control of this
-            # same version, the release re-resolved under us (re-ingestion / upstream correction — should
-            # never happen for archival data). Supersede newest-wins with a shared timestamp and log.
-            live_link = job_manager.db.scalar(
-                select(ClinvarAlleleLink)
-                .join(ClinvarControl, ClinvarControl.id == ClinvarAlleleLink.clinvar_control_id)
-                .where(
-                    ClinvarAlleleLink.allele_id == allele_id,
-                    ClinvarAlleleLink.current,
-                    ClinvarControl.db_version == clinvar_version,
-                )
-            )
-            if live_link is None:
-                job_manager.db.add(ClinvarAlleleLink(allele_id=allele_id, clinvar_control_id=clinvar_control.id))
-                annotation_counts["created_link_count"] += 1
-                reason = EventReason.CREATED
-            elif live_link.clinvar_control_id == clinvar_control.id:
-                annotation_counts["preexisting_link_count"] += 1
-                reason = EventReason.PREEXISTING
-            else:
-                live_link.supersede_with(
-                    job_manager.db,
-                    ClinvarAlleleLink(allele_id=allele_id, clinvar_control_id=clinvar_control.id),
-                )
-                annotation_counts["created_link_count"] += 1
-                reason = EventReason.SUPERSEDED
-                logger.warning(
-                    msg=(
-                        f"Allele {allele_id} held a live ClinVar link to control "
-                        f"{live_link.clinvar_control_id} for version {clinvar_version}, but re-resolved to "
-                        f"control {clinvar_control.id} (ClinVar allele {clinvar_allele_id}). Superseding "
-                        "newest-wins; archival ClinVar data should be immutable — investigate the upstream "
-                        "re-resolution."
-                    ),
-                    extra=job_manager.logging_context(),
-                )
-
-            _annotate_clinvar(
-                annotation_manager,
-                allele_id,
-                Disposition.PRESENT,
-                reason,
-                source_version=clinvar_version,
-                metadata={"clingen_allele_id": caid, "clinvar_allele_id": clinvar_allele_id},
-            )
 
         annotation_manager.flush()
         job_manager.db.flush()

@@ -30,8 +30,11 @@ from mavedb.lib.validation.constants.general import (
     hgvs_pro_column,
 )
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
+from mavedb.models.mixins.publication_citation import PublicationKey
+from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
+from mavedb.models.score_calibration_publication_identifier import ScoreCalibrationPublicationIdentifierAssociation
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
 from mavedb.models.variant import Variant
@@ -492,7 +495,7 @@ def test_create_score_calibration_propagates_errors_from_publication_find_create
             match="Propagated error",
         ),
         mock.patch(
-            "mavedb.lib.score_calibrations.find_or_create_publication_identifier",
+            "mavedb.lib.score_calibrations.ensure_publication_keys",
             side_effect=ValueError("Propagated error"),
         ),
     ):
@@ -549,10 +552,15 @@ def test_create_score_calibration_publication_identifier_associations_created_wi
     )
 
     calibration = create_function_to_call(session, mocked_calibration, test_user)
-    assert calibration.publication_identifier_associations[0].publication.db_name == "PubMed"
-    assert calibration.publication_identifier_associations[0].publication.identifier == TEST_PUBMED_IDENTIFIER
+    assert calibration.publication_identifier_associations[0].db_name == "PubMed"
+    assert calibration.publication_identifier_associations[0].identifier == TEST_PUBMED_IDENTIFIER
     assert calibration.publication_identifier_associations[0].relation == expected_relation
     assert len(calibration.publication_identifier_associations) == 1
+
+    # The cited publication is stored under that key.
+    assert session.scalars(
+        select(PublicationIdentifier).filter_by(db_name="PubMed", identifier=TEST_PUBMED_IDENTIFIER)
+    ).one()
 
 
 @pytest.mark.parametrize(
@@ -922,6 +930,71 @@ def test_modify_score_calibration_adds_new_publication_association(
     )
     assert modified_calibration.publication_identifier_associations[0].relation == ScoreCalibrationRelation.threshold
     assert len(modified_calibration.publication_identifier_associations) == 1
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": TEST_PUBMED_IDENTIFIER},
+            {"dbName": "bioRxiv", "identifier": TEST_BIORXIV_IDENTIFIER},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+@pytest.mark.parametrize(
+    "repeat",
+    [TEST_PUBMED_IDENTIFIER, f"https://pubmed.ncbi.nlm.nih.gov/{TEST_PUBMED_IDENTIFIER}/"],
+    ids=["same_identifier", "identifier_and_url"],
+)
+def test_modify_score_calibration_repeated_source_keeps_one_existing_citation(
+    setup_lib_db_with_score_set, session, mock_publication_fetch, repeat
+):
+    test_user = session.execute(select(User)).scalars().first()
+
+    existing_calibration = create_test_range_based_score_calibration_in_score_set(
+        session, setup_lib_db_with_score_set.urn, test_user
+    )
+    (existing_threshold_citation,) = [
+        assoc
+        for assoc in existing_calibration.publication_identifier_associations
+        if assoc.relation == ScoreCalibrationRelation.threshold
+    ]
+
+    MockCalibrationModify = create_model(
+        "MockCalibrationModify",
+        score_set_urn=(str | None, setup_lib_db_with_score_set.urn),
+        threshold_sources=(
+            list,
+            [
+                create_model(
+                    "MockPublicationCreate",
+                    db_name=(str, "PubMed"),
+                    identifier=(str, identifier),
+                )()
+                for identifier in (TEST_PUBMED_IDENTIFIER, repeat)
+            ],
+        ),
+        evidence_sources=(list, []),
+        method_sources=(list, []),
+        functional_classifications=(list, []),
+    )
+
+    modified_calibration = modify_score_calibration(session, existing_calibration, MockCalibrationModify(), test_user)
+    session.flush()
+    session.refresh(modified_calibration)
+
+    assert modified_calibration.publication_identifier_associations == [existing_threshold_citation]
+    stored_threshold_keys = session.execute(
+        select(
+            ScoreCalibrationPublicationIdentifierAssociation.db_name,
+            ScoreCalibrationPublicationIdentifierAssociation.identifier,
+        ).where(
+            ScoreCalibrationPublicationIdentifierAssociation.score_calibration_id == modified_calibration.id,
+            ScoreCalibrationPublicationIdentifierAssociation.relation == ScoreCalibrationRelation.threshold,
+        )
+    ).all()
+    assert [PublicationKey(*row) for row in stored_threshold_keys] == [PublicationKey("PubMed", TEST_PUBMED_IDENTIFIER)]
 
 
 @pytest.mark.parametrize(

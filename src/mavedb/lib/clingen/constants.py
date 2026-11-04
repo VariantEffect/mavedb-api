@@ -32,6 +32,10 @@ CLINGEN_READ_TIMEOUT = float(os.getenv("CLINGEN_READ_TIMEOUT", "300"))
 CLINGEN_HTTP_TIMEOUT = (CLINGEN_CONNECT_TIMEOUT, CLINGEN_READ_TIMEOUT)
 """(connect, read) timeout for ClinGen HTTP calls. Fail fast on connect, with a generous read 
 budget because a large batch can take CAR a while to respond."""
+CLINGEN_LOOKUP_TIMEOUT = (CLINGEN_CONNECT_TIMEOUT, float(os.getenv("CLINGEN_LOOKUP_READ_TIMEOUT", "30")))
+"""(connect, read) timeout for single-allele Allele Registry GETs. Much shorter than the batch read budget: a ClinVar
+refresh makes tens of thousands of these one after another, and only checkpoints progress every few hundred, so a few
+five-minute waits would trip the stall sweeper on a job that is still working."""
 LDH_SUBMISSION_ENDPOINT = f"https://genboree.org/mq/brdg/pulsar/{CLIN_GEN_TENANT}/ldh/submissions/{LDH_ENTITY_ENDPOINT}"
 LDH_ACCESS_ENDPOINT = os.getenv("LDH_ACCESS_ENDPOINT", "https://genboree.org/ldh")
 LDH_MAVE_ACCESS_ENDPOINT = f"{LDH_ACCESS_ENDPOINT}/{LDH_ENTITY_NAME}/id"

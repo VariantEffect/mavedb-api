@@ -1146,3 +1146,61 @@ def test_cannot_add_unreadable_score_set_to_own_collection(
 
     assert response.status_code == 404
     assert session.query(CollectionScoreSetAssociation).count() == 0
+
+
+MEMBER_ROUTES = {
+    "score_set": ("score-sets", "score_set_urn", "urn:mavedb:00099999-a-1"),
+    "experiment": ("experiments", "experiment_urn", "urn:mavedb:00099999-a"),
+}
+
+
+def _create_private_member(client, member):
+    experiment = create_experiment(client)
+    if member == "score_set":
+        return create_seq_score_set(client, experiment["urn"])["urn"]
+    return experiment["urn"]
+
+
+@pytest.mark.parametrize("method", ["post", "delete"])
+@pytest.mark.parametrize("member", list(MEMBER_ROUTES))
+def test_collection_member_routes_unreadable_collection_reported_as_missing(
+    session, client, setup_router_db, extra_user_app_overrides, member, method
+):
+    path, body_key, missing_member_urn = MEMBER_ROUTES[member]
+    collection = create_collection(client)
+
+    with DependencyOverrider(extra_user_app_overrides):
+        if method == "post":
+            response = client.post(
+                f"/api/v1/collections/{collection['urn']}/{path}", json={body_key: missing_member_urn}
+            )
+        else:
+            response = client.delete(f"/api/v1/collections/{collection['urn']}/{path}/{missing_member_urn}")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == f"collection with URN '{collection['urn']}' not found"
+
+
+@pytest.mark.parametrize("member", list(MEMBER_ROUTES))
+def test_delete_member_from_collection_unreadable_member_reported_as_missing_whether_linked(
+    session, client, setup_router_db, extra_user_app_overrides, member
+):
+    path, body_key, _ = MEMBER_ROUTES[member]
+    linked_urn = _create_private_member(client, member)
+    unlinked_urn = _create_private_member(client, member)
+    collection = create_collection(client, update={"private": False})
+    response = client.post(f"/api/v1/collections/{collection['urn']}/{path}", json={body_key: linked_urn})
+    assert response.status_code == 200
+
+    with DependencyOverrider(extra_user_app_overrides):
+        responses = {
+            urn: client.delete(f"/api/v1/collections/{collection['urn']}/{path}/{urn}")
+            for urn in (linked_urn, unlinked_urn)
+        }
+
+    for urn, response in responses.items():
+        assert response.status_code == 404
+        assert response.json()["detail"] == f"{member.replace('_', ' ')} with URN '{urn}' not found"
+
+    association_model = CollectionScoreSetAssociation if member == "score_set" else CollectionExperimentAssociation
+    assert session.query(association_model).count() == 1

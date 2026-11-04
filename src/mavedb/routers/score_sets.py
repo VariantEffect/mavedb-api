@@ -10,7 +10,6 @@ from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
 
 import numpy as np
 import pandas as pd
-import requests
 from arq import ArqRedis
 from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -60,7 +59,6 @@ from mavedb.lib.deprecation import MAPPED_VARIANT_SUNSET, deprecation_headers, r
 from mavedb.lib.exceptions import MixedTargetError, NCBITaxonomyNotFoundError, NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.gnomad import get_gnomad_variants_with_variant_urns
-from mavedb.lib.identifiers import distinct_identifiers, find_or_create_publication_identifier
 from mavedb.lib.json_stream import stream_json_array
 from mavedb.lib.logging.context import (
     append_to_logging_context,
@@ -71,6 +69,7 @@ from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
+from mavedb.lib.publications import ensure_publication_keys, record_publication_citations
 from mavedb.lib.score_calibrations import create_score_calibration
 from mavedb.lib.score_set_variants import LeanVariantRecord, get_lean_score_set_variants
 from mavedb.lib.score_sets import (
@@ -100,6 +99,7 @@ from mavedb.lib.urns import (
     generate_score_set_urn,
     lock_urn_assignment,
 )
+from mavedb.lib.utils import distinct_identifiers
 from mavedb.lib.validation.exceptions import ValidationError as MaveDBValidationError
 from mavedb.lib.variant_detail import load_variant_detail_inputs
 from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set_from_thread
@@ -110,6 +110,7 @@ from mavedb.models.experiment import Experiment
 from mavedb.models.license import License
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
@@ -317,76 +318,22 @@ def score_set_update(
         ]
 
     if any(key in item_update_dict for key in ["primary_publication_identifiers", "secondary_publication_identifiers"]):
-        if "primary_publication_identifiers" in item_update_dict:
-            primary_publication_identifiers_list = [
-                PublicationIdentifierCreate(**identifier)
-                for identifier in item_update_dict.get("primary_publication_identifiers") or []
-            ]
-            try:
-                primary_publication_identifiers = [
-                    find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-                    for identifier in primary_publication_identifiers_list
-                ]
-            except requests.exceptions.ConnectTimeout:
-                logger.error(msg="Gateway timed out while creating publication identifiers.", extra=logging_context())
-                raise HTTPException(
-                    status_code=504,
-                    detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-                )
+        submitted = [
+            [PublicationIdentifierCreate(**identifier) for identifier in item_update_dict.get(side) or []]
+            for side in ["primary_publication_identifiers", "secondary_publication_identifiers"]
+        ]
+        primary_keys, secondary_keys = ensure_publication_keys(db, *submitted)
 
-            except requests.exceptions.HTTPError:
-                logger.error(
-                    msg="Encountered bad gateway while creating publication identifiers.", extra=logging_context()
-                )
-                raise HTTPException(
-                    status_code=502,
-                    detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-                )
-        else:
-            # set to existing primary publication identifiers if not provided in update
-            primary_publication_identifiers = [p for p in item.publication_identifiers if getattr(p, "primary", False)]
+        # A side the update leaves out keeps the publications it cites now.
+        current_citations = item.publication_identifier_associations
+        if "primary_publication_identifiers" not in item_update_dict:
+            primary_keys = [citation.key for citation in current_citations if citation.primary]
+        if "secondary_publication_identifiers" not in item_update_dict:
+            secondary_keys = [citation.key for citation in current_citations if not citation.primary]
 
-        if "secondary_publication_identifiers" in item_update_dict:
-            secondary_publication_identifiers_list = [
-                PublicationIdentifierCreate(**identifier)
-                for identifier in item_update_dict.get("secondary_publication_identifiers") or []
-            ]
-            try:
-                secondary_publication_identifiers = [
-                    find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-                    for identifier in secondary_publication_identifiers_list
-                ]
-            except requests.exceptions.ConnectTimeout:
-                logger.error(msg="Gateway timed out while creating publication identifiers.", extra=logging_context())
-                raise HTTPException(
-                    status_code=504,
-                    detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-                )
-
-            except requests.exceptions.HTTPError:
-                logger.error(
-                    msg="Encountered bad gateway while creating publication identifiers.", extra=logging_context()
-                )
-                raise HTTPException(
-                    status_code=502,
-                    detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-                )
-
-        else:
-            # set to existing secondary publication identifiers if not provided in update
-            secondary_publication_identifiers = [
-                p for p in item.publication_identifiers if not getattr(p, "primary", False)
-            ]
-
-        publication_identifiers = primary_publication_identifiers + secondary_publication_identifiers
-
-        # create a temporary `primary` attribute on each of our publications that indicates
-        # to our association proxy whether it is a primary publication or not
-        primary_identifiers = [p.identifier for p in primary_publication_identifiers]
-        for publication in publication_identifiers:
-            setattr(publication, "primary", publication.identifier in primary_identifiers)
-
-        item.publication_identifiers = publication_identifiers
+        item.publication_identifier_associations = record_publication_citations(
+            ScoreSetPublicationIdentifierAssociation, primary=primary_keys, secondary=secondary_keys
+        )
 
     if "contributors" in item_update_dict:
         try:
@@ -2000,20 +1947,21 @@ def create_score_set(
     experiment: Optional[Experiment] = None
     if item_create.experiment_urn is not None:
         experiment = db.query(Experiment).filter(Experiment.urn == item_create.experiment_urn).one_or_none()
-        if not experiment:
+        if not experiment or not has_permission(user_data, experiment, Action.READ).permitted:
             logger.info(
                 msg="Failed to create score set; The requested experiment does not exist.", extra=logging_context()
             )
-            raise HTTPException(status_code=404, detail="The requested experiment does not exist")
+            raise HTTPException(status_code=404, detail=f"experiment with URN '{item_create.experiment_urn}' not found")
+
+        save_to_logging_context({"experiment": experiment.urn})
+        assert_permission(user_data, experiment, Action.ADD_SCORE_SET)
+
         # Not allow add score set in meta-analysis experiments.
         if any(s.meta_analyzes_score_sets for s in experiment.score_sets):
             raise HTTPException(
                 status_code=409,
                 detail="Score sets may not be added to a meta-analysis experiment.",
             )
-
-        save_to_logging_context({"experiment": experiment.urn})
-        assert_permission(user_data, experiment, Action.ADD_SCORE_SET)
 
     license_ = db.query(License).filter(License.id == item_create.license_id).one_or_none()
     save_to_logging_context({"requested_license": item_create.license_id})
@@ -2048,15 +1996,18 @@ def create_score_set(
                 detail="The requested superseded score set does not exist",
             )
 
-        if superseded_score_set.superseding_score_set:
+        superseding_score_set = superseded_score_set.superseding_score_set
+        if superseding_score_set:
             logger.info(
-                msg=f"Failed to create score set. This score set has been superseded by score set: {superseded_score_set.superseding_score_set.urn}.",
+                msg=f"Failed to create score set. This score set has been superseded by score set: {superseding_score_set.urn}.",
                 extra=logging_context(),
             )
-            raise HTTPException(
-                status_code=409,
-                detail=f"This score set has been superseded by score set: {superseded_score_set.superseding_score_set.urn}.",
-            )
+            # It may be another contributor's private draft.
+            if has_permission(user_data, superseding_score_set, Action.READ).permitted:
+                detail = f"This score set has been superseded by score set: {superseding_score_set.urn}."
+            else:
+                detail = "This score set has already been superseded."
+            raise HTTPException(status_code=409, detail=detail)
     else:
         superseded_score_set = None
 
@@ -2160,35 +2111,12 @@ def create_score_set(
         for identifier in distinct_identifiers(i.identifier for i in item_create.doi_identifiers or [])
     ]
 
-    try:
-        primary_publication_identifiers = [
-            find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-            for identifier in item_create.primary_publication_identifiers or []
-        ]
-        publication_identifiers = [
-            find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-            for identifier in item_create.secondary_publication_identifiers or []
-        ] + primary_publication_identifiers
-
-    except requests.exceptions.ConnectTimeout:
-        logger.error(msg="Gateway timed out while creating experiment identifiers.", extra=logging_context())
-        raise HTTPException(
-            status_code=504,
-            detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-        )
-
-    except requests.exceptions.HTTPError:
-        logger.error(msg="Encountered bad gateway while creating experiment identifiers.", extra=logging_context())
-        raise HTTPException(
-            status_code=502,
-            detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-        )
-
-    # create a temporary `primary` attribute on each of our publications that indicates
-    # to our association proxy whether it is a primary publication or not
-    primary_identifiers = [pub.identifier for pub in primary_publication_identifiers]
-    for publication in publication_identifiers:
-        setattr(publication, "primary", publication.identifier in primary_identifiers)
+    primary_keys, secondary_keys = ensure_publication_keys(
+        db, item_create.primary_publication_identifiers or [], item_create.secondary_publication_identifiers or []
+    )
+    publication_citations = record_publication_citations(
+        ScoreSetPublicationIdentifierAssociation, primary=primary_keys, secondary=secondary_keys
+    )
 
     score_calibrations: list[ScoreCalibration] = []
     if item_create.score_calibrations:
@@ -2342,7 +2270,7 @@ def create_score_set(
         target_genes=targets,
         contributors=contributors,
         doi_identifiers=doi_identifiers,
-        publication_identifiers=publication_identifiers,
+        publication_identifier_associations=publication_citations,
         processing_state=ProcessingState.incomplete,
         created_by=user_data.user,
         modified_by=user_data.user,

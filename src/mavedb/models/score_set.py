@@ -156,9 +156,6 @@ class ScoreSet(Base):
     publication_identifiers: AssociationProxy[List[PublicationIdentifier]] = association_proxy(
         "publication_identifier_associations",
         "publication",
-        creator=lambda p: mavedb.models.score_set_publication_identifier.ScoreSetPublicationIdentifierAssociation(
-            publication=p, primary=p.primary
-        ),
     )
     meta_analyzes_score_sets: Mapped[list["ScoreSet"]] = relationship(
         "ScoreSet",

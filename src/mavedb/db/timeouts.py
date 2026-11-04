@@ -1,7 +1,7 @@
-"""Database timeouts for the API.
+"""Database timeouts for the API and the worker.
 
-The API sets its limits on each connection it opens, so the worker, scripts and migrations, which share the
-same login and legitimately run long statements, are unaffected. Prod connects to RDS directly; behind RDS
+Each process sets its limits on each connection it opens, so scripts and migrations, which share the same login
+and legitimately run long statements, are unaffected. Prod connects to RDS directly; behind RDS
 Proxy these session-level ``SET``s would pin every connection and belong on the login instead.
 """
 
@@ -25,6 +25,10 @@ CSV_STATEMENT_TIMEOUT_SECONDS = int(os.getenv("DB_CSV_STATEMENT_TIMEOUT_SECONDS"
 API_LOCK_TIMEOUT_SECONDS = int(os.getenv("DB_LOCK_TIMEOUT_SECONDS", "5"))
 # Above the longest legitimate gap between statements inside one request's transaction.
 API_IDLE_IN_TRANSACTION_TIMEOUT_SECONDS = int(os.getenv("DB_IDLE_IN_TRANSACTION_TIMEOUT_SECONDS", "60"))
+# The worker's jobs share one event loop and their database calls are synchronous, so a call waiting on a lock
+# stalls every job on the worker, the lock's holder included when it is another job on the same worker. The
+# worker sets only this limit, since its jobs legitimately run long statements and idle in transactions.
+WORKER_LOCK_TIMEOUT_SECONDS = int(os.getenv("DB_WORKER_LOCK_TIMEOUT_SECONDS", "60"))
 # Not a limit: statements slower than this are logged so the limits above can be tuned from real data.
 SLOW_STATEMENT_SECONDS = float(os.getenv("DB_SLOW_STATEMENT_SECONDS", "5"))
 
@@ -52,6 +56,25 @@ def apply_api_timeouts(engine: Engine) -> None:
     """
     if not event.contains(engine, "connect", _set_api_timeouts):
         event.listen(engine, "connect", _set_api_timeouts)
+
+
+def _set_worker_timeouts(dbapi_connection, _connection_record) -> None:
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute(f"SET lock_timeout = '{WORKER_LOCK_TIMEOUT_SECONDS}s'")
+    finally:
+        cursor.close()
+
+    dbapi_connection.commit()
+
+
+def apply_worker_timeouts(engine: Engine) -> None:
+    """Apply the worker's lock timeout to every new connection of ``engine``. Safe to call repeatedly.
+
+    Call this before the first connection is opened: connections already in the pool are not touched.
+    """
+    if not event.contains(engine, "connect", _set_worker_timeouts):
+        event.listen(engine, "connect", _set_worker_timeouts)
 
 
 def allow_long_statements(db: Session, seconds: int = CSV_STATEMENT_TIMEOUT_SECONDS) -> None:

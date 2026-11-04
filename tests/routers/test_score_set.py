@@ -656,6 +656,71 @@ def test_can_patch_score_set_data_before_publication(
     assert expected_response_data == response_data[camelize(attribute)]
 
 
+def cited_identifiers(score_set, kind):
+    return [publication["identifier"] for publication in score_set[f"{kind}PublicationIdentifiers"]]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+@pytest.mark.parametrize(
+    "patched, kept",
+    [("secondary", "primary"), ("primary", "secondary")],
+    ids=["patch-secondary", "patch-primary"],
+)
+def test_patch_score_set_one_publication_list_keeps_the_other(
+    client, setup_router_db, mock_publication_fetch, patched, kept
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(
+        client,
+        experiment["urn"],
+        update={
+            "primaryPublicationIdentifiers": [{"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}],
+            "secondaryPublicationIdentifiers": [{"identifier": TEST_BIORXIV_IDENTIFIER, "dbName": "bioRxiv"}],
+        },
+    )
+    kept_identifiers = cited_identifiers(score_set, kept)
+
+    response = client.patch(
+        f"/api/v1/score-sets-with-variants/{score_set['urn']}",
+        data={f"{patched}_publication_identifiers": json.dumps([])},
+    )
+    assert response.status_code == 200
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+    assert cited_identifiers(response.json(), kept) == kept_identifiers
+    assert cited_identifiers(response.json(), patched) == []
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_create_score_set_publication_in_both_lists_is_cited_once_as_primary(
+    client, setup_router_db, mock_publication_fetch
+):
+    experiment = create_experiment(client)
+    publication = {"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}
+
+    score_set = create_seq_score_set(
+        client,
+        experiment["urn"],
+        update={"primaryPublicationIdentifiers": [publication], "secondaryPublicationIdentifiers": [publication]},
+    )
+
+    assert cited_identifiers(score_set, "primary") == [TEST_PUBMED_IDENTIFIER]
+    assert cited_identifiers(score_set, "secondary") == []
+
+
 @pytest.mark.parametrize(
     "form_field,filename,mime_type",
     [
@@ -2600,6 +2665,30 @@ def test_cannot_add_score_set_to_meta_analysis_experiment(session, data_provider
     assert "Score sets may not be added to a meta-analysis experiment." in response_data["detail"]
 
 
+def test_create_score_set_in_others_private_meta_analysis_experiment_reported_as_missing(
+    session, data_provider, client, setup_router_db, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published_score_set = publish_score_set(client, score_set["urn"])
+
+    private_meta_score_set = create_seq_score_set(
+        client, None, update={"metaAnalyzesScoreSetUrns": [published_score_set["urn"]]}
+    )
+    payload = {**deepcopy(TEST_MINIMAL_SEQ_SCORESET), "experimentUrn": private_meta_score_set["experiment"]["urn"]}
+    missing_payload = {**payload, "experimentUrn": "urn:mavedb:00099999-a"}
+
+    with DependencyOverrider(extra_user_app_overrides):
+        response = client.post("/api/v1/score-sets/", json=payload)
+        missing_response = client.post("/api/v1/score-sets/", json=missing_payload)
+
+    for sent, received in ((payload, response), (missing_payload, missing_response)):
+        assert received.status_code == 404
+        assert received.json()["detail"] == f"experiment with URN '{sent['experimentUrn']}' not found"
+
+
 def test_create_single_score_set_meta_analysis_to_others_score_set(
     session, data_provider, client, setup_router_db, data_files
 ):
@@ -3500,6 +3589,41 @@ def test_cannot_create_multiple_superseding_versions(session, data_provider, cli
     assert (f"This score set has been superseded by score set: {first_superseding['urn']}.") in response.json()[
         "detail"
     ]
+
+
+def test_create_superseding_score_set_conflict_withholds_unreadable_superseding_urn(
+    session, data_provider, client, setup_router_db, data_files, extra_user_app_overrides
+):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
+        published = publish_score_set(client, score_set["urn"])
+    add_contributor(
+        session,
+        published["urn"],
+        ScoreSetDbModel,
+        EXTRA_USER["username"],
+        EXTRA_USER["first_name"],
+        EXTRA_USER["last_name"],
+    )
+
+    private_superseding = create_seq_score_set(
+        client, create_experiment(client)["urn"], update={"supersededScoreSetUrn": published["urn"]}
+    )
+
+    with DependencyOverrider(extra_user_app_overrides):
+        experiment2 = create_experiment(client)
+        payload = {
+            **deepcopy(TEST_MINIMAL_SEQ_SCORESET),
+            "experimentUrn": experiment2["urn"],
+            "supersededScoreSetUrn": published["urn"],
+        }
+        response = client.post("/api/v1/score-sets/", json=payload)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "This score set has already been superseded."
+    assert private_superseding["urn"] not in response.text
 
 
 def test_search_score_sets_not_affected_by_an_unpublishing_superseding_versions(
