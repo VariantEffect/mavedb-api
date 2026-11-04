@@ -228,6 +228,18 @@ class MondoServiceError(Exception):
     pass
 
 
+class NCBITaxonomyNotFoundError(Exception):
+    """Raised when NCBI Taxonomy does not return a taxon for a search."""
+
+    pass
+
+
+class EmptyTaxonomySearchError(ValueError):
+    """Raised when an NCBI Taxonomy search is given no search text."""
+
+    pass
+
+
 class PublicationServiceError(Exception):
     """Raised when a publication database (PubMed, bioRxiv, medRxiv or Crossref) fails to answer a lookup."""
 

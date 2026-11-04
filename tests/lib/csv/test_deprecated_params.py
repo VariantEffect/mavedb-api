@@ -1,5 +1,3 @@
-# ruff: noqa: E402
-
 """The compatibility layer keeping pre-namespace CSV clients working.
 
 This is the only thing standing between a client that predates the namespace vocabulary and silently
@@ -9,10 +7,6 @@ rather than left to the router tests.
 """
 
 import pytest
-
-# lib.csv reaches the ClinGen client, which needs aiocache.
-pytest.importorskip("aiocache")
-
 
 from mavedb.lib.csv.deprecated_params import resolve_deprecated_csv_params
 from mavedb.lib.csv.namespaces import CsvNamespace

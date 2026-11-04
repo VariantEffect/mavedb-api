@@ -1,10 +1,6 @@
-# ruff: noqa: E402
-
 """Fixtures scoped to the CSV library tests."""
 
 import pytest
-
-pytest.importorskip("psycopg2")
 
 from tests.helpers.constants import TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION
 from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record

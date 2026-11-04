@@ -5,6 +5,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from mavedb import deps
+from mavedb.lib.exceptions import EmptyTaxonomySearchError, NCBITaxonomyNotFoundError
 from mavedb.lib.taxonomies import search_NCBI_taxonomy
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
@@ -117,7 +118,12 @@ def search_taxonomies(search: TextSearch, db: Session = Depends(deps.get_db)) ->
     items = query.order_by(Taxonomy.organism_name).all()
 
     if not items and search.text:
-        search_taxonomy = search_NCBI_taxonomy(db, search.text)
+        try:
+            search_taxonomy = search_NCBI_taxonomy(db, search.text)
+        except EmptyTaxonomySearchError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except NCBITaxonomyNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
         if search_taxonomy:
             items = [search_taxonomy]
         else:

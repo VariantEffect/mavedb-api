@@ -3920,6 +3920,26 @@ def test_cannot_create_score_set_with_inactive_license(session, client, setup_ro
     assert response.status_code == 409
 
 
+def test_create_score_set_taxonomy_unknown_to_ncbi_returns_404(client, setup_router_db, ncbi_taxonomy_not_found):
+    experiment = create_experiment(client)
+    score_set_post_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_post_payload["experimentUrn"] = experiment["urn"]
+    score_set_post_payload["targetGenes"][0]["targetSequence"]["taxonomy"]["code"] = 999999999
+    response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Taxonomy with search 999999999 not found in NCBI"
+
+
+def test_update_score_set_taxonomy_unknown_to_ncbi_returns_404(client, setup_router_db, ncbi_taxonomy_not_found):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    score_set_update_payload = deepcopy(TEST_MINIMAL_SEQ_SCORESET)
+    score_set_update_payload["targetGenes"][0]["targetSequence"]["taxonomy"]["code"] = 999999999
+    response = client.put(f"/api/v1/score-sets/{score_set['urn']}", json=score_set_update_payload)
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Taxonomy with search 999999999 not found in NCBI"
+
+
 def test_cannot_modify_score_set_to_inactive_license(session, client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])

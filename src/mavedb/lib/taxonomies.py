@@ -1,9 +1,9 @@
 from typing import Any
 
 import httpx
-from fastapi.exceptions import HTTPException
 from sqlalchemy.orm import Session
 
+from mavedb.lib.exceptions import EmptyTaxonomySearchError, NCBITaxonomyNotFoundError
 from mavedb.models.taxonomy import Taxonomy
 from mavedb.view_models.taxonomy import TaxonomyCreate
 
@@ -64,8 +64,8 @@ def search_NCBI_taxonomy(db: Session, search: str) -> Any:
                 db.commit()
                 db.refresh(taxonomy_record)
             else:
-                raise HTTPException(status_code=404, detail=f"Taxonomy with search {search_text} not found in NCBI")
+                raise NCBITaxonomyNotFoundError(f"Taxonomy with search {search_text} not found in NCBI")
     else:
-        raise HTTPException(status_code=400, detail="Search text is required")
+        raise EmptyTaxonomySearchError("Search text is required")
 
     return taxonomy_record

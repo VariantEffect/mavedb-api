@@ -56,7 +56,7 @@ from mavedb.lib.csv.deprecated_params import (
 from mavedb.lib.csv.namespaces import CSV_NAMESPACES_PARAM_DESCRIPTION, CsvNamespaceStr
 from mavedb.lib.csv.score_set import available_score_set_csv_namespaces, get_score_set_variants_as_csv
 from mavedb.lib.deprecation import MAPPED_VARIANT_SUNSET, deprecation_headers, record_deprecated_usage
-from mavedb.lib.exceptions import MixedTargetError, NonexistentOrcidUserError
+from mavedb.lib.exceptions import MixedTargetError, NCBITaxonomyNotFoundError, NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.gnomad import get_gnomad_variants_with_variant_urns
 from mavedb.lib.json_stream import stream_json_array
@@ -370,7 +370,10 @@ def score_set_update(
 
                     upload_taxonomy = gene.target_sequence.taxonomy
                     append_to_logging_context("requested_taxonomies", gene.target_sequence.taxonomy.code)
-                    taxonomy = find_or_create_taxonomy(db, upload_taxonomy)
+                    try:
+                        taxonomy = find_or_create_taxonomy(db, upload_taxonomy)
+                    except NCBITaxonomyNotFoundError as e:
+                        raise HTTPException(status_code=404, detail=str(e))
 
                     if not taxonomy:
                         logger.info(
@@ -2174,7 +2177,10 @@ def create_score_set(
                 )
             upload_taxonomy = gene.target_sequence.taxonomy
             append_to_logging_context("requested_taxonomies", gene.target_sequence.taxonomy.code)
-            taxonomy = find_or_create_taxonomy(db, upload_taxonomy)
+            try:
+                taxonomy = find_or_create_taxonomy(db, upload_taxonomy)
+            except NCBITaxonomyNotFoundError as e:
+                raise HTTPException(status_code=404, detail=str(e))
 
             if not taxonomy:
                 logger.info(

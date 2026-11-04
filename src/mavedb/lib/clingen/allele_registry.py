@@ -2,25 +2,15 @@ import asyncio
 import functools
 import logging
 from typing import Optional
-from urllib.parse import quote
 
 import requests
 from aiocache import cached
 
 from mavedb.lib.clingen.cache import CACHE_CLASS, CACHE_CONFIG, CACHE_TTL_SECONDS, clingen_cache_key_builder
-from mavedb.lib.clingen.constants import (
-    CLINGEN_ALLELE_REGISTRY_API_URL,
-    CLINGEN_ALLELE_REGISTRY_PAGE_URL,
-    CLINGEN_LOOKUP_TIMEOUT,
-)
+from mavedb.lib.clingen.constants import CLINGEN_ALLELE_REGISTRY_API_URL, CLINGEN_LOOKUP_TIMEOUT
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
-
-def clingen_allele_url(clingen_allele_id: str) -> str:
-    """Allele Registry page for a CAID or PAID, in the form the ga4gh/cat-vrs examples use."""
-    return f"{CLINGEN_ALLELE_REGISTRY_PAGE_URL}?caid={quote(clingen_allele_id, safe='')}"
 
 
 @cached(ttl=CACHE_TTL_SECONDS, key_builder=clingen_cache_key_builder, cache=CACHE_CLASS, **CACHE_CONFIG)
