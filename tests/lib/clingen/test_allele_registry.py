@@ -17,6 +17,7 @@ from mavedb.lib.clingen.allele_registry import (
     refresh_clingen_allele_data_expiry,
 )
 from mavedb.lib.clingen.cache import CACHE_TTL_SECONDS
+from mavedb.lib.clingen.constants import CLINGEN_LOOKUP_TIMEOUT
 
 
 @pytest.mark.unit
@@ -251,6 +252,24 @@ class TestGetAssociatedClinvarAlleleId:
 
         with pytest.raises(requests.exceptions.HTTPError):
             await get_associated_clinvar_allele_id("CA_CLINVAR_500")
+
+    @pytest.mark.asyncio
+    async def test_get_associated_clinvar_allele_id_request_bounded_by_lookup_timeout(self, mock_request):
+        mock_response = mock.Mock()
+        mock_response.status_code = 404
+        mock_request.return_value = mock_response
+
+        await get_associated_clinvar_allele_id("CA_CLINVAR_TIMEOUT_ARG")
+
+        assert mock_request.call_args.kwargs["timeout"] == CLINGEN_LOOKUP_TIMEOUT
+
+    @pytest.mark.asyncio
+    async def test_get_associated_clinvar_allele_id_stalled_response_raises_timeout(self, mock_request):
+        """A stalled ClinGen response must surface as a RequestException, which the ClinVar job records and skips."""
+        mock_request.side_effect = requests.exceptions.ReadTimeout("read timed out")
+
+        with pytest.raises(requests.exceptions.RequestException):
+            await get_associated_clinvar_allele_id("CA_CLINVAR_STALLED")
 
 
 @pytest.mark.unit
