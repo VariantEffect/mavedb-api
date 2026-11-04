@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from starlette.convertors import Convertor, register_url_convertor
 
 from mavedb import deps
-from mavedb.lib.identifiers import find_generic_article
+from mavedb.lib.publications import find_generic_article
 from mavedb.lib.validation.constants.publication import valid_dbnames
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.routers.shared import (

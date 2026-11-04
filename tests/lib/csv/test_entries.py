@@ -2,7 +2,9 @@
 
 import pytest
 
-pytest.importorskip("fastapi")
+# lib.csv reaches the ClinGen client, which needs aiocache.
+pytest.importorskip("aiocache")
+
 
 from mavedb.lib.csv.entries import clinvar_namespace_entries
 from mavedb.lib.csv.namespaces import CsvNamespaceGroup

@@ -19,14 +19,13 @@ pytest.importorskip("psycopg2")
 
 from datetime import date
 
-from starlette_context import context, request_cycle_context
-
 from mavedb.lib.allele_measurements import (
     AlleleMeasurement,
     _ordering_key,
     _resolve_protein_apex,
     get_allele_measurements,
 )
+from mavedb.lib.logging.context import logging_context_scope
 from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.lib.types.authentication import UserData
 from mavedb.models.allele import Allele
@@ -307,7 +306,7 @@ def test_widening_ambiguous_apex_is_loud(session, setup_lib_db_with_score_set, c
     _link(session, r2, prot2, is_authoritative=True)
     _link(session, r2, nt)
 
-    with request_cycle_context({}):
+    with logging_context_scope() as context:
         with caplog.at_level(logging.WARNING, logger="mavedb.lib.allele_measurements"):
             get_allele_measurements(session, "CA123", user_data=_user_data(session))
         assert context["apex_paid_count"] == 2
@@ -334,7 +333,7 @@ def test_widening_provenance_apex_only_unresolved(session, setup_lib_db_with_sco
     protein_record = _record(session, protein_measured, assay_level="protein")
     _link(session, protein_record, prot, is_authoritative=True)
 
-    with request_cycle_context({}):
+    with logging_context_scope() as context:
         result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
         # Both surface via the apex; the protein measurement is the apex-only-unresolved one.
         assert {m.variant_urn for m in result} == {nt_measured.urn, protein_measured.urn}
@@ -343,7 +342,7 @@ def test_widening_provenance_apex_only_unresolved(session, setup_lib_db_with_sco
 
     # Once the protein record gains a derived (non-authoritative) link of its own, it is resolved.
     _link(session, protein_record, nt)
-    with request_cycle_context({}):
+    with logging_context_scope() as context:
         get_allele_measurements(session, "CA123", user_data=_user_data(session))
         assert context["measurements_apex_only_unresolved"] == 0
 
@@ -368,7 +367,7 @@ def test_ca_page_reaches_apex_only_protein_consequence(session, setup_lib_db_wit
     protein_record = _record(session, protein_measured, assay_level="protein")
     _link(session, protein_record, prot, is_authoritative=True)
 
-    with request_cycle_context({}):
+    with logging_context_scope() as context:
         result = get_allele_measurements(session, "CA123", user_data=_user_data(session))
         by_urn = {m.variant_urn: m for m in result}
         # Reached through the apex despite no nt link on the protein measurement's record.
@@ -425,7 +424,7 @@ def test_protein_consequence_reached_only_through_unreadable_score_set_is_withhe
         _link(session, _record(session, public_nt, assay_level="cdna"), nt, is_authoritative=True)
         expected = {public_nt.urn}
 
-    with request_cycle_context({}):
+    with logging_context_scope():
         result = get_allele_measurements(session, "CA123", user_data=None)
 
     assert {m.variant_urn for m in result} == expected

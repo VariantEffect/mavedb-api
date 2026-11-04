@@ -14,6 +14,7 @@ from typing import Any, Awaitable, Callable, TypeVar, cast
 from arq import ArqRedis
 from sqlalchemy.orm import Session
 
+from mavedb.lib.logging.context import bound_logging_context, logging_context_scope
 from mavedb.lib.slack import send_slack_error, send_slack_job_error, send_slack_job_failure
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
@@ -52,9 +53,17 @@ def with_job_management(func: F) -> F:
     @functools.wraps(func)
     async def async_wrapper(*args, **kwargs):
         with ensure_session_ctx(ctx=ensure_ctx(args)):
-            # No-op in test mode
+            # No lifecycle management in test mode, where tests pass in their own JobManager. Its context
+            # is still bound as the logging context, as in production, so library writes land in it.
             if is_test_mode():
-                return await func(*args, **kwargs)
+                job_manager = next(
+                    (arg for arg in (*args, *kwargs.values()) if isinstance(arg, JobManager)),
+                    None,
+                )
+                if job_manager is None:
+                    return await func(*args, **kwargs)
+                with bound_logging_context(job_manager.context):
+                    return await func(*args, **kwargs)
 
             return await _execute_managed_job(func, args, kwargs)
 
@@ -62,7 +71,16 @@ def with_job_management(func: F) -> F:
 
 
 async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome]], args: tuple, kwargs: dict) -> Any:
-    """Execute a managed ARQ job with full lifecycle tracking."""
+    """Execute a managed ARQ job with full lifecycle tracking, inside a logging context of its own."""
+    # ARQ runs each job as its own task, so this scope is the job's alone. Its dict doubles as the
+    # job manager's context, so what library code saves reaches the canonical job log.
+    with logging_context_scope() as log_ctx:
+        return await _run_managed_job(func, args, kwargs, log_ctx)
+
+
+async def _run_managed_job(
+    func: Callable[..., Awaitable[JobExecutionOutcome]], args: tuple, kwargs: dict, log_ctx: dict[str, Any]
+) -> Any:
     try:
         ctx = ensure_ctx(args)
         db_session: Session = ctx["db"]
@@ -82,7 +100,7 @@ async def _execute_managed_job(func: Callable[..., Awaitable[JobExecutionOutcome
 
     try:
         # Initialize JobManager
-        job_manager = JobManager(db_session, redis_pool, job_id)
+        job_manager = JobManager(db_session, redis_pool, job_id, context=log_ctx)
 
         # Inject the job manager into kwargs for access within the function
         kwargs["job_manager"] = job_manager

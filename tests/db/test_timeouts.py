@@ -10,7 +10,6 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
-from starlette_context import context, request_cycle_context
 
 from mavedb.db import timeouts
 from mavedb.db.timeouts import (
@@ -20,6 +19,7 @@ from mavedb.db.timeouts import (
     apply_worker_timeouts,
     observe_statements,
 )
+from mavedb.lib.logging.context import logging_context, logging_context_scope
 
 
 def _show(connection_or_session, setting: str) -> str:
@@ -112,7 +112,7 @@ class TestObserveStatements:
     def test_counts_each_statement_in_the_request_context(self, session, engine):
         observe_statements(engine, threshold_seconds=5)
 
-        with request_cycle_context({}):
+        with logging_context_scope() as context:
             session.execute(text("SELECT 1"))
             session.execute(text("SELECT 2"))
             assert context["db_statement_count"] == 2
@@ -122,7 +122,7 @@ class TestObserveStatements:
 
         session.execute(text("SELECT 1"))
 
-        assert not context.exists()
+        assert logging_context() == {}
 
     def test_logs_a_statement_cancelled_by_the_timeout(self, session, engine, caplog):
         observe_statements(engine, threshold_seconds=0.05)

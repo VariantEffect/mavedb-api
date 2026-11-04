@@ -6,15 +6,14 @@ import time
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from mavedb.lib.logging.canonical import log_request
 from mavedb.lib.logging.context import (
     correlation_id_for_context,
-    format_raised_exception_info_as_dict,
     logging_context,
-    save_to_logging_context,
+    record_exception,
 )
 from mavedb.lib.slack import send_slack_error
 
@@ -51,7 +50,8 @@ class CatchAllErrorMiddleware:
     and has a history of breaking ``StreamingResponse``, which the NDJSON export endpoints rely on. Only
     exceptions raised before the response starts are converted — once bytes are on the wire the status is
     already committed, so the exception is re-raised and each stream is responsible for its own
-    mid-flight error reporting.
+    mid-flight error reporting. Its canonical request log is written here first, with the status already
+    sent: the app-level handler that sees the exception next runs outside the request's logging context.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -63,11 +63,13 @@ class CatchAllErrorMiddleware:
             return
 
         response_started = False
+        started_status = 500
 
         async def send_wrapper(message: Message) -> None:
-            nonlocal response_started
+            nonlocal response_started, started_status
             if message["type"] == "http.response.start":
                 response_started = True
+                started_status = message["status"]
             await send(message)
 
         try:
@@ -75,9 +77,11 @@ class CatchAllErrorMiddleware:
         except Exception as err:
             # The status line is already committed; nothing can be salvaged into a 500 here.
             if response_started:
+                record_exception(err)
+                log_request(Request(scope, receive), Response(status_code=started_status), time.time_ns())
                 raise
 
-            save_to_logging_context(format_raised_exception_info_as_dict(err))
+            record_exception(err)
             request = Request(scope, receive)
             busy = _is_database_busy(err)
             response = JSONResponse(
