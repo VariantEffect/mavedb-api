@@ -6,11 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from mavedb import deps
-from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
     logging_context,
     save_to_logging_context,
 )
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.seqrepo import get_sequence_ids, seqrepo_versions, sequence_generator
 from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models.seqrepo import SeqRepoMetadata, SeqRepoVersions

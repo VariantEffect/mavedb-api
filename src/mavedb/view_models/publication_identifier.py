@@ -3,7 +3,7 @@ from typing import Optional
 
 from pydantic import field_validator
 
-from mavedb.lib.identifiers import PublicationAuthors
+from mavedb.lib.external_publications import PublicationAuthors
 from mavedb.lib.validation.publication import validate_db_name, validate_publication
 from mavedb.view_models import record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel

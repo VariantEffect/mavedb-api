@@ -16,7 +16,11 @@ import httpx
 from sqlalchemy.orm import Session
 
 from mavedb.lib.exceptions import MondoServiceError
-from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
+from mavedb.lib.logging.context import (
+    logging_context,
+    record_exception,
+    save_to_logging_context,
+)
 from mavedb.lib.mondo import MONDO_GENERIC_CODE, MONDO_SYSTEM, MondoSuggestion, get_generic_disease_term, mondo_iri
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.mondo_term import MondoTerm
@@ -52,7 +56,7 @@ def search_mondo(query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> list[MondoSug
             response.raise_for_status()
             docs = response.json().get("response", {}).get("docs", [])
     except httpx.HTTPError as exc:
-        save_to_logging_context(format_raised_exception_info_as_dict(exc))
+        record_exception(exc)
         logger.error(msg="MONDO/OLS search request failed.", exc_info=exc, extra=logging_context())
         raise MondoServiceError("Disease ontology service temporarily unavailable") from exc
 
@@ -79,7 +83,7 @@ def fetch_mondo_term(code: str) -> Optional[MondoSuggestion]:
             response.raise_for_status()
             docs = response.json().get("response", {}).get("docs", [])
     except httpx.HTTPError as exc:
-        save_to_logging_context(format_raised_exception_info_as_dict(exc))
+        record_exception(exc)
         logger.error(msg="MONDO/OLS term lookup failed.", exc_info=exc, extra=logging_context())
         raise MondoServiceError("Disease ontology service temporarily unavailable") from exc
 

@@ -4,7 +4,7 @@ from sqlalchemy import Boolean, Column, ForeignKey, ForeignKeyConstraint, Index,
 from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
-from mavedb.db.mixins import ValidTime
+from mavedb.models.mixins.valid_time import ValidTime
 
 if TYPE_CHECKING:
     from .allele import Allele

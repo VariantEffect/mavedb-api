@@ -2,8 +2,8 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 
 TAG_NAME = "Log"

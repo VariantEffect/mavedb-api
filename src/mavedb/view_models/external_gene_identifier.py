@@ -28,9 +28,7 @@ class ExternalGeneIdentifierCreate(ExternalGeneIdentifierBase):
 # Properties shared by models stored in DB
 class SavedExternalGeneIdentifier(ExternalGeneIdentifierBase):
     record_type: str = None  # type: ignore
-    db_version: Optional[str] = None
     url: Optional[str] = None
-    reference_html: Optional[str] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
 

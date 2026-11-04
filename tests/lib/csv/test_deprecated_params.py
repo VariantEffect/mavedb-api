@@ -10,7 +10,9 @@ rather than left to the router tests.
 
 import pytest
 
-pytest.importorskip("fastapi")
+# lib.csv reaches the ClinGen client, which needs aiocache.
+pytest.importorskip("aiocache")
+
 
 from mavedb.lib.csv.deprecated_params import resolve_deprecated_csv_params
 from mavedb.lib.csv.namespaces import CsvNamespace

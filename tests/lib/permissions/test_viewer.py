@@ -1,5 +1,3 @@
-# ruff: noqa: E402
-
 """Tests for the generic Viewer contract.
 
 Every concrete viewer inherits its caching, its fail-closed behaviour and its default audience from the base
@@ -7,14 +5,12 @@ class, so those are exercised here once against a stand-in entity rather than on
 concrete viewer's own rules belong with that entity's permission tests.
 """
 
-import pytest
-
-pytest.importorskip("fastapi", reason="Skipping permissions tests; FastAPI is required but not installed.")
-
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Optional
 from unittest.mock import Mock
+
+import pytest
 
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.models import PermissionResponse

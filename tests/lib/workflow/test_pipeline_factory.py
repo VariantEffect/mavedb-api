@@ -1,7 +1,8 @@
 # ruff: noqa: E402
 import pytest
 
-pytest.importorskip("fastapi")
+pytest.importorskip("psycopg2")
+
 
 from unittest.mock import patch
 

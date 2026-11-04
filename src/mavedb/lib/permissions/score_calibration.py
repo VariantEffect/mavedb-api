@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.models import PermissionResponse
 from mavedb.lib.permissions.score_set import has_permission as score_set_has_permission
@@ -47,14 +46,6 @@ def has_permission(user_data: Optional[UserData], entity: ScoreCalibration, acti
             or user_data.user.id == entity.score_set.modified_by_id
         )
         active_roles = user_data.active_roles
-
-    save_to_logging_context(
-        {
-            "user_is_owner": user_is_owner,
-            "user_is_contributor_to_score_set": user_is_contributor_to_score_set,
-            "score_calibration_id": entity.id,
-        }
-    )
 
     handlers = {
         Action.READ: _handle_read_action,
