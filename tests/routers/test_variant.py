@@ -23,6 +23,7 @@ fastapi = pytest.importorskip("fastapi")
 from sqlalchemy import select
 
 from mavedb.models.allele import Allele
+from mavedb.models.enums.vep import VepConsequenceSource
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.projection_group import ProjectionGroup
@@ -143,6 +144,18 @@ def _seed_mapping(session, variant_urn):
             VepAlleleConsequence(
                 allele_id=measured.id,
                 functional_consequence="missense_variant",
+                consequence_terms=["missense_variant"],
+                consequence_source=VepConsequenceSource.transcript,
+                matched_transcript="NM_000546.6",
+                source_version="116",
+                access_date="2026-01-01",
+            ),
+            # The genomic sibling has no transcript to match, so VEP's cross-transcript worst case.
+            VepAlleleConsequence(
+                allele_id=genomic.id,
+                functional_consequence="splice_region_variant",
+                consequence_terms=["splice_region_variant", "missense_variant"],
+                consequence_source=VepConsequenceSource.most_severe,
                 source_version="116",
                 access_date="2026-01-01",
             ),
@@ -208,7 +221,20 @@ def test_get_variant_detail_envelope(client, session, data_provider, data_files,
     # labelled `convergent` (a distinct change sharing the consequence, not an ambiguous candidate).
     assert body["alleles"]["cousin-digest"]["relation"] == "co_encodes"
     assert body["alleles"]["cousin-digest"]["derivation"] == "convergent"
-    assert body["annotations"]["cdna-digest"]["vep"]["consequence"] == "missense_variant"
+    assert body["annotations"]["cdna-digest"]["vep"] == {
+        "consequence": "missense_variant",
+        "sourceVersion": "116",
+        "consequenceSource": "transcript",
+        "consequenceTerms": ["missense_variant"],
+        "matchedTranscript": "NM_000546.6",
+    }
+    assert body["annotations"]["gen-digest"]["vep"] == {
+        "consequence": "splice_region_variant",
+        "sourceVersion": "116",
+        "consequenceSource": "most_severe",
+        "consequenceTerms": ["splice_region_variant", "missense_variant"],
+        "matchedTranscript": None,
+    }
     assert body["isCurrent"] is True
     assert body["supersededByScoreSet"] is None  # null when current (stable envelope, not dropped)
     assert response.headers["X-As-Of"] == "current"
