@@ -165,11 +165,56 @@ def test_create_score_calibration_concurrent_replacement_conflicts(client, versi
     ],
     ids=["calibration", "score_set_list", "score_set"],
 )
+@pytest.mark.parametrize(
+    "drafted_by_admin,viewer_overrides,is_contributor,expect_named",
+    [
+        (False, None, False, True),
+        (False, "anonymous_app_overrides", False, False),
+        (False, "extra_user_app_overrides", False, False),
+        # Drafted by the score set's owner, so investigator-provided: its contributors may read it.
+        (False, "extra_user_app_overrides", True, True),
+        # Drafted by an admin who isn't a contributor, so a community calibration: only its creator may read it.
+        (True, "extra_user_app_overrides", True, False),
+        (False, "admin_app_overrides", False, True),
+    ],
+    ids=[
+        "creator",
+        "anonymous",
+        "other_user",
+        "contributor_investigator_provided",
+        "contributor_community",
+        "admin",
+    ],
+)
 def test_get_score_calibration_draft_replacement_named_only_to_its_readers(
-    client, versioned_calibration_context, extra_user_app_overrides, route
+    client,
+    session,
+    request,
+    versioned_calibration_context,
+    admin_app_overrides,
+    route,
+    drafted_by_admin,
+    viewer_overrides,
+    is_contributor,
+    expect_named,
 ):
     original, payload = versioned_calibration_context
-    draft = client.post("/api/v1/score-calibrations/", json=payload).json()
+    if drafted_by_admin:
+        with DependencyOverrider(admin_app_overrides):
+            draft = client.post("/api/v1/score-calibrations/", json=payload).json()
+    else:
+        draft = client.post("/api/v1/score-calibrations/", json=payload).json()
+    assert draft["investigatorProvided"] is not drafted_by_admin
+
+    if is_contributor:
+        add_contributor(
+            session,
+            payload["scoreSetUrn"],
+            ScoreSetDbModel,
+            EXTRA_USER["username"],
+            EXTRA_USER["first_name"],
+            EXTRA_USER["last_name"],
+        )
 
     def superseding_urn():
         body = client.get(route.format(urn=original["urn"], score_set_urn=payload["scoreSetUrn"])).json()
@@ -177,9 +222,13 @@ def test_get_score_calibration_draft_replacement_named_only_to_its_readers(
         # The score set route leaves out null fields.
         return next(c for c in calibrations if c["urn"] == original["urn"]).get("supersedingCalibrationUrn")
 
-    assert superseding_urn() == draft["urn"]
-    with DependencyOverrider(extra_user_app_overrides):
-        assert superseding_urn() is None
+    if viewer_overrides is None:
+        named = superseding_urn()
+    else:
+        with DependencyOverrider(request.getfixturevalue(viewer_overrides)):
+            named = superseding_urn()
+
+    assert named == (draft["urn"] if expect_named else None)
 
 
 def test_publish_score_calibration_names_readable_draft_replacement(client, versioned_calibration_context):
