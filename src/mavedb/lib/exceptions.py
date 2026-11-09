@@ -280,5 +280,13 @@ class CalibrationAlreadyReplacedError(ValueError):
     Carries the existing ``replacement`` so the caller can name it to users who may read it."""
 
     def __init__(self, replacement: "ScoreCalibration"):
-        super().__init__("The score calibration already has a replacement.")
+        # A draft's URN stays out of the message: only the caller knows whether the user may read the draft.
+        if replacement.private:
+            message = "A new version of this score calibration is already being drafted."
+        else:
+            message = (
+                f"This score calibration has already been replaced by {replacement.urn}. "
+                "Create a new version of that calibration instead."
+            )
+        super().__init__(message)
         self.replacement = replacement
