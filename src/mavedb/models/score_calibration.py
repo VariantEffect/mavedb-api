@@ -5,7 +5,19 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, func, select
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    func,
+    select,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
 from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
@@ -50,6 +62,10 @@ class ScoreCalibration(Base):
 
     __tablename__ = "score_calibrations"
     # TODO#544: Add a partial unique index to enforce only one primary calibration per score set.
+
+    __table_args__ = (
+        CheckConstraint("replaces_id IS NULL OR replaces_id <> id", name="ck_score_calibrations_replaces_other"),
+    )
 
     id: Mapped[int] = Column(Integer, primary_key=True)
     urn = Column(String(64), nullable=True, default=generate_calibration_urn, unique=True, index=True)
@@ -120,8 +136,10 @@ class ScoreCalibration(Base):
     superseded_calibration: Mapped[ScoreCalibration | None] = relationship(
         "ScoreCalibration", remote_side=[id], back_populates="superseding_calibration"
     )
+    # passive_deletes="all": never null a replacement's link, so the foreign key refuses deleting a replaced version
+    # by any path, not just delete_score_calibration.
     superseding_calibration: Mapped[ScoreCalibration | None] = relationship(
-        "ScoreCalibration", back_populates="superseded_calibration", uselist=False
+        "ScoreCalibration", back_populates="superseded_calibration", uselist=False, passive_deletes="all"
     )
 
     created_by_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)

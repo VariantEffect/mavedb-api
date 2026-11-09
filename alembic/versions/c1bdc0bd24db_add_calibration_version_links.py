@@ -21,9 +21,13 @@ def upgrade():
     op.create_foreign_key(
         "fk_score_calibrations_replaces_id", "score_calibrations", "score_calibrations", ["replaces_id"], ["id"]
     )
+    op.create_check_constraint(
+        "ck_score_calibrations_replaces_other", "score_calibrations", "replaces_id IS NULL OR replaces_id <> id"
+    )
 
 
 def downgrade():
+    op.drop_constraint("ck_score_calibrations_replaces_other", "score_calibrations", type_="check")
     op.drop_constraint("fk_score_calibrations_replaces_id", "score_calibrations", type_="foreignkey")
     op.drop_index("ix_score_calibrations_replaces_id", table_name="score_calibrations")
     op.drop_column("score_calibrations", "replaces_id")
