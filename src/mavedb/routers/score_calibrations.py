@@ -817,12 +817,11 @@ def delete_score_calibration_controls_route(
     """
     save_to_logging_context({"requested_resource": urn, "resource_property": "controls"})
 
-    item = (
-        db.query(ScoreCalibration)
+    item = db.scalars(
+        select(ScoreCalibration)
         .options(selectinload(ScoreCalibration.score_set).selectinload(ScoreSet.contributors))
         .where(ScoreCalibration.urn == urn)
-        .one_or_none()
-    )
+    ).one_or_none()
     if not item:
         logger.debug("The requested score calibration does not exist", extra=logging_context())
         raise HTTPException(status_code=404, detail="The requested score calibration does not exist")
