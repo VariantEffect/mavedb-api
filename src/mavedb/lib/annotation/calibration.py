@@ -104,6 +104,7 @@ def score_calibration_may_be_used_for_annotation(
     score_calibration: ScoreCalibration,
     annotation_type: Literal["pathogenicity", "functional"],
     allow_research_use_only_calibrations: bool = False,
+    allow_superseded_calibrations: bool = False,
 ) -> bool:
     """
     Check if a score calibration may be used for annotation based on its properties.
@@ -118,11 +119,13 @@ def score_calibration_may_be_used_for_annotation(
             being considered, which determines the required classifications for validity.
         allow_research_use_only_calibrations (bool, optional): Whether to allow calibrations
             marked as research use only for annotation. Defaults to False.
+        allow_superseded_calibrations (bool, optional): Whether to allow calibrations that a published
+            version has replaced. Defaults to False.
 
     Returns:
         bool: True if the score calibration can be used for annotation, False otherwise.
     """
-    if getattr(score_calibration, "has_published_replacement", False):
+    if not allow_superseded_calibrations and getattr(score_calibration, "has_published_replacement", False):
         return False
 
     if score_calibration.research_use_only and not allow_research_use_only_calibrations:
