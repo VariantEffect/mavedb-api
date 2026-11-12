@@ -8,6 +8,7 @@ from alembic import context
 # Import model metadata for autogenerate support.
 # Linters will flag mavedb.models.* as unused, but we must import it.
 from mavedb.db.base import Base
+from mavedb.db.bootstrap import apply_grants
 from mavedb.models import *  # noqa: F401,F403
 
 # this is the Alembic Config object, which provides
@@ -78,6 +79,11 @@ def run_migrations_online():
 
         with context.begin_transaction():
             context.run_migrations()
+
+            # Only commands that move the database to a revision, not ``current`` or ``check``. In the same
+            # transaction, so a migration never commits without the grants its tables need.
+            if context.get_context().opts.get("destination_rev") is not None:
+                apply_grants(connection)
 
 
 if context.is_offline_mode():
