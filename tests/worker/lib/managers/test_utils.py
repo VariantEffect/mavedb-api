@@ -20,6 +20,7 @@ from mavedb.worker.lib.managers.constants import (
 )
 from mavedb.worker.lib.managers.utils import (
     FAST_LANE_QUEUE_NAME,
+    MAPPING_LANE_QUEUE_NAME,
     arq_queue_name,
     classify_exception,
     construct_bulk_cancellation_result,
@@ -165,6 +166,10 @@ class TestArqQueueNameUnit:
     def test_fast_lane_functions_route_to_fast_lane_queue(self, job_function):
         assert arq_queue_name(Mock(spec=JobRun, job_function=job_function)) == FAST_LANE_QUEUE_NAME
 
-    @pytest.mark.parametrize("job_function", ["map_variants_for_score_set", "cleanup_stalled_jobs"])
+    def test_arq_queue_name_mapping_job_routes_to_mapping_lane_queue(self):
+        job = Mock(spec=JobRun, job_function="map_variants_for_score_set")
+        assert arq_queue_name(job) == MAPPING_LANE_QUEUE_NAME
+
+    @pytest.mark.parametrize("job_function", ["populate_vep_for_score_set", "cleanup_stalled_jobs"])
     def test_other_functions_route_to_default_queue(self, job_function):
         assert arq_queue_name(Mock(spec=JobRun, job_function=job_function)) == default_queue_name
