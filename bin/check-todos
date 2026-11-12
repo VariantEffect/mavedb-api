@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Fails when a line added since BASE has a TODO, FIXME, XXX or HACK that doesn't cite an issue.
+# The one accepted form is TODO(#123), or TODO(owner/repo#123) for an issue in another repo, with
+# several issues separated by commas. Only added lines are checked, so older TODOs pass until edited.
+#
+# Usage: check-todos [BASE [PATHSPEC...]]
+# BASE defaults to origin/HEAD, and in a pull request on GitHub Actions it's always the PR's base branch.
+# Changes are compared against the merge base, and include uncommitted and untracked files, so CI needs
+# enough history to find it (fetch-depth: 0). PATHSPECs such as ':!src/generated.ts' narrow the check.
+#
+# The same file lives in each MaveDB repo's bin/ and the workspace's bin/; change them together.
+# Written for the bash 3.2 that ships with macOS.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+base="${1:-origin/HEAD}"
+[ $# -gt 0 ] && shift
+pathspecs=(. "$@")
+
+if [ -n "${GITHUB_ACTIONS:-}" ]; then
+  if [ -z "${GITHUB_BASE_REF:-}" ]; then
+    echo "check-todos: not a pull request; skipped"
+    exit 0
+  fi
+  git fetch --quiet origin "$GITHUB_BASE_REF" || exit 1
+  base="origin/$GITHUB_BASE_REF"
+fi
+if ! merge_base=$(git merge-base "$base" HEAD 2>/dev/null); then
+  echo "check-todos: can't find a merge base with $base"
+  # A shallow CI checkout would otherwise skip the check on every PR without anyone noticing.
+  [ -n "${GITHUB_ACTIONS:-}" ] && exit 1
+  exit 0
+fi
+
+{
+  git diff --unified=0 --no-color --no-ext-diff "$merge_base" -- "${pathspecs[@]}"
+  git ls-files --others --exclude-standard -z -- "${pathspecs[@]}" | while IFS= read -r -d '' file; do
+    # With --no-index, exit status 1 means only that the files differ.
+    git diff --unified=0 --no-color --no-ext-diff --no-index /dev/null "$file" || [ $? -eq 1 ]
+  done
+} | awk '
+  /^\+\+\+ / { file = substr($0, 7); next }
+  file == "bin/check-todos" { next }
+  /^@@ / { split($3, added, ","); line = substr(added[1], 2); next }
+  /^\+/ {
+    text = substr($0, 2)
+    rest = text
+    gsub(/TODO\(([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#[0-9]+(, *([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)?#[0-9]+)*\)/, "", rest)
+    if (rest ~ /(^|[^A-Za-z0-9_])(TODO|FIXME|XXX|HACK)([^A-Za-z0-9_]|$)/) {
+      sub(/^[ \t]+/, "", text)
+      printf "%s:%d: %s\n", file, line, text
+      found = 1
+    }
+    line++
+  }
+  END {
+    if (found) {
+      print "Each TODO needs an issue, written TODO(#123): ... or TODO(owner/repo#123): ...; use TODO, not FIXME, XXX or HACK."
+      exit 1
+    }
+  }
+'
