@@ -32,6 +32,12 @@ def problems_in(tmp_path: Path, source: str) -> list[str]:
         ("def upgrade():\n    op.execute('CREATE INDEX concurrently ix ON t (c)')\n", "CONCURRENTLY"),
         ("def upgrade():\n    op.get_bind().commit()\n", "commits mid-upgrade"),
         ("def upgrade():\n    op.execute(\"ALTER TYPE state ADD  value 'done'\")\n", "adds an enum value"),
+        ("def upgrade():\n    op.execute('grant select on t to mavedb_api')\n", "grants or revokes"),
+        ("def upgrade():\n    op.execute('REVOKE EXECUTE ON FUNCTION f() FROM PUBLIC')\n", "grants or revokes"),
+        (
+            "def upgrade():\n    op.execute('ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC')\n",
+            "grants or revokes",
+        ),
     ],
     ids=[
         "mavedb-from-import",
@@ -42,6 +48,9 @@ def problems_in(tmp_path: Path, source: str) -> list[str]:
         "concurrently",
         "commit",
         "enum-add-value",
+        "grant",
+        "revoke",
+        "default-privileges",
     ],
 )
 def test_check_forbidden_pattern_reports_one_problem(tmp_path, source, reason):
@@ -64,6 +73,20 @@ def test_check_concurrently_in_docstrings_passes(tmp_path):
 
 
 @pytest.mark.unit
+def test_check_concurrent_mat_view_refresh_passes(tmp_path):
+    source = "def upgrade():\n    op.execute('REFRESH MATERIALIZED VIEW  concurrently mv')\n"
+
+    assert problems_in(tmp_path, source) == []
+
+
+@pytest.mark.unit
+def test_check_concurrent_index_beside_mat_view_refresh_reports_one_problem(tmp_path):
+    source = "def upgrade():\n    op.execute('REFRESH MATERIALIZED VIEW CONCURRENTLY mv; DROP INDEX CONCURRENTLY ix')\n"
+
+    assert len(problems_in(tmp_path, source)) == 1
+
+
+@pytest.mark.unit
 def test_check_alembic_and_sqlalchemy_core_imports_pass(tmp_path):
     source = "import sqlalchemy as sa\nfrom alembic import op\nfrom sqlalchemy.dialects import postgresql\n"
 
@@ -73,3 +96,10 @@ def test_check_alembic_and_sqlalchemy_core_imports_pass(tmp_path):
 @pytest.mark.unit
 def test_main_current_migrations_pass():
     assert check_migrations.main([]) == 0
+
+
+@pytest.mark.unit
+def test_check_grant_inside_an_identifier_passes(tmp_path):
+    source = "def upgrade():\n    op.execute('ALTER TABLE t ADD COLUMN grant_id integer')\n"
+
+    assert problems_in(tmp_path, source) == []

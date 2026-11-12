@@ -1,8 +1,9 @@
-"""Database timeouts for the API and the worker.
+"""Database timeouts for the API.
 
-Each process sets its limits on each connection it opens, so scripts and migrations, which share the same login
+The API sets its limits on each connection it opens, so scripts and migrations, which share the same login
 and legitimately run long statements, are unaffected. Prod connects to RDS directly; behind RDS
-Proxy these session-level ``SET``s would pin every connection and belong on the login instead.
+Proxy these session-level ``SET``s would pin every connection and belong on the login instead. The worker has
+a login of its own, so its limit is set on the login (``mavedb.db.bootstrap``).
 """
 
 import logging
@@ -17,20 +18,20 @@ from mavedb.lib.logging.context import increment_logging_context, logging_contex
 
 logger = logging.getLogger(__name__)
 
-# Each limit is in seconds and can be overridden from the environment; 0 disables it, as in Postgres.
-# The prod API load balancer's idle timeout is 60s. A statement's limit plus the 10s pool wait stays under it.
+# All limits are in seconds and may be overridden from the environment. 0 disables the limit.
 API_STATEMENT_TIMEOUT_SECONDS = int(os.getenv("DB_STATEMENT_TIMEOUT_SECONDS", "30"))
+"""The statement timeout in seconds for regular API queries."""
 CSV_STATEMENT_TIMEOUT_SECONDS = int(os.getenv("DB_CSV_STATEMENT_TIMEOUT_SECONDS", "45"))
+"""The statement timeout in seconds for CSV exports."""
 # Below the statement timeout, so API writes queued behind a worker's bulk write fail fast.
 API_LOCK_TIMEOUT_SECONDS = int(os.getenv("DB_LOCK_TIMEOUT_SECONDS", "5"))
+"""The lock timeout in seconds for regular API queries."""
 # Above the longest legitimate gap between statements inside one request's transaction.
 API_IDLE_IN_TRANSACTION_TIMEOUT_SECONDS = int(os.getenv("DB_IDLE_IN_TRANSACTION_TIMEOUT_SECONDS", "60"))
-# The worker's jobs share one event loop and their database calls are synchronous, so a call waiting on a lock
-# stalls every job on the worker, the lock's holder included when it is another job on the same worker. The
-# worker sets only this limit, since its jobs legitimately run long statements and idle in transactions.
-WORKER_LOCK_TIMEOUT_SECONDS = int(os.getenv("DB_WORKER_LOCK_TIMEOUT_SECONDS", "60"))
+"""The idle-in-transaction timeout in seconds for regular API queries."""
 # Not a limit: statements slower than this are logged so the limits above can be tuned from real data.
 SLOW_STATEMENT_SECONDS = float(os.getenv("DB_SLOW_STATEMENT_SECONDS", "5"))
+"""The threshold in seconds for logging slow statements."""
 
 _STARTED_AT_ATTR = "_mavedb_statement_started_at"
 _SLOW_STATEMENT_LOG_LENGTH = 200
@@ -56,25 +57,6 @@ def apply_api_timeouts(engine: Engine) -> None:
     """
     if not event.contains(engine, "connect", _set_api_timeouts):
         event.listen(engine, "connect", _set_api_timeouts)
-
-
-def _set_worker_timeouts(dbapi_connection, _connection_record) -> None:
-    cursor = dbapi_connection.cursor()
-    try:
-        cursor.execute(f"SET lock_timeout = '{WORKER_LOCK_TIMEOUT_SECONDS}s'")
-    finally:
-        cursor.close()
-
-    dbapi_connection.commit()
-
-
-def apply_worker_timeouts(engine: Engine) -> None:
-    """Apply the worker's lock timeout to every new connection of ``engine``. Safe to call repeatedly.
-
-    Call this before the first connection is opened: connections already in the pool are not touched.
-    """
-    if not event.contains(engine, "connect", _set_worker_timeouts):
-        event.listen(engine, "connect", _set_worker_timeouts)
 
 
 def allow_long_statements(db: Session, seconds: int = CSV_STATEMENT_TIMEOUT_SECONDS) -> None:

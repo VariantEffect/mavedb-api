@@ -24,7 +24,7 @@ from mavedb.models.user import User
 from tests.helpers.constants import ADMIN_USER, TEST_USER
 from tests.helpers.util.access_key import create_api_key_for_user
 
-# What #809's app_user_id() and app_roles() will read. A connection that has carried a transaction-local value
+# What #809's mavedb_user_id() and mavedb_roles() will read. A connection that has carried a transaction-local value
 # reads '' afterwards, which these casts must turn into NULL rather than an error.
 _READ_PRINCIPAL = text(
     "SELECT current_setting('app.user_id', true) AS user_id,"

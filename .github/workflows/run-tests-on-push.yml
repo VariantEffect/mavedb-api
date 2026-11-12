@@ -60,7 +60,13 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev --extras server
+    # As a new deployment does: set the database up as the master user, migrate as mavedb_migrate, and upgrade.
+    - run: poetry run python -m mavedb.scripts.bootstrap_roles setup --commit
+    - run: psql "postgresql://postgres:postgres@localhost:5432/mavedb" -c "ALTER ROLE mavedb_migrate PASSWORD 'migrate'"
     - run: poetry run alembic upgrade head
+      env:
+        DB_USERNAME: mavedb_migrate
+        DB_PASSWORD: migrate
     - name: Check there is exactly one head
       run: test "$(poetry run alembic heads | wc -l)" -eq 1
 
@@ -76,6 +82,9 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev
+    # Postgres 15, as in production, rather than the runner's own newer server: role and privilege rules
+    # differ between major versions, and bin/t picks the container up.
+    - run: bin/test-db up
     - name: Run fast tests on PRs
       if: github.event_name == 'pull_request'
       run: bin/t tests/ -n logical -m "not network and not slow"
@@ -95,6 +104,7 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev
+    - run: bin/test-db up
     - name: Run fast tests on PRs
       if: github.event_name == 'pull_request'
       run: bin/t tests/ -n logical -m "not network and not slow"
@@ -116,6 +126,7 @@ jobs:
     - run: pip install --upgrade pip
     - run: pip install poetry
     - run: poetry install --with dev --extras server
+    - run: bin/test-db up
     - name: Run fast tests with coverage on PRs
       if: github.event_name == 'pull_request'
       run: |

@@ -8,6 +8,7 @@ step for large indexes.
 """
 
 import ast
+import re
 import sys
 from pathlib import Path
 
@@ -18,6 +19,10 @@ FORBIDDEN_IMPORTS = {
     "httpx": "makes network calls",
     "urllib": "makes network calls",
 }
+
+# A squashed baseline is dumped without privileges, so a grant made only in a migration would vanish at the next
+# squash. The role bootstrap's grants step makes every grant from ``mavedb.db.rls`` instead.
+PRIVILEGE_STATEMENT = re.compile(r"\b(GRANT|REVOKE)\b")
 
 
 def _docstrings(tree: ast.Module) -> set[int]:
@@ -53,10 +58,13 @@ def check(path: Path) -> list[str]:
             reason = "commits mid-upgrade"
         elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
             text = " ".join(node.value.upper().split())
-            if "CONCURRENTLY" in text:
+            # Unlike an index build, a concurrent materialized view refresh runs inside a transaction.
+            if "CONCURRENTLY" in text.replace("REFRESH MATERIALIZED VIEW CONCURRENTLY", ""):
                 reason = "uses CONCURRENTLY, which can't run inside a transaction"
             elif "ADD VALUE" in text:
                 reason = "adds an enum value, which the rest of the upgrade's transaction can't use"
+            elif PRIVILEGE_STATEMENT.search(text):
+                reason = "grants or revokes privileges; list the object in src/mavedb/db/rls.py instead"
         if reason:
             problems.append(f"{path}:{node.lineno}: {reason}")
     return problems

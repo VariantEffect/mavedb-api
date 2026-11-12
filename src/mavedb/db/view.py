@@ -171,9 +171,9 @@ def refresh_mat_view(session: Session, name: str, concurrently=True):
     """
     Refresh a PostgreSQL materialized view within the current SQLAlchemy session.
 
-    This helper issues a REFRESH MATERIALIZED VIEW statement for the specified
-    materialized view name. It first explicitly flushes the session because
-    session.execute() bypasses SQLAlchemy's autoflush mechanism; without the flush,
+    This helper calls ``mavedb_refresh_mat_views``, which issues REFRESH MATERIALIZED VIEW as the view's owner,
+    since refreshing requires owning the view and the worker owns nothing. It first explicitly flushes the
+    session because session.execute() bypasses SQLAlchemy's autoflush mechanism; without the flush,
     pending changes (e.g., newly inserted/updated rows that the view depends on)
     might not be reflected in the refreshed view.
 
@@ -182,7 +182,7 @@ def refresh_mat_view(session: Session, name: str, concurrently=True):
     session : sqlalchemy.orm.Session
         An active SQLAlchemy session bound to a PostgreSQL database.
     name : str
-        The exact name (optionally schema-qualified) of the materialized view to refresh.
+        The exact name (optionally schema-qualified) of a materialized view in the public schema.
     concurrently : bool, default True
         If True, uses REFRESH MATERIALIZED VIEW CONCURRENTLY allowing reads during
         the refresh and requiring a unique index on the materialized view. If False,
@@ -208,24 +208,23 @@ def refresh_mat_view(session: Session, name: str, concurrently=True):
     Examples
     --------
     refresh_mat_view(session, "public.my_materialized_view")
-    refresh_mat_view(session, "reports.daily_stats", concurrently=False)
+    refresh_mat_view(session, "my_materialized_view", concurrently=False)
     """
     # since session.execute() bypasses autoflush, must manually flush in order
     # to include newly-created/modified objects in the refresh
     session.flush()
 
-    _con = "CONCURRENTLY " if concurrently else ""
-    session.execute(sa.text("REFRESH MATERIALIZED VIEW " + _con + name))
+    session.execute(
+        sa.text("SELECT mavedb_refresh_mat_views(CAST(:name AS regclass), :concurrently)"),
+        {"name": name, "concurrently": concurrently},
+    )
 
 
 def refresh_all_mat_views(session: Session, concurrently=True):
     """
-    Refreshes all PostgreSQL materialized views visible to the given SQLAlchemy session.
+    Refreshes every PostgreSQL materialized view in the public schema.
 
-    The function inspects the current database connection for registered materialized
-    views and issues a REFRESH MATERIALIZED VIEW command for each one using the helper
-    function `refresh_mat_view`. After all refresh operations complete, the session
-    is committed to persist any transactional side effects of the refresh statements.
+    Calls ``mavedb_refresh_mat_views``, which refreshes each view as its owner.
 
     Parameters
     ----------
@@ -236,29 +235,58 @@ def refresh_all_mat_views(session: Session, concurrently=True):
         (only supported when the view has a unique index that satisfies PostgreSQL
         requirements). If False, a standard blocking refresh is performed.
 
-    Behavior
-    --------
-    - If inspection of the connection fails or returns no inspector, the function
-      exits without performing any work.
-    - Each materialized view name returned by the inspector is passed to
-      `refresh_mat_view(session, name, concurrently)`.
-
     Notes
     -----
     - Using CONCURRENTLY allows reads during refresh at the cost of requiring an
       appropriate unique index and potentially being slower.
-    - Exceptions raised during individual refresh operations will propagate unless
-      `refresh_mat_view` handles them internally; in such a case the commit will
-      not be reached.
     - Ensure the session is in a clean transactional state if you rely on
       consistent snapshot semantics.
     - This function commits no changes; it is the caller's responsibility to
       commit the session if needed.
     """
-    inspector = sa.inspect(session.connection())
+    session.flush()
+    session.execute(sa.text("SELECT mavedb_refresh_mat_views(NULL, :concurrently)"), {"concurrently": concurrently})
 
-    if not inspector:
-        return
 
-    for mv in inspector.get_materialized_view_names():
-        refresh_mat_view(session, mv, concurrently)
+# Refreshing a materialized view requires owning it, and the worker owns nothing, so it refreshes through
+# this function, which runs as its owner. Migration 4b8e2c7d1f3a creates it in deployed databases; this
+# creates it wherever Base.metadata builds the schema, as the test template does. Keep the two identical.
+#
+# TODO#834: Temporary. Once the test template is built from the migrations, delete this copy and the two
+# listeners below; nothing else uses create_all or drop_all.
+REFRESH_MAT_VIEWS_FUNCTION = sa.DDL("""
+CREATE OR REPLACE FUNCTION mavedb_refresh_mat_views(view_name regclass DEFAULT NULL, concurrent boolean DEFAULT true)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+    mv regclass;
+    refreshed integer := 0;
+BEGIN
+    FOR mv IN
+        SELECT c.oid::regclass
+          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE c.relkind = 'm' AND n.nspname = 'public' AND (view_name IS NULL OR c.oid = view_name)
+         ORDER BY c.relname
+    LOOP
+        IF concurrent THEN
+            EXECUTE 'REFRESH MATERIALIZED VIEW CONCURRENTLY ' || mv::text;
+        ELSE
+            EXECUTE 'REFRESH MATERIALIZED VIEW ' || mv::text;
+        END IF;
+        refreshed := refreshed + 1;
+    END LOOP;
+
+    IF view_name IS NOT NULL AND refreshed = 0 THEN
+        RAISE EXCEPTION USING MESSAGE = view_name::text || ' is not a materialized view in the public schema';
+    END IF;
+END
+$$;
+""")
+
+sa.event.listen(Base.metadata, "after_create", REFRESH_MAT_VIEWS_FUNCTION)
+sa.event.listen(
+    Base.metadata, "before_drop", sa.DDL("DROP FUNCTION IF EXISTS mavedb_refresh_mat_views(regclass, boolean)")
+)
