@@ -19,8 +19,15 @@ SEED_ROWS = {"mondo_terms": "code = 'MONDO:0000001'"}
 
 # pg_dump emits psql meta-commands (``\restrict``) and session settings. Neither can run inside the
 # migration's transaction without leaking into the rest of the upgrade; every object name in the dump is
-# schema-qualified, so the empty ``search_path`` it sets is not needed either.
-DROPPED_PREFIXES = ("\\", "SET ", "SELECT pg_catalog.set_config('search_path'")
+# schema-qualified, so the empty ``search_path`` it sets is not needed either. Extensions aren't MaveDB's
+# schema: creating one needs the master user, while migrations run as ``mavedb_owner`` (#827).
+DROPPED_PREFIXES = (
+    "\\",
+    "SET ",
+    "SELECT pg_catalog.set_config('search_path'",
+    "CREATE EXTENSION ",
+    "COMMENT ON EXTENSION ",
+)
 
 
 def run(*args: str) -> str:
