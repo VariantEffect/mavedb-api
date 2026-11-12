@@ -626,11 +626,6 @@ def find_meta_analyses_for_score_sets(db: Session, urns: list[str]) -> list[Scor
     )
 
 
-def filter_visible_score_sets(items: list[ScoreSet]):
-    # TODO Take the user into account.
-    return filter(lambda item: not item.private, items or [])
-
-
 def arrays_equal(array1: np.ndarray, array2: np.ndarray):
     # if the shape isn't the same the arrays are different.
     # otherwise for each value make sure either both values are null
