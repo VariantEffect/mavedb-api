@@ -7,7 +7,7 @@ silently received different output rather than an error, and Galaxy calls these 
 Requests using a deprecated name get ``Deprecation`` and ``Warning`` response headers, the parameter is
 marked deprecated in OpenAPI, and each use is logged so we can see who is left before removal.
 
-TODO(#XXX): remove this module once clients have migrated.
+TODO(#978): remove this module once clients have migrated.
 """
 
 from dataclasses import dataclass, field

@@ -100,18 +100,3 @@ def mavedb_modifier_contribution(
         activityType="http://purl.obolibrary.org/obo/CRO_0000103",
         extensions=[Extension(name="resourceType", value=modified_resource.__class__.__name__)],
     )
-
-
-# TODO: Although we would ideally provide a contribution object for the publisher of the data set, we don't
-#       save which user actually published it. We could proxy this by just using the creator, but this is
-#       not always strictly accurate.
-#
-# ResourceWithPublicationDate = Union[ExperimentSet, Experiment, ScoreSet]
-# def mavedb_publisher_contribution(published_resource: ResourceWithCreatorModifier, publisher: User) -> Contribution:
-#     return Contribution(
-#         contributor=[mavedb_user_agent(publisher)],
-#         date=datetime.strftime(published_resource.publication_date, "%Y-%m-%d"),
-#         label="Resource First Published",
-#         activityType=Coding(label="author role", system="http://purl.obolibrary.org/obo/cro.owl", code="CRO_0000001", systemVersion="v2019-08-16"),
-#         extensions=[Extension(name="resourceType", value=published_resource.__class__)],
-#     )

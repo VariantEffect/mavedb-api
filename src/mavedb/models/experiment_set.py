@@ -47,7 +47,7 @@ class ExperimentSet(Base):
     published_date = Column(Date, nullable=True)
     processing_state = Column(String, nullable=True)
 
-    # TODO Refactor the way we handle child collections?
+    # TODO(#980): Remove this obsolete column.
     num_experiments = Column(Integer, nullable=False, default=0)
     experiments: Mapped[List["Experiment"]] = relationship(
         back_populates="experiment_set", cascade="all, delete-orphan"

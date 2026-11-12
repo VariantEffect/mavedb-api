@@ -543,7 +543,6 @@ class Rxiv:
             )
         ]
 
-    # TODO: support different interval types.
     def _fetch_by_interval(
         self,
         content: str,
@@ -755,10 +754,8 @@ def fetch_pubmed_article(identifier: str) -> Optional[PubmedArticle]:
         return None
 
 
-# TODO: Could search on article_detail -> content_detail to try and get the richer
-#       metadata that exists on already published articles. leaving for now since
-#       the main purpose of these changes is to support preprints, which we now do,
-#       and adding any additional API calls would slow this fetch process down.
+# We don't search article_detail -> content_detail for the richer metadata of already published
+# articles: the purpose here is preprints, and the extra API calls would slow every fetch down.
 #       - capodb 2023.06.06
 #
 # NOTE: The most up to date version of a preprint will be the last element in the

@@ -54,7 +54,8 @@ logger = logging.getLogger(__name__)
 # refreshes the heartbeat on a fixed cadence, and a size-aware wall-clock budget that bounds a wedged
 # mapper to a sensible window instead of the 23.5h stall backstop. This is an explicit workaround for
 # delegating opaque work; the real fix is for the mapper to report progress (or to chunk the call).
-# See worker/best_practices.md, "Long external delegations". TODO: replace with real mapping progress.
+# See worker/best_practices.md, "Long external delegations".
+# TODO(VariantEffect/dcd_mapping2#124): replace with real mapping progress.
 MAP_PROGRESS_KEEPALIVE_SECONDS = 300  # heartbeat cadence; must stay well under PROGRESS_STALL_MINUTES (30m)
 MAP_BUDGET_BASE_SECONDS = 60 * 60  # floor: two dcd-mapping BLAT runs (BLAT_TIMEOUT_SECONDS, 20 min each) + overhead
 MAP_BUDGET_PER_VARIANT_SECONDS = 1.0  # ~3x the observed ~0.3 s/variant map throughput, as slack
@@ -131,7 +132,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         job_manager.update_progress(0, 100, "Starting variant mapping job.")
         logger.info(msg="Started variant mapping job", extra=job_manager.logging_context())
 
-        # TODO#372: non-nullable URNs
+        # TODO(#372): non-nullable URNs
         if not score_set.urn:  # pragma: no cover
             raise ValueError("Score set URN is required for variant mapping.")
 
@@ -474,7 +475,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 authoritative_allele = get_or_create_allele(job_manager.db, allele_draft)
                 job_manager.db.flush()
 
-                # TODO#765: Mapping is not idempotent, so we must always create a new link.
+                # TODO(#765): Mapping is not idempotent, so we must always create a new link.
                 job_manager.db.add(
                     MappingRecordAllele(
                         mapping_record_id=mapping_record.id,

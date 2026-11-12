@@ -60,8 +60,6 @@ def transform_score_set_to_urn(score_set: Optional[ScoreSet]) -> Optional[str]:
     return score_set.urn
 
 
-# TODO#523: Reduce code duplication during publication identifier transformation
-
 RecordPublicationIdentifierAssociation = Union[
     ExperimentPublicationIdentifierAssociation, ScoreSetPublicationIdentifierAssociation
 ]

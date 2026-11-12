@@ -674,7 +674,7 @@ async def reverse_translate_variants_for_score_set(
 
     # Supersede the prior candidate groups and derived links under one timestamp. Measured groups belong to
     # project_measured_variants and are never retired here; their derived links are, and are re-added above.
-    # TODO#765: re-runs retire and recreate the whole derived set because re-mapping re-mints
+    # TODO(#765): re-runs retire and recreate the whole derived set because re-mapping re-mints
     # records; idempotent records would allow unchanged links to stay live.
     superseded_at = job_manager.db.scalar(select(func.now()))
     ProjectionGroup.supersede_live_where(

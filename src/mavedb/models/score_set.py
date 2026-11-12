@@ -105,7 +105,6 @@ class ScoreSet(Base):
     experiment_id = Column(Integer, ForeignKey("experiments.id"), index=True, nullable=False)
     experiment: Mapped["Experiment"] = relationship(back_populates="score_sets")
 
-    # TODO Standardize on US or GB spelling for licenc/se.
     licence_id = Column(Integer, ForeignKey("licenses.id"), index=True, nullable=False)
     license: Mapped["License"] = relationship("License")
     superseded_score_set_id = Column(

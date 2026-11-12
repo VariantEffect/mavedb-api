@@ -1404,7 +1404,7 @@ def test_get_primary_score_calibration_for_score_set_when_exists(
     assert calibration_response["private"] is False
 
 
-# TODO#544: Business logic on view models should prevent this case from arising in production, but it could occur if the database
+# TODO(#544): Business logic on view models should prevent this case from arising in production, but it could occur if the database
 # were sloppily edited directly.
 @pytest.mark.parametrize(
     "mock_publication_fetch",

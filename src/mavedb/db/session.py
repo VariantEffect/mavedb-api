@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-# TODO Move these to a central config object.
+# TODO(#981): Move these to a central config object.
 DB_HOST = os.getenv("DB_HOST") or "localhost"
 DB_PORT = os.getenv("DB_PORT") or 5432
 DB_DATABASE_NAME = os.getenv("DB_DATABASE_NAME")

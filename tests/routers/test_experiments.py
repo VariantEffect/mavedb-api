@@ -573,7 +573,7 @@ def test_create_experiment_that_keyword_gene_ontology_is_other_without_code(clie
     assert response_data["keywords"][0]["keyword"]["label"] == "Other"
 
 
-# TODO(#511) Re-enable the Gene Ontology code requirement.
+# TODO(#511): Re-enable the Gene Ontology code requirement.
 # def test_cannot_create_experiment_that_keyword_has_an_invalid_code(client, setup_router_db):
 #     invalid_keyword = {
 #         "keywords": [

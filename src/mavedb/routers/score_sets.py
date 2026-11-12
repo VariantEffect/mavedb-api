@@ -992,7 +992,7 @@ def _stream_lean_variants(batches: Iterable[Sequence[LeanVariantRecord]]) -> Ite
     # The request log's duration ends when the route returns, before the stream is sent.
     start = time.monotonic_ns()
     try:
-        # TODO#964: Serve NDJSON instead of writing the array by hand. The array keeps the response identical to the
+        # TODO(#964): Serve NDJSON instead of writing the array by hand. The array keeps the response identical to the
         # unstreamed one, so this could ship as a patch; NDJSON changes the format and needs a matching ui change.
         yield from stream_json_array(
             [
@@ -2121,7 +2121,7 @@ def create_score_set(
     score_calibrations: list[ScoreCalibration] = []
     if item_create.score_calibrations:
         for calibration_index, calibration_create in enumerate(item_create.score_calibrations):
-            # TODO#592: Support for class-based calibrations on score set creation
+            # TODO(#592): Support for class-based calibrations on score set creation
             if calibration_create.class_based:
                 logger.info(
                     msg="Failed to create score set; Class-based calibrations are not supported on score set creation.",
@@ -2132,7 +2132,7 @@ def create_score_set(
                     detail="Class-based calibrations are not supported on score set creation. Please create class-based calibrations after creating the score set.",
                 )
 
-            # TODO#592: Support for controls on score set creation
+            # TODO(#592): Support for controls on score set creation
             if calibration_create.controls:
                 logger.info(
                     msg="Failed to create score set; Calibration controls are not supported on score set creation.",
@@ -2550,7 +2550,7 @@ def _update_score_set_with_variants(
 ) -> Any:
     logger.info(msg="Began score set with variants update.", extra=logging_context())
 
-    # TODO#629: Use `flexible_model_loader` utility here to support both form data and JSON body.
+    # TODO(#629): Use `flexible_model_loader` utility here to support both form data and JSON body.
     #           See: https://github.com/VariantEffect/mavedb-api/pull/589/changes/d1641de7e4bee43e8a0c9f9283e022c5b56830ff
     #           Currently, only form data is supported but this would allow us to also support JSON bodies
     #           in cases where no files are being uploaded. My view is accepting score set calibration
@@ -2864,7 +2864,7 @@ def publish_score_set(
             status_code=409,
             detail="This score set's experiment does not belong to an experiment set and cannot be published.",
         )
-    # TODO This can probably be done more efficiently; at least, it's worth checking the SQL query that SQLAlchemy
+    # TODO(#940): This can probably be done more efficiently; at least, it's worth checking the SQL query that SQLAlchemy
     # generates when all we want is len(score_set.variants).
     if len(item.variants) == 0:
         logger.info(

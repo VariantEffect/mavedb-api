@@ -591,7 +591,7 @@ class TestValidateHgvsGenomicColumnHgvsInstalled(GenomicColumnValidationTestCase
                     hdp=self.patched_human_data_provider,  # type: ignore
                 )
 
-    # TODO: Test multiple targets
+    # TODO(#985): Test multiple targets
 
 
 @unittest.skipIf(HGVS_INSTALLED, "HGVS module installed")

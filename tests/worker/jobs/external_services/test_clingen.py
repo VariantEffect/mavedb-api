@@ -2703,7 +2703,6 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
             assert ann.disposition == "failed"
 
         # Verify the job status is updated in the database
-        # TODO:XXX: Change status to 'failed' once decorator supports it
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
         assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.FAILED
 

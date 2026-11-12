@@ -110,7 +110,7 @@ def flatten_annotation(
     # `points_evidence_strength_equivalent` assigns M+ to +/-3 point ranges (e.g. the Excalibr
     # calibrations).
     #
-    # TODO(#XXX): move the lossy MODERATE_PLUS -> MODERATE conversion to the VA-Spec boundary instead of
+    # TODO(#540): move the lossy MODERATE_PLUS -> MODERATE conversion to the VA-Spec boundary instead of
     # `classification.py`, upstream of every consumer; this special case then disappears.
     native_evidence_strength = (
         containing_range.acmg_classification.evidence_strength

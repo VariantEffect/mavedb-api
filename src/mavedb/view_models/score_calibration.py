@@ -453,7 +453,7 @@ class ScoreCalibrationModify(ScoreCalibrationBase):
     evidence_sources: Sequence[PublicationIdentifierCreate]
     method_sources: Sequence[PublicationIdentifierCreate]
 
-    # TODO#668: Move this validator to ScoreCalibrationBase once legacy calibrations have been
+    # TODO(#668): Move this validator to ScoreCalibrationBase once legacy calibrations have been
     # backfilled with publication associations. Currently on the write model only so that existing
     # calibrations without publications can still be serialized for API read responses.
     @model_validator(mode="after")

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 class ScoreCalibration(Base):
     __tablename__ = "score_calibrations"
-    # TODO#544: Add a partial unique index to enforce only one primary calibration per score set.
+    # TODO(#544): Add a partial unique index to enforce only one primary calibration per score set.
 
     id: Mapped[int] = Column(Integer, primary_key=True)
     urn = Column(String(64), nullable=True, default=generate_calibration_urn, unique=True, index=True)
