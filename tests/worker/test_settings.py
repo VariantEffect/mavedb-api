@@ -18,8 +18,13 @@ from mavedb.lib.logging.context import (
     save_to_logging_context,
 )
 from mavedb.lib.mapping.client import VRSMap
-from mavedb.worker.lib.managers.utils import FAST_LANE_JOB_FUNCTIONS, FAST_LANE_QUEUE_NAME
-from mavedb.worker.settings import ArqFastLaneWorkerSettings, ArqWorkerSettings
+from mavedb.worker.lib.managers.utils import (
+    FAST_LANE_JOB_FUNCTIONS,
+    FAST_LANE_QUEUE_NAME,
+    MAPPING_LANE_JOB_FUNCTIONS,
+    MAPPING_LANE_QUEUE_NAME,
+)
+from mavedb.worker.settings import ArqFastLaneWorkerSettings, ArqMappingLaneWorkerSettings, ArqWorkerSettings
 from mavedb.worker.settings.constants import MAX_JOBS
 from mavedb.worker.settings.lifecycle import process_pool
 
@@ -43,6 +48,29 @@ class TestArqFastLaneWorkerSettingsUnit:
         kwargs = get_kwargs(ArqWorkerSettings)
         assert "queue_name" not in kwargs
         assert FAST_LANE_JOB_FUNCTIONS <= {f.__name__ for f in kwargs["functions"]}
+
+
+@pytest.mark.unit
+class TestArqMappingLaneWorkerSettingsUnit:
+    """ARQ builds a Worker from the settings class ``__dict__``, so assert on what it actually reads."""
+
+    def test_mapping_lane_settings_consume_mapping_lane_queue(self):
+        assert get_kwargs(ArqMappingLaneWorkerSettings)["queue_name"] == MAPPING_LANE_QUEUE_NAME
+
+    def test_mapping_lane_settings_register_exactly_the_mapping_lane_functions(self):
+        functions = get_kwargs(ArqMappingLaneWorkerSettings)["functions"]
+        assert {f.__name__ for f in functions} == MAPPING_LANE_JOB_FUNCTIONS
+
+    def test_mapping_lane_settings_run_one_job_at_a_time(self):
+        assert get_kwargs(ArqMappingLaneWorkerSettings)["max_jobs"] == 1
+
+    def test_mapping_lane_settings_run_no_cron_jobs(self):
+        assert "cron_jobs" not in get_kwargs(ArqMappingLaneWorkerSettings)
+
+    def test_main_worker_settings_still_register_mapping_lane_functions(self):
+        """Mapping jobs already on the default queue at deploy time must still be runnable."""
+        functions = get_kwargs(ArqWorkerSettings)["functions"]
+        assert MAPPING_LANE_JOB_FUNCTIONS <= {f.__name__ for f in functions}
 
 
 def record_pid_in_child(value: str) -> int:
