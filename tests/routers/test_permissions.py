@@ -371,7 +371,7 @@ def test_cannot_get_permission_with_non_existing_score_set(client, setup_router_
 
 
 # score calibrations
-# non-exhaustive, see TODO#543
+# non-exhaustive; tests/lib/permissions covers the rules directly
 
 
 def test_get_true_permission_from_own_score_calibration_update_check(client, setup_router_db):

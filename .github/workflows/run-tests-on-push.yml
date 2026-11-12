@@ -17,6 +17,9 @@ jobs:
     name: Lint, format and type checks (bin/check)
     steps:
     - uses: actions/checkout@v4
+      with:
+        # bin/check-todos diffs against the merge base with the PR's base branch.
+        fetch-depth: 0
     - uses: actions/setup-python@v5
       with:
         python-version: "3.11"

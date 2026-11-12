@@ -210,7 +210,7 @@ def get_target_coding_info(score_set: ScoreSet) -> tuple[bool, Optional[str]]:
         NotImplementedError: If the score set has multiple targets.
         ValueError: If ambiguous cDNA accessions are found in post-mapped metadata.
     """
-    # TODO#712: Support multi-target score sets. Each variant's hgvs prefix
+    # TODO(#712): Support multi-target score sets. Each variant's hgvs prefix
     # (e.g. "TARGET_NAME:c.1A>G") identifies which target it belongs to.
     # This function should return a dict[str, tuple[bool, Optional[str]]]
     # keyed by target name, and the job loop should resolve per-variant.

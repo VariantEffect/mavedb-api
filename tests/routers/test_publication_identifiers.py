@@ -10,7 +10,7 @@ fastapi = pytest.importorskip("fastapi")
 from mavedb.models.publication_identifier import PublicationIdentifier
 from tests.helpers.constants import TEST_PUBMED_PUBLICATION
 
-# TODO#497: Expand test coverage for publication identifier routes.
+# TODO(#497): Expand test coverage for publication identifier routes.
 
 
 def test_show_publication_identifiers_multiple_exist(client, setup_router_db, session):

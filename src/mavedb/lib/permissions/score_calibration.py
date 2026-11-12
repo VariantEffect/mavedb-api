@@ -120,7 +120,7 @@ def _handle_read_action(
     """
     Handle READ action permission check for ScoreCalibration entities.
 
-    TODO(#876) - Separates the readability concern by adding the notion of a separate
+    TODO(#876): Separates the readability concern by adding the notion of a separate
     calibration method. For now, A ScoreCalibration is never readable by a user who
     cannot read its ScoreSet, because the calibration variant routes return the score
     set's variants and scores. Among users who can read the ScoreSet, published
@@ -189,7 +189,7 @@ def _handle_update_action(
     # System admins may update any ScoreCalibration.
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
-    # TODO#549: Allow editing of certain fields if the calibration is published.
+    # TODO(#549): Allow editing of certain fields if the calibration is published.
     #           For now, published calibrations cannot be updated.
     if entity.private:
         # Owners may update their own ScoreCalibration if it is not published.

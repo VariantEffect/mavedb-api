@@ -1532,7 +1532,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
                 {("ga4gh:VA.other_c", "candidate"), ("ga4gh:VA.other_g", "candidate")},
                 False,
             ),
-            # Identical candidates: the candidate group is still re-minted (TODO#765), the measured group is not.
+            # Identical candidates: the candidate group is still re-minted (TODO(#765)), the measured group is not.
             (
                 [(MEASURED_C, MEASURED_PARTNER_G), (OTHER_C, OTHER_G)],
                 False,

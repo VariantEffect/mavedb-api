@@ -62,7 +62,7 @@ class Experiment(Base):
     published_date = Column(Date, nullable=True)
     processing_state = Column(String, nullable=True)
 
-    # TODO Remove this obsolete column.
+    # TODO(#980): Remove this obsolete column.
     num_score_sets = Column("num_scoresets", Integer, nullable=False, default=0)
     score_sets: Mapped[List["ScoreSet"]] = relationship(back_populates="experiment", cascade="all, delete-orphan")
 

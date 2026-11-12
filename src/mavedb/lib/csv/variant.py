@@ -81,9 +81,8 @@ per score set, so their columns would be mostly NA.
 EXACT_MATCH_TYPE = "exact"
 """Measurements sharing the requested variant's ClinGen allele ID — currently the only relationship emitted.
 
-TODO(#784): widen ``_equivalent_measurements`` to nucleotide/amino-acid equivalence once #791 lands
-``equivalent_nt``/``equivalent_aa``; ``relationship.match_type`` then takes more than this one value.
-See https://github.com/VariantEffect/mavedb-api/issues/784
+TODO(#989): widen ``_equivalent_measurements`` to nucleotide/amino-acid equivalence;
+``relationship.match_type`` then takes more than this one value.
 """
 
 

@@ -195,7 +195,7 @@ class ClinGenLdhService:
             logger.error(msg=msg, extra=logging_context())
             raise ValueError(msg)
 
-        # TODO#411: We should consider using a secret manager to store persistent/setable secrets like this.
+        # TODO(#411): We should consider using a secret manager to store persistent/setable secrets like this.
         #           I'd prefer not to ever set environment variables, especially externally generated content.
         os.environ["GENBOREE_JWT"] = auth_jwt
         logger.info(msg="Successfully authenticated with Genboree services.", extra=logging_context())

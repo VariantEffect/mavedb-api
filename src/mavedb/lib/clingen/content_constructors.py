@@ -38,7 +38,7 @@ def construct_ldh_submission_entity(
     # Pre-mapped data and the mapping API version live on the per-variant MappingRecord;
     # post-mapped data lives on the (cross-variant deduped) Allele.
     return {
-        # TODO#372: We try to make all possible fields that are non-nullable represented that way.
+        # TODO(#372): We try to make all possible fields that are non-nullable represented that way.
         "MaveDBMapping": [
             {
                 "entContent": {

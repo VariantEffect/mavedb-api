@@ -202,7 +202,7 @@ _NAMESPACE_SPECS: dict[str, CsvNamespaceSpec] = {
         },
         needs_score_set=True,
     ),
-    # TODO(#784): once the variant CSV emits sibling rows, report the shared `projection_group` here
+    # TODO(#989): once the variant CSV emits sibling rows, report the shared `projection_group` here
     # alongside `match_type`, so a consumer can tell a projected sibling from an independent equivalent.
     CsvNamespace.RELATIONSHIP: CsvNamespaceSpec(
         source=RowSource.MATCH_TYPE,

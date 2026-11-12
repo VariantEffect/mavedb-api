@@ -61,7 +61,7 @@ class ScoreCalibration(Base):
     """
 
     __tablename__ = "score_calibrations"
-    # TODO#544: Add a partial unique index to enforce only one primary calibration per score set.
+    # TODO(#544): Add a partial unique index to enforce only one primary calibration per score set.
 
     __table_args__ = (
         CheckConstraint("replaces_id IS NULL OR replaces_id <> id", name="ck_score_calibrations_replaces_other"),

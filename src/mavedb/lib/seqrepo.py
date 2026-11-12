@@ -9,7 +9,7 @@ import re
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from binascii import hexlify, unhexlify
 
-# TODO (https://github.com/VariantEffect/mavedb-api/issues/354). We need pydantic upgraded to use this package.
+# TODO(#988): Restore now that Pydantic v2 is in.
 # from ga4gh.core.identifiers import is_ga4gh_identifier, CURIE_NAMESPACE as ga4gh_namespace
 from typing import Generator, Optional
 
@@ -116,7 +116,7 @@ def _generate_nsa_options(query: str) -> list[tuple[Optional[str], str]]:
     if namespaces:
         return [(ns, query) for ns in namespaces]
 
-    # TODO (https://github.com/VariantEffect/mavedb-api/issues/354). We need pydantic upgraded to use this package.
+    # TODO(#988): Restore now that Pydantic v2 is in.
     # if ga4gh, try ga4gh. GA4GH only accepts identifiers with a namespace prefix,
     # so we prepend the namespace when not present to test.
     # if is_ga4gh_identifier(f"{ga4gh_namespace}:{query}"):

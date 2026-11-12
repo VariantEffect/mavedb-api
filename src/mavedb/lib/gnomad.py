@@ -99,7 +99,7 @@ def get_gnomad_variants_with_variant_urns(
     links_by_variant: dict[int, list[GnomadVariantLink]] = {}
 
     for gnomad_variant, variant_urn, allele_digest in db.execute(stmt).tuples():
-        # TODO#372: nullable URN
+        # TODO(#372): nullable URN
         if variant_urn is None:
             continue
 

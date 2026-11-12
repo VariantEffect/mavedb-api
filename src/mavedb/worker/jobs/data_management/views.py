@@ -20,7 +20,7 @@ from mavedb.worker.lib.managers.job_manager import JobManager
 logger = logging.getLogger(__name__)
 
 
-# TODO#405: Refresh materialized views within an executor.
+# TODO(#405): Refresh materialized views within an executor.
 @with_guaranteed_job_run_record("cron_job")
 @with_job_management
 async def refresh_materialized_views(ctx: dict, job_id: int, job_manager: JobManager) -> JobExecutionOutcome:

@@ -8,7 +8,7 @@ class DependencyOverrider:
     See: https://stackoverflow.com/questions/65259085/best-way-to-override-fastapi-dependencies-for-testing-with-a-different-dependenc,
          which has been re-implemented here and simplified for our application.
 
-    TODO(#183) - We could eliminate this context manager by moving to an app factory.
+    TODO(#183): We could eliminate this context manager by moving to an app factory.
     """
 
     def __init__(self, overrides: Mapping[Callable, Callable]) -> None:

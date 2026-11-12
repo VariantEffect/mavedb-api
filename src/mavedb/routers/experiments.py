@@ -338,8 +338,8 @@ def create_experiment(
         ExperimentPublicationIdentifierAssociation, primary=primary_keys, secondary=secondary_keys
     )
 
-    # TODO: Controlled keywords currently is allowed none label.
-    #  Will be changed in the future when we get the final list.
+    # TODO(#273): Controlled keywords currently is allowed none label.
+    # Will be changed in the future when we get the final list.
     keywords: list[ExperimentControlledKeywordAssociation] = []
     if item_create.keywords:
         all_labels_none = all(k.keyword.label is None for k in item_create.keywords)
