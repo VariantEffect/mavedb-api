@@ -55,6 +55,17 @@ FAST_LANE_JOB_FUNCTIONS = frozenset({"start_pipeline", "create_variants_for_scor
 latter would leave a new pipeline stuck behind mapping before variant creation is ever enqueued.
 """
 
+MAPPING_LANE_QUEUE_NAME = "arq:queue:mapping-lane"
+"""ARQ queue consumed by a single-slot worker process that makes every call to the mapper."""
+
+MAPPING_LANE_JOB_FUNCTIONS = frozenset({"map_variants_for_score_set"})
+"""Jobs that call the mapper, which aligns one score set at a time.
+
+Run from every main-worker slot, mapping jobs wait at the mapper while their time budget runs out, and each
+retry adds a request the mapper still serves. Running them one at a time keeps the budget measuring the
+mapping itself and leaves the main worker's slots to work that doesn't need the mapper.
+"""
+
 
 def classify_exception(exc: Exception) -> FailureCategory:
     """Map an exception to a FailureCategory. Uses isinstance to match parent classes."""
@@ -82,7 +93,11 @@ def arq_queue_name(job: JobRun) -> str:
     Every ARQ call that takes a queue name (``enqueue_job``, ``Job.status``, ``Job.abort``) must resolve it
     here; a status lookup against the wrong queue reports a queued job as ``not_found``.
     """
-    return FAST_LANE_QUEUE_NAME if job.job_function in FAST_LANE_JOB_FUNCTIONS else default_queue_name
+    if job.job_function in FAST_LANE_JOB_FUNCTIONS:
+        return FAST_LANE_QUEUE_NAME
+    if job.job_function in MAPPING_LANE_JOB_FUNCTIONS:
+        return MAPPING_LANE_QUEUE_NAME
+    return default_queue_name
 
 
 def construct_bulk_cancellation_result(reason: str) -> JobExecutionOutcome:

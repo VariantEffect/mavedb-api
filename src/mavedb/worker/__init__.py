@@ -1,7 +1,7 @@
 from sqlalchemy.orm import configure_mappers
 
 from mavedb.models import *  # noqa: F403
-from mavedb.worker.settings import ArqFastLaneWorkerSettings, ArqWorkerSettings
+from mavedb.worker.settings import ArqFastLaneWorkerSettings, ArqMappingLaneWorkerSettings, ArqWorkerSettings
 
 # Scan all our model classes and create backref attributes. Otherwise, these attributes only get added to classes once
 # an instance of the related class has been created. Since the worker is a distinct service, we should make sure this
@@ -9,6 +9,7 @@ from mavedb.worker.settings import ArqFastLaneWorkerSettings, ArqWorkerSettings
 configure_mappers()
 
 # Expose the worker settings to the arq CLI Worker initializer
-global WorkerSettings, FastLaneWorkerSettings
+global WorkerSettings, FastLaneWorkerSettings, MappingLaneWorkerSettings
 WorkerSettings = ArqWorkerSettings
 FastLaneWorkerSettings = ArqFastLaneWorkerSettings
+MappingLaneWorkerSettings = ArqMappingLaneWorkerSettings

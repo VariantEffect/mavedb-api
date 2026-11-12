@@ -124,6 +124,7 @@ def available_score_set_csv_namespaces(
         .options(
             selectinload(ScoreCalibration.score_set),
             selectinload(ScoreCalibration.functional_classifications),  # read by the eligibility check
+            selectinload(ScoreCalibration.superseding_calibration),  # read by the superseded flag
         )
         .where(and_(ScoreCalibration.score_set_id == score_set.id, ScoreCalibration.urn.is_not(None)))
     ).all()

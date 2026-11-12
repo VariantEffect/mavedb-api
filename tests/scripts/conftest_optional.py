@@ -38,7 +38,9 @@ def make_dump_calibration(session, sample_user, dump_acmg_classifications):
     """Factory for a calibration with an abnormal (PS3) range below -1.0 and a normal (BS3) range above 1.0.
 
     `private` and `research_use_only` are the two axes the dump treats differently: the first decides
-    whether an anonymous viewer may read it at all, the second only how it is labeled.
+    whether an anonymous viewer may read it at all, the second only how it is labeled. `replaces` makes the
+    new calibration a version of an earlier one; a published version takes over primary, as publishing one
+    does.
 
     Range membership is materialized from each variant's score by the same helper the creation endpoint
     uses, so a score of -2.0 lands in the abnormal range and one of 3.0 in the normal range. Membership is
@@ -50,7 +52,7 @@ def make_dump_calibration(session, sample_user, dump_acmg_classifications):
     """
     counter = {"n": 0}
 
-    def _make(score_set, *, private=False, research_use_only=False, title=None):
+    def _make(score_set, *, private=False, research_use_only=False, title=None, replaces=None):
         counter["n"] += 1
         urn = f"urn:mavedb:calibration-{counter['n']:08d}-0000-0000-0000-000000000000"
 
@@ -69,7 +71,10 @@ def make_dump_calibration(session, sample_user, dump_acmg_classifications):
             disease_term=get_generic_disease_term(session),
             created_by_id=sample_user.id,
             modified_by_id=sample_user.id,
+            superseded_calibration=replaces,
         )
+        if replaces is not None and not private:
+            replaces.primary = False
         session.add(calibration)
         session.commit()
         session.refresh(calibration)

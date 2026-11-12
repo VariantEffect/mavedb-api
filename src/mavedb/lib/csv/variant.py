@@ -208,7 +208,7 @@ def _annotatable_calibration_namespaces(
 
     A measurement is only interpretable under its own score set's calibrations, so widening across score
     sets widens this set too; a row shows NA under any calibration that does not apply to it.
-    Research-use-only calibrations are included here but excluded from the default selection.
+    Research-use-only and superseded calibrations are included here but excluded from the default selection.
     """
     # Keyed on score sets rather than joined through their variants: `ScoreSet.variants` multiplies the
     # join by every variant before DISTINCT collapses it again, for the same result.
@@ -222,6 +222,7 @@ def _annotatable_calibration_namespaces(
             # Each entry reports the score set it belongs to, so a picker can tell one score set's
             # calibrations from another's when the export widens across several.
             selectinload(ScoreCalibration.score_set),
+            selectinload(ScoreCalibration.superseding_calibration),  # read by the superseded flag
         )
     ).all()
 

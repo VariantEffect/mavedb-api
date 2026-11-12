@@ -388,6 +388,34 @@ class TestGetVariantCsv:
         assert entry.research_use_only is True
         assert entry.selected_by_default is False
 
+    @pytest.mark.parametrize(
+        "discover",
+        [
+            lambda db, variant: available_variant_csv_namespaces(db, variant.urn),
+            lambda db, variant: available_score_set_csv_namespaces(db, variant.score_set),
+        ],
+        ids=["variant", "score-set"],
+    )
+    def test_superseded_calibration_is_offered_but_labelled(self, session, setup_lib_db_with_mapped_variant, discover):
+        """Versions often share a title, so the picker is told which one a published version has replaced."""
+        variant = setup_lib_db_with_mapped_variant.variant
+        original = _add_pathogenicity_calibration(
+            session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="Calibration"
+        )
+        replacement = _add_pathogenicity_calibration(
+            session, variant.score_set, [variant], urn=CALIBRATION_URN_2, title="Calibration"
+        )
+        original.primary = False
+        replacement.superseded_calibration = original
+        session.commit()
+
+        entries = {entry.namespace: entry for entry in discover(session, variant)}
+
+        assert entries[CALIBRATION_NS_1].superseded is True
+        assert entries[CALIBRATION_NS_1].selected_by_default is False
+        assert entries[CALIBRATION_NS_2].superseded is False
+        assert entries[CALIBRATION_NS_2].selected_by_default is True
+
     def test_research_use_only_calibration_is_not_in_the_default_download(
         self, session, setup_lib_db_with_mapped_variant
     ):
