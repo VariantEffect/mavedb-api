@@ -58,16 +58,15 @@ A migration may create only what `mavedb_owner` can own: tables, views, function
 
 ### Restoring a dump
 
-Loading a data-only dump with `session_replication_role = replica`, which skips foreign key checks and triggers, is a master user's job. None of the four roles may set it. Locally `postgres` is a superuser. On RDS the master user sets it, then borrows the owner to write its tables and returns it afterwards:
+Loading a data-only dump with `session_replication_role = replica`, which skips foreign key checks and triggers, is a master user's job. None of the four roles may set it. Locally `postgres` is a superuser. On RDS the master user borrows the owner's privileges by membership to write its tables, loads the dump as itself, then gives the owner back:
 
 ```sql
-SET session_replication_role = replica;
 GRANT mavedb_owner TO CURRENT_USER;
-SET ROLE mavedb_owner;
--- load the dump
-RESET ROLE;
+-- load the dump, which sets session_replication_role itself
 REVOKE mavedb_owner FROM CURRENT_USER;
 ```
+
+Don't `SET ROLE mavedb_owner` for the load. `session_replication_role` is checked against the current role, so a dump setting it after the switch is refused. Revoke even if the load fails: the next upgrade refuses a database where the master user still belongs to the owner. The commands are in `mavedb-deployment`'s `docs/database-dumps.md`.
 
 ## Squash log
 
