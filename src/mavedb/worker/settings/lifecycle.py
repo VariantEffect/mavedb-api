@@ -10,8 +10,6 @@ for the ARQ worker. These hooks manage:
 from concurrent import futures
 
 from mavedb.data_providers.services import cdot_rest, seqrepo_data_proxy
-from mavedb.db.session import engine
-from mavedb.db.timeouts import apply_worker_timeouts
 from mavedb.worker.settings.constants import MAX_JOBS
 
 
@@ -47,7 +45,6 @@ def standalone_ctx():
 
 
 async def startup(ctx):
-    apply_worker_timeouts(engine)
     ctx["pool"] = process_pool()
 
 
