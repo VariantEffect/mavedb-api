@@ -14,19 +14,10 @@ fast-lane worker that runs short jobs independently of the main worker's slots.
 from mavedb.lib.logging.canonical import log_job
 from mavedb.worker.jobs import BACKGROUND_CRONJOBS, BACKGROUND_FUNCTIONS
 from mavedb.worker.lib.managers.utils import FAST_LANE_JOB_FUNCTIONS, FAST_LANE_QUEUE_NAME
+from mavedb.worker.settings.constants import MAX_JOBS
 from mavedb.worker.settings.lifecycle import on_job_end, on_job_start, shutdown, startup
 from mavedb.worker.settings.redis import RedisWorkerSettings
 
-# Limit concurrency to prevent event loop starvation from sync psycopg2 DB
-# operations. With the default max_jobs=10, multiple jobs issuing blocking DB
-# calls simultaneously can starve the event loop and cause apparent hangs.
-# 2 jobs still compete, but the practical impact is much less severe.
-#
-# TODO#715 Migrate to psycopg3 async driver to safely increase concurrency.
-# psycopg3 supports both sync (API) and async (worker) modes on the same
-# driver, enabling incremental migration of job functions without touching
-# the FastAPI layer. Once all jobs use async sessions, raise MAX_JOBS to 10+.
-MAX_JOBS = 2
 # ARQ's hard coroutine-kill ceiling. Kept deliberately high (24h) so ARQ is the *last* resort:
 # our own DB-driven sweeper (cleanup_stalled_jobs) should detect and recover stalls long before
 # this fires, keeping the JobRun state machine in sync with reality. VEP fan-out over large allele
