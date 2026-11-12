@@ -54,6 +54,9 @@ class FlatAnnotation:
     validated for clinical use.
     """
 
+    superseded: Optional[bool] = None
+    """Whether a published version has replaced the calibration, so its interpretation is no longer current."""
+
 
 def flatten_annotation(
     variant: Variant,
@@ -83,6 +86,7 @@ def flatten_annotation(
             calibration_urn=score_calibration.urn,
             calibration_title=score_calibration.title,
             research_use_only=bool(score_calibration.research_use_only),
+            superseded=score_calibration.has_published_replacement,
         )
 
     _, functional_classification = functional_classification_of_variant(
@@ -94,6 +98,7 @@ def flatten_annotation(
         calibration_urn=score_calibration.urn,
         calibration_title=score_calibration.title,
         research_use_only=bool(score_calibration.research_use_only),
+        superseded=score_calibration.has_published_replacement,
     )
 
     # No ACMG classification on any range: stop at the functional classification rather than reporting a
@@ -137,4 +142,5 @@ def flatten_annotation(
         calibration_urn=functional_only.calibration_urn,
         calibration_title=functional_only.calibration_title,
         research_use_only=functional_only.research_use_only,
+        superseded=functional_only.superseded,
     )

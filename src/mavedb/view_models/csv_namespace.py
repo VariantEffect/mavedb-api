@@ -33,11 +33,14 @@ class AvailableCsvNamespace(BaseModel):
     research_use_only: bool = False
     """Whether this is a research-use-only calibration, for a picker to tag beside the label."""
 
+    superseded: bool = False
+    """Whether a published version has replaced this calibration, for a picker to tag beside the label."""
+
     selected_by_default: bool = True
     """Whether a picker should open with this group checked.
 
-    False for research-use-only calibrations and for calibrations with no ranges: both are offered, but
-    neither should be swept into a download unasked.
+    False for research-use-only and superseded calibrations and for calibrations with no ranges: all are
+    offered, but none should be swept into a download unasked.
     """
 
     _record_type_factory = record_type_validator()(set_record_type)

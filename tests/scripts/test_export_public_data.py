@@ -347,6 +347,19 @@ class TestAnnotationExportNamespaces:
 
         assert calibration_namespace_for_urn(calibration.urn) not in namespaces
 
+    def test_excludes_a_private_draft_replacement(
+        self, session, make_dump_score_set, make_dump_calibration, anonymous_viewer
+    ):
+        """A draft new version is private like any other, while the version it would replace stays offered."""
+        score_set = make_dump_score_set()
+        original = make_dump_calibration(score_set)
+        draft = make_dump_calibration(score_set, private=True, replaces=original)
+
+        namespaces = annotation_export_namespaces(session, score_set, anonymous_viewer)
+
+        assert calibration_namespace_for_urn(draft.urn) not in namespaces
+        assert calibration_namespace_for_urn(original.urn) in namespaces
+
     def test_carries_exactly_the_expected_groups(
         self, session, make_dump_score_set, make_dump_calibration, add_clinvar_control, anonymous_viewer
     ):
@@ -426,6 +439,35 @@ class TestAnnotationsCsv:
         rows = _parse_csv(annotations_csv(session, score_set, anonymous_viewer))
 
         assert all(row[f"{namespace}.research_use_only"] == "False" for row in rows)
+
+    def test_a_superseded_group_is_flagged_and_its_replacement_is_not(
+        self, session, make_dump_score_set, make_dump_calibration, anonymous_viewer
+    ):
+        """Versions often share a title, so only this column tells a consumer which interpretation is current."""
+        score_set = make_dump_score_set()
+        original = make_dump_calibration(score_set, title="Calibration")
+        replacement = make_dump_calibration(score_set, title="Calibration", replaces=original)
+
+        rows = _parse_csv(annotations_csv(session, score_set, anonymous_viewer))
+
+        assert rows
+        assert all(row[f"{calibration_namespace_for_urn(original.urn)}.superseded"] == "True" for row in rows)
+        assert all(row[f"{calibration_namespace_for_urn(replacement.urn)}.superseded"] == "False" for row in rows)
+
+    def test_a_private_draft_replacement_adds_no_columns_and_leaves_its_predecessor_current(
+        self, session, make_dump_score_set, make_dump_calibration, anonymous_viewer
+    ):
+        """A draft replaces nothing until it is published, so the archive must not hint that it exists."""
+        score_set = make_dump_score_set()
+        original = make_dump_calibration(score_set)
+        draft = make_dump_calibration(score_set, private=True, replaces=original)
+
+        content = annotations_csv(session, score_set, anonymous_viewer)
+        rows = _parse_csv(content)
+
+        assert not any(column.startswith(f"{calibration_namespace_for_urn(draft.urn)}.") for column in _header(content))
+        assert rows
+        assert all(row[f"{calibration_namespace_for_urn(original.urn)}.superseded"] == "False" for row in rows)
 
     def test_carries_no_column_from_a_private_calibration(
         self, session, make_dump_score_set, make_dump_calibration, anonymous_viewer
@@ -682,6 +724,22 @@ class TestVaNdjson:
         """A private calibration is withheld from every artifact, this one included."""
         score_set = make_dump_score_set(variant_scores=({"score": -2.0},))
         make_dump_calibration(score_set, private=True)
+
+        annotation = _va_records(session, score_set, anonymous_principal)[0]["annotation"]
+
+        assert annotation["type"] == "ExperimentalVariantFunctionalImpactStudyResult"
+
+    def test_a_superseded_calibration_does_not_raise_the_layer(
+        self, session, make_dump_score_set, make_dump_calibration, anonymous_principal
+    ):
+        """A superseded version no longer backs annotations, however clinical its ranges.
+
+        Its replacement is research use only, so that neither calibration may raise the layer and the
+        record falls back to the functional-impact layer.
+        """
+        score_set = make_dump_score_set(variant_scores=({"score": -2.0},))
+        original = make_dump_calibration(score_set, research_use_only=False)
+        make_dump_calibration(score_set, research_use_only=True, replaces=original)
 
         annotation = _va_records(session, score_set, anonymous_principal)[0]["annotation"]
 
@@ -1090,3 +1148,27 @@ class TestWritePublicDump:
 
         assert urn not in archive.read("main.json").decode()
         assert urn not in archive.read(f"csv/{base}.annotations.csv").decode()
+
+    @pytest.mark.parametrize("replacement_private", [False, True], ids=["published", "draft"])
+    def test_a_replaced_calibration_names_only_a_published_replacement(
+        self, session, make_dump_score_set, make_dump_calibration, anonymous_principal, replacement_private
+    ):
+        """main.json names a calibration's replacement only once it's public, so a draft stays hidden."""
+        score_set = make_dump_score_set()
+        original = make_dump_calibration(score_set)
+        replacement = make_dump_calibration(score_set, private=replacement_private, replaces=original)
+        original_urn, replacement_urn = original.urn, replacement.urn
+        session.expunge_all()
+
+        metadata = json.loads(_written_archive(session, anonymous_principal).read("main.json"))
+        calibrations = {
+            calibration["urn"]: calibration
+            for experiment_set in metadata["experimentSets"]
+            for experiment in experiment_set["experiments"]
+            for score_set_json in experiment["scoreSets"]
+            for calibration in score_set_json.get("scoreCalibrations") or []
+        }
+
+        expected = None if replacement_private else replacement_urn
+        assert calibrations[original_urn]["supersedingCalibrationUrn"] == expected
+        assert (replacement_urn in calibrations) is not replacement_private

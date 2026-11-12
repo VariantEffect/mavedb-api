@@ -227,6 +227,7 @@ _CALIBRATION_SPEC = CsvNamespaceSpec(
     resolvers={
         "title": _optional(attrgetter("calibration_title")),
         "research_use_only": _optional(attrgetter("research_use_only")),
+        "superseded": _optional(attrgetter("superseded")),
         "functional_classification": _optional(attrgetter("functional_classification")),
         "acmg_criterion": _optional(attrgetter("acmg_criterion")),
         "acmg_evidence_strength": _optional(attrgetter("acmg_evidence_strength")),
