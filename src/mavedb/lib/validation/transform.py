@@ -18,9 +18,7 @@ from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.score_calibration_publication_identifier import ScoreCalibrationPublicationIdentifierAssociation
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
-from mavedb.models.target_gene import TargetGene
 from mavedb.models.user import User
-from mavedb.view_models.external_gene_identifier_offset import ExternalGeneIdentifierOffset
 from mavedb.view_models.publication_identifier import PublicationIdentifier
 
 
@@ -61,8 +59,6 @@ def transform_score_set_to_urn(score_set: Optional[ScoreSet]) -> Optional[str]:
 
     return score_set.urn
 
-
-# TODO#523: Reduce code duplication during publication identifier transformation
 
 RecordPublicationIdentifierAssociation = Union[
     ExperimentPublicationIdentifierAssociation, ScoreSetPublicationIdentifierAssociation
@@ -131,13 +127,6 @@ def transform_score_calibration_publication_identifiers(
     ]
 
     return transformed_publication_identifiers
-
-
-def transform_external_identifier_offsets_to_list(data: TargetGene) -> list[ExternalGeneIdentifierOffset]:
-    ensembl_offset = data.ensembl_offset
-    refseq_offset = data.refseq_offset
-    uniprot_offset = data.uniprot_offset
-    return list(filter(lambda x: x is not None, [ensembl_offset, refseq_offset, uniprot_offset]))  # type:ignore
 
 
 # We're unable to create a dynamically typed TypedDict which references enum keys and enforces totality of the enum, so this

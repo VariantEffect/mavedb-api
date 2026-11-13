@@ -3,12 +3,14 @@ import pytest
 
 pytest.importorskip("arq")
 
+import functools
 from unittest.mock import AsyncMock, Mock, patch
 
+import anyio.to_thread
 from arq.jobs import Job as ArqJob
 from sqlalchemy import select
 
-from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set
+from mavedb.lib.workflow.kickoff import enqueue_pipeline_for_score_set, enqueue_pipeline_for_score_set_from_thread
 from mavedb.models.job_run import JobRun
 from mavedb.models.pipeline import Pipeline
 from mavedb.models.user import User
@@ -256,5 +258,63 @@ class TestEnqueuePipelineForScoreSetIntegration:
             )
 
         # The pipeline (and its job runs) created before the failed enqueue must not be left behind.
+        assert session.execute(select(Pipeline)).scalars().all() == []
+        assert session.execute(select(JobRun)).scalars().all() == []
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestEnqueuePipelineForScoreSetFromThreadIntegration:
+    """The thread-pool variant, run in an AnyIO worker thread as FastAPI runs a ``def`` route."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, session, setup_lib_db_with_score_set):
+        self.score_set = setup_lib_db_with_score_set
+        self.user = session.query(User).filter(User.username == TEST_USER["username"]).first()
+
+    def _kickoff(self, session, arq_redis, pipeline_name):
+        return functools.partial(
+            enqueue_pipeline_for_score_set_from_thread,
+            session,
+            arq_redis,
+            pipeline_name=pipeline_name,
+            score_set=self.score_set,
+            user=self.user,
+            extra_params={"required_param": "some_value"},
+        )
+
+    async def test_enqueue_pipeline_for_score_set_from_thread_in_worker_thread_creates_records_and_enqueues_job(
+        self, session, arq_redis, with_test_pipeline_definition_ctx, sample_independent_pipeline_definition
+    ):
+        pipeline, job = await anyio.to_thread.run_sync(
+            self._kickoff(session, arq_redis, sample_independent_pipeline_definition["name"])
+        )
+
+        assert job is not None
+        job_run = session.execute(
+            select(JobRun).where(JobRun.pipeline_id == pipeline.id, JobRun.job_function == "process_data")
+        ).scalar_one()
+        assert job_run.job_params["required_param"] == "some_value"
+
+    async def test_enqueue_pipeline_for_score_set_from_thread_enqueue_raises_discards_records(
+        self, session, arq_redis, with_test_pipeline_definition_ctx, sample_independent_pipeline_definition
+    ):
+        with (
+            patch.object(arq_redis, "enqueue_job", AsyncMock(side_effect=ConnectionError("redis is unreachable"))),
+            pytest.raises(ConnectionError),
+        ):
+            await anyio.to_thread.run_sync(
+                self._kickoff(session, arq_redis, sample_independent_pipeline_definition["name"])
+            )
+
+        assert session.execute(select(Pipeline)).scalars().all() == []
+        assert session.execute(select(JobRun)).scalars().all() == []
+
+    async def test_enqueue_pipeline_for_score_set_from_thread_outside_worker_thread_raises_and_discards_records(
+        self, session, arq_redis, with_test_pipeline_definition_ctx, sample_independent_pipeline_definition
+    ):
+        with pytest.raises(RuntimeError):
+            self._kickoff(session, arq_redis, sample_independent_pipeline_definition["name"])()
+
         assert session.execute(select(Pipeline)).scalars().all() == []
         assert session.execute(select(JobRun)).scalars().all() == []

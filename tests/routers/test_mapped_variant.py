@@ -14,7 +14,6 @@ fastapi = pytest.importorskip("fastapi")
 
 from urllib.parse import quote, quote_plus
 
-
 TEST_URN = "urn:mavedb:00000001-a-1#1"
 
 

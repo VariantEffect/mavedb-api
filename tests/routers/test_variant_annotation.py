@@ -23,7 +23,6 @@ from urllib.parse import quote_plus
 
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
 from ga4gh.va_spec.base.core import ExperimentalVariantFunctionalImpactStudyResult, Statement
-
 from sqlalchemy import select
 
 from mavedb.models.mapping_record import MappingRecord as MappingRecordDbModel

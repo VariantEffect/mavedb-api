@@ -54,6 +54,9 @@ class FlatAnnotation:
     validated for clinical use.
     """
 
+    superseded: Optional[bool] = None
+    """Whether a published version has replaced the calibration, so its interpretation is no longer current."""
+
 
 def flatten_annotation(
     variant: Variant,
@@ -83,6 +86,7 @@ def flatten_annotation(
             calibration_urn=score_calibration.urn,
             calibration_title=score_calibration.title,
             research_use_only=bool(score_calibration.research_use_only),
+            superseded=score_calibration.has_published_replacement,
         )
 
     _, functional_classification = functional_classification_of_variant(
@@ -94,6 +98,7 @@ def flatten_annotation(
         calibration_urn=score_calibration.urn,
         calibration_title=score_calibration.title,
         research_use_only=bool(score_calibration.research_use_only),
+        superseded=score_calibration.has_published_replacement,
     )
 
     # No ACMG classification on any range: stop at the functional classification rather than reporting a
@@ -110,7 +115,7 @@ def flatten_annotation(
     # `points_evidence_strength_equivalent` assigns M+ to +/-3 point ranges (e.g. the Excalibr
     # calibrations).
     #
-    # TODO(#XXX): move the lossy MODERATE_PLUS -> MODERATE conversion to the VA-Spec boundary instead of
+    # TODO(#540): move the lossy MODERATE_PLUS -> MODERATE conversion to the VA-Spec boundary instead of
     # `classification.py`, upstream of every consumer; this special case then disappears.
     native_evidence_strength = (
         containing_range.acmg_classification.evidence_strength
@@ -137,4 +142,5 @@ def flatten_annotation(
         calibration_urn=functional_only.calibration_urn,
         calibration_title=functional_only.calibration_title,
         research_use_only=functional_only.research_use_only,
+        superseded=functional_only.superseded,
     )

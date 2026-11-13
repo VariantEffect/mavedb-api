@@ -261,7 +261,6 @@ SAVED_DOI_IDENTIFIER = {
     "recordType": "DoiIdentifier",
     "identifier": TEST_CROSSREF_IDENTIFIER,
     "url": f"https://doi.org/{TEST_CROSSREF_IDENTIFIER}",
-    "id": 1,
 }
 
 # VRS 1.X
@@ -1704,6 +1703,7 @@ TEST_SAVED_BRNICH_SCORE_CALIBRATION_RANGE_BASED = {
     "investigatorProvided": True,
     "primary": True,
     "private": False,
+    "hasPublishedReplacement": False,
     "scoreSetId": 1,
     "controls": [],
     "controlsCount": 0,
@@ -1776,6 +1776,7 @@ TEST_SAVED_PATHOGENICITY_SCORE_CALIBRATION = {
     "investigatorProvided": True,
     "primary": False,
     "private": False,
+    "hasPublishedReplacement": False,
     "urn": VALID_CALIBRATION_URN,
     "scoreSetId": 1,
     "disease": SAVED_GENERIC_DISEASE_CONCEPT,
@@ -2244,7 +2245,6 @@ TEST_MINIMAL_RAW_READ_IDENTIFIER = {"identifier": "test_raw_read"}
 
 TEST_SAVED_MINIMAL_RAW_READ_IDENTIFIER = {
     **TEST_MINIMAL_RAW_READ_IDENTIFIER,
-    "id": 1,
     "url": "https://www.test.rawreadidentifiers.org",
 }
 

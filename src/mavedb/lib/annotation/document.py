@@ -67,7 +67,7 @@ def score_calibration_as_iri(score_calibration: ScoreCalibration) -> IRI:
     Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for the provided MaveDB score calibration. Within
     the context of VA-Spec, these can be used interchangeably with an equivalent document object for brevity.
     """
-    # TODO#XXX: Although a dedicated page for score calibrations exists, it doesn't yet have a mechanism for selecting a calibration by URN.
+    # TODO(VariantEffect/mavedb-ui#757): Although a dedicated page for score calibrations exists, it doesn't yet have a mechanism for selecting a calibration by URN.
     # TODO(#372): nullable URN.
     return IRI(
         f"{MAVEDB_FRONTEND_URL}/score-sets/{score_calibration.score_set.urn}/calibrations?calibration={urllib.parse.quote_plus(score_calibration.urn)}"  # type: ignore

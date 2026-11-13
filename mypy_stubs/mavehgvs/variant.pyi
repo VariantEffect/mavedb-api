@@ -1,5 +1,5 @@
-from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union
 from re import Match
+from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union
 
 from .position import VariantPosition
 

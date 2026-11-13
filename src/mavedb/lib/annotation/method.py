@@ -123,10 +123,10 @@ def functional_score_calibration_as_method(score_calibration: ScoreCalibration) 
     Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
     object for a generic calibration.
     """
-    # TODO#XXX - in a future software version, it will be required that the method is populated with an IRI or equivalent.
-    #            Currently, we populate the method with an IRI if a publication with the appropriate relationship is found,
-    #            but if not, we populate it with a placeholder string and log a warning. In a future version of this software,
-    #            we should require that this method is populated with an IRI and remove the placeholder logic.
+    # TODO(#876): in a future software version, it will be required that the method is populated with an IRI or equivalent.
+    #             Currently, we populate the method with an IRI if a publication with the appropriate relationship is found,
+    #             but if not, we populate it with a placeholder string and log a warning. In a future version of this software,
+    #             we should require that this method is populated with an IRI and remove the placeholder logic.
     return Method(
         name="Calibration method", reportedIn=functional_score_calibration_as_iri(score_calibration) or "Not Provided"
     )
@@ -151,10 +151,10 @@ def pathogenicity_score_calibration_as_method(score_calibration: ScoreCalibratio
     A calibration assesses functional data, so its method type is always ``functional_data_assessment``,
     the ACMG 2015 type that permits the PS3 and BS3 criteria its evidence lines carry.
     """
-    # TODO#XXX - in a future software version, it will be required that the method is populated with an IRI or equivalent.
-    #            Currently, we populate the method with an IRI if a publication with the appropriate relationship is found,
-    #            but if not, we populate it with a placeholder string and log a warning. In a future version of this software,
-    #            we should require that this method is populated with an IRI and remove the placeholder logic.
+    # TODO(#876): in a future software version, it will be required that the method is populated with an IRI or equivalent.
+    #             Currently, we populate the method with an IRI if a publication with the appropriate relationship is found,
+    #             but if not, we populate it with a placeholder string and log a warning. In a future version of this software,
+    #             we should require that this method is populated with an IRI and remove the placeholder logic.
     return Method(
         name="Calibration method",
         reportedIn=pathogenicity_score_calibration_as_iri(score_calibration) or "Not Provided",
@@ -167,7 +167,6 @@ def variant_interpretation_functional_guideline_as_iri() -> IRI:
     Create an IRI as described in <https://datatracker.ietf.org/doc/html/rfc3986#section-4.1> for functional variant interpretation guidelines. Within
     the context of VA-Spec, this IRI can be used interchangeably with an equivalent method object for brevity.
     """
-    # TODO#418
     return IRI("https://pubmed.ncbi.nlm.nih.gov/29785012/")
 
 
@@ -176,7 +175,6 @@ def variant_interpretation_functional_guideline_method() -> Method:
     Generate a [VA Method](https://va-ga4gh.readthedocs.io/en/latest/core-information-model/entities/information-entities/method.html#method)
     object for the functional variant interpretation guideline.
     """
-    # TODO#418
     return Method(
         name="Variant interpretation guideline",
         reportedIn=variant_interpretation_functional_guideline_as_iri(),

@@ -12,7 +12,7 @@ from mavedb.db.base import Base
 from mavedb.lib.temp_urns import generate_temp_urn
 from mavedb.models.contributor import Contributor
 from mavedb.models.controlled_keyword import ControlledKeyword
-from mavedb.models.doi_identifier import DoiIdentifier
+from mavedb.models.doi_identifier import ExperimentDoiIdentifier
 from mavedb.models.experiment_controlled_keyword import (
     ExperimentControlledKeywordAssociation,
 )
@@ -22,7 +22,7 @@ from mavedb.models.experiment_publication_identifier import (
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.legacy_keyword import LegacyKeyword
 from mavedb.models.publication_identifier import PublicationIdentifier
-from mavedb.models.raw_read_identifier import RawReadIdentifier
+from mavedb.models.raw_read_identifier import ExperimentRawReadIdentifier
 from mavedb.models.user import User
 
 if TYPE_CHECKING:
@@ -36,26 +36,11 @@ experiments_contributors_association_table = Table(
     Column("contributor_id", ForeignKey("contributors.id"), primary_key=True),
 )
 
-experiments_doi_identifiers_association_table = Table(
-    "experiment_doi_identifiers",
-    Base.metadata,
-    Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
-    Column("doi_identifier_id", ForeignKey("doi_identifiers.id"), primary_key=True),
-)
-
 experiments_legacy_keywords_association_table = Table(
     "experiment_keywords",
     Base.metadata,
     Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
     Column("keyword_id", ForeignKey("keywords.id"), primary_key=True),
-)
-
-# experiments_sra_identifiers_association_table = Table(
-experiments_raw_read_identifiers_association_table = Table(
-    "experiment_sra_identifiers",
-    Base.metadata,
-    Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
-    Column("sra_identifier_id", ForeignKey("sra_identifiers.id"), primary_key=True),
 )
 
 
@@ -77,7 +62,7 @@ class Experiment(Base):
     published_date = Column(Date, nullable=True)
     processing_state = Column(String, nullable=True)
 
-    # TODO Remove this obsolete column.
+    # TODO(#980): Remove this obsolete column.
     num_score_sets = Column("num_scoresets", Integer, nullable=False, default=0)
     score_sets: Mapped[List["ScoreSet"]] = relationship(back_populates="experiment", cascade="all, delete-orphan")
 
@@ -117,10 +102,8 @@ class Experiment(Base):
         secondary=experiments_legacy_keywords_association_table,
         backref="experiments",
     )
-    doi_identifiers: Mapped[list[DoiIdentifier]] = relationship(
-        "DoiIdentifier",
-        secondary=experiments_doi_identifiers_association_table,
-        backref="experiments",
+    doi_identifiers: Mapped[list[ExperimentDoiIdentifier]] = relationship(
+        cascade="all, delete-orphan", order_by=ExperimentDoiIdentifier.identifier
     )
     publication_identifier_associations: Mapped[list[ExperimentPublicationIdentifierAssociation]] = relationship(
         "ExperimentPublicationIdentifierAssociation",
@@ -130,14 +113,10 @@ class Experiment(Base):
     publication_identifiers: AssociationProxy[List[PublicationIdentifier]] = association_proxy(
         "publication_identifier_associations",
         "publication",
-        creator=lambda p: ExperimentPublicationIdentifierAssociation(publication=p, primary=p.primary),
     )
 
-    # sra_identifiers = relationship('SraIdentifier', secondary=experiments_sra_identifiers_association_table, backref='experiments')
-    raw_read_identifiers: Mapped[list[RawReadIdentifier]] = relationship(
-        "RawReadIdentifier",
-        secondary=experiments_raw_read_identifiers_association_table,
-        backref="experiments",
+    raw_read_identifiers: Mapped[list[ExperimentRawReadIdentifier]] = relationship(
+        cascade="all, delete-orphan", order_by=ExperimentRawReadIdentifier.identifier
     )
 
     # Unfortunately, we can't use association_proxy here, because in spite of what the documentation seems to imply, it
@@ -177,18 +156,18 @@ class Experiment(Base):
         legacy_keyword_objs = self.legacy_keyword_objs or []
         return [keyword_obj.text for keyword_obj in legacy_keyword_objs if keyword_obj.text is not None]
 
-    async def set_legacy_keywords(self, db, keywords: Optional[list[str]]):
+    def set_legacy_keywords(self, db, keywords: Optional[list[str]]):
         if keywords:
-            self.keyword_objs = [await self._find_or_create_legacy_keyword(db, text) for text in keywords]
+            self.keyword_objs = [self._find_or_create_legacy_keyword(db, text) for text in keywords]
         else:
             self.keyword_objs = []
 
-    async def set_keywords(self, db, keywords: list):
+    def set_keywords(self, db, keywords: list):
         if keywords:
             self.keyword_objs = [
                 ExperimentControlledKeywordAssociation(
                     experiment=self,
-                    controlled_keyword=await self._find_keyword(
+                    controlled_keyword=self._find_keyword(
                         db,
                         keyword_obj.keyword.key,
                         keyword_obj.keyword.label,
@@ -206,13 +185,13 @@ class Experiment(Base):
     # async def set_keywords(self, db, keywords: list[str]):
     #     self._keyword_objs = [await self._find_or_create_keyword(text) for text in keywords]
 
-    async def _find_or_create_legacy_keyword(self, db, keyword_text):
+    def _find_or_create_legacy_keyword(self, db, keyword_text):
         keyword_obj = db.query(LegacyKeyword).filter(LegacyKeyword.text == keyword_text).one_or_none()
         if not keyword_obj:
             keyword_obj = LegacyKeyword(text=keyword_text)
         return keyword_obj
 
-    async def _find_keyword(self, db, key: str, label: str, code: Optional[str]):
+    def _find_keyword(self, db, key: str, label: str, code: Optional[str]):
         query = (
             db.query(ControlledKeyword).filter(ControlledKeyword.key == key).filter(ControlledKeyword.label == label)
         )

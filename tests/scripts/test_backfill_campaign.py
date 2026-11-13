@@ -25,7 +25,6 @@ from mavedb.scripts.backfill_campaign import (
 from tests.helpers.constants import TEST_MINIMAL_MAPPED_VARIANT
 from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 
-
 # Pure: state classification
 
 

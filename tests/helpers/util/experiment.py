@@ -1,11 +1,11 @@
-import jsonschema
 from copy import deepcopy
 from typing import Any, Dict, Optional
 
-from mavedb.view_models.experiment import Experiment, ExperimentCreate
-
-from tests.helpers.constants import TEST_MINIMAL_EXPERIMENT
+import jsonschema
 from fastapi.testclient import TestClient
+
+from mavedb.view_models.experiment import Experiment, ExperimentCreate
+from tests.helpers.constants import TEST_MINIMAL_EXPERIMENT
 
 
 def create_experiment(client: TestClient, update: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

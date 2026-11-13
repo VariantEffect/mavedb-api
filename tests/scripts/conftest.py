@@ -6,18 +6,17 @@ import pytest
 from sqlalchemy import select
 
 from mavedb.models.acmg_classification import ACMGClassification
+from mavedb.models.allele import Allele
 from mavedb.models.clinical_control import ClinvarControl
+from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.collection import Collection
 from mavedb.models.collection_score_set_association import CollectionScoreSetAssociation
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_set import ExperimentSet
 from mavedb.models.license import License
-from mavedb.models.allele import Allele
-from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
-from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
@@ -35,6 +34,7 @@ from tests.helpers.constants import (
     TEST_USER,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
 )
+from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
 
 try:
     from .conftest_optional import *  # noqa: F401, F403

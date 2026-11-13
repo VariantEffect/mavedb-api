@@ -730,3 +730,90 @@ def test_control_placement_scoped_to_own_calibration(
 
     control = next(c for c in response.json()["controls"] if c["variantUrn"] == binned_variant_urn)
     assert control["functionalClassificationId"] is None
+
+
+###########################################################
+# DELETE /score-calibrations/{urn}/controls
+###########################################################
+
+
+def _calibration_with_one_control(client, session, data_provider, data_files):
+    score_set, variant_urns = _score_set_with_variant_urns(client, session, data_provider, data_files)
+    calibration = _create_with_controls(
+        client, score_set["urn"], [{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}]
+    )
+    return score_set, calibration
+
+
+@pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
+def test_delete_score_calibration_controls_on_superseded_calibration_removes_only_controls(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+):
+    score_set, original = _calibration_with_one_control(client, session, data_provider, data_files)
+    original = publish_test_score_calibration_via_client(client, original["urn"])
+    replacement = client.post(
+        "/api/v1/score-calibrations/",
+        json=_calibration_payload(score_set["urn"], supersededCalibrationUrn=original["urn"]),
+    )
+    assert replacement.status_code == 200, replacement.text
+    publish_test_score_calibration_via_client(client, replacement.json()["urn"])
+    stored = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == original["urn"]))
+    classification_ids = sorted(classification.id for classification in stored.functional_classifications)
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.delete(f"/api/v1/score-calibrations/{original['urn']}/controls")
+
+    assert response.status_code == 204
+    session.expire_all()
+    stored = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == original["urn"]))
+    assert stored.controls == []
+    assert stored.controls_not_phi is False
+    assert stored.title == original["title"]
+    assert sorted(classification.id for classification in stored.functional_classifications) == classification_ids
+
+
+@pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
+def test_delete_score_calibration_controls_without_controls_changes_nothing(
+    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+):
+    score_set, _ = _score_set_with_variant_urns(client, session, data_provider, data_files)
+    calibration = client.post("/api/v1/score-calibrations/", json=_calibration_payload(score_set["urn"]))
+    assert calibration.status_code == 200, calibration.text
+    stored = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == calibration.json()["urn"]))
+    modified_by_id, controls_not_phi = stored.modified_by_id, stored.controls_not_phi
+
+    with DependencyOverrider(admin_app_overrides):
+        response = client.delete(f"/api/v1/score-calibrations/{calibration.json()['urn']}/controls")
+
+    assert response.status_code == 204
+    session.expire_all()
+    stored = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == calibration.json()["urn"]))
+    assert stored.modified_by_id == modified_by_id
+    assert stored.controls_not_phi == controls_not_phi
+
+
+@pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
+@pytest.mark.parametrize(
+    "published, expected_status", [(True, 403), (False, 404)], ids=["owner_of_published", "other_user_on_private"]
+)
+def test_delete_score_calibration_controls_without_update_permission_rejected(
+    client,
+    setup_router_db,
+    mock_publication_fetch,
+    session,
+    data_provider,
+    data_files,
+    extra_user_app_overrides,
+    published,
+    expected_status,
+):
+    _, calibration = _calibration_with_one_control(client, session, data_provider, data_files)
+    if published:
+        publish_test_score_calibration_via_client(client, calibration["urn"])
+        response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}/controls")
+    else:
+        with DependencyOverrider(extra_user_app_overrides):
+            response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}/controls")
+
+    assert response.status_code == expected_status
+    assert len(session.scalars(select(CalibrationControl)).all()) == 1

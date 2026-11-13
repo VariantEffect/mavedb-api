@@ -1,7 +1,8 @@
-from sqlalchemy.orm.exc import NoResultFound
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from typing import Any
+from sqlalchemy.orm.exc import NoResultFound
 
 from mavedb.models.contributor import Contributor
 

@@ -4,23 +4,22 @@ import pytest
 
 pytest.importorskip("arq")
 
-from asyncio.unix_events import _UnixSelectorEventLoop
 from copy import deepcopy
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from sqlalchemy import select
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.allele import Allele
+from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
+from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
-from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.variant import Variant
-from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.worker.jobs.external_services.clingen import (
     submit_score_set_mappings_to_car,
     submit_score_set_mappings_to_ldh,
@@ -2129,9 +2128,9 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
 
         # Patch ClinGenLdhService to simulate all submissions failing
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_submission_failure(),
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
@@ -2211,9 +2210,9 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
 
         # Patch ClinGenLdhService to raise an exception
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 side_effect=Exception("LDH service error"),
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
@@ -2272,9 +2271,9 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
 
         # Patch ClinGenLdhService to simulate partial submission success
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_partial_submission(),
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
@@ -2333,9 +2332,9 @@ class TestClingenSubmitScoreSetMappingsToLdhUnit:
 
         # Patch ClinGenLdhService to simulate all submissions succeeding
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_successful_submission(),
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
@@ -2401,9 +2400,9 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
         # Patch to disable ClinGen submission endpoint
         with (
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_ldh_submission(),
             ),
         ):
@@ -2472,9 +2471,9 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
         # Patch to disable ClinGen submission endpoint
         with (
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_ldh_submission(),
             ),
         ):
@@ -2527,9 +2526,9 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
 
         # Patch ClinGenLdhService to raise an exception
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 side_effect=Exception("LDH service error"),
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
@@ -2579,9 +2578,9 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
         # Patch ClinGenLdhService to simulate no linked alleles found
         with (
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_no_linked_alleles_submission(),
             ),
         ):
@@ -2679,9 +2678,9 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
 
         # Patch ClinGenLdhService to simulate all submissions failing
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_submission_failure(),
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
@@ -2704,7 +2703,6 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
             assert ann.disposition == "failed"
 
         # Verify the job status is updated in the database
-        # TODO:XXX: Change status to 'failed' once decorator supports it
         session.refresh(submit_score_set_mappings_to_ldh_sample_job_run)
         assert submit_score_set_mappings_to_ldh_sample_job_run.status == JobStatus.FAILED
 
@@ -2751,9 +2749,9 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
 
         # Patch ClinGenLdhService to simulate partial submission success
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_partial_submission(),
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
@@ -2829,9 +2827,9 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
 
         # Patch ClinGenLdhService to simulate all submissions succeeding
         with (
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_ldh_submission(),
             ),
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
@@ -2908,9 +2906,9 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
         # Patch to disable ClinGen submission endpoint
         with (
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_ldh_submission(),
             ),
         ):
@@ -2980,9 +2978,9 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
         # Patch to disable ClinGen submission endpoint
         with (
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 return_value=dummy_ldh_submission(),
             ),
         ):
@@ -3037,9 +3035,9 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
         # Patch ClinGenLdhService to raise an exception
         with (
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 side_effect=Exception("LDH service error"),
             ),
             patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,
@@ -3092,9 +3090,9 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
         # Patch ClinGenLdhService to raise an exception
         with (
             patch("mavedb.worker.jobs.external_services.clingen.ClinGenLdhService.authenticate", return_value=None),
-            patch.object(
-                _UnixSelectorEventLoop,
-                "run_in_executor",
+            patch(
+                "mavedb.worker.jobs.external_services.clingen.run_in_executor_with_logging_context",
+                new_callable=MagicMock,
                 side_effect=Exception("LDH service error"),
             ),
             patch("mavedb.worker.lib.decorators.job_management.send_slack_job_error") as mock_send_slack_job_error,

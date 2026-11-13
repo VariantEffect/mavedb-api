@@ -11,7 +11,7 @@ import functools
 import logging
 from collections import Counter
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import cast, func, null, select
 from sqlalchemy.dialects.postgresql import JSONB
@@ -23,7 +23,7 @@ from mavedb.lib.exceptions import (
     NonexistentMappingResultsError,
     NonexistentMappingScoresError,
 )
-from mavedb.lib.logging.context import format_raised_exception_info_as_dict
+from mavedb.lib.logging.context import run_in_executor_with_logging_context
 from mavedb.lib.mapping import EXCLUDED_PREMAPPED_ANNOTATION_KEYS
 from mavedb.lib.mapping.schema import MappingOutcome
 from mavedb.lib.types.workflow import JobExecutionOutcome
@@ -54,7 +54,8 @@ logger = logging.getLogger(__name__)
 # refreshes the heartbeat on a fixed cadence, and a size-aware wall-clock budget that bounds a wedged
 # mapper to a sensible window instead of the 23.5h stall backstop. This is an explicit workaround for
 # delegating opaque work; the real fix is for the mapper to report progress (or to chunk the call).
-# See worker/best_practices.md, "Long external delegations". TODO: replace with real mapping progress.
+# See worker/best_practices.md, "Long external delegations".
+# TODO(VariantEffect/dcd_mapping2#124): replace with real mapping progress.
 MAP_PROGRESS_KEEPALIVE_SECONDS = 300  # heartbeat cadence; must stay well under PROGRESS_STALL_MINUTES (30m)
 MAP_BUDGET_BASE_SECONDS = 60 * 60  # floor: two dcd-mapping BLAT runs (BLAT_TIMEOUT_SECONDS, 20 min each) + overhead
 MAP_BUDGET_PER_VARIANT_SECONDS = 1.0  # ~3x the observed ~0.3 s/variant map throughput, as slack
@@ -110,6 +111,9 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
     # Fetch required resources based on param inputs. Safely ignore mypy warnings here, as they were checked above.
     score_set = job_manager.db.scalars(select(ScoreSet).where(ScoreSet.id == job.job_params["score_set_id"])).one()  # type: ignore
 
+    # The variant being processed when the loop below raises, so the job log can name it.
+    failing_variant_urn: Optional[str] = None
+
     # Handle everything within try/except to persist appropriate mapping state
     try:
         correlation_id = job.job_params["correlation_id"]  # type: ignore
@@ -128,7 +132,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         job_manager.update_progress(0, 100, "Starting variant mapping job.")
         logger.info(msg="Started variant mapping job", extra=job_manager.logging_context())
 
-        # TODO#372: non-nullable URNs
+        # TODO(#372): non-nullable URNs
         if not score_set.urn:  # pragma: no cover
             raise ValueError("Score set URN is required for variant mapping.")
 
@@ -141,14 +145,13 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         job_manager.db.add(score_set)
         job_manager.db.flush()
 
-        job_manager.save_to_context({"mapping_state": score_set.mapping_state.name})
+        job_manager.save_to_context({"mapping_state": score_set.mapping_state.name}, overwrite=True)
         job_manager.update_progress(10, 100, "Score set prepared for variant mapping.")
         logger.debug(msg="Score set prepared for variant mapping.", extra=job_manager.logging_context())
 
         # Do not block Worker event loop during mapping, see: https://arq-docs.helpmanual.io/#synchronous-jobs.
         vrs = vrs_mapper()
         blocking = functools.partial(vrs.map_score_set, score_set.urn)
-        loop = asyncio.get_running_loop()
 
         mapping_results = None
 
@@ -162,7 +165,9 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         # Keepalive heartbeat + size-aware budget around the opaque map call (see module docstring above).
         keepalive = asyncio.create_task(_keepalive_progress(job_manager, MAP_PROGRESS_KEEPALIVE_SECONDS))
         try:
-            mapping_results = await asyncio.wait_for(loop.run_in_executor(ctx["pool"], blocking), timeout=map_budget)
+            mapping_results = await asyncio.wait_for(
+                run_in_executor_with_logging_context(ctx["pool"], blocking), timeout=map_budget
+            )
         except asyncio.TimeoutError as e:
             raise TimeoutError(
                 f"Mapping for {score_set.urn} exceeded its {map_budget}s budget ({variant_count} variants); "
@@ -225,7 +230,6 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                     f"Target gene {target_gene_identifier} not found in database for score set {score_set.urn}."
                 )
 
-            job_manager.save_to_context({"processing_target_gene": target_gene.id})
             logger.debug(f"Processing target gene {target_gene.name}.", extra=job_manager.logging_context())
 
             # allow for multiple annotation layers
@@ -238,7 +242,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 target_gene.mapped_hgnc_name = gene_info.get("hgnc_symbol")
                 post_mapped_metadata["hgnc_name_selection_method"] = gene_info.get("selection_method")
 
-                job_manager.save_to_context({"mapped_hgnc_name": target_gene.mapped_hgnc_name})
+                job_manager.append_to_context("mapped_hgnc_names", target_gene.mapped_hgnc_name)
                 logger.debug("Added mapped HGNC name to target gene.", extra=job_manager.logging_context())
             else:
                 target_gene.mapped_hgnc_name = None
@@ -340,9 +344,9 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job.id, score_set_id=score_set.id)
         for mapped_score in mapped_scores:
             variant_urn = mapped_score.get("mavedb_id")
+            failing_variant_urn = variant_urn
             variant = job_manager.db.scalars(select(Variant).where(Variant.urn == variant_urn)).one()
 
-            job_manager.save_to_context({"processing_variant": variant.id})
             logger.debug(f"Processing variant {variant.id}.", extra=job_manager.logging_context())
 
             # Only allow one live MappingRecord per variant. The prior live record (if any) is
@@ -354,7 +358,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 .one_or_none()
             )
             if existing_mapped_variant:
-                job_manager.save_to_context({"existing_mapped_variant": existing_mapped_variant.id})
+                job_manager.increment_context("superseded_mapping_records")
 
             # The typed outcome -- not allele presence -- decides success/benign/failure.
             # Absent outcome means an older or malformed payload; fail fast.
@@ -366,7 +370,10 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             outcome = MappingOutcome(raw_outcome)
 
             outcome_counts[outcome] += 1
-            job_manager.save_to_context({"outcome_counts": {o.value: n for o, n in outcome_counts.items()}})
+            # A running tally, so the latest value is the total.
+            job_manager.save_to_context(
+                {"outcome_counts": {o.value: n for o, n in outcome_counts.items()}}, overwrite=True
+            )
 
             # dcd-mapping guarantees both fields are set on every ScoreAnnotation,
             # including failed variants (the annotate step re-attributes failures to
@@ -468,7 +475,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 authoritative_allele = get_or_create_allele(job_manager.db, allele_draft)
                 job_manager.db.flush()
 
-                # TODO#765: Mapping is not idempotent, so we must always create a new link.
+                # TODO(#765): Mapping is not idempotent, so we must always create a new link.
                 job_manager.db.add(
                     MappingRecordAllele(
                         mapping_record_id=mapping_record.id,
@@ -482,6 +489,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             logger.debug(msg="Added new mapped variant to session.", extra=job_manager.logging_context())
             job_manager.db.flush()
 
+        failing_variant_urn = None
         annotation_manager.flush()
 
         # Collapse the per-outcome tally into the three buckets the rest of the job reasons about.
@@ -504,24 +512,23 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 "mapped_count": mapped_count,
                 "failed_count": failed_count,
                 "skipped_count": skipped_count,
-                "mapping_state": score_set.mapping_state.name,
                 "mapping_errors": score_set.mapping_errors,
                 "inserted_mapped_variants": len(mapped_scores),
             }
         )
+        job_manager.save_to_context({"mapping_state": score_set.mapping_state.name}, overwrite=True)
 
         # Flush score set state; the decorator will commit on return via the success/return paths below.
         job_manager.db.add(score_set)
         job_manager.db.flush()
 
     except (NonexistentMappingResultsError, NonexistentMappingScoresError, NonexistentMappingReferenceError) as e:
-        logging_context = {**job_manager.logging_context(), **format_raised_exception_info_as_dict(e)}
-        logger.error(msg="Known error during variant mapping.", extra=logging_context)
-
         job_manager.db.rollback()
 
         score_set.mapping_state = MappingState.failed
         score_set.mapping_errors = {"error_message": str(e)}
+        _record_mapping_failure(job_manager, e, score_set, failing_variant_urn)
+        logger.error(msg="Known error during variant mapping.", extra=job_manager.logging_context())
 
         # Persist score set state to survive any decorator rollback.
         job_manager.db.add(score_set)
@@ -533,9 +540,6 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         )
 
     except Exception as e:
-        logging_context = {**job_manager.logging_context(), **format_raised_exception_info_as_dict(e)}
-        logger.error(msg="Encountered an unexpected error while parsing mapped variants.", extra=logging_context)
-
         job_manager.db.rollback()
 
         score_set.mapping_state = MappingState.failed
@@ -543,6 +547,10 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             score_set.mapping_errors = {
                 "error_message": f"Encountered an unexpected error while parsing mapped variants. This job will be retried up to {job.max_retries} times (this was attempt {job.retry_count})."
             }
+        _record_mapping_failure(job_manager, e, score_set, failing_variant_urn)
+        logger.error(
+            msg="Encountered an unexpected error while parsing mapped variants.", extra=job_manager.logging_context()
+        )
 
         # Persist score set state to survive any decorator rollback.
         job_manager.db.add(score_set)
@@ -585,3 +593,14 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             "total_count": total_variants,
         }
     )
+
+
+def _record_mapping_failure(
+    job_manager: JobManager, err: Exception, score_set: ScoreSet, failing_variant_urn: Optional[str]
+) -> None:
+    """Record a mapping failure in the job's log: the error, the final mapping state, and the variant if known."""
+    job_manager.record_exception(err)
+    state = score_set.mapping_state.name if score_set.mapping_state else None
+    job_manager.save_to_context({"mapping_state": state}, overwrite=True)
+    if failing_variant_urn is not None:
+        job_manager.save_to_context({"failing_variant": failing_variant_urn})

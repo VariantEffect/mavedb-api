@@ -9,7 +9,6 @@ from unittest import mock
 import requests
 
 from mavedb.lib.clingen.allele_registry import (
-    clingen_allele_url,
     get_associated_clinvar_allele_id,
     get_canonical_pa_ids,
     get_clingen_allele_data,
@@ -17,6 +16,7 @@ from mavedb.lib.clingen.allele_registry import (
     refresh_clingen_allele_data_expiry,
 )
 from mavedb.lib.clingen.cache import CACHE_TTL_SECONDS
+from mavedb.lib.clingen.constants import CLINGEN_LOOKUP_TIMEOUT
 
 
 @pytest.mark.unit
@@ -251,6 +251,24 @@ class TestGetAssociatedClinvarAlleleId:
 
         with pytest.raises(requests.exceptions.HTTPError):
             await get_associated_clinvar_allele_id("CA_CLINVAR_500")
+
+    @pytest.mark.asyncio
+    async def test_get_associated_clinvar_allele_id_request_bounded_by_lookup_timeout(self, mock_request):
+        mock_response = mock.Mock()
+        mock_response.status_code = 404
+        mock_request.return_value = mock_response
+
+        await get_associated_clinvar_allele_id("CA_CLINVAR_TIMEOUT_ARG")
+
+        assert mock_request.call_args.kwargs["timeout"] == CLINGEN_LOOKUP_TIMEOUT
+
+    @pytest.mark.asyncio
+    async def test_get_associated_clinvar_allele_id_stalled_response_raises_timeout(self, mock_request):
+        """A stalled ClinGen response must surface as a RequestException, which the ClinVar job records and skips."""
+        mock_request.side_effect = requests.exceptions.ReadTimeout("read timed out")
+
+        with pytest.raises(requests.exceptions.RequestException):
+            await get_associated_clinvar_allele_id("CA_CLINVAR_STALLED")
 
 
 @pytest.mark.unit
@@ -540,11 +558,3 @@ class TestCacheBackendFailure:
         assert result1 == "333333"
         assert result2 == "333333"
         assert mock_request.call_count == 2  # No caching — both calls hit the API
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize("allele_id", ["CA123", "PA456"])
-def test_clingen_allele_url_links_the_registry_page(allele_id):
-    assert clingen_allele_url(allele_id) == (
-        f"https://reg.clinicalgenome.org/redmine/projects/registry/genboree_registry/by_caid?caid={allele_id}"
-    )

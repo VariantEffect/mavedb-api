@@ -1,7 +1,8 @@
 # ruff: noqa: E402
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
@@ -10,7 +11,6 @@ fastapi = pytest.importorskip("fastapi")
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
-
 from tests.helpers.constants import (
     TEST_USER,
 )

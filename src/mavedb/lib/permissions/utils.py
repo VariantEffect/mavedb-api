@@ -1,7 +1,7 @@
 import logging
 from typing import Optional, Union, overload
 
-from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.logging.context import logging_context
 from mavedb.lib.permissions.models import PermissionResponse
 from mavedb.lib.types.authentication import UserData
 from mavedb.lib.types.permissions import EntityType
@@ -55,8 +55,6 @@ def roles_permitted(
     Note:
         This function is used to enforce type safety and prevent mixing of role enums in permission checks.
     """
-    save_to_logging_context({"permitted_roles": [role.name for role in permitted_roles]})
-
     if not user_roles:
         logger.debug(msg="User has no associated roles.", extra=logging_context())
         return False

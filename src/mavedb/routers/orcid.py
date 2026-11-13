@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from starlette.responses import JSONResponse
 
 from mavedb.lib.authorization import require_current_user
-from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.orcid import fetch_orcid_user
 from mavedb.models.user import User
 from mavedb.routers.shared import (
@@ -78,6 +78,8 @@ def lookup_orcid_user(
     summary="Exchange an ORCID authorization code for an access token",
     include_in_schema=False,
 )
+# `async` because it only waits on ORCID and never touches the database, so awaiting the request holds no
+# thread from the pool (#950).
 async def get_token_from_code(*, request: orcid.OrcidAuthTokenRequest) -> Any:
     """
     Perform the second step of three-legged Oauth2. The user has signed into ORCID in the browser, and the client has

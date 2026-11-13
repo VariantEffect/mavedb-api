@@ -12,7 +12,6 @@ ProjectionGroup row, and both of its links point at it. A pair holding the measu
 variant itself, so its other member joins the measured group instead; so does the protein consequence.
 """
 
-import asyncio
 import dataclasses
 import functools
 import logging
@@ -35,15 +34,16 @@ from variant_annotation.lib.translation.types import (
 
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.hgvs import extract_accession, is_cis_phased_hgvs, strip_protein_prediction_parens
+from mavedb.lib.logging.context import run_in_executor_with_logging_context
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variant_translations import get_or_create_allele
 from mavedb.lib.vrs_utils import translate_hgvs_to_variation, verify_allele_refget
 from mavedb.models.allele import Allele as AlleleDbModel
-from mavedb.models.enums.sequence_level import NUCLEOTIDE_LEVELS, SequenceLevel
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.job_pipeline import FailureCategory
+from mavedb.models.enums.sequence_level import NUCLEOTIDE_LEVELS, SequenceLevel
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
@@ -449,7 +449,6 @@ async def reverse_translate_variants_for_score_set(
 
     # construct_equivalent_variants is I/O-bound (blocks on a subprocess); run in the
     # default thread pool rather than the process pool to avoid pickling the port objects.
-    loop = asyncio.get_running_loop()
     job_manager.update_progress(20, 100, "Running reverse translation subprocess.")
     # WtCodonMode.ALL reads the reference codon via TranscriptSource.codon_at, so pass a
     # live UTA-backed source. codon_at is only touched in the post-subprocess WT-codon step,
@@ -457,7 +456,7 @@ async def reverse_translate_variants_for_score_set(
     # (transcript_for_protein is redundant here -- the job already resolved every transcript
     # and supplies it via VariantInput.transcript.)
     with uta_transcript_source() as transcripts:
-        results, errors = await loop.run_in_executor(
+        results, errors = await run_in_executor_with_logging_context(
             None,
             functools.partial(
                 construct_equivalent_variants,
@@ -675,7 +674,7 @@ async def reverse_translate_variants_for_score_set(
 
     # Supersede the prior candidate groups and derived links under one timestamp. Measured groups belong to
     # project_measured_variants and are never retired here; their derived links are, and are re-added above.
-    # TODO#765: re-runs retire and recreate the whole derived set because re-mapping re-mints
+    # TODO(#765): re-runs retire and recreate the whole derived set because re-mapping re-mints
     # records; idempotent records would allow unchanged links to stay live.
     superseded_at = job_manager.db.scalar(select(func.now()))
     ProjectionGroup.supersede_live_where(

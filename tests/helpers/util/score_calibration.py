@@ -13,13 +13,13 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 
-async def create_test_range_based_score_calibration_in_score_set(
+def create_test_range_based_score_calibration_in_score_set(
     db: "Session", score_set_urn: str, user: User
 ) -> ScoreCalibration:
     calibration_create = ScoreCalibrationCreate(
         **TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED, score_set_urn=score_set_urn
     )
-    created_score_calibration = await create_score_calibration_in_score_set(db, calibration_create, user)
+    created_score_calibration = create_score_calibration_in_score_set(db, calibration_create, user)
     assert created_score_calibration is not None
 
     db.commit()

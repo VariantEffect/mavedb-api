@@ -8,7 +8,6 @@ from datetime import date, timedelta
 from unittest.mock import patch
 
 from sqlalchemy import select
-
 from variant_annotation.lib.vep import (
     NO_CHANGE_TERM,
     RESOLVER_VERSION,
@@ -19,9 +18,9 @@ from variant_annotation.lib.vep import (
 )
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
+from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.enums.vep import VepConsequenceSource
-from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 from mavedb.worker.jobs.external_services.vep import populate_vep_for_score_set
 from mavedb.worker.lib.managers.job_manager import JobManager

@@ -1,7 +1,7 @@
 import pytest
 
 from mavedb.view_models.external_gene_identifier import ExternalGeneIdentifierCreate
-from tests.helpers.constants import TEST_REFSEQ_IDENTIFIER, TEST_UNIPROT_IDENTIFIER, TEST_ENSEMBL_IDENTIFIER
+from tests.helpers.constants import TEST_ENSEMBL_IDENTIFIER, TEST_REFSEQ_IDENTIFIER, TEST_UNIPROT_IDENTIFIER
 
 
 def test_create_ensemble_identifier():

@@ -17,6 +17,8 @@ router = APIRouter(
 
 
 @router.get("/alphafold-files/version")
+# `async` because it only waits on AlphaFold and never touches the database, so awaiting the request holds
+# no thread from the pool (#950).
 async def proxy_alphafold_index():
     """
     Proxy the AlphaFold files index (XML document).

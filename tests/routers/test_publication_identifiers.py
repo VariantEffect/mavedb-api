@@ -1,19 +1,16 @@
 # ruff: noqa: E402
 
 import pytest  # noqa: F401
-
-from sqlalchemy import select, delete
+from sqlalchemy import delete, select
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
 from mavedb.models.publication_identifier import PublicationIdentifier
-
 from tests.helpers.constants import TEST_PUBMED_PUBLICATION
 
-
-# TODO#497: Expand test coverage for publication identifier routes.
+# TODO(#497): Expand test coverage for publication identifier routes.
 
 
 def test_show_publication_identifiers_multiple_exist(client, setup_router_db, session):
@@ -22,10 +19,10 @@ def test_show_publication_identifiers_multiple_exist(client, setup_router_db, se
     """
     new_journal_name = "New Journal"
 
-    # Create a duplicate publication identifier (skip PK/dates)
+    # Create a second publication from the first one's metadata (skip PK/dates)
     existing_item = session.scalars(select(PublicationIdentifier)).first()
     duplicate_item = PublicationIdentifier(
-        identifier=existing_item.identifier,
+        identifier=f"{existing_item.identifier}0",
         db_name=existing_item.db_name,
         db_version=existing_item.db_version,
         title=existing_item.title,
@@ -90,3 +87,18 @@ def test_show_publication_journals_none_exist(client, setup_router_db, session):
     # Assert the response
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_search_publications_by_identifier_and_db_other_database_not_found(client, setup_router_db):
+    response = client.get(f"/api/v1/publication-identifiers/search/bioRxiv/{TEST_PUBMED_PUBLICATION['identifier']}")
+
+    assert response.status_code == 404
+
+
+def test_search_publications_by_identifier_and_db_matching_database_found(client, setup_router_db):
+    response = client.get(f"/api/v1/publication-identifiers/search/PubMed/{TEST_PUBMED_PUBLICATION['identifier']}")
+
+    assert response.status_code == 200
+    assert [(item["identifier"], item["dbName"]) for item in response.json()] == [
+        (TEST_PUBMED_PUBLICATION["identifier"], "PubMed")
+    ]

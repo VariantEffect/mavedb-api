@@ -1,6 +1,6 @@
 from typing import Optional
 
-from mavedb.lib.acmg import StrengthOfEvidenceProvided, ACMGCriterion
+from mavedb.lib.acmg import ACMGCriterion, StrengthOfEvidenceProvided
 
 
 def oddspaths_evidence_strength_equivalent(

@@ -1,6 +1,5 @@
-from asyncio.unix_events import _UnixSelectorEventLoop
 from copy import deepcopy
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from sqlalchemy import select
 
@@ -21,7 +20,6 @@ from tests.helpers.constants import (
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
 )
-
 
 # Placeholder reference accessions for qualifying target-relative HGVS in mock
 # post-mapped output, keyed by the HGVS kind prefix (``c.``/``n.``/``g.``/``p.``).
@@ -77,9 +75,9 @@ async def create_mappings_in_score_set(
         return await construct_mock_mapping_output(session, score_set, with_layers={"g", "c", "p"})
 
     with (
-        patch.object(
-            _UnixSelectorEventLoop,
-            "run_in_executor",
+        patch(
+            "mavedb.worker.jobs.variant_processing.mapping.run_in_executor_with_logging_context",
+            new_callable=MagicMock,
             return_value=dummy_mapping_job(),
         ),
     ):

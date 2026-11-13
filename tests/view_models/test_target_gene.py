@@ -1,5 +1,6 @@
 import pytest
 
+from mavedb.models.target_gene_external_identifier import TargetGeneExternalIdentifier
 from mavedb.view_models.target_gene import SavedTargetGene, TargetGene, TargetGeneCreate, TargetGeneWithScoreSetUrn
 from tests.helpers.constants import (
     SEQUENCE,
@@ -142,46 +143,39 @@ def test_cannot_create_target_gene_with_both_sequence_and_accession():
     assert "Expected either a `target_sequence` or a `target_accession`, not both." in str(exc_info.value)
 
 
-@pytest.mark.parametrize(
-    "identifier",
-    [
-        {"key": "ensembl_offset", "value": TEST_ENSEMBLE_EXTERNAL_IDENTIFIER},
-        {"key": "refseq_offset", "value": TEST_REFSEQ_EXTERNAL_IDENTIFIER},
-        {"key": "uniprot_offset", "value": TEST_UNIPROT_EXTERNAL_IDENTIFIER},
-    ],
-)
-def test_external_identifiers_parsed_into_containing_list(identifier):
-    target_gene = {
-        "id": 1,
-        "name": "UBE2I",
-        "category": "regulatory",
-        "ensembl_offset": None,
-        "refseq_offset": None,
-        "uniprot_offset": None,
-    }
-    target_gene["target_sequence"] = dummy_attributed_object_from_dict(
-        {
-            "sequenceType": "dna",
-            "sequence": SEQUENCE,
-            "taxonomy": TEST_SAVED_TAXONOMY,
-        }
+def _stored_external_identifier(identifier, offset):
+    return TargetGeneExternalIdentifier(
+        db_name=identifier["db_name"], identifier=identifier["identifier"], offset=offset
     )
 
-    # Tranform external identifier constant into an attributed object, with an added offset property
-    external_identifier = identifier["key"]
-    offset = 10
-    target_gene[external_identifier] = {
-        "offset": offset,
-        "identifier": dummy_attributed_object_from_dict(identifier["value"]),
-    }
-    target_gene[external_identifier] = dummy_attributed_object_from_dict(target_gene[external_identifier])
 
-    target_gene = dummy_attributed_object_from_dict(target_gene)
+@pytest.mark.parametrize(
+    "identifier",
+    [TEST_ENSEMBLE_EXTERNAL_IDENTIFIER, TEST_REFSEQ_EXTERNAL_IDENTIFIER, TEST_UNIPROT_EXTERNAL_IDENTIFIER],
+    ids=["ensembl", "refseq", "uniprot"],
+)
+def test_saved_target_gene_from_stored_external_identifier_nests_identifier_beside_offset(identifier):
+    offset = 10
+    target_gene = dummy_attributed_object_from_dict(
+        {
+            "id": 1,
+            "name": "UBE2I",
+            "category": "regulatory",
+            "external_identifiers": [_stored_external_identifier(identifier, offset)],
+            "target_sequence": dummy_attributed_object_from_dict(
+                {
+                    "sequenceType": "dna",
+                    "sequence": SEQUENCE,
+                    "taxonomy": TEST_SAVED_TAXONOMY,
+                }
+            ),
+        }
+    )
     saved_target_gene = SavedTargetGene.model_validate(target_gene)
 
     assert len(saved_target_gene.external_identifiers) == 1
-    assert saved_target_gene.external_identifiers[0].identifier.identifier == identifier["value"]["identifier"]
-    assert saved_target_gene.external_identifiers[0].identifier.db_name == identifier["value"]["db_name"]
+    assert saved_target_gene.external_identifiers[0].identifier.identifier == identifier["identifier"]
+    assert saved_target_gene.external_identifiers[0].identifier.db_name == identifier["db_name"]
     assert saved_target_gene.external_identifiers[0].offset == offset
 
 
@@ -190,9 +184,7 @@ def test_cannot_create_saved_target_without_seq_or_acc():
         "id": 1,
         "name": "UBE2I",
         "category": "regulatory",
-        "ensembl_offset": None,
-        "refseq_offset": None,
-        "uniprot_offset": None,
+        "external_identifiers": [],
     }
 
     target_gene = dummy_attributed_object_from_dict(target_gene)
@@ -208,11 +200,7 @@ def test_saved_target_gene_can_be_created_from_orm():
             "id": 1,
             "name": "UBE2I",
             "category": "regulatory",
-            "ensembl_offset": dummy_attributed_object_from_dict(
-                {"offset": 1, "identifier": dummy_attributed_object_from_dict(TEST_ENSEMBLE_EXTERNAL_IDENTIFIER)}
-            ),
-            "refseq_offset": None,
-            "uniprot_offset": None,
+            "external_identifiers": [_stored_external_identifier(TEST_ENSEMBLE_EXTERNAL_IDENTIFIER, 1)],
             "target_sequence": dummy_attributed_object_from_dict(
                 {
                     "sequenceType": "dna",
@@ -236,14 +224,7 @@ def test_target_gene_with_score_set_urn_can_be_created_from_orm():
             "id": 1,
             "name": "UBE2I",
             "category": "regulatory",
-            "ensembl_offset": dummy_attributed_object_from_dict(
-                {
-                    "offset": 1,
-                    "identifier": dummy_attributed_object_from_dict(TEST_ENSEMBLE_EXTERNAL_IDENTIFIER),
-                }
-            ),
-            "refseq_offset": None,
-            "uniprot_offset": None,
+            "external_identifiers": [_stored_external_identifier(TEST_ENSEMBLE_EXTERNAL_IDENTIFIER, 1)],
             "target_sequence": dummy_attributed_object_from_dict(
                 {
                     "sequenceType": "dna",

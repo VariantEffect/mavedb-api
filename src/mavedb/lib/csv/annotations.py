@@ -40,7 +40,8 @@ def calibrations_for_namespaces(
         .options(
             selectinload(ScoreCalibration.functional_classifications).selectinload(
                 ScoreCalibrationFunctionalClassification.acmg_classification
-            )
+            ),
+            selectinload(ScoreCalibration.superseding_calibration),  # read by the superseded flag
         )
     ).all()
 

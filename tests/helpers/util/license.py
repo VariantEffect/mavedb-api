@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+
 from mavedb.models.license import License
 from mavedb.models.score_set import ScoreSet
 

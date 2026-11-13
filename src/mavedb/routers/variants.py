@@ -3,8 +3,8 @@ from datetime import datetime
 from typing import Annotated, Any, List, Optional
 
 from fastapi import APIRouter, Depends, Path, Query, Response
-from fastapi.exceptions import HTTPException
 from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from ga4gh.core.identifiers import GA4GH_IR_REGEXP
 from ga4gh.va_spec.acmg_2015 import VariantPathogenicityStatement
@@ -27,8 +27,9 @@ from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import get_principal
 from mavedb.lib.csv.namespaces import CSV_NAMESPACES_PARAM_DESCRIPTION, CsvNamespaceStr
 from mavedb.lib.csv.variant import available_variant_csv_namespaces, get_variant_csv
-from mavedb.lib.logging import LoggedRoute
+from mavedb.lib.deprecation import deprecation_headers, record_deprecated_usage
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
@@ -38,6 +39,7 @@ from mavedb.models.variant import Variant
 from mavedb.routers.shared import (
     ACCESS_CONTROL_ERROR_RESPONSES,
     BASE_400_RESPONSE,
+    BASE_410_RESPONSE,
     PUBLIC_ERROR_RESPONSES,
     ROUTER_BASE_PREFIX,
 )
@@ -527,4 +529,30 @@ def get_variant_csv_data(
             "X-As-Of": as_of.isoformat() if as_of is not None else "current",
             "Access-Control-Expose-Headers": "X-As-Of",
         },
+    )
+
+
+@router.post(
+    "/variants/clingen-allele-id-lookups",
+    status_code=410,
+    deprecated=True,
+    responses={**BASE_410_RESPONSE},
+    summary="Removed; see GET /clingen-alleles/{clingen_allele_id}/measurements",
+)
+def lookup_variants_by_clingen_allele_ids_removed() -> Any:
+    """This endpoint has been permanently removed.
+
+    It looked up a batch of ClinGen allele IDs in one request. Its replacement,
+    ``GET /clingen-alleles/{clingen_allele_id}/measurements``, takes one allele per request and returns a
+    different shape, so the two are not wire-compatible and this route does not redirect. It takes no body,
+    so a caller still sending the old request gets this 410 rather than a validation error.
+    """
+    successor = "/clingen-alleles/{clingen_allele_id}/measurements"
+    record_deprecated_usage("/variants/clingen-allele-id-lookups", successor=successor)
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            f"POST /variants/clingen-allele-id-lookups has been removed. Use GET {successor} for each allele instead."
+        ),
+        headers=deprecation_headers(warning=f"Removed; use GET {successor}, one allele per request."),
     )

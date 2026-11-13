@@ -2,25 +2,22 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session, joinedload, selectinload
 from starlette.convertors import Convertor, register_url_convertor
 
 from mavedb import deps
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.hgnc.client import fetch_gene_info
-from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
-from mavedb.models.ensembl_offset import EnsemblOffset
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
-from mavedb.models.refseq_offset import RefseqOffset
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.target_sequence import TargetSequence
-from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.routers.shared import GATEWAY_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models.gene import GeneResponse
 from mavedb.view_models.score_set import ShortScoreSet
@@ -59,12 +56,28 @@ metadata = {
 }
 
 
-def _gene_score_set_base_query(db: Session, symbol: str):
+def _current_public_score_sets(db: Session):
     return db.query(ScoreSet).filter(
-        ScoreSet.target_genes.any(TargetGene.mapped_hgnc_name == symbol),
         ScoreSet.private.is_(False),
         ScoreSet.published_date.isnot(None),
         ~ScoreSet.superseding_score_set.has(ScoreSet.published_date.isnot(None)),
+    )
+
+
+def _gene_score_set_base_query(db: Session, symbol: str):
+    return _current_public_score_sets(db).filter(ScoreSet.target_genes.any(TargetGene.mapped_hgnc_name == symbol))
+
+
+def _unmapped_score_set_query(db: Session, symbol: str):
+    """Score sets with a target named exactly ``symbol`` that has no mapped HGNC symbol.
+
+    The gene page lists score sets by mapped HGNC symbol, which only a successful mapping sets. These are the
+    score sets a search by that target name finds but the gene page can't list. The exact, case-sensitive
+    match is the one the search's target-name filter uses, so this count agrees with the search it links to.
+    """
+    return _current_public_score_sets(db).filter(
+        ScoreSet.target_genes.any(and_(TargetGene.name == symbol, TargetGene.mapped_hgnc_name.is_(None))),
+        ~ScoreSet.target_genes.any(TargetGene.mapped_hgnc_name == symbol),
     )
 
 
@@ -89,9 +102,7 @@ def _score_set_load_options():
             ScoreSetPublicationIdentifierAssociation.publication
         ),
         selectinload(ScoreSet.target_genes).options(
-            joinedload(TargetGene.ensembl_offset).joinedload(EnsemblOffset.identifier),
-            joinedload(TargetGene.refseq_offset).joinedload(RefseqOffset.identifier),
-            joinedload(TargetGene.uniprot_offset).joinedload(UniprotOffset.identifier),
+            selectinload(TargetGene.external_identifiers),
             joinedload(TargetGene.target_sequence).joinedload(TargetSequence.taxonomy),
             joinedload(TargetGene.target_accession),
         ),
@@ -128,6 +139,7 @@ def get_gene(
         .with_entities(func.coalesce(func.sum(ScoreSet.num_variants), 0))
         .scalar()
     )
+    total_unmapped = _unmapped_score_set_query(db, gene_info.symbol).count()
     score_sets = (
         base_query.options(*_score_set_load_options())
         .order_by(ScoreSet.published_date.desc(), ScoreSet.urn.desc())
@@ -156,4 +168,5 @@ def get_gene(
         offset=offset,
         total=total,
         total_scored_variants=total_scored_variants,
+        total_unmapped=total_unmapped,
     )

@@ -37,13 +37,13 @@ import asyncclick as click
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from mavedb.lib.alleles import with_chunk_inputs
 from mavedb.lib.annotation.annotate import (
     variant_functional_impact_statement,
     variant_pathogenicity_statement,
     variant_study_result,
 )
 from mavedb.lib.annotation.conformance import AnnotationRoundTripError, round_trip_annotation
-from mavedb.lib.alleles import with_chunk_inputs
 from mavedb.lib.annotation.context import VariantAnnotationContext, load_annotation_context_inputs
 from mavedb.lib.annotation.exceptions import EXPECTED_ABSENCE_EXCEPTIONS
 from mavedb.lib.csv.score_set import available_score_set_csv_namespaces, get_score_set_variants_as_csv

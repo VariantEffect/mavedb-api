@@ -169,6 +169,7 @@ that calibration's interpretation of each variant:
 |---------------|-------------|
 | `title` | Human-readable name of the calibration |
 | `research_use_only` | `True` if the calibration is not intended for clinical use — see below |
+| `superseded` | `True` if a newer published version of the calibration has replaced it — see below |
 | `functional_classification` | `normal`, `abnormal`, or `indeterminate` |
 | `acmg_criterion` | ACMG 2015 criterion evaluated, e.g. `PS3` or `BS3` |
 | `acmg_evidence_strength` | Strength the criterion was met at, e.g. `MODERATE`. `NA` when not met |
@@ -176,8 +177,8 @@ that calibration's interpretation of each variant:
 | `pathogenicity_classification` | `PATHOGENIC`, `BENIGN`, or `UNCERTAIN_SIGNIFICANCE` |
 
 Every calibration MaveDB holds for the score set gets a group, including one that defines no score
-ranges. Such a group carries `title` and
-`research_use_only` with `NA` in every interpretation column: the calibration exists and was consulted,
+ranges. Such a group carries `title`, `research_use_only` and `superseded` with `NA` in every
+interpretation column: the calibration exists and was consulted,
 and it has no classification to give. That is different from a calibration whose ranges simply do not
 contain a particular variant, which reports `UNCERTAIN_SIGNIFICANCE` and `PS3_not_met`.
 
@@ -185,6 +186,12 @@ contain a particular variant, which reports `UNCERTAIN_SIGNIFICANCE` and `PS3_no
 `research_use_only` = `True`. These calibrations have not been assessed as suitable for clinical variant
 interpretation. Filter them out on that column if you are assembling clinical evidence. They are currently *not*
 present in `va/{urn}.va.ndjson`.
+
+**Superseded calibrations are included in this file**, and are marked by `superseded` = `True`. A
+published calibration can't be edited, so a correction is published as a new version, which often keeps
+the same title; the new version's own group reports `superseded` = `False`. Filter on that column to keep
+only each calibration's current version. Superseded calibrations are *not* used in
+`va/{urn}.va.ndjson`, and `main.json` names each one's replacement as `supersedingCalibrationUrn`.
 
 `acmg_evidence_strength` uses MaveDB's own scale, which includes `MODERATE_PLUS` — an intermediate
 strength that the GA4GH VA-Spec has no equivalent for. The same variant's record in `va/{urn}.va.ndjson`
@@ -296,8 +303,8 @@ non-functional ACMG criteria (population frequency, segregation, computational p
 full clinical determination requires. Treat it as the functional contribution to a classification, to
 be combined with other evidence downstream, not as a standalone clinical verdict.
 
-Research-use-only calibrations are excluded from this file, unlike `csv/{urn}.annotations.csv`, which
-includes them under a `research_use_only` flag.
+Research-use-only and superseded calibrations are excluded from this file, unlike
+`csv/{urn}.annotations.csv`, which includes them under the `research_use_only` and `superseded` flags.
 
 The proposition subject is the measured change. When it has another representation (its genomic or
 transcript twin, or its protein consequence) the subject is a Cat-VRS `CategoricalVariant` over those
@@ -362,8 +369,8 @@ score_set = next(
   `.mapped-variants.json` files, and VA-Spec files (`.va.ndjson`) are **only present for score sets that have been processed by the
   MaveDB variant mapping pipeline**. Score sets that have not yet been mapped, or for which mapping
   failed entirely, will not have these files.
-- `annotations.csv` includes **research-use-only** calibrations, flagged by `research_use_only`; the
-  `va/` files exclude them. Filter on that column before using calibration output as clinical evidence,
+- `annotations.csv` includes **research-use-only** and **superseded** calibrations, flagged by
+  `research_use_only` and `superseded`; the `va/` files exclude them. Filter on that column before using calibration output as clinical evidence,
   or before comparing the two files.
 - The `va/` files carry only each variant's highest materialized VA-Spec layer (see
   [`va/{urn}.va.ndjson`](#vaurnvandjson)). The pathogenicity layer's classification reflects MaveDB

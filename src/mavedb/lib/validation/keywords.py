@@ -5,7 +5,7 @@ from mavedb.lib.validation.utilities import is_null
 
 
 def validate_code(key: str, label: str, code: Optional[str]):
-    # TODO(#511) Re-enable the Gene Ontology code requirement.
+    # TODO(#511): Re-enable the Gene Ontology code requirement.
     pass
     # if key.lower() == "phenotypic assay mechanism" and label.lower() != "other":
     #     # The Gene Ontology accession is a unique seven digit identifier prefixed by GO:.
@@ -14,7 +14,7 @@ def validate_code(key: str, label: str, code: Optional[str]):
     #         raise ValidationError("Invalid Gene Ontology accession.")
 
 
-# TODO: label will not be Optional when we confirm the final controlled keyword list.
+# TODO(#273): label will not be Optional when we confirm the final controlled keyword list.
 def validate_description(label: str, key: str, description: Optional[str]):
     if label.lower() == "other" and (description is None or description.strip() == ""):
         raise ValidationError(

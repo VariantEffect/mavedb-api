@@ -4,38 +4,25 @@ from enum import Enum
 from typing import Any, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import Select, Table, func, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from mavedb.deps import get_db
 from mavedb.models.controlled_keyword import ControlledKeyword
-from mavedb.models.doi_identifier import DoiIdentifier
-from mavedb.models.ensembl_identifier import EnsemblIdentifier
-from mavedb.models.ensembl_offset import EnsemblOffset
-from mavedb.models.experiment import (
-    Experiment,
-    experiments_doi_identifiers_association_table,
-    experiments_raw_read_identifiers_association_table,
-)
+from mavedb.models.doi_identifier import ExperimentDoiIdentifier, ScoreSetDoiIdentifier
+from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
 from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.published_variant import PublishedVariantsMV
-from mavedb.models.raw_read_identifier import RawReadIdentifier
-from mavedb.models.refseq_identifier import RefseqIdentifier
-from mavedb.models.refseq_offset import RefseqOffset
-from mavedb.models.score_set import (
-    ScoreSet,
-    score_sets_doi_identifiers_association_table,
-    score_sets_raw_read_identifiers_association_table,
-)
+from mavedb.models.raw_read_identifier import ExperimentRawReadIdentifier, ScoreSetRawReadIdentifier
+from mavedb.models.score_set import ScoreSet
 from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
+from mavedb.models.target_gene_external_identifier import TargetGeneExternalIdentifier
 from mavedb.models.target_sequence import TargetSequence
 from mavedb.models.taxonomy import Taxonomy
-from mavedb.models.uniprot_identifier import UniprotIdentifier
-from mavedb.models.uniprot_offset import UniprotOffset
 from mavedb.models.user import User
 from mavedb.routers.shared import PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 
@@ -57,10 +44,15 @@ metadata = {
 
 RecordModels = Union[type[Experiment], type[ScoreSet]]
 RecordAssociationTables = Union[
-    Table,
     type[ExperimentControlledKeywordAssociation],
     type[ExperimentPublicationIdentifierAssociation],
     type[ScoreSetPublicationIdentifierAssociation],
+]
+RecordIdentifierLinks = Union[
+    type[ExperimentDoiIdentifier],
+    type[ExperimentRawReadIdentifier],
+    type[ScoreSetDoiIdentifier],
+    type[ScoreSetRawReadIdentifier],
 ]
 
 
@@ -101,15 +93,11 @@ def _model_and_association_from_record_field(
     }
     record_to_assc_map: dict[RecordNames, dict[RecordFields, RecordAssociationTables]] = {
         RecordNames.experiment: {
-            RecordFields.doiIdentifiers: experiments_doi_identifiers_association_table,
             RecordFields.publicationIdentifiers: ExperimentPublicationIdentifierAssociation,
-            RecordFields.rawReadIdentifiers: experiments_raw_read_identifiers_association_table,
             RecordFields.keywords: ExperimentControlledKeywordAssociation,
         },
         RecordNames.scoreSet: {
-            RecordFields.doiIdentifiers: score_sets_doi_identifiers_association_table,
             RecordFields.publicationIdentifiers: ScoreSetPublicationIdentifierAssociation,
-            RecordFields.rawReadIdentifiers: score_sets_raw_read_identifiers_association_table,
         },
     }
 
@@ -128,6 +116,40 @@ def _join_model_and_filter_unpublished(query: Select, model: RecordModels) -> Se
 
 def _count_for_identifier_in_query(db: Session, query: Select[tuple[Any, int]]) -> dict[Any, int]:
     return {value: count for value, count in db.execute(query).all() if value is not None}
+
+
+# Identifiers are stored on the rows that link them to their records, so these count the link rows themselves.
+RECORD_IDENTIFIER_LINKS: dict[RecordNames, dict[RecordFields, RecordIdentifierLinks]] = {
+    RecordNames.experiment: {
+        RecordFields.doiIdentifiers: ExperimentDoiIdentifier,
+        RecordFields.rawReadIdentifiers: ExperimentRawReadIdentifier,
+    },
+    RecordNames.scoreSet: {
+        RecordFields.doiIdentifiers: ScoreSetDoiIdentifier,
+        RecordFields.rawReadIdentifiers: ScoreSetRawReadIdentifier,
+    },
+}
+
+
+def _count_identifiers_on_published_records(db: Session, record: RecordNames, field: RecordFields) -> dict[str, int]:
+    queried_model, _ = _model_and_association_from_record_field(record, None)
+    link = RECORD_IDENTIFIER_LINKS[record][field]
+    query = _join_model_and_filter_unpublished(
+        select(link.identifier, func.count(link.identifier)), queried_model
+    ).group_by(link.identifier)
+
+    return _count_for_identifier_in_query(db, query)
+
+
+def _count_target_gene_identifiers_on_published_score_sets(db: Session, db_name: str) -> dict[str, int]:
+    query = _join_model_and_filter_unpublished(
+        select(TargetGeneExternalIdentifier.identifier, func.count(TargetGeneExternalIdentifier.identifier))
+        .where(TargetGeneExternalIdentifier.db_name == db_name)
+        .join(TargetGene),
+        ScoreSet,
+    ).group_by(TargetGeneExternalIdentifier.identifier)
+
+    return _count_for_identifier_in_query(db, query)
 
 
 ########################################################################################
@@ -216,21 +238,10 @@ def experiment_publication_identifier_statistics(
 )
 def experiment_raw_read_identifier_statistics(record: RecordNames, db: Session = Depends(get_db)) -> dict[str, int]:
     """
-    Returns a dictionary of counts for the distinct values of the `identifier` field (member of the `raw_read_identifiers` table).
+    Returns a dictionary of counts for each distinct raw read identifier.
     Don't include any raw read identifiers from unpublished experiments.
     """
-    queried_model, queried_assc = _model_and_association_from_record_field(record, RecordFields.rawReadIdentifiers)
-
-    if queried_assc is None:
-        raise HTTPException(
-            500, "No association table associated with the raw read identifiers field when one was expected."
-        )
-
-    query = _join_model_and_filter_unpublished(
-        select(RawReadIdentifier.identifier, func.count(RawReadIdentifier.identifier)).join(queried_assc), queried_model
-    ).group_by(RawReadIdentifier.identifier)
-
-    return _count_for_identifier_in_query(db, query)
+    return _count_identifiers_on_published_records(db, record, RecordFields.rawReadIdentifiers)
 
 
 @router.get(
@@ -241,21 +252,10 @@ def experiment_raw_read_identifier_statistics(record: RecordNames, db: Session =
 )
 def experiment_doi_identifiers_statistics(record: RecordNames, db: Session = Depends(get_db)) -> dict[str, int]:
     """
-    Returns a dictionary of counts for the distinct values of the `identifier` field (member of the `doi_identifiers` table).
+    Returns a dictionary of counts for each distinct DOI identifier.
     Don't include any DOI identifiers from unpublished experiments.
     """
-    queried_model, queried_assc = _model_and_association_from_record_field(record, RecordFields.doiIdentifiers)
-
-    if queried_assc is None:
-        raise HTTPException(
-            500, "No association table associated with the doi identifiers field when one was expected."
-        )
-
-    query = _join_model_and_filter_unpublished(
-        select(DoiIdentifier.identifier, func.count(DoiIdentifier.identifier)).join(queried_assc), queried_model
-    ).group_by(DoiIdentifier.identifier)
-
-    return _count_for_identifier_in_query(db, query)
+    return _count_identifiers_on_published_records(db, record, RecordFields.doiIdentifiers)
 
 
 @router.get(
@@ -519,17 +519,10 @@ def target_genes_organism_counts(db: Session = Depends(get_db)) -> dict[str, int
 )
 def target_genes_ensembl_identifier_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
-    Returns a dictionary of counts for the distinct values of the `identifier` field (member of the `ensembl_identifiers` table).
+    Returns a dictionary of counts for each distinct Ensembl identifier of a target gene.
     Don't include any NULL field values. Don't include any targets from unpublished score sets.
     """
-    query = _join_model_and_filter_unpublished(
-        select(EnsemblIdentifier.identifier, func.count(EnsemblIdentifier.identifier))
-        .join(EnsemblOffset)
-        .join(TargetGene),
-        ScoreSet,
-    ).group_by(EnsemblIdentifier.identifier)
-
-    return _count_for_identifier_in_query(db, query)
+    return _count_target_gene_identifiers_on_published_score_sets(db, "Ensembl")
 
 
 @router.get(
@@ -540,17 +533,10 @@ def target_genes_ensembl_identifier_counts(db: Session = Depends(get_db)) -> dic
 )
 def target_genes_refseq_identifier_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
-    Returns a dictionary of counts for the distinct values of the `identifier` field (member of the `refseq_identifiers` table).
+    Returns a dictionary of counts for each distinct RefSeq identifier of a target gene.
     Don't include any NULL field values. Don't include any targets from unpublished score sets.
     """
-    query = _join_model_and_filter_unpublished(
-        select(RefseqIdentifier.identifier, func.count(RefseqIdentifier.identifier))
-        .join(RefseqOffset)
-        .join(TargetGene),
-        ScoreSet,
-    ).group_by(RefseqIdentifier.identifier)
-
-    return _count_for_identifier_in_query(db, query)
+    return _count_target_gene_identifiers_on_published_score_sets(db, "RefSeq")
 
 
 @router.get(
@@ -561,17 +547,10 @@ def target_genes_refseq_identifier_counts(db: Session = Depends(get_db)) -> dict
 )
 def target_genes_uniprot_identifier_counts(db: Session = Depends(get_db)) -> dict[str, int]:
     """
-    Returns a dictionary of counts for the distinct values of the `identifier` field (member of the `uniprot_identifiers` table).
+    Returns a dictionary of counts for each distinct UniProt identifier of a target gene.
     Don't include any NULL field values. Don't include any targets from unpublished score sets.
     """
-    query = _join_model_and_filter_unpublished(
-        select(UniprotIdentifier.identifier, func.count(UniprotIdentifier.identifier))
-        .join(UniprotOffset)
-        .join(TargetGene),
-        ScoreSet,
-    ).group_by(UniprotIdentifier.identifier)
-
-    return _count_for_identifier_in_query(db, query)
+    return _count_target_gene_identifiers_on_published_score_sets(db, "UniProt")
 
 
 @router.get(

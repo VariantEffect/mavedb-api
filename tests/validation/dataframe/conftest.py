@@ -1,12 +1,13 @@
+from unittest import TestCase, mock
+
 import pandas as pd
 import pytest
-from unittest import mock, TestCase
 
 from mavedb.lib.validation.constants.general import (
+    guide_sequence_column,
     hgvs_nt_column,
     hgvs_pro_column,
     hgvs_splice_column,
-    guide_sequence_column,
     required_score_column,
 )
 from tests.helpers.constants import TEST_NT_CDOT_TRANSCRIPT, TEST_PRO_CDOT_TRANSCRIPT
