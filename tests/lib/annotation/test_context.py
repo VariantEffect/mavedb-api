@@ -11,7 +11,6 @@ pytest.importorskip("psycopg2")
 
 from ga4gh.cat_vrs.models import CategoricalVariant
 from ga4gh.vrs.models import MolecularVariation
-
 from sqlalchemy import select
 
 from mavedb.lib.annotation.context import variant_annotation_context
@@ -19,7 +18,6 @@ from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
 from tests.helpers.constants import TEST_VALID_POST_MAPPED_VRS_ALLELE
 from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
-
 
 T0 = datetime(2020, 1, 1, tzinfo=timezone.utc)
 T1 = datetime(2021, 1, 1, tzinfo=timezone.utc)

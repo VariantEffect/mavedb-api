@@ -19,9 +19,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import desc
 
+from mavedb.models.annotation_event import ALLELE_SUBJECT_TYPES, VARIANT_SUBJECT_TYPES, AnnotationEvent
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
-from mavedb.models.annotation_event import ALLELE_SUBJECT_TYPES, VARIANT_SUBJECT_TYPES, AnnotationEvent
 
 logger = logging.getLogger(__name__)
 

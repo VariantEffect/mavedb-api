@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from mavedb.models.allele import Allele
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
+from mavedb.models.enums.vep import VepConsequenceSource
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
@@ -37,10 +38,19 @@ from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 
 @dataclass(frozen=True)
 class VepAnnotation:
-    """A VEP molecular consequence for an allele and the Ensembl release it was resolved under."""
+    """A VEP molecular consequence for an allele and the Ensembl release it was resolved under.
+
+    ``consequence_source`` says whether ``consequence`` applies to the allele's own transcript or is
+    VEP's worst case across every overlapping transcript, so a consumer can prefer the former when an
+    allele's genomic and coding forms disagree. The provenance fields are ``None`` on rows written
+    before they were recorded.
+    """
 
     consequence: Optional[str]
     source_version: str
+    consequence_source: Optional[VepConsequenceSource] = None
+    consequence_terms: Optional[list[str]] = None
+    matched_transcript: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -129,14 +139,23 @@ def get_allele_annotations(
             VepAlleleConsequence.allele_id,
             VepAlleleConsequence.functional_consequence,
             VepAlleleConsequence.source_version,
+            VepAlleleConsequence.consequence_source,
+            VepAlleleConsequence.consequence_terms,
+            VepAlleleConsequence.matched_transcript,
         )
         .where(VepAlleleConsequence.allele_id.in_(allele_ids))
         .where(VepAlleleConsequence.live_at(as_of))
     ).tuples()
-    for allele_id, consequence, source_version in vep_rows:
+    for allele_id, consequence, source_version, consequence_source, consequence_terms, matched_transcript in vep_rows:
         digest = digest_by_id[allele_id]
         if digest is not None:
-            annotations[digest].vep = VepAnnotation(consequence=consequence, source_version=source_version)
+            annotations[digest].vep = VepAnnotation(
+                consequence=consequence,
+                source_version=source_version,
+                consequence_source=consequence_source,
+                consequence_terms=consequence_terms,
+                matched_transcript=matched_transcript,
+            )
 
     # gnomAD — at most one live link per allele, resolving to a frequency record.
     gnomad_rows: Result[tuple[int, GnomADVariant]] = db.execute(

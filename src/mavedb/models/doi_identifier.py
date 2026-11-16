@@ -1,17 +1,37 @@
-from datetime import date
-
-from sqlalchemy import Column, Date, Integer, String
+from sqlalchemy import Column, ForeignKey, Integer, String
 
 from mavedb.db.base import Base
+from mavedb.lib.external_identifier_urls import doi_url
+from mavedb.models.mixins.external_identifier import ExternalIdentifier
 
 
-class DoiIdentifier(Base):
-    __tablename__ = "doi_identifiers"
+class DoiIdentifierLink(ExternalIdentifier):
+    """A DOI cited by one record. DOIs are case-insensitive, so the identifier is stored upper-cased, as the DOI
+    registry stores it."""
 
-    id = Column(Integer, primary_key=True)
-    identifier = Column(String, nullable=False)
-    db_name = Column(String, nullable=False)
-    db_version = Column(String, nullable=True)
-    url = Column(String, nullable=True)
-    creation_date = Column(Date, nullable=False, default=date.today)
-    modification_date = Column(Date, nullable=False, default=date.today, onupdate=date.today)
+    db_name = "DOI"
+
+    @property
+    def url(self) -> str:
+        return doi_url(self.identifier)
+
+
+class ScoreSetDoiIdentifier(DoiIdentifierLink, Base):
+    __tablename__ = "scoreset_doi_identifiers"
+
+    score_set_id = Column("scoreset_id", Integer, ForeignKey("scoresets.id"), primary_key=True)
+    identifier = Column(String, primary_key=True)
+
+
+class ExperimentDoiIdentifier(DoiIdentifierLink, Base):
+    __tablename__ = "experiment_doi_identifiers"
+
+    experiment_id = Column(Integer, ForeignKey("experiments.id"), primary_key=True)
+    identifier = Column(String, primary_key=True)
+
+
+class ExperimentSetDoiIdentifier(DoiIdentifierLink, Base):
+    __tablename__ = "experiment_set_doi_identifiers"
+
+    experiment_set_id = Column(Integer, ForeignKey("experiment_sets.id"), primary_key=True)
+    identifier = Column(String, primary_key=True)

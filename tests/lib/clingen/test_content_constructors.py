@@ -1,23 +1,22 @@
 from unittest.mock import patch
-from uuid import UUID
 from urllib.parse import quote_plus
+from uuid import UUID
 
+from mavedb import __version__
 from mavedb.constants import MAVEDB_BASE_GIT, MAVEDB_FRONTEND_URL
+from mavedb.lib.clingen.constants import LDH_ENTITY_NAME, LDH_SUBMISSION_TYPE
 from mavedb.lib.clingen.content_constructors import (
-    construct_ldh_submission_event,
-    construct_ldh_submission_subject,
     construct_ldh_submission,
     construct_ldh_submission_entity,
+    construct_ldh_submission_event,
+    construct_ldh_submission_subject,
 )
-from mavedb.lib.clingen.constants import LDH_ENTITY_NAME, LDH_SUBMISSION_TYPE
-from mavedb import __version__
-
 from tests.helpers.constants import (
     TEST_HGVS_IDENTIFIER,
-    VALID_VARIANT_URN,
-    TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
+    TEST_VALID_PRE_MAPPED_VRS_ALLELE_VRS2_X,
     VALID_SCORE_SET_URN,
+    VALID_VARIANT_URN,
 )
 
 

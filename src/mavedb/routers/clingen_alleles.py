@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.lib.allele_measurements import get_allele_measurements
 from mavedb.lib.authentication import get_current_user
-from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import save_to_logging_context
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.types.authentication import UserData
 from mavedb.routers.shared import ACCESS_CONTROL_ERROR_RESPONSES, PUBLIC_ERROR_RESPONSES, ROUTER_BASE_PREFIX
 from mavedb.view_models.allele_measurement import AlleleMeasurement

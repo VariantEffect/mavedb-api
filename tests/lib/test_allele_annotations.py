@@ -17,6 +17,7 @@ from mavedb.lib.allele_annotations import get_allele_annotations
 from mavedb.models.allele import Allele
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
+from mavedb.models.enums.vep import VepConsequenceSource
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
@@ -32,13 +33,14 @@ def _allele(session, digest, *, level="cdna"):
     return allele
 
 
-def _vep(session, allele, value, *, source_version="116", valid_from=None):
+def _vep(session, allele, value, *, source_version="116", valid_from=None, **provenance):
     row = VepAlleleConsequence(
         allele_id=allele.id,
         functional_consequence=value,
         source_version=source_version,
         access_date="2026-01-01",
         valid_from=valid_from,
+        **provenance,
     )
     session.add(row)
     session.commit()
@@ -160,3 +162,48 @@ def test_as_of_reconstructs_the_historical_annotation(session, setup_lib_db):
 
     assert current.vep is not None and current.vep.consequence == "stop_gained"
     assert historical.vep is not None and historical.vep.consequence == "missense_variant"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "provenance",
+    [
+        {
+            "consequence_source": VepConsequenceSource.transcript,
+            "consequence_terms": ["synonymous_variant"],
+            "matched_transcript": "NM_000465.4",
+        },
+        {
+            "consequence_source": VepConsequenceSource.most_severe,
+            "consequence_terms": ["splice_polypyrimidine_tract_variant", "synonymous_variant"],
+            "matched_transcript": None,
+        },
+    ],
+    ids=["transcript", "most_severe"],
+)
+def test_get_allele_annotations_vep_carries_resolution_provenance(session, setup_lib_db, provenance):
+    """The served VEP block says how its consequence was reached, so a consumer can tell a call for the
+    allele's own transcript from VEP's worst case across every overlapping transcript."""
+    allele = _allele(session, "provenance-digest")
+    _vep(session, allele, provenance["consequence_terms"][0], **provenance)
+
+    vep = get_allele_annotations(session, [allele])["provenance-digest"].vep
+
+    assert vep is not None
+    assert vep.consequence_source is provenance["consequence_source"]
+    assert vep.consequence_terms == provenance["consequence_terms"]
+    assert vep.matched_transcript == provenance["matched_transcript"]
+
+
+@pytest.mark.integration
+def test_get_allele_annotations_vep_without_provenance_is_none(session, setup_lib_db):
+    """Rows resolved before provenance was recorded serve None, not a guessed source."""
+    allele = _allele(session, "legacy-digest")
+    _vep(session, allele, "missense_variant")
+
+    vep = get_allele_annotations(session, [allele])["legacy-digest"].vep
+
+    assert vep is not None
+    assert vep.consequence_source is None
+    assert vep.consequence_terms is None
+    assert vep.matched_transcript is None

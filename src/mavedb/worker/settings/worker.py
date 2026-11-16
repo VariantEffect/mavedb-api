@@ -8,25 +8,22 @@ all worker configuration including:
 - Timeout and logging configuration
 
 ArqWorkerSettings configures the main worker; ArqFastLaneWorkerSettings configures the
-fast-lane worker that runs short jobs independently of the main worker's slots.
+fast-lane worker that runs short jobs independently of the main worker's slots; and
+ArqMappingLaneWorkerSettings configures the mapping-lane worker that makes every call to the mapper.
 """
 
 from mavedb.lib.logging.canonical import log_job
 from mavedb.worker.jobs import BACKGROUND_CRONJOBS, BACKGROUND_FUNCTIONS
-from mavedb.worker.lib.managers.utils import FAST_LANE_JOB_FUNCTIONS, FAST_LANE_QUEUE_NAME
+from mavedb.worker.lib.managers.utils import (
+    FAST_LANE_JOB_FUNCTIONS,
+    FAST_LANE_QUEUE_NAME,
+    MAPPING_LANE_JOB_FUNCTIONS,
+    MAPPING_LANE_QUEUE_NAME,
+)
+from mavedb.worker.settings.constants import MAX_JOBS
 from mavedb.worker.settings.lifecycle import on_job_end, on_job_start, shutdown, startup
 from mavedb.worker.settings.redis import RedisWorkerSettings
 
-# Limit concurrency to prevent event loop starvation from sync psycopg2 DB
-# operations. With the default max_jobs=10, multiple jobs issuing blocking DB
-# calls simultaneously can starve the event loop and cause apparent hangs.
-# 2 jobs still compete, but the practical impact is much less severe.
-#
-# TODO#715 Migrate to psycopg3 async driver to safely increase concurrency.
-# psycopg3 supports both sync (API) and async (worker) modes on the same
-# driver, enabling incremental migration of job functions without touching
-# the FastAPI layer. Once all jobs use async sessions, raise MAX_JOBS to 10+.
-MAX_JOBS = 2
 # ARQ's hard coroutine-kill ceiling. Kept deliberately high (24h) so ARQ is the *last* resort:
 # our own DB-driven sweeper (cleanup_stalled_jobs) should detect and recover stalls long before
 # this fires, keeping the JobRun state machine in sync with reality. VEP fan-out over large allele
@@ -78,5 +75,29 @@ class ArqFastLaneWorkerSettings:
     functions: list = [f for f in BACKGROUND_FUNCTIONS if f.__name__ in FAST_LANE_JOB_FUNCTIONS]
 
     max_jobs = MAX_JOBS
+    job_timeout = JOB_TIMEOUT_SECONDS
+    allow_abort_jobs = True
+
+
+class ArqMappingLaneWorkerSettings:
+    """
+    Settings for the mapping-lane ARQ worker, run as a separate process from the main worker.
+
+    Consumes only MAPPING_LANE_QUEUE_NAME, one job at a time, because the mapper aligns one score set at a
+    time. The main worker still registers these functions to drain any already on the default queue. ARQ
+    reads settings from the class ``__dict__``, so attributes are not inherited from ArqWorkerSettings. No
+    cron jobs: those run on the main worker.
+    """
+
+    on_startup = startup
+    on_shutdown = shutdown
+    on_job_start = on_job_start
+    on_job_end = on_job_end
+    after_job_end = log_job
+    redis_settings = RedisWorkerSettings
+    queue_name = MAPPING_LANE_QUEUE_NAME
+    functions: list = [f for f in BACKGROUND_FUNCTIONS if f.__name__ in MAPPING_LANE_JOB_FUNCTIONS]
+
+    max_jobs = 1
     job_timeout = JOB_TIMEOUT_SECONDS
     allow_abort_jobs = True

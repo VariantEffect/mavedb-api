@@ -12,9 +12,9 @@ biocommons = pytest.importorskip("biocommons")
 bioutils = pytest.importorskip("bioutils")
 pytest.importorskip("ga4gh.vrs")
 
-from mavedb.lib.seqrepo import SequenceNotFoundError
 from sqlalchemy import select
 
+from mavedb.lib.seqrepo import SequenceNotFoundError
 from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.variant import Variant

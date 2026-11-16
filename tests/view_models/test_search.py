@@ -1,5 +1,4 @@
 from mavedb.view_models.search import ExperimentsSearch, ScoreSetsSearch, TextSearch
-
 from tests.helpers.constants import (
     TEST_POPULATED_EXPERIMENT_SEARCH,
     TEST_POPULATED_SCORE_SET_SEARCH,

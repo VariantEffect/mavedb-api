@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from mavedb.lib.logging.context import save_to_logging_context
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.models import PermissionResponse
 from mavedb.lib.permissions.score_set import has_permission as score_set_has_permission
@@ -48,16 +47,9 @@ def has_permission(user_data: Optional[UserData], entity: ScoreCalibration, acti
         )
         active_roles = user_data.active_roles
 
-    save_to_logging_context(
-        {
-            "user_is_owner": user_is_owner,
-            "user_is_contributor_to_score_set": user_is_contributor_to_score_set,
-            "score_calibration_id": entity.id,
-        }
-    )
-
     handlers = {
         Action.READ: _handle_read_action,
+        Action.SUPERSEDE: _handle_supersede_action,
         Action.UPDATE: _handle_update_action,
         Action.DELETE: _handle_delete_action,
         Action.PUBLISH: _handle_publish_action,
@@ -79,6 +71,28 @@ def has_permission(user_data: Optional[UserData], entity: ScoreCalibration, acti
         entity.private,
         active_roles,
     )
+
+
+def _handle_supersede_action(
+    user_data: Optional[UserData],
+    entity: ScoreCalibration,
+    user_is_owner: bool,
+    user_is_contributor_to_score_set: bool,
+    private: bool,
+    active_roles: list[UserRole],
+) -> PermissionResponse:
+    readable = _handle_read_action(
+        user_data, entity, user_is_owner, user_is_contributor_to_score_set, private, active_roles
+    )
+    if not readable.permitted:
+        return readable
+    if not private and (
+        user_is_owner
+        or (entity.investigator_provided and user_is_contributor_to_score_set)
+        or roles_permitted(active_roles, [UserRole.admin])
+    ):
+        return PermissionResponse(True)
+    return deny_action_for_entity(entity, private, user_data, user_is_owner, "score calibration")
 
 
 @dataclass(frozen=True)
@@ -106,7 +120,7 @@ def _handle_read_action(
     """
     Handle READ action permission check for ScoreCalibration entities.
 
-    TODO(#876) - Separates the readability concern by adding the notion of a separate
+    TODO(#876): Separates the readability concern by adding the notion of a separate
     calibration method. For now, A ScoreCalibration is never readable by a user who
     cannot read its ScoreSet, because the calibration variant routes return the score
     set's variants and scores. Among users who can read the ScoreSet, published
@@ -175,7 +189,7 @@ def _handle_update_action(
     # System admins may update any ScoreCalibration.
     if roles_permitted(active_roles, [UserRole.admin]):
         return PermissionResponse(True)
-    # TODO#549: Allow editing of certain fields if the calibration is published.
+    # TODO(#549): Allow editing of certain fields if the calibration is published.
     #           For now, published calibrations cannot be updated.
     if entity.private:
         # Owners may update their own ScoreCalibration if it is not published.

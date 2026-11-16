@@ -1,13 +1,9 @@
-# ruff: noqa: E402
-
 """Tests for User permissions module."""
-
-import pytest
-
-pytest.importorskip("fastapi", reason="Skipping permissions tests; FastAPI is required but not installed.")
 
 from typing import Callable, List
 from unittest import mock
+
+import pytest
 
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.user import (
@@ -36,6 +32,7 @@ USER_UNSUPPORTED_ACTIONS: List[Action] = [
     Action.SET_SCORES,
     Action.PUBLISH,
     Action.ADD_CALIBRATION,
+    Action.SUPERSEDE,
 ]
 
 

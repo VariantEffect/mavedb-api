@@ -120,7 +120,7 @@ def get_id_from_post_mapped(post_mapped_vrs: Optional[Any]) -> Optional[str]:
     return post_mapped_vrs.get("id")  # type: ignore
 
 
-# TODO (https://github.com/VariantEffect/mavedb-api/issues/440) Temporarily, we are using these functions to distinguish
+# TODO(#440): Temporarily, we are using these functions to distinguish
 # genomic and protein HGVS strings produced by the mapper. Using hgvs.parser.Parser is too slow, and we won't need to do
 # this once the mapper extracts separate g., c., and p. post-mapped HGVS strings.
 def is_hgvs_g(hgvs: str) -> bool:

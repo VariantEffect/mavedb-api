@@ -1,8 +1,8 @@
 from unittest import TestCase
 from unittest.mock import Mock
+
 import pandas as pd
 
-from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.constants.general import (
     hgvs_nt_column,
     hgvs_pro_column,
@@ -11,14 +11,14 @@ from mavedb.lib.validation.constants.general import (
 )
 from mavedb.lib.validation.dataframe.column import (
     construct_target_sequence_mappings,
-    infer_column_type,
     generate_variant_prefixes,
+    infer_column_type,
     validate_data_column,
     validate_hgvs_column_properties,
-    validate_variant_formatting,
     validate_variant_column,
+    validate_variant_formatting,
 )
-
+from mavedb.lib.validation.exceptions import ValidationError
 from tests.validation.dataframe.conftest import DfTestCase
 
 

@@ -26,11 +26,11 @@ from mavedb.lib.csv.entries import (
     AvailableCsvNamespaceEntry,
     calibration_can_annotate,
     calibration_namespace_entries,
+    calibration_viewer,
     clinvar_namespace_entries,
     clinvar_release_namespaces,
     score_sets_have_current_mappings,
     static_namespace_entry,
-    calibration_viewer,
 )
 from mavedb.lib.csv.fetch import fetch_variant_csv_data
 from mavedb.lib.csv.namespaces import (
@@ -39,8 +39,8 @@ from mavedb.lib.csv.namespaces import (
     clinvar_namespace_sort_key,
 )
 from mavedb.lib.mave.utils import NA_VALUE
-from mavedb.lib.urns import score_set_urn_sort_key, variant_urn_sort_key
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
+from mavedb.lib.urns import score_set_urn_sort_key, variant_urn_sort_key
 from mavedb.models.allele import Allele
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
@@ -81,9 +81,8 @@ per score set, so their columns would be mostly NA.
 EXACT_MATCH_TYPE = "exact"
 """Measurements sharing the requested variant's ClinGen allele ID — currently the only relationship emitted.
 
-TODO(#784): widen ``_equivalent_measurements`` to nucleotide/amino-acid equivalence once #791 lands
-``equivalent_nt``/``equivalent_aa``; ``relationship.match_type`` then takes more than this one value.
-See https://github.com/VariantEffect/mavedb-api/issues/784
+TODO(#989): widen ``_equivalent_measurements`` to nucleotide/amino-acid equivalence;
+``relationship.match_type`` then takes more than this one value.
 """
 
 
@@ -209,7 +208,7 @@ def _annotatable_calibration_namespaces(
 
     A measurement is only interpretable under its own score set's calibrations, so widening across score
     sets widens this set too; a row shows NA under any calibration that does not apply to it.
-    Research-use-only calibrations are included here but excluded from the default selection.
+    Research-use-only and superseded calibrations are included here but excluded from the default selection.
     """
     # Keyed on score sets rather than joined through their variants: `ScoreSet.variants` multiplies the
     # join by every variant before DISTINCT collapses it again, for the same result.
@@ -223,6 +222,7 @@ def _annotatable_calibration_namespaces(
             # Each entry reports the score set it belongs to, so a picker can tell one score set's
             # calibrations from another's when the export widens across several.
             selectinload(ScoreCalibration.score_set),
+            selectinload(ScoreCalibration.superseding_calibration),  # read by the superseded flag
         )
     ).all()
 

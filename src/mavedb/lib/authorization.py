@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 ####################################################################################################
 
 
-async def require_current_user(
+def require_current_user(
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> UserData:
     if user_data is None:
@@ -27,7 +27,7 @@ async def require_current_user(
     return user_data
 
 
-async def get_principal(
+def get_principal(
     user_data: Optional[UserData] = Depends(get_current_user),
 ) -> Principal:
     """The principal for this request, for handlers that fan out to permission-checked sibling entities.
@@ -38,7 +38,7 @@ async def get_principal(
     return Principal(user_data)
 
 
-async def require_current_user_with_email(
+def require_current_user_with_email(
     user_data: UserData = Depends(require_current_user),
 ) -> UserData:
     # Both empty strings and NoneType values should raise an exception.
@@ -67,7 +67,7 @@ class RoleRequirer:
         return user_data
 
 
-async def require_role(roles: list[UserRole], user_data: UserData = Depends(require_current_user)) -> UserData:
+def require_role(roles: list[UserRole], user_data: UserData = Depends(require_current_user)) -> UserData:
     save_to_logging_context({"required_roles": [role.name for role in roles]})
     if not any(role.name in roles for role in user_data.active_roles):
         logger.info(

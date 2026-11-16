@@ -46,7 +46,7 @@ class TestKeywordValidators(TestCase):
         code = "GO:1234567"
         validate_code(key, label, code)
 
-    # TODO(#511) Re-enable the Gene Ontology code requirement.
+    # TODO(#511): Re-enable the Gene Ontology code requirement.
     # def test_Gene_Ontology_invalid_accession(self):
     #     key = "Phenotypic Assay Mechanism"
     #     label = "label"

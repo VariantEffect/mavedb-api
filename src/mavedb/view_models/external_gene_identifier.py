@@ -1,7 +1,7 @@
 from typing import Optional
-from typing_extensions import Self
 
 from pydantic import field_validator, model_validator
+from typing_extensions import Self
 
 from mavedb.lib.validation import identifier as identifier_validator
 from mavedb.view_models import record_type_validator, set_record_type
@@ -28,9 +28,7 @@ class ExternalGeneIdentifierCreate(ExternalGeneIdentifierBase):
 # Properties shared by models stored in DB
 class SavedExternalGeneIdentifier(ExternalGeneIdentifierBase):
     record_type: str = None  # type: ignore
-    db_version: Optional[str] = None
     url: Optional[str] = None
-    reference_html: Optional[str] = None
 
     _record_type_factory = record_type_validator()(set_record_type)
 

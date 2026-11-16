@@ -1,0 +1,3 @@
+"""
+Mixins shared by models.
+"""

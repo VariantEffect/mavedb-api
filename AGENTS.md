@@ -32,7 +32,7 @@ The MaveDB API is a FastAPI app plus an ARQ/Redis worker over PostgreSQL. The we
 
 - Private records return 404, never 403, so a response doesn't reveal that they exist.
 - A route's permission check covers only the entity it names. Anything a read fans out to needs its own check through a `Viewer` (see `.claude/rules/permissions.md`).
-- Never write an `async def` that has no real await (#881).
+- Write `def` by default. Use `async def` only where the code can't work without an await, keep database work out of it, and say why in a comment; `tests/routers/test_async_routes.py` enforces the database part (#881, #950).
 - Changes reachable from a route or a serving `lib/` module need tests, and so do scripts that emit a recurring public artifact such as the data dump. One-shot operator scripts don't.
 - Never add `slow` or `network` markers to get green; those markers drop a test from PR CI.
 - Run operator scripts with `--commit` only against a local database unless asked. Never commit to production or staging databases without explicit permission.

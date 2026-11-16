@@ -1,9 +1,8 @@
 from datetime import date
 
 from mavedb.view_models.license import License
-
-from tests.helpers.util.common import dummy_attributed_object_from_dict
 from tests.helpers.constants import TEST_LICENSE
+from tests.helpers.util.common import dummy_attributed_object_from_dict
 
 
 def test_minimal_license():

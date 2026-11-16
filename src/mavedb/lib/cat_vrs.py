@@ -23,7 +23,7 @@ from ga4gh.vrs.models import CisPhasedBlock
 
 from mavedb.lib.allele_annotations import AlleleCrossReferences
 from mavedb.lib.allele_identity import AlleleDerivation
-from mavedb.lib.clingen.allele_registry import clingen_allele_url
+from mavedb.lib.clingen.urls import clingen_allele_url
 from mavedb.lib.clinvar.utils import clinvar_variation_url
 from mavedb.lib.gnomad import gnomad_variant_url
 from mavedb.lib.logging.context import logging_context

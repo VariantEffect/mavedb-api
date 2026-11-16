@@ -28,6 +28,12 @@ Now that ClinVar versions are fetched sequentially (not concurrently), aggressiv
 backoff for throttling is unnecessary — a modest retry with short backoff suffices.
 """
 
+NCBI_HTTP_TIMEOUT = (10, 120)
+"""(connect, read) timeout for ClinVar TSV downloads. On a streamed response the read timeout bounds the gap between
+chunks, not the whole download, so large files still finish. Without it a stalled NCBI connection holds a worker slot
+and the version's file lock indefinitely; cancelling the job does not stop the executor thread waiting on the socket.
+"""
+
 CLINVAR_FIELDS_TO_KEEP = ("GeneSymbol", "ClinicalSignificance", "ReviewStatus", "VariationID")
 """Only these fields are extracted from each ClinVar TSV row and cached. The full TSV has ~30 columns; trimming to only what we need shrinks the cached pickle from hundreds of MB to tens of MB and speeds up load times.
 

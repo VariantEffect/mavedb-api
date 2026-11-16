@@ -127,19 +127,18 @@ from typing import Optional, cast
 
 import sqlalchemy as sa
 from biocommons.seqrepo import SeqRepo
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, configure_mappers
 
-from mavedb.models import *  # noqa: F401,F403  pylint: disable=wildcard-import  — register all mappers for configure_mappers()
+from mavedb.data_providers.services import seqrepo
 from mavedb.db.session import SessionLocal
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
-from pydantic import ValidationError
-
-from mavedb.data_providers.services import seqrepo
 from mavedb.lib.hgvs import extract_accession
 from mavedb.lib.seqrepo import AmbiguousSequenceError, SequenceNotFoundError, resolve_refget
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.lib.vrs_utils import CANONICAL_ACCESSION_PREFIXES, canonical_variation_document, location_refgets
+from mavedb.models import *  # noqa: F401,F403  pylint: disable=wildcard-import  — register all mappers for configure_mappers()
 from mavedb.models.allele import Allele
 from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink

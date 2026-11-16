@@ -141,7 +141,7 @@ def variant_pathogenicity_statement(
     # The statement carries one proposition (targeted by every evidence line), so its disease context
     # is the strongest calibration's — the same calibration that anchors the ACMG classification.
     #
-    # TODO#XXX - Pooling calibrations with different disease contexts is not supported by the current VA-Spec model. If a
+    # TODO(#982): Pooling calibrations with different disease contexts is not supported by the current VA-Spec model. If a
     # variant has multiple calibrations with different disease contexts, the strongest calibration is used for the
     # statement's disease context and we should consider whether to filter out calibrations with different disease contexts
     # from the evidence lines.

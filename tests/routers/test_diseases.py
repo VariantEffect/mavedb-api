@@ -13,7 +13,7 @@ from mavedb.lib.exceptions import MondoServiceError
 
 @pytest.fixture
 def mock_mondo_search(monkeypatch):
-    async def fake_search(query, limit=20):
+    def fake_search(query, limit=20):
         return [
             {
                 "code": "MONDO:0015263",
@@ -41,7 +41,7 @@ def test_search_diseases_requires_a_query(client):
 
 
 def test_search_diseases_surfaces_ontology_outage(client, monkeypatch):
-    async def failing_search(query, limit=20):
+    def failing_search(query, limit=20):
         raise MondoServiceError("Disease ontology service temporarily unavailable")
 
     monkeypatch.setattr("mavedb.routers.diseases.search_mondo", failing_search)

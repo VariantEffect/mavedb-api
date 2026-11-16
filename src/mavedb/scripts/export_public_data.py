@@ -29,11 +29,11 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload, lazyload
 
+from mavedb.lib.allele_annotations import get_allele_cross_references
+from mavedb.lib.alleles import get_live_record_allele_links, with_chunk_inputs
 from mavedb.lib.annotation.annotate import variant_highest_level_annotation
 from mavedb.lib.annotation.conformance import serialize_annotation
 from mavedb.lib.annotation.context import load_annotation_context_inputs
-from mavedb.lib.allele_annotations import get_allele_cross_references
-from mavedb.lib.alleles import get_live_record_allele_links, with_chunk_inputs
 from mavedb.lib.cat_vrs import build_categorical_variant
 from mavedb.lib.csv.entries import score_sets_have_current_mappings
 from mavedb.lib.csv.namespaces import CsvNamespace

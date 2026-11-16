@@ -11,12 +11,12 @@ from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
 from mavedb import deps
 from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import require_current_user, require_current_user_with_email
-from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import (
-    format_raised_exception_info_as_dict,
     logging_context,
+    record_exception,
     save_to_logging_context,
 )
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.types.authentication import UserData
 from mavedb.models.collection import Collection
@@ -172,7 +172,7 @@ def fetch_collection(
     response_model_exclude_none=True,
     summary="Create a collection",
 )
-async def create_collection(
+def create_collection(
     *,
     item_create: collection.CollectionCreate,
     db: Session = Depends(deps.get_db),
@@ -222,7 +222,7 @@ async def create_collection(
                 user_orcid_ids.add(viewer_orcid)
 
     except NoResultFound as e:
-        save_to_logging_context(format_raised_exception_info_as_dict(e))
+        record_exception(e)
         logger.error(
             msg="No existing user found with the given ORCID iD",
             extra=logging_context(),
@@ -230,7 +230,7 @@ async def create_collection(
         raise HTTPException(status_code=404, detail="No MaveDB user found with the given ORCID iD")
 
     except MultipleResultsFound as e:
-        save_to_logging_context(format_raised_exception_info_as_dict(e))
+        record_exception(e)
         logger.error(msg="Multiple users found with the given ORCID iD", extra=logging_context())
         raise HTTPException(
             status_code=500,
@@ -254,12 +254,12 @@ async def create_collection(
             experiment_associations.append(CollectionExperimentAssociation(experiment=experiment, position=position))
 
     except NoResultFound as e:
-        save_to_logging_context(format_raised_exception_info_as_dict(e))
+        record_exception(e)
         logger.error(msg="No resource found with the given URN", extra=logging_context())
         raise HTTPException(status_code=404, detail="No resource found with the given URN")
 
     except MultipleResultsFound as e:
-        save_to_logging_context(format_raised_exception_info_as_dict(e))
+        record_exception(e)
         logger.error(msg="Multiple resources found with the given URN", extra=logging_context())
         raise HTTPException(status_code=500, detail="Multiple resources found with the given URN")
 
@@ -298,7 +298,7 @@ async def create_collection(
     response_model_exclude_none=True,
     summary="Update a collection",
 )
-async def update_collection(
+def update_collection(
     *,
     item_update: collection.CollectionModify,
     urn: str,
@@ -443,7 +443,7 @@ async def update_collection(
     },
     summary="Add a score set to a collection",
 )
-async def add_score_set_to_collection(
+def add_score_set_to_collection(
     *,
     body: collection.AddScoreSetToCollectionRequest,
     collection_urn: str,
@@ -459,7 +459,7 @@ async def add_score_set_to_collection(
     save_to_logging_context({"requested_resource": collection_urn})
 
     item = db.execute(select(Collection).where(Collection.urn == collection_urn)).scalars().one_or_none()
-    if not item:
+    if not item or not has_permission(user_data, item, Action.READ).permitted:
         logger.info(
             msg="Failed to add score set to collection; The requested collection does not exist.",
             extra=logging_context(),
@@ -517,7 +517,7 @@ async def add_score_set_to_collection(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE},
     summary="Remove a score set from a collection",
 )
-async def delete_score_set_from_collection(
+def delete_score_set_from_collection(
     *,
     collection_urn: str,
     score_set_urn: str,
@@ -531,7 +531,7 @@ async def delete_score_set_from_collection(
     save_to_logging_context({"requested_resource": collection_urn})
 
     item = db.execute(select(Collection).where(Collection.urn == collection_urn)).scalars().one_or_none()
-    if not item:
+    if not item or not has_permission(user_data, item, Action.READ).permitted:
         logger.info(
             msg="Failed to remove score set from collection; The requested collection does not exist.",
             extra=logging_context(),
@@ -539,12 +539,15 @@ async def delete_score_set_from_collection(
         raise HTTPException(status_code=404, detail=f"collection with URN '{collection_urn}' not found")
 
     score_set = db.execute(select(ScoreSet).where(ScoreSet.urn == score_set_urn)).scalars().one_or_none()
-    if not score_set:
+    if not score_set or not has_permission(user_data, score_set, Action.READ).permitted:
         logger.info(
             msg="Failed to remove score set from collection; The requested score set does not exist.",
             extra=logging_context(),
         )
         raise HTTPException(status_code=404, detail=f"score set with URN '{score_set_urn}' not found")
+
+    # add and remove permissions are the same
+    assert_permission(user_data, item, Action.ADD_SCORE_SET)
 
     # Find and verify the association exists
     assoc_to_remove = next((a for a in item.score_set_associations if a.score_set.urn == score_set_urn), None)
@@ -557,9 +560,6 @@ async def delete_score_set_from_collection(
             status_code=409,
             detail=f"association between score set '{score_set_urn}' and collection '{collection_urn}' not found",
         )
-
-    # add and remove permissions are the same
-    assert_permission(user_data, item, Action.ADD_SCORE_SET)
 
     # Remove the association
     item.score_set_associations.remove(assoc_to_remove)
@@ -602,7 +602,7 @@ async def delete_score_set_from_collection(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Add an experiment to a collection",
 )
-async def add_experiment_to_collection(
+def add_experiment_to_collection(
     *,
     body: collection.AddExperimentToCollectionRequest,
     collection_urn: str,
@@ -618,7 +618,7 @@ async def add_experiment_to_collection(
     save_to_logging_context({"requested_resource": collection_urn})
 
     item = db.execute(select(Collection).where(Collection.urn == collection_urn)).scalars().one_or_none()
-    if not item:
+    if not item or not has_permission(user_data, item, Action.READ).permitted:
         logger.info(
             msg="Failed to add experiment to collection; The requested collection does not exist.",
             extra=logging_context(),
@@ -672,7 +672,7 @@ async def add_experiment_to_collection(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE},
     summary="Remove an experiment from a collection",
 )
-async def delete_experiment_from_collection(
+def delete_experiment_from_collection(
     *,
     collection_urn: str,
     experiment_urn: str,
@@ -686,7 +686,7 @@ async def delete_experiment_from_collection(
     save_to_logging_context({"requested_resource": collection_urn})
 
     item = db.execute(select(Collection).where(Collection.urn == collection_urn)).scalars().one_or_none()
-    if not item:
+    if not item or not has_permission(user_data, item, Action.READ).permitted:
         logger.info(
             msg="Failed to remove experiment from collection; The requested collection does not exist.",
             extra=logging_context(),
@@ -694,12 +694,15 @@ async def delete_experiment_from_collection(
         raise HTTPException(status_code=404, detail=f"collection with URN '{collection_urn}' not found")
 
     experiment = db.execute(select(Experiment).where(Experiment.urn == experiment_urn)).scalars().one_or_none()
-    if not experiment:
+    if not experiment or not has_permission(user_data, experiment, Action.READ).permitted:
         logger.info(
             msg="Failed to remove experiment from collection; The requested experiment does not exist.",
             extra=logging_context(),
         )
         raise HTTPException(status_code=404, detail=f"experiment with URN '{experiment_urn}' not found")
+
+    # add and remove permissions are the same
+    assert_permission(user_data, item, Action.ADD_EXPERIMENT)
 
     # Find and verify the association exists
     assoc_to_remove = next((a for a in item.experiment_associations if a.experiment.urn == experiment_urn), None)
@@ -712,9 +715,6 @@ async def delete_experiment_from_collection(
             status_code=409,
             detail=f"association between experiment '{experiment_urn}' and collection '{collection_urn}' not found",
         )
-
-    # add and remove permissions are the same
-    assert_permission(user_data, item, Action.ADD_EXPERIMENT)
 
     # Remove the association
     item.experiment_associations.remove(assoc_to_remove)
@@ -753,7 +753,7 @@ async def delete_experiment_from_collection(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE},
     summary="Add a user to a collection role",
 )
-async def add_user_to_collection_role(
+def add_user_to_collection_role(
     *,
     body: collection.AddUserToCollectionRoleRequest,
     urn: str,
@@ -847,7 +847,7 @@ async def add_user_to_collection_role(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES, **BASE_409_RESPONSE},
     summary="Remove a user from a collection role",
 )
-async def remove_user_from_collection_role(
+def remove_user_from_collection_role(
     *,
     urn: str,
     role: ContributionRole,
@@ -938,7 +938,7 @@ async def remove_user_from_collection_role(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Delete a collection",
 )
-async def delete_collection(
+def delete_collection(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),

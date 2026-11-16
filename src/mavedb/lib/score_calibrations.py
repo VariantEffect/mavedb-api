@@ -7,12 +7,14 @@ from datetime import date
 from typing import Optional, Sequence, Union, cast
 
 import pandas as pd
-from sqlalchemy import Float, and_, select
+from sqlalchemy import Float, and_, func, select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.acmg import find_or_create_acmg_classification
-from mavedb.lib.identifiers import find_or_create_publication_identifier
+from mavedb.lib.exceptions import CalibrationAlreadyReplacedError
 from mavedb.lib.mondo_ols import resolve_disease_term
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
+from mavedb.lib.publications import ensure_publication_keys
 from mavedb.lib.types.score_calibrations import (
     CalibrationControlSnapshot,
     CalibrationVariantLinkSnapshot,
@@ -29,9 +31,10 @@ from mavedb.lib.validation.constants.general import (
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.utilities import inf_or_float
 from mavedb.lib.variants import score_from_variant_data
-from mavedb.models.enums.functional_classification import FunctionalClassification
 from mavedb.models.calibration_control import CalibrationControl
+from mavedb.models.enums.functional_classification import FunctionalClassification
 from mavedb.models.enums.score_calibration_relation import ScoreCalibrationRelation
+from mavedb.models.mixins.publication_citation import PublicationKey
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_calibration_functional_classification_variant_association import (
@@ -186,17 +189,32 @@ def build_calibration_controls(
     ]
 
 
-def calibration_preference_key(calibration: ScoreCalibration) -> tuple[int, int, int]:
+def visible_superseding_calibration_urn(calibration: ScoreCalibration, viewer: ScoreCalibrationViewer) -> Optional[str]:
+    """The URN of the calibration's replacement as ``viewer`` may see it: a published replacement for anyone, a
+    draft only for a viewer who may read it, and otherwise ``None``.
+
+    The model's ``superseding_calibration_urn`` names only a published replacement, so serializations that don't
+    check READ (such as the data dump) never reveal a draft. Routes that serve a caller use this instead.
+    """
+    replacement = calibration.superseding_calibration
+    if replacement is None or (replacement.private and not viewer.may_read(replacement)):
+        return None
+    return replacement.urn
+
+
+def calibration_preference_key(calibration: ScoreCalibration) -> tuple[int, int, int, int]:
     """The UI's default-calibration preference cascade as a sort key (lower sorts first = more preferred):
-    ``primary``, then ``investigator_provided``, then non-``research_use_only``. Mirrors the UI's
-    ``activeCalibrationOptions`` default selection, so the API and UI agree on which calibration is "the
-    default" for a score set.
+    current versions before those with a published replacement, then ``primary``, then
+    ``investigator_provided``, then non-``research_use_only``. Mirrors the UI's ``activeCalibrationOptions``
+    default selection, which never picks a superseded version, so the API and UI agree on which calibration
+    is "the default" for a score set.
 
     Intentionally stops at the cascade tiers and carries **no** evidence strength (a variant-specific
     concern) and **no** id — callers append their own deterministic tiebreak (calibration id or urn), and, where
     a within-tier strongest-evidence tiebreak is wanted, :func:`classification_evidence_strength`.
     """
     return (
+        1 if calibration.has_published_replacement else 0,
         0 if calibration.primary else 1,
         0 if calibration.investigator_provided else 1,
         0 if not calibration.research_use_only else 1,
@@ -326,7 +344,24 @@ def create_functional_classification(
     return functional_classification
 
 
-async def _create_score_calibration(
+def _cited_publication_keys(
+    db: Session, calibration_sources: score_calibration.ScoreCalibrationModify
+) -> list[tuple[ScoreCalibrationRelation, PublicationKey]]:
+    """The publications a calibration cites, by relation, storing any that MaveDB doesn't hold.
+
+    Each ``(relation, key)`` pair appears once, which ``modify_score_calibration`` relies on to match each pair to
+    at most one existing citation.
+    """
+    relation_sources = (
+        (ScoreCalibrationRelation.threshold, calibration_sources.threshold_sources or []),
+        (ScoreCalibrationRelation.evidence, calibration_sources.evidence_sources or []),
+        (ScoreCalibrationRelation.method, calibration_sources.method_sources or []),
+    )
+    keys = ensure_publication_keys(db, *(sources for _, sources in relation_sources))
+    return [(relation, key) for (relation, _), relation_keys in zip(relation_sources, keys) for key in relation_keys]
+
+
+def _create_score_calibration(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
     user: User,
@@ -340,7 +375,7 @@ async def _create_score_calibration(
     For each publication source listed in the incoming ScoreCalibrationCreate model
     (threshold_sources, evidence_sources, method_sources), this function
     ensures a corresponding PublicationIdentifier row exists (via
-    find_or_create_publication_identifier) and creates a
+    ensure_publication_keys) and creates a
     ScoreCalibrationPublicationIdentifierAssociation that links the identifier to
     the new calibration under the appropriate relation type
     (ScoreCalibrationRelation.threshold / .evidence / .method).
@@ -377,36 +412,23 @@ async def _create_score_calibration(
     Side Effects
     ------------
     May read from or write to the database when resolving publication identifiers
-    (via find_or_create_publication_identifier). Does not flush, add, or commit the
+    (via ensure_publication_keys). Does not flush, add, or commit the
     returned calibration instance.
 
     Notes
     -----
     - Duplicate identifiers across different source lists result in distinct
-      association objects (no deduplication is performed here).
-    - The function is async because it awaits the underlying publication
-      identifier retrieval/creation calls.
+      association objects; a duplicate within one list is cited once.
+    - Resolving a new publication identifier calls the external publication
+      databases synchronously, so callers on a request path must run in the
+      thread pool.
     """
-    relation_sources = (
-        (ScoreCalibrationRelation.threshold, calibration_create.threshold_sources or []),
-        (ScoreCalibrationRelation.evidence, calibration_create.evidence_sources or []),
-        (ScoreCalibrationRelation.method, calibration_create.method_sources or []),
-    )
-
-    calibration_pub_assocs = []
-    for relation, sources in relation_sources:
-        for identifier in sources:
-            pub = await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-            calibration_pub_assocs.append(
-                ScoreCalibrationPublicationIdentifierAssociation(
-                    publication=pub,
-                    relation=relation,
-                )
-            )
-
-            # Ensure newly created publications are persisted for future loops to avoid duplicates.
-            db.add(pub)
-            db.flush()
+    calibration_pub_assocs = [
+        ScoreCalibrationPublicationIdentifierAssociation(
+            db_name=key.db_name, identifier=key.identifier, relation=relation
+        )
+        for relation, key in _cited_publication_keys(db, calibration_create)
+    ]
 
     calibration = ScoreCalibration(
         **calibration_create.model_dump(
@@ -419,6 +441,7 @@ async def _create_score_calibration(
                 "evidence_sources",
                 "method_sources",
                 "score_set_urn",
+                "superseded_calibration_urn",
             },
         ),
         publication_identifier_associations=calibration_pub_assocs,
@@ -427,7 +450,7 @@ async def _create_score_calibration(
         modified_by=user,
     )  # type: ignore[call-arg]
 
-    calibration.disease_term = await resolve_disease_term(db, getattr(calibration_create, "disease", None))
+    calibration.disease_term = resolve_disease_term(db, getattr(calibration_create, "disease", None))
 
     if containing_score_set:
         calibration.score_set = containing_score_set
@@ -443,7 +466,7 @@ async def _create_score_calibration(
     return calibration
 
 
-async def create_score_calibration_in_score_set(
+def create_score_calibration_in_score_set(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
     user: User,
@@ -452,7 +475,7 @@ async def create_score_calibration_in_score_set(
     """
     Create a new score calibration and associate it with an existing score set.
 
-    This coroutine ensures that the provided ScoreCalibrationCreate payload includes a
+    This function ensures that the provided ScoreCalibrationCreate payload includes a
     score_set_urn, loads the corresponding ScoreSet from the database, delegates creation
     of the ScoreCalibration to an internal helper, and then links the created calibration
     to the fetched score set.
@@ -472,13 +495,18 @@ async def create_score_calibration_in_score_set(
 
     Raises:
         ValueError: If calibration_create.score_set_urn is missing or falsy.
+        ValidationError: If calibration_create.superseded_calibration_urn names a calibration that
+            isn't published or isn't in the same score set.
+        CalibrationAlreadyReplacedError: If the calibration it would replace already has a
+            replacement, draft or published. Two concurrent requests can both pass this check; the
+            unique index on ``replaces_id`` refuses the second when it's flushed, with an
+            ``IntegrityError`` the caller must handle.
         sqlalchemy.orm.exc.NoResultFound: If no ScoreSet exists with the provided URN.
         sqlalchemy.orm.exc.MultipleResultsFound: If multiple ScoreSets share the provided URN
             (should not occur if URNs are unique).
+        PublicationServiceError: If a publication database fails while resolving a cited source.
 
     Notes:
-        - This function is async because it awaits the internal _create_score_calibration
-          helper, which may perform asynchronous operations (e.g., I/O or async ORM tasks).
         - The passed Session is expected to be valid for the lifetime of this call; committing
           or flushing is assumed to be handled externally (depending on the surrounding
           transaction management strategy).
@@ -490,7 +518,17 @@ async def create_score_calibration_in_score_set(
     require_phi_affirmation(bool(submitted_controls), getattr(calibration_create, "controls_not_phi", None))
 
     containing_score_set = db.query(ScoreSet).where(ScoreSet.urn == calibration_create.score_set_urn).one()
-    calibration = await _create_score_calibration(db, calibration_create, user, variant_classes, containing_score_set)
+    predecessor = None
+    predecessor_urn = getattr(calibration_create, "superseded_calibration_urn", None)
+    if predecessor_urn:
+        predecessor = db.scalar(select(ScoreCalibration).where(ScoreCalibration.urn == predecessor_urn))
+        if predecessor is None or predecessor.private or predecessor.score_set_id != containing_score_set.id:
+            raise ValidationError("The superseded calibration must be published and belong to the same score set.")
+        if predecessor.superseding_calibration is not None:
+            raise CalibrationAlreadyReplacedError(predecessor.superseding_calibration)
+
+    calibration = _create_score_calibration(db, calibration_create, user, variant_classes, containing_score_set)
+    calibration.superseded_calibration = predecessor
 
     if user.username in [contributor.orcid_id for contributor in containing_score_set.contributors] + [
         containing_score_set.created_by.username,
@@ -506,14 +544,14 @@ async def create_score_calibration_in_score_set(
     return calibration
 
 
-async def create_score_calibration(
+def create_score_calibration(
     db: Session,
     calibration_create: score_calibration.ScoreCalibrationCreate,
     user: User,
     variant_classes: Optional[ClassificationDict] = None,
 ) -> ScoreCalibration:
     """
-    Asynchronously create and persist a new ScoreCalibration record.
+    Create and persist a new ScoreCalibration record.
 
     This is a thin wrapper that delegates to the internal _create_score_calibration
     implementation, allowing for separation of public API and internal logic.
@@ -547,12 +585,13 @@ async def create_score_calibration(
         If the supplied input schema fails validation (depending on schema logic).
     ValueError
         If calibration_create.score_set_urn is provided (must be None/absent here).
+    PublicationServiceError
+        If a publication database fails while resolving a cited source.
 
     Notes
     -----
-    - Because this function is asynchronous, callers must await it. Any transaction
-      management (commit / rollback) is expected to be handled by the session lifecycle
-      manager in the calling context.
+    - Any transaction management (commit / rollback) is expected to be handled by the
+      session lifecycle manager in the calling context.
     - Because the calibration database model enforces that a calibration must belong
       to a ScoreSet, callers should perform this association themselves after creation
       (e.g., by assigning the calibration's score_set attribute to an existing ScoreSet
@@ -561,7 +600,10 @@ async def create_score_calibration(
     if calibration_create.score_set_urn:
         raise ValueError("score_set_urn must not be provided to create a score calibration outside a score set.")
 
-    created_calibration = await _create_score_calibration(
+    if getattr(calibration_create, "superseded_calibration_urn", None):
+        raise ValidationError("A replacement calibration must be created within its predecessor's score set.")
+
+    created_calibration = _create_score_calibration(
         db, calibration_create, user, variant_classes, containing_score_set=None
     )
 
@@ -569,7 +611,7 @@ async def create_score_calibration(
     return created_calibration
 
 
-async def modify_score_calibration(
+def modify_score_calibration(
     db: Session,
     calibration: ScoreCalibration,
     calibration_update: score_calibration.ScoreCalibrationModify,
@@ -577,7 +619,7 @@ async def modify_score_calibration(
     variant_classes: Optional[ClassificationDict] = None,
 ) -> ScoreCalibration:
     """
-    Asynchronously modify an existing ScoreCalibration record and its related publication
+    Modify an existing ScoreCalibration record and its related publication
     identifier associations.
 
     This function:
@@ -588,7 +630,7 @@ async def modify_score_calibration(
         - evidence_sources -> ScoreCalibrationRelation.evidence
         - method_sources -> ScoreCalibrationRelation.method
         For each provided source identifier:
-          * Calls find_or_create_publication_identifier to obtain (or persist) the identifier row.
+          * Calls ensure_publication_keys to store the publication if needed and obtain its key.
           * Preserves an existing association if already present.
           * Creates a new association if missing.
         Any previously existing associations not referenced in the update are deleted from the session.
@@ -602,7 +644,7 @@ async def modify_score_calibration(
     Parameters
     ----------
      db : Session
-         An active SQLAlchemy session (synchronous engine session used within an async context).
+         An active SQLAlchemy session.
      calibration : ScoreCalibration
          The existing calibration ORM instance to be modified (must be persistent or pending).
      calibration_update : score_calibration.ScoreCalibrationModify
@@ -622,13 +664,18 @@ async def modify_score_calibration(
     Raises
     ------
     ValueError
-         If score_set_urn is missing in the update model.
+         If score_set_urn is missing in the update model, or if a published calibration has
+         replaced this one. A superseded calibration is frozen; remove_score_calibration_controls
+         is the one change it allows.
+    ValidationError
+         If the update would move a versioned calibration to another score set, or store
+         controls without a PHI affirmation.
     sqlalchemy.orm.exc.NoResultFound
          If no ScoreSet exists with the provided URN.
     sqlalchemy.orm.exc.MultipleResultsFound
          If more than one ScoreSet matches the provided URN.
-    Any exception raised by find_or_create_publication_identifier
-         If identifier resolution/creation fails.
+    PublicationServiceError
+         If a publication database fails while resolving a cited source.
 
     Side Effects
     ------------
@@ -652,7 +699,15 @@ async def modify_score_calibration(
     if not calibration_update.score_set_urn:
         raise ValueError("score_set_urn must be provided to modify a score calibration.")
 
+    # Annotations cite a calibration by URN, so a replaced version must keep the content they cited.
+    if getattr(calibration, "has_published_replacement", False):
+        raise ValueError("Cannot modify a calibration that a published calibration has replaced.")
+
     containing_score_set = db.query(ScoreSet).where(ScoreSet.urn == calibration_update.score_set_urn).one()
+    if (
+        calibration.superseded_calibration is not None or calibration.superseding_calibration is not None
+    ) and containing_score_set.id != calibration.score_set_id:
+        raise ValidationError("A versioned calibration cannot be moved to another score set.")
 
     # Replace semantics: a provided controls list (even empty) replaces all existing controls, while None
     # leaves them untouched. Re-acknowledgment: an explicit controls_not_phi in the request always wins;
@@ -672,38 +727,20 @@ async def modify_score_calibration(
 
     require_phi_affirmation(bool(submitted_controls), controls_not_phi)
 
-    relation_sources = (
-        (ScoreCalibrationRelation.threshold, calibration_update.threshold_sources or []),
-        (ScoreCalibrationRelation.evidence, calibration_update.evidence_sources or []),
-        (ScoreCalibrationRelation.method, calibration_update.method_sources or []),
-    )
-
-    # Build a map of existing associations by (relation, publication_identifier_id) for easy lookup.
+    # Keep the citations the update still lists, so only the changes are written.
     existing_assocs_map = {
-        (assoc.relation, assoc.publication_identifier_id): assoc
-        for assoc in calibration.publication_identifier_associations
+        (assoc.relation, assoc.key): assoc for assoc in calibration.publication_identifier_associations
     }
-
     updated_assocs = []
-    for relation, sources in relation_sources:
-        for identifier in sources:
-            pub = await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-            assoc_key = (relation, pub.id)
-            if assoc_key in existing_assocs_map:
-                # Keep existing association
-                updated_assocs.append(existing_assocs_map.pop(assoc_key))
-            else:
-                # Create new association
-                updated_assocs.append(
-                    ScoreCalibrationPublicationIdentifierAssociation(
-                        publication=pub,
-                        relation=relation,
-                    )
+    for relation, key in _cited_publication_keys(db, calibration_update):
+        if (relation, key) in existing_assocs_map:
+            updated_assocs.append(existing_assocs_map.pop((relation, key)))
+        else:
+            updated_assocs.append(
+                ScoreCalibrationPublicationIdentifierAssociation(
+                    db_name=key.db_name, identifier=key.identifier, relation=relation
                 )
-
-            # Ensure newly created publications are persisted for future loops to avoid duplicates.
-            db.add(pub)
-            db.flush()
+            )
 
     # Remove associations and calibrations that are no longer present
     for assoc in existing_assocs_map.values():
@@ -734,7 +771,7 @@ async def modify_score_calibration(
         }:
             setattr(calibration, attr, value)
 
-    calibration.disease_term = await resolve_disease_term(db, getattr(calibration_update, "disease", None))
+    calibration.disease_term = resolve_disease_term(db, getattr(calibration_update, "disease", None))
 
     calibration.score_set = containing_score_set
     calibration.score_set_id = containing_score_set.id
@@ -761,8 +798,40 @@ async def modify_score_calibration(
     return calibration
 
 
+def remove_score_calibration_controls(db: Session, calibration: ScoreCalibration, user: User) -> ScoreCalibration:
+    """Delete a calibration's controls and withdraw its PHI affirmation, changing nothing else.
+
+    The one change a superseded calibration allows, so protected health information found in an old version
+    can be removed without rewriting it. Works on any calibration. Leaves ``controls_not_phi`` as ``False``
+    (declined), as a modify that withdraws the affirmation does. A calibration without controls is left
+    untouched, so a frozen version isn't marked as modified for nothing. Stages the change without committing.
+
+    Args:
+        db (Session): An active SQLAlchemy session.
+        calibration (ScoreCalibration): The calibration whose controls to delete.
+        user (User): The user making the change; recorded in ``modified_by``.
+
+    Returns:
+        ScoreCalibration: The calibration, now without controls.
+    """
+    if not calibration.controls:
+        return calibration
+
+    for control in list(calibration.controls):
+        db.delete(control)
+    calibration.controls.clear()
+    calibration.controls_not_phi = False
+    calibration.modified_by = user
+
+    db.add(calibration)
+    return calibration
+
+
 def publish_score_calibration(db: Session, calibration: ScoreCalibration, user: User) -> ScoreCalibration:
     """Publish a private ScoreCalibration, marking it as publicly accessible.
+
+    When the calibration replaces a primary calibration, publishing it also moves primary status from the
+    predecessor to it. The predecessor is otherwise left unchanged.
 
     Parameters
     ----------
@@ -781,13 +850,16 @@ def publish_score_calibration(db: Session, calibration: ScoreCalibration, user: 
     Raises
     ------
     ValueError
-        If the calibration is already published (i.e., `private` is False), or if its
-        score set is still private.
+        If the calibration is already published (i.e., `private` is False), if its
+        score set is still private, if the calibration it replaces isn't a published
+        calibration in the same score set, or if it is research use only and replaces
+        a primary calibration.
 
     Notes
     -----
     This function adds the modified calibration to the session but does not commit;
-    the caller is responsible for committing the transaction.
+    the caller is responsible for committing the transaction. It doesn't check who may
+    move primary status; the publish route does.
     """
     if not calibration.private:
         raise ValueError("Calibration is already published.")
@@ -795,7 +867,19 @@ def publish_score_calibration(db: Session, calibration: ScoreCalibration, user: 
     if calibration.score_set.private:
         raise ValueError("Cannot publish a calibration whose score set is private.")
 
+    predecessor = calibration.superseded_calibration
+    if predecessor is not None:
+        if predecessor.private or predecessor.score_set_id != calibration.score_set_id:
+            raise ValueError("A replacement must supersede a published calibration in the same score set.")
+        if predecessor.primary and calibration.research_use_only:
+            raise ValueError("Cannot replace a primary calibration with a research use only calibration.")
+        if predecessor.primary:
+            predecessor.primary = False
+            predecessor.modified_by = user
+            calibration.primary = True
+
     calibration.private = False
+    calibration.published_at = func.now()
     calibration.modified_by = user
 
     db.add(calibration)
@@ -810,9 +894,10 @@ def promote_score_calibration_to_primary(
 
     This function enforces several business rules before promotion:
     1. The calibration must not already be primary.
-    2. It must not be marked as research-use-only.
-    3. It must not be private.
-    4. If another primary calibration already exists for the same score set, promotion is blocked
+    2. It must not have been replaced by a published calibration.
+    3. It must not be marked as research-use-only.
+    4. It must not be private.
+    5. If another primary calibration already exists for the same score set, promotion is blocked
         unless force=True is provided. When force=True, any existing primary calibration(s) are
         demoted (their primary flag set to False) and updated with the acting user.
 
@@ -829,6 +914,7 @@ def promote_score_calibration_to_primary(
     Raises:
          ValueError:
               - If the calibration is already primary.
+              - If the calibration has been replaced by a published calibration.
               - If the calibration is research-use-only.
               - If the calibration is private.
               - If another primary calibration exists for the score set and force is False.
@@ -843,6 +929,9 @@ def promote_score_calibration_to_primary(
     """
     if calibration.primary:
         raise ValueError("Calibration is already primary.")
+
+    if calibration.has_published_replacement:
+        raise ValueError("Cannot promote a superseded calibration to primary.")
 
     if calibration.research_use_only:
         raise ValueError("Cannot promote a research use only calibration to primary.")
@@ -912,20 +1001,29 @@ def delete_score_calibration(db: Session, calibration: ScoreCalibration) -> None
 
     This function removes the provided ScoreCalibration instance from the SQLAlchemy
     session. Primary calibrations are protected from deletion and must be demoted
-    (i.e., have their `primary` flag unset) before they can be deleted.
+    (i.e., have their `primary` flag unset) before they can be deleted. Versions are
+    protected too, so a calibration's history can't be broken: only a draft replacement
+    may be deleted.
 
     Parameters:
         db (Session): An active SQLAlchemy session used to perform the delete operation.
         calibration (ScoreCalibration): The calibration object to be deleted.
 
     Raises:
-        ValueError: If the calibration is marked as primary.
+        ValueError: If the calibration is marked as primary, if it is a published
+            replacement for another calibration, or if it has a replacement, draft
+            or published.
 
     Returns:
         None
     """
     if calibration.primary:
         raise ValueError("Cannot delete a primary calibration. Demote it first.")
+
+    if calibration.superseded_calibration is not None and not calibration.private:
+        raise ValueError("Cannot delete a published calibration version.")
+    if calibration.superseding_calibration is not None:
+        raise ValueError("Cannot delete a calibration with a replacement.")
 
     db.delete(calibration)
     return None

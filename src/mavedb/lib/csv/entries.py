@@ -50,7 +50,7 @@ class AvailableCsvNamespaceEntry:
     selected_by_default: bool = True
     """Whether a picker should open with this group checked.
 
-    False for research-use-only calibrations and for calibrations with no ranges. Answers only "what
+    False for research-use-only and superseded calibrations and for calibrations with no ranges. Answers only "what
     should a dialog open on" . Do not read this as a publish/include policy.
     """
 
@@ -58,6 +58,12 @@ class AvailableCsvNamespaceEntry:
     """Whether the data comes from a research-use-only calibration.
 
     Separate from ``selected_by_default`` so a consumer deciding what may be published can ask directly.
+    """
+
+    superseded: bool = False
+    """Whether a published version has replaced this calibration.
+
+    A version often keeps its predecessor's title, so a picker needs this to tell the current one apart.
     """
 
 
@@ -104,15 +110,16 @@ def calibration_viewer(viewer: Optional[ScoreCalibrationViewer]) -> ScoreCalibra
 def calibration_can_annotate(calibration: ScoreCalibration) -> bool:
     """Whether a calibration can support either kind of annotation, and so fill any of its columns.
 
-    False for a calibration with no score ranges, whose every cell would be NA. Research-use-only standing
-    is excluded from this question — it asks what a calibration *could* say, while who may see it is
-    ``ScoreCalibrationViewer``'s job.
+    False for a calibration with no score ranges, whose every cell would be NA. Research-use-only and
+    superseded standing are excluded from this question — it asks what a calibration *could* say, while who
+    may see it is ``ScoreCalibrationViewer``'s job.
     """
     return any(
         score_calibration_may_be_used_for_annotation(
             calibration,
             annotation_type=annotation_type,  # type: ignore[arg-type]
             allow_research_use_only_calibrations=True,
+            allow_superseded_calibrations=True,
         )
         for annotation_type in ("functional", "pathogenicity")
     )
@@ -121,8 +128,8 @@ def calibration_can_annotate(calibration: ScoreCalibration) -> bool:
 def calibration_namespace_entries(calibrations: Iterable[ScoreCalibration]) -> list[AvailableCsvNamespaceEntry]:
     """Build labeled entries for calibrations, named by title so a picker can identify them.
 
-    Research-use-only calibrations (flagged for a picker to tag) and rangeless ones are offered but excluded
-    from the default selection.
+    Research-use-only and superseded calibrations (flagged for a picker to tag) and rangeless ones are offered
+    but excluded from the default selection.
     """
     entries = []
     for calibration in sorted(calibrations, key=lambda c: (str(c.title or ""), str(c.urn or ""))):
@@ -131,6 +138,7 @@ def calibration_namespace_entries(calibrations: Iterable[ScoreCalibration]) -> l
 
         title = str(calibration.title) if calibration.title else str(calibration.urn)
         research_use_only = bool(calibration.research_use_only)
+        superseded = calibration.has_published_replacement
         entries.append(
             AvailableCsvNamespaceEntry(
                 namespace=calibration_namespace_for_urn(str(calibration.urn)),
@@ -138,7 +146,8 @@ def calibration_namespace_entries(calibrations: Iterable[ScoreCalibration]) -> l
                 group=CsvNamespaceGroup.CALIBRATION,
                 score_set=calibration.score_set,
                 research_use_only=research_use_only,
-                selected_by_default=not research_use_only and calibration_can_annotate(calibration),
+                superseded=superseded,
+                selected_by_default=not research_use_only and not superseded and calibration_can_annotate(calibration),
             )
         )
 

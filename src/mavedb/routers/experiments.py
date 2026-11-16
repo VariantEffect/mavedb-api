@@ -2,7 +2,6 @@ import logging
 from operator import attrgetter
 from typing import Any, Optional
 
-import requests
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import or_
@@ -11,30 +10,30 @@ from sqlalchemy.orm import Session
 from mavedb import deps
 from mavedb.lib.authentication import get_current_user
 from mavedb.lib.authorization import get_principal, require_current_user, require_current_user_with_email
+from mavedb.lib.collections import readable_official_collections
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.exceptions import NonexistentOrcidUserError
-from mavedb.lib.collections import readable_official_collections
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
 from mavedb.lib.experiments import search_experiments as _search_experiments
-from mavedb.lib.identifiers import (
-    find_or_create_doi_identifier,
-    find_or_create_publication_identifier,
-    find_or_create_raw_read_identifier,
-)
 from mavedb.lib.keywords import search_keyword
-from mavedb.lib.logging import LoggedRoute
 from mavedb.lib.logging.context import logging_context, save_to_logging_context
+from mavedb.lib.logging.logged_route import LoggedRoute
 from mavedb.lib.permissions import Action, assert_permission, has_permission
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
+from mavedb.lib.publications import ensure_publication_keys, record_publication_citations
 from mavedb.lib.score_sets import find_superseded_score_set_tail, readable_score_set_urns
 from mavedb.lib.types.authentication import UserData
+from mavedb.lib.utils import distinct_identifiers
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.lib.validation.keywords import validate_keyword_list
 from mavedb.models.contributor import Contributor
+from mavedb.models.doi_identifier import ExperimentDoiIdentifier
 from mavedb.models.experiment import Experiment
 from mavedb.models.experiment_controlled_keyword import ExperimentControlledKeywordAssociation
+from mavedb.models.experiment_publication_identifier import ExperimentPublicationIdentifierAssociation
 from mavedb.models.experiment_set import ExperimentSet
+from mavedb.models.raw_read_identifier import ExperimentRawReadIdentifier
 from mavedb.models.score_set import ScoreSet
 from mavedb.routers.shared import (
     ACCESS_CONTROL_ERROR_RESPONSES,
@@ -284,7 +283,7 @@ def get_experiment_score_sets(
     },
     response_model_exclude_none=True,
 )
-async def create_experiment(
+def create_experiment(
     *,
     item_create: experiment.ExperimentCreate,
     db: Session = Depends(deps.get_db),
@@ -317,52 +316,30 @@ async def create_experiment(
     contributors: list[Contributor] = []
     try:
         contributors = [
-            await find_or_create_contributor(db, contributor.orcid_id) for contributor in item_create.contributors or []
+            find_or_create_contributor(db, contributor.orcid_id) for contributor in item_create.contributors or []
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
         raise HTTPException(status_code=404, detail=str(e))
 
-    try:
-        doi_identifiers = [
-            await find_or_create_doi_identifier(db, identifier.identifier)
-            for identifier in item_create.doi_identifiers or []
-        ]
-        raw_read_identifiers = [
-            await find_or_create_raw_read_identifier(db, identifier.identifier)
-            for identifier in item_create.raw_read_identifiers or []
-        ]
-        primary_publication_identifiers = [
-            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-            for identifier in item_create.primary_publication_identifiers or []
-        ]
-        publication_identifiers = [
-            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-            for identifier in item_create.secondary_publication_identifiers or []
-        ] + primary_publication_identifiers
+    doi_identifiers = [
+        ExperimentDoiIdentifier(identifier=identifier)
+        for identifier in distinct_identifiers(i.identifier for i in item_create.doi_identifiers or [])
+    ]
+    raw_read_identifiers = [
+        ExperimentRawReadIdentifier(identifier=identifier)
+        for identifier in distinct_identifiers(i.identifier for i in item_create.raw_read_identifiers or [])
+    ]
 
-    except requests.exceptions.ConnectTimeout:
-        logger.error(msg="Gateway timed out while creating experiment identifiers.", extra=logging_context())
-        raise HTTPException(
-            status_code=504,
-            detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-        )
+    primary_keys, secondary_keys = ensure_publication_keys(
+        db, item_create.primary_publication_identifiers or [], item_create.secondary_publication_identifiers or []
+    )
+    publication_citations = record_publication_citations(
+        ExperimentPublicationIdentifierAssociation, primary=primary_keys, secondary=secondary_keys
+    )
 
-    except requests.exceptions.HTTPError:
-        logger.error(msg="Encountered bad gateway while creating experiment identifiers.", extra=logging_context())
-        raise HTTPException(
-            status_code=502,
-            detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-        )
-
-    # create a temporary `primary` attribute on each of our publications that indicates
-    # to our association proxy whether it is a primary publication or not
-    primary_identifiers = [pub.identifier for pub in primary_publication_identifiers]
-    for publication in publication_identifiers:
-        setattr(publication, "primary", publication.identifier in primary_identifiers)
-
-    # TODO: Controlled keywords currently is allowed none label.
-    #  Will be changed in the future when we get the final list.
+    # TODO(#273): Controlled keywords currently is allowed none label.
+    # Will be changed in the future when we get the final list.
     keywords: list[ExperimentControlledKeywordAssociation] = []
     if item_create.keywords:
         all_labels_none = all(k.keyword.label is None for k in item_create.keywords)
@@ -402,7 +379,7 @@ async def create_experiment(
         experiment_set=experiment_set,
         contributors=contributors,
         doi_identifiers=doi_identifiers,
-        publication_identifiers=publication_identifiers,  # an internal association proxy representation
+        publication_identifier_associations=publication_citations,
         raw_read_identifiers=raw_read_identifiers,
         created_by=user_data.user,
         modified_by=user_data.user,
@@ -427,7 +404,7 @@ async def create_experiment(
     },
     response_model_exclude_none=True,
 )
-async def update_experiment(
+def update_experiment(
     *,
     item_update: experiment.ExperimentUpdate,
     urn: str,
@@ -468,53 +445,30 @@ async def update_experiment(
 
     try:
         item.contributors = [
-            await find_or_create_contributor(db, contributor.orcid_id) for contributor in item_update.contributors or []
+            find_or_create_contributor(db, contributor.orcid_id) for contributor in item_update.contributors or []
         ]
     except NonexistentOrcidUserError as e:
         logger.error(msg="Could not find ORCID user with the provided user ID.", extra=logging_context())
         raise HTTPException(status_code=404, detail=str(e))
 
-    try:
-        doi_identifiers = [
-            await find_or_create_doi_identifier(db, identifier.identifier)
-            for identifier in item_update.doi_identifiers or []
-        ]
-        raw_read_identifiers = [
-            await find_or_create_raw_read_identifier(db, identifier.identifier)
-            for identifier in item_update.raw_read_identifiers or []
-        ]
+    doi_identifiers = [
+        ExperimentDoiIdentifier(identifier=identifier)
+        for identifier in distinct_identifiers(i.identifier for i in item_update.doi_identifiers or [])
+    ]
+    raw_read_identifiers = [
+        ExperimentRawReadIdentifier(identifier=identifier)
+        for identifier in distinct_identifiers(i.identifier for i in item_update.raw_read_identifiers or [])
+    ]
 
-        primary_publication_identifiers = [
-            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-            for identifier in item_update.primary_publication_identifiers or []
-        ]
-        publication_identifiers = [
-            await find_or_create_publication_identifier(db, identifier.identifier, identifier.db_name)
-            for identifier in item_update.secondary_publication_identifiers or []
-        ] + primary_publication_identifiers
-
-    except requests.exceptions.ConnectTimeout:
-        logger.error(msg="Gateway timed out while creating experiment identifiers.", extra=logging_context())
-        raise HTTPException(
-            status_code=504,
-            detail="Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-        )
-
-    except requests.exceptions.HTTPError:
-        logger.error(msg="Encountered bad gateway while creating experiment identifiers.", extra=logging_context())
-        raise HTTPException(
-            status_code=502,
-            detail="Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later.",
-        )
-
-    # create a temporary `primary` attribute on each of our publications that indicates
-    # to our association proxy whether it is a primary publication or not
-    primary_identifiers = [pub.identifier for pub in primary_publication_identifiers]
-    for publication in publication_identifiers:
-        setattr(publication, "primary", publication.identifier in primary_identifiers)
+    primary_keys, secondary_keys = ensure_publication_keys(
+        db, item_update.primary_publication_identifiers or [], item_update.secondary_publication_identifiers or []
+    )
+    publication_citations = record_publication_citations(
+        ExperimentPublicationIdentifierAssociation, primary=primary_keys, secondary=secondary_keys
+    )
 
     item.doi_identifiers = doi_identifiers
-    item.publication_identifiers = publication_identifiers
+    item.publication_identifier_associations = publication_citations
     item.raw_read_identifiers = raw_read_identifiers
 
     if item_update.keywords:
@@ -557,7 +511,7 @@ async def update_experiment(
     responses={**ACCESS_CONTROL_ERROR_RESPONSES},
     summary="Delete an experiment",
 )
-async def delete_experiment(
+def delete_experiment(
     *,
     urn: str,
     db: Session = Depends(deps.get_db),

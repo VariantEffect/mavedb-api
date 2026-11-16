@@ -2,15 +2,14 @@
 
 import csv
 import io
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+
+import pytest
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 from tests.helpers.util.query_plan import captured_statements
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-from unittest.mock import patch
-
-import pytest
 
 pytest.importorskip("psycopg2")
 
@@ -26,14 +25,14 @@ from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.models.acmg_classification import ACMGClassification
+from mavedb.models.allele import Allele
 from mavedb.models.clinical_control import ClinvarControl
+from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.enums.acmg_criterion import ACMGCriterion
 from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassificationOptions
 from mavedb.models.enums.user_role import UserRole
-from mavedb.models.gnomad_variant import GnomADVariant
-from mavedb.models.allele import Allele
-from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
+from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
@@ -388,6 +387,34 @@ class TestGetVariantCsv:
         assert entry.label == "Provisional Calibration"
         assert entry.research_use_only is True
         assert entry.selected_by_default is False
+
+    @pytest.mark.parametrize(
+        "discover",
+        [
+            lambda db, variant: available_variant_csv_namespaces(db, variant.urn),
+            lambda db, variant: available_score_set_csv_namespaces(db, variant.score_set),
+        ],
+        ids=["variant", "score-set"],
+    )
+    def test_superseded_calibration_is_offered_but_labelled(self, session, setup_lib_db_with_mapped_variant, discover):
+        """Versions often share a title, so the picker is told which one a published version has replaced."""
+        variant = setup_lib_db_with_mapped_variant.variant
+        original = _add_pathogenicity_calibration(
+            session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="Calibration"
+        )
+        replacement = _add_pathogenicity_calibration(
+            session, variant.score_set, [variant], urn=CALIBRATION_URN_2, title="Calibration"
+        )
+        original.primary = False
+        replacement.superseded_calibration = original
+        session.commit()
+
+        entries = {entry.namespace: entry for entry in discover(session, variant)}
+
+        assert entries[CALIBRATION_NS_1].superseded is True
+        assert entries[CALIBRATION_NS_1].selected_by_default is False
+        assert entries[CALIBRATION_NS_2].superseded is False
+        assert entries[CALIBRATION_NS_2].selected_by_default is True
 
     def test_research_use_only_calibration_is_not_in_the_default_download(
         self, session, setup_lib_db_with_mapped_variant

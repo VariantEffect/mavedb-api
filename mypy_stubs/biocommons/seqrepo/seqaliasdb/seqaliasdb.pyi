@@ -1,5 +1,5 @@
-from typing import Any, Iterator, Optional
 import sqlite3
+from typing import Any, Iterator, Optional
 
 class SeqAliasDB(object):
     _db_path: str

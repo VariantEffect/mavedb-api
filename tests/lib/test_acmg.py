@@ -6,9 +6,9 @@ from sqlalchemy import select
 pytest.importorskip("psycopg2")
 
 from mavedb.lib.acmg import (
-    acmg_evidence_outcome_code,
     ACMGCriterion,
     StrengthOfEvidenceProvided,
+    acmg_evidence_outcome_code,
     find_or_create_acmg_classification,
     points_evidence_strength_equivalent,
 )

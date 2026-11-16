@@ -1,12 +1,8 @@
-# ruff: noqa: E402
-
 """Tests for permissions utils module."""
 
-import pytest
-
-pytest.importorskip("fastapi", reason="Skipping permissions tests; FastAPI is required but not installed.")
-
 from unittest.mock import Mock
+
+import pytest
 
 from mavedb.lib.permissions.utils import deny_action_for_entity, roles_permitted
 from mavedb.models.enums.contribution_role import ContributionRole

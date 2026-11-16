@@ -1,5 +1,4 @@
 from mavedb.view_models.access_key import SavedAccessKey
-
 from tests.helpers.util.common import dummy_attributed_object_from_dict
 
 

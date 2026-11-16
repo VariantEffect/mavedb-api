@@ -139,7 +139,7 @@ def view(name: str, selectable: sa.Select, metadata: MetaData = Base.metadata, m
     )
     t.primary_key.update(c for c in t.c if c.primary_key)  # type: ignore
 
-    # TODO: Figure out indices.
+    # TODO(#979): Figure out indices.
     if materialized:
         sa.event.listen(
             metadata,

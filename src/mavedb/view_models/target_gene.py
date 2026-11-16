@@ -5,7 +5,7 @@ from pydantic import Field, model_validator
 from typing_extensions import Self
 
 from mavedb.lib.validation.exceptions import ValidationError
-from mavedb.lib.validation.transform import transform_external_identifier_offsets_to_list, transform_score_set_to_urn
+from mavedb.lib.validation.transform import transform_score_set_to_urn
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.view_models import external_gene_identifier_offset, record_type_validator, set_record_type
 from mavedb.view_models.base.base import BaseModel
@@ -68,20 +68,6 @@ class SavedTargetGene(TargetGeneBase):
     class Config:
         from_attributes = True
         arbitrary_types_allowed = True
-
-    # These 'synthetic' fields are generated from other model properties. Transform data from other properties as needed, setting
-    # the appropriate field on the model itself. Then, proceed with Pydantic ingestion once fields are created. Only perform these
-    # transformations if the relevant attributes are present on the input data (i.e., when creating from an ORM object).
-    @model_validator(mode="before")
-    def generate_external_identifiers_list(cls, data: Any):
-        if hasattr(data, "ensembl_offset") or hasattr(data, "refseq_offset") or hasattr(data, "uniprot_offset"):
-            try:
-                data.__setattr__("external_identifiers", transform_external_identifier_offsets_to_list(data))
-            except (AttributeError, KeyError) as exc:
-                raise ValidationError(
-                    f"Unable to coerce external identifiers for {cls.__name__}: {exc}."  # type: ignore
-                )
-        return data
 
     @model_validator(mode="after")
     def check_seq_or_accession(self) -> Self:

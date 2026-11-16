@@ -1,10 +1,4 @@
-# ruff: noqa: E402
-
 """Tests for permissions models module."""
-
-import pytest
-
-pytest.importorskip("fastapi", reason="Skipping permissions tests; FastAPI is required but not installed.")
 
 from mavedb.lib.permissions.models import PermissionResponse
 

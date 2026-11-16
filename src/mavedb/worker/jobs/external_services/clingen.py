@@ -8,7 +8,6 @@ These jobs enable integration with the ClinGen ecosystem for clinical
 variant interpretation and data sharing.
 """
 
-import asyncio
 import functools
 import logging
 from collections.abc import Sequence
@@ -32,6 +31,7 @@ from mavedb.lib.clingen.services import (
     ClinGenAlleleRegistryService,
     ClinGenLdhService,
 )
+from mavedb.lib.logging.context import run_in_executor_with_logging_context
 from mavedb.lib.types.clingen import ClinGenAllele
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.utils import batched
@@ -250,7 +250,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
         if hgvs:
             hgvs_to_allele_ids.setdefault(hgvs, []).append(allele_id)
 
-        # TODO#780 - Allele is registered but post_mapped can no longer produce HGVS — data
+        # TODO(#780): Allele is registered but post_mapped can no longer produce HGVS — data
         # regression worth surfacing, but the CAID is still valid so treat it as preexisting
         # rather than failing the variant.
         elif entry.existing_caid:
@@ -612,7 +612,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
     variant_content: list[tuple[str, Variant, MappingRecord, AlleleModel]] = []
     variant_for_urn: dict[str, Variant] = {}
     for variant, mapping_record, allele in variant_objects:
-        # cis-phased blocks are skipped here pending ClinGen guidance TODO#764
+        # cis-phased blocks are skipped here pending ClinGen guidance TODO(#764)
         variation = get_hgvs_from_post_mapped(allele.post_mapped)
 
         if not variation:
@@ -623,7 +623,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
             continue
 
         variant_content.append((variation, variant, mapping_record, allele))
-        # TODO#372: nullable URNs
+        # TODO(#372): nullable URNs
         variant_for_urn[variant.urn] = variant  # type: ignore
 
     if not variant_content:
@@ -641,8 +641,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
     blocking = functools.partial(
         ldh_service.dispatch_submissions, submission_content, DEFAULT_LDH_SUBMISSION_BATCH_SIZE
     )
-    loop = asyncio.get_running_loop()
-    submission_successes, submission_failures = await loop.run_in_executor(ctx["pool"], blocking)
+    submission_successes, submission_failures = await run_in_executor_with_logging_context(ctx["pool"], blocking)
     job_manager.update_progress(90, 100, "Finalizing LDH mapped resource submission.")
     job_manager.save_to_context(
         {

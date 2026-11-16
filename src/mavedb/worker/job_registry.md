@@ -257,6 +257,10 @@ Routing lives in `arq_queue_name()` (`lib/managers/utils.py`). Every ARQ call th
 
 ARQ reads settings from the class `__dict__`, so the fast-lane class repeats its attributes rather than subclassing `ArqWorkerSettings`.
 
+### Mapping-lane worker
+
+`ArqMappingLaneWorkerSettings` (`arq mavedb.worker.MappingLaneWorkerSettings`, its own container on the worker host) consumes only `MAPPING_LANE_QUEUE_NAME`, one job at a time, and registers only the jobs in `MAPPING_LANE_JOB_FUNCTIONS` (`map_variants_for_score_set`). The mapper aligns one score set at a time, so mapping jobs running in several slots would wait at the mapper while their time budget ran, and each retry would add a request the mapper still serves. Every environment that runs a worker needs this process too, or mapping jobs wait in its queue forever.
+
 The lifecycle hooks (in `settings/lifecycle.py`) manage the ARQ context dict (`ctx`):
 - `startup`: Creates `ProcessPoolExecutor` for CPU-intensive tasks
 - `on_job_start`: Initializes `hdp` (CDOT REST data provider) and `state` dict

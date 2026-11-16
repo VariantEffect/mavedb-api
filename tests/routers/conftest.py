@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -62,3 +63,20 @@ def setup_router_db(session):
 def data_files():
     """The shared test data directory. Tests read it in place; copy a file into tmp_path before changing it."""
     return Path(__file__).absolute().parent / "data"
+
+
+@pytest.fixture
+def ncbi_taxonomy_not_found(monkeypatch):
+    """NCBI Taxonomy answers every lookup with a non-200 status."""
+
+    class _NotFoundClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def get(self, url):
+            return SimpleNamespace(status_code=404)
+
+    monkeypatch.setattr("mavedb.lib.taxonomies.httpx", SimpleNamespace(Client=_NotFoundClient))

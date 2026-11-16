@@ -3,7 +3,6 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from mavedb.models.user import User
-
 from tests.helpers.constants import EXTRA_USER
 
 

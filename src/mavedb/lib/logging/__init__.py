@@ -1,5 +1,1 @@
-from mavedb.lib.logging.logged_route import LoggedRoute
-
-__all__ = [
-    "LoggedRoute",
-]
+"""Logging helpers. Submodules other than ``logged_route`` and ``canonical`` need only the core dependencies."""

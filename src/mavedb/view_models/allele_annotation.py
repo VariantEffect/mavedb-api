@@ -9,14 +9,26 @@ than in either one's file.
 
 from typing import Optional
 
+from mavedb.models.enums.vep import VepConsequenceSource
 from mavedb.view_models.base.base import BaseModel
 
 
 class VepAnnotation(BaseModel):
-    """VEP molecular consequence for an allele and the Ensembl release it resolved under."""
+    """VEP molecular consequence for an allele and the Ensembl release it resolved under.
+
+    ``consequence_source`` is ``transcript`` when the consequence was read for the allele's own
+    transcript (named by ``matched_transcript``), and ``most_severe`` when no transcript could be
+    matched and it is VEP's worst case across every overlapping transcript, which may not apply to the
+    transcript of interest. ``reference_identical`` marks an allele with no sequence change, for which
+    VEP was never called. ``consequence_terms`` is the severity-ordered term list ``consequence``
+    heads. All three are null on rows resolved before provenance was recorded.
+    """
 
     consequence: Optional[str] = None
     source_version: str
+    consequence_source: Optional[VepConsequenceSource] = None
+    consequence_terms: Optional[list[str]] = None
+    matched_transcript: Optional[str] = None
 
     class Config:
         from_attributes = True

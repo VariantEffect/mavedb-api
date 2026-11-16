@@ -18,7 +18,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from mavedb import deps
-from mavedb.lib.logging.context import format_raised_exception_info_as_dict, logging_context, save_to_logging_context
+from mavedb.db.principal import bind_principal
+from mavedb.lib.logging.context import (
+    logging_context,
+    record_exception,
+    save_to_logging_context,
+)
 from mavedb.lib.orcid import fetch_orcid_user_email
 from mavedb.lib.types.authentication import UserData
 from mavedb.models.access_key import AccessKey
@@ -67,9 +72,8 @@ def decode_jwt(token: str) -> dict:
             options={"verify_at_hash": False},
         )
         return decoded_token
-    # TODO: should catch specific exceptions, and should log them more usefully.
     except Exception as ex:
-        save_to_logging_context(format_raised_exception_info_as_dict(ex))
+        record_exception(ex)
         logger.debug(msg="Failed to authenticate user; Could not decode user token.", extra=logging_context())
         return {}
 
@@ -118,7 +122,7 @@ access_token_header = APIKeyHeader(name=ACCESS_TOKEN_NAME, auto_error=False)
 access_token_cookie = APIKeyCookie(name=ACCESS_TOKEN_NAME, auto_error=False)
 
 
-async def get_access_token(
+def get_access_token(
     # access_token_query: str = Security(access_token_query),
     access_token_header: Optional[str] = Security(access_token_header),
     access_token_cookie: Optional[str] = Security(access_token_cookie),
@@ -176,6 +180,23 @@ def get_current_user(
     # Namespaced with x_ to indicate this is a custom application header.
     x_active_roles: Optional[str] = Header(default=None),
 ) -> Optional[UserData]:
+    """Authenticate the caller and bind them as the principal of the request's database session.
+
+    ``db`` is the same session the route receives, because FastAPI caches ``deps.get_db`` per request, so every
+    transaction the route runs carries the caller. An anonymous caller binds nothing, so reads as no principal.
+    A rejected role request raises before anything is bound.
+    """
+    user_data = _resolve_current_user(api_key_user_data, token_payload, db, x_active_roles)
+    bind_principal(db, user_data)
+    return user_data
+
+
+def _resolve_current_user(
+    api_key_user_data: Optional[UserData],
+    token_payload: Optional[dict],
+    db: Session,
+    x_active_roles: Optional[str],
+) -> Optional[UserData]:
     save_to_logging_context({"requested_roles": x_active_roles})
 
     if api_key_user_data is not None:
@@ -210,8 +231,6 @@ def get_current_user(
         user = User(
             username=username,
             is_active=True,
-            # TODO When we decouple from the old database, change first_name and last_name to be nullable, and
-            # stop filling them with empty strings.
             first_name=token_payload["given_name"] if "given_name" in token_payload else "",
             last_name=token_payload["family_name"] if "family_name" in token_payload else "",
             date_joined=datetime.now(),

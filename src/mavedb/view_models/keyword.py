@@ -13,7 +13,7 @@ from mavedb.view_models.base.base import BaseModel
 class KeywordBase(BaseModel):
     """Base class for keyword view models.
     Keywords may have key but no value if users don't choose anything from dropdown menu.
-    TODO#273: Controlled keywords are required once the final list is confirmed.
+    TODO(#273): Controlled keywords are required once the final list is confirmed.
     """
 
     key: str
@@ -35,7 +35,7 @@ class KeywordBase(BaseModel):
             keywords.validate_code(self.key, self.label, self.code)
         return self
 
-    # TODO#273: Un-commenting this block will require new experiments to contain a keyword on creation.
+    # TODO(#273): Un-commenting this block will require new experiments to contain a keyword on creation.
     # @field_validator("label")
     # def validate_value(cls, v):
     #     keywords.validate_keyword(v)

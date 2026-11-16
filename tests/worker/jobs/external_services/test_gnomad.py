@@ -11,13 +11,13 @@ from sqlalchemy import select
 from mavedb.lib import gnomad as gnomad_lib
 from mavedb.lib.gnomad import GNOMAD_DATA_VERSION
 from mavedb.lib.types.workflow import JobExecutionOutcome
+from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
-from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.worker.jobs.external_services.gnomad import link_gnomad_variants
 from mavedb.worker.lib.managers.job_manager import JobManager
 

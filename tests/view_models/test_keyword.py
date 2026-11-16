@@ -56,4 +56,4 @@ def test_cannot_create_keyword_without_description_if_value_is_other():
     assert "Other option does not allow empty description." in str(exc_info.value)
 
 
-# TODO#273: Add view model tests for required keyword values.
+# TODO(#273): Add view model tests for required keyword values.

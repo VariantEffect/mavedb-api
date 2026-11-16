@@ -18,6 +18,7 @@ Does not assemble Cat-VRS.
 and unaffected. Defaults to currently-live rows.
 """
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -35,6 +36,9 @@ from mavedb.models.projection_group import ProjectionGroup
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
+
+LEAN_VARIANT_BATCH_SIZE = 5000
+"""Batch size for lean variant queries. Large enough for efficient fetching, small enough to keep memory usage reasonable."""
 
 
 @dataclass(frozen=True)
@@ -124,11 +128,20 @@ def mapped_triple(*, hgvs_c: Optional[str], hgvs_g: Optional[str], hgvs_p: Optio
 
 
 def get_lean_score_set_variants(
-    db: Session, score_set: ScoreSet, *, as_of: Optional[datetime] = None
-) -> list[LeanVariantRecord]:
+    db: Session,
+    score_set: ScoreSet,
+    *,
+    as_of: Optional[datetime] = None,
+    batch_size: int = LEAN_VARIANT_BATCH_SIZE,
+) -> Iterator[list[LeanVariantRecord]]:
     """Assemble the lean whole-set view for ``score_set``, one record per variant, ordered by variant
     number. Unmapped variants are retained (null mapped fields) so the table and score histogram still
     see them. ``as_of`` defaults to currently-live rows.
+
+    Yields the records in batches of up to ``batch_size`` (``LEAN_VARIANT_BATCH_SIZE`` by default), read
+    through a server-side cursor, so memory doesn't grow with the score set. The query runs when the first
+    batch is requested, and the cursor holds ``db``'s transaction open until the last batch is read or the
+    generator is closed.
 
     Every per-variant lookup is a ``LATERAL ... LIMIT 1`` subquery. As plain joins, Postgres may choose a
     hash join that scans the whole of ``mapping_record_alleles`` once its row estimate for the score set
@@ -203,18 +216,19 @@ def get_lean_score_set_variants(
         .order_by(Variant.variant_number, Variant.id)
     )
 
-    return [
-        LeanVariantRecord(
-            variant_urn=row.urn,
-            score=score_from_variant_data(row.data),
-            consequence=row.functional_consequence,
-            clingen_allele_id=row.clingen_allele_id,
-            assay_level_digest=row.vrs_digest,
-            hgvs_nt=_hgvs_field_for_str(row.hgvs_nt),
-            hgvs_pro=_hgvs_field_for_str(row.hgvs_pro),
-            hgvs_splice=_hgvs_field_for_str(row.hgvs_splice),
-            assay_level=_level(row.assay_level),
-            mapped=mapped_triple(hgvs_c=row.hgvs_c, hgvs_g=row.hgvs_g, hgvs_p=row.hgvs_p),
-        )
-        for row in db.execute(statement)
-    ]
+    for rows in db.execute(statement, execution_options={"yield_per": batch_size}).partitions():
+        yield [
+            LeanVariantRecord(
+                variant_urn=row.urn,
+                score=score_from_variant_data(row.data),
+                consequence=row.functional_consequence,
+                clingen_allele_id=row.clingen_allele_id,
+                assay_level_digest=row.vrs_digest,
+                hgvs_nt=_hgvs_field_for_str(row.hgvs_nt),
+                hgvs_pro=_hgvs_field_for_str(row.hgvs_pro),
+                hgvs_splice=_hgvs_field_for_str(row.hgvs_splice),
+                assay_level=_level(row.assay_level),
+                mapped=mapped_triple(hgvs_c=row.hgvs_c, hgvs_g=row.hgvs_g, hgvs_p=row.hgvs_p),
+            )
+            for row in rows
+        ]

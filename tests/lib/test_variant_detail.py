@@ -16,12 +16,12 @@ import pytest
 
 pytest.importorskip("psycopg2")
 
-from mavedb.lib.annotation.context import load_annotation_context_inputs, variant_annotation_context
 from mavedb.lib.allele_detail import get_allele_detail
 from mavedb.lib.allele_identity import AlleleDerivation
+from mavedb.lib.annotation.context import load_annotation_context_inputs, variant_annotation_context
+from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.lib.score_set_variants import HgvsField, MappedTriple
 from mavedb.lib.variant_detail import get_variant_detail, load_variant_detail_inputs
-from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.models.allele import Allele
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
@@ -535,6 +535,28 @@ def test_visible_calibration_ids_filters_classifications(session, setup_lib_db_w
     detail = get_variant_detail(session, variant, visible_calibration_ids={visible.id})
 
     assert [c.calibration_id for c in detail.classifications] == [visible.id]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("replacement_primary", [True, False], ids=["primary_replacement", "non_primary_replacement"])
+def test_get_variant_detail_superseded_calibration_keeps_its_classification(
+    session, setup_lib_db_with_score_set, replacement_primary
+):
+    """A calibration with a published replacement still answers for its variants, since callers can still select
+    it; only the default-choosing callers pass it over. It sorts after its replacement whatever their tiers, so
+    the first entry stays the UI's default."""
+    score_set = setup_lib_db_with_score_set
+    variant = _variant(session, score_set, 1, data={"score_data": {"score": 0.8}})
+    predecessor = _calibration(session, score_set, primary=False, classifications=[("normal", [variant])])
+    replacement = _calibration(
+        session, score_set, primary=replacement_primary, classifications=[("abnormal", [variant])]
+    )
+    replacement.superseded_calibration_id = predecessor.id
+    session.commit()
+
+    detail = get_variant_detail(session, variant)
+
+    assert [c.calibration_id for c in detail.classifications] == [replacement.id, predecessor.id]
 
 
 @pytest.mark.integration

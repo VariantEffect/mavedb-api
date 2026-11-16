@@ -1,23 +1,23 @@
 import logging
 import warnings
-from typing import Hashable, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Hashable, Optional
 
 import pandas as pd
 from fqfa.validator import dna_bases_validator
 from mavehgvs.exceptions import MaveHgvsParseError
 from mavehgvs.variant import Variant
 
-from mavedb.lib.validation.exceptions import ValidationError
+from mavedb.lib.validation.constants.target import strict_valid_sequence_types as valid_sequence_types
 from mavedb.lib.validation.dataframe.column import (
+    construct_target_sequence_mappings,
     generate_variant_prefixes,
+    validate_hgvs_column_properties,
     validate_variant_column,
     validate_variant_formatting,
-    validate_hgvs_column_properties,
-    construct_target_sequence_mappings,
 )
-from mavedb.lib.validation.constants.target import strict_valid_sequence_types as valid_sequence_types
-from mavedb.models.target_sequence import TargetSequence
+from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.target_accession import TargetAccession
+from mavedb.models.target_sequence import TargetSequence
 
 if TYPE_CHECKING:
     from cdot.hgvs.dataproviders import RESTDataProvider

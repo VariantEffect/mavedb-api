@@ -33,11 +33,11 @@ class AccessKey(Base):
         role_obj = self.role_obj or None
         return None if role_obj is None else role_obj.name
 
-    async def set_role(self, db, role: "UserRole"):
-        self.role_obj = await self._find_or_create_role(db, role)
+    def set_role(self, db, role: "UserRole"):
+        self.role_obj = self._find_or_create_role(db, role)
 
     @staticmethod
-    async def _find_or_create_role(db, role):
+    def _find_or_create_role(db, role):
         role_obj = db.query(Role).filter(Role.name == role).one_or_none()
         if not role_obj:
             role_obj = Role(name=role)

@@ -19,6 +19,7 @@ from mavedb.lib.clinvar.constants import (
     CLINVAR_CACHE_DIR,
     CLINVAR_FIELDS_TO_KEEP,
     CLINVAR_VARIATION_URL,
+    NCBI_HTTP_TIMEOUT,
     NCBI_REQUEST_HEADERS,
     NCBI_RETRY_STRATEGY,
     TSV_VARIANT_ARCHIVE_BASE_URL,
@@ -156,10 +157,10 @@ def _fetch_parse_and_cache(
 
         session = _ncbi_session()
         try:
-            response = session.get(url_top_level, stream=True)
+            response = session.get(url_top_level, stream=True, timeout=NCBI_HTTP_TIMEOUT)
             response.raise_for_status()
         except requests.exceptions.HTTPError:
-            response = session.get(url_archive, stream=True)
+            response = session.get(url_archive, stream=True, timeout=NCBI_HTTP_TIMEOUT)
             response.raise_for_status()
 
         # Stream the compressed response directly into the gzip decompressor

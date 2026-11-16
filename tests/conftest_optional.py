@@ -432,7 +432,6 @@ def athena_engine():
     engine = create_engine("sqlite:///:memory:")
     metadata = MetaData()
 
-    # TODO: Define your table schema here
     my_table = Table(
         gnomad_table_name(),
         metadata,

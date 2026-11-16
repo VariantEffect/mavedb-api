@@ -1,8 +1,8 @@
 from datetime import date
 from typing import Optional
-from typing_extensions import Self
 
 from pydantic import model_validator
+from typing_extensions import Self
 
 from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.view_models import record_type_validator, set_record_type

@@ -13,7 +13,7 @@ Both inherit from `BaseManager`, which provides a common `db` (SQLAlchemy sessio
 
 | Context | How it's used |
 |---------|---------------|
-| **Job code** | Call `update_progress()`, `save_to_context()`, `logging_context()`, access `db` and `get_job()` |
+| **Job code** | Call `update_progress()`, `save_to_context()`, `increment_context()`, `append_to_context()`, `record_exception()`, `logging_context()`, access `db` and `get_job()` |
 | **`@with_job_management` decorator** | Call `start_job()`, `succeed_job()`, `fail_job()`, `error_job()`, `should_retry()`, `prepare_retry()` |
 | **`PipelineManager`** | Call `prepare_queue()`, `skip_job()`, `cancel_job()`, `reset_job()` |
 

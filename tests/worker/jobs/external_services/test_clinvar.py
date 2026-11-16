@@ -7,7 +7,7 @@ pytest.importorskip("arq")
 
 from unittest.mock import patch
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.annotation_event import AnnotationEvent
@@ -423,10 +423,43 @@ class TestRefreshClinvarControlsUnit:
 
         assert result.status == JobStatus.SUCCEEDED
         within_version = [call.args[2] for call in update_progress.call_args_list if "alleles." in call.args[2]]
-        assert within_version == [
-            "Processing ClinVar version 01_2026 (1/1): 1/2 alleles.",
-            "Processing ClinVar version 01_2026 (1/1): 2/2 alleles.",
-        ]
+        assert within_version == ["Processing ClinVar version 01_2026 (1/1): 1/2 alleles."]
+
+    async def test_refresh_clinvar_controls_clingen_lookups_hold_no_uncommitted_writes(
+        self,
+        mock_worker_ctx,
+        session,
+        with_refresh_clinvar_controls_job,
+        sample_refresh_clinvar_controls_job_run,
+        setup_rt_derived_allele_with_caid,
+    ):
+        """A lookup awaited while the job holds a row lock lets a sibling job block on it and freeze the worker."""
+        write_xids_during_lookups = []
+
+        async def resolve(caid):
+            # Postgres assigns a transaction id at its first write, so one here means uncommitted writes.
+            write_xids_during_lookups.append(session.execute(text("SELECT pg_current_xact_id_if_assigned()")).scalar())
+            return "VCV000000123"
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
+                side_effect=resolve,
+            ),
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
+            ),
+        ):
+            result = await refresh_clinvar_controls(
+                mock_worker_ctx,
+                sample_refresh_clinvar_controls_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
+            )
+
+        assert result.status == JobStatus.SUCCEEDED
+        assert result.data["created_link_count"] == 2
+        assert write_xids_during_lookups == [None, None]
 
     async def test_idempotent_rerun_skips_and_does_not_duplicate(
         self,

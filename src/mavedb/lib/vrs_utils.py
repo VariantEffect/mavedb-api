@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from itertools import cycle
 from typing import Any
 
+from biocommons.seqrepo import SeqRepo
 from ga4gh.core import ga4gh_identify
 from ga4gh.vrs.extras.translator import AlleleTranslator
 from ga4gh.vrs.models import (
@@ -27,8 +28,6 @@ from ga4gh.vrs.models import (
     Syntax,
 )
 from ga4gh.vrs.normalize import normalize
-
-from biocommons.seqrepo import SeqRepo
 
 from mavedb.lib.hgvs import extract_accession, split_cis_phased_hgvs
 from mavedb.lib.logging.context import logging_context

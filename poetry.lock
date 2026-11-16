@@ -112,21 +112,20 @@ trio = ["trio (>=0.32.0)"]
 
 [[package]]
 name = "arq"
-version = "0.25.0"
+version = "0.26.3"
 description = "Job queues in python with asyncio and redis"
 optional = true
-python-versions = ">=3.7"
+python-versions = ">=3.8"
 groups = ["main"]
 markers = "extra == \"server\""
 files = [
-    {file = "arq-0.25.0-py3-none-any.whl", hash = "sha256:db072d0f39c0bc06b436db67ae1f315c81abc1527563b828955670531815290b"},
-    {file = "arq-0.25.0.tar.gz", hash = "sha256:d176ebadfba920c039dc578814d19b7814d67fa15f82fdccccaedb4330d65dae"},
+    {file = "arq-0.26.3-py3-none-any.whl", hash = "sha256:9f4b78149a58c9dc4b88454861a254b7c4e7a159f2c973c89b548288b77e9005"},
+    {file = "arq-0.26.3.tar.gz", hash = "sha256:362063ea3c726562fb69c723d5b8ee80827fdefda782a8547da5be3d380ac4b1"},
 ]
 
 [package.dependencies]
 click = ">=8.0"
-redis = {version = ">=4.2.0", extras = ["hiredis"]}
-typing-extensions = ">=4.1.0"
+redis = {version = ">=4.2.0,<6", extras = ["hiredis"]}
 
 [package.extras]
 watch = ["watchfiles (>=0.16)"]
@@ -4686,22 +4685,6 @@ typing-extensions = {version = ">=4.10.0", markers = "python_version < \"3.13\""
 full = ["httpx (>=0.27.0,<0.29.0)", "httpx2 (>=2.0.0)", "itsdangerous", "jinja2", "opentelemetry-api", "python-multipart (>=0.0.18)", "pyyaml"]
 
 [[package]]
-name = "starlette-context"
-version = "0.3.6"
-description = "Middleware for Starlette that allows you to store and access the context data of a request. Can be used with logging so logs automatically use request headers such as x-request-id or x-correlation-id."
-optional = true
-python-versions = ">=3.8,<4.0"
-groups = ["main"]
-markers = "extra == \"server\""
-files = [
-    {file = "starlette_context-0.3.6-py3-none-any.whl", hash = "sha256:b14ce373fbb6895a2182a7104b9f63ba20c8db83444005fb9a844dd77ad9895c"},
-    {file = "starlette_context-0.3.6.tar.gz", hash = "sha256:d361a36ba2d4acca3ab680f917b25e281533d725374752d47607a859041958cb"},
-]
-
-[package.dependencies]
-starlette = "*"
-
-[[package]]
 name = "tabulate"
 version = "0.10.0"
 description = "Pretty-print tabular data"
@@ -5328,9 +5311,9 @@ test = ["big-O", "jaraco.functools", "jaraco.itertools", "jaraco.test", "more_it
 type = ["pytest-mypy"]
 
 [extras]
-server = ["aiocache", "alembic", "alembic-utils", "arq", "authlib", "bbi-variant-annotation", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "psycopg2", "pyathena", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "starlette-context", "uvicorn", "watchtower"]
+server = ["aiocache", "alembic", "alembic-utils", "arq", "authlib", "bbi-variant-annotation", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "psycopg2", "pyathena", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "uvicorn", "watchtower"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "4d5a1195254e38f8f62fc0db01994510a5f2cf4aebdb258bed1518943a121fea"
+content-hash = "a84ef58850968a6c9779bc4f8fc4db738026d25f6487661516a807eb7ddaa020"

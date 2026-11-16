@@ -6,8 +6,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, relationship
 
 from mavedb.db.base import Base
-from mavedb.db.mixins import ValidTime
 from mavedb.models.enums.vep import VepConsequenceSource
+from mavedb.models.mixins.valid_time import ValidTime
 
 if TYPE_CHECKING:
     from .allele import Allele

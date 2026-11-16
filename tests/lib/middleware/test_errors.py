@@ -14,6 +14,7 @@ import pytest
 pytest.importorskip("psycopg2")
 pytest.importorskip("fastapi")
 
+from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
@@ -72,6 +73,25 @@ def database_error_route():
 
 
 @pytest.fixture
+def mid_stream_failure_route():
+    """Register a streaming route that fails after its first chunk is sent."""
+
+    def chunks():
+        yield b"first chunk"
+        raise DeliberateFailure("failed mid-stream")
+
+    @app.get(BOOM_PATH)
+    def boom():
+        return StreamingResponse(chunks())
+
+    route = app.router.routes[-1]
+    try:
+        yield
+    finally:
+        app.router.routes.remove(route)
+
+
+@pytest.fixture
 def slack_error():
     with patch("mavedb.lib.middleware.errors.send_slack_error") as mocked:
         yield mocked
@@ -107,6 +127,19 @@ class TestCatchAllErrorMiddleware:
             tc.get(BOOM_PATH)
 
         assert any("Uncaught exception." in record.message for record in caplog.records)
+
+    def test_mid_stream_exception_writes_canonical_log_with_sent_status(
+        self, mid_stream_failure_route, slack_error, caplog
+    ):
+        """The app-level handler runs outside the request context, so the middleware must log it first."""
+        with caplog.at_level(logging.INFO), TestClient(app, raise_server_exceptions=False) as tc:
+            tc.get(BOOM_PATH)
+
+        canonical = [record for record in caplog.records if getattr(record, "canonical", False)]
+        assert len(canonical) == 1
+        assert canonical[0].response_code == 200
+        assert canonical[0].path == BOOM_PATH
+        assert canonical[0].captured_exception_info["type"] == "DeliberateFailure"
 
     def test_successful_request_is_untouched(self, slack_error):
         with TestClient(app) as tc:

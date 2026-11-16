@@ -6,7 +6,6 @@ import pytest
 from sqlalchemy import select
 
 pyathena = pytest.importorskip("pyathena")
-fastapi = pytest.importorskip("fastapi")
 
 from mavedb.lib.gnomad import (
     GnomadLinkVerdict,

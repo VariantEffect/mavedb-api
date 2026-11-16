@@ -15,7 +15,6 @@ pytest.importorskip("cdot")
 from mavedb.lib.temp_urns import generate_temp_urn
 from mavedb.lib.urn_redirects import forwarded_path, record_urn_redirect
 from mavedb.models.urn_redirect import UrnRedirect
-
 from tests.helpers.constants import VALID_EXPERIMENT_SET_URN, VALID_EXPERIMENT_URN, VALID_SCORE_SET_URN
 
 RETIRED_URN = "tmp:00000000-0000-4000-8000-000000000001"

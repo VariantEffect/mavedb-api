@@ -489,8 +489,8 @@ class TestValidateHgvsPrefixCombinations(TestCase):
                 with self.assertRaises(ValidationError):
                     validate_hgvs_prefix_combinations(*t, True)
 
-    # TODO: biocommons.HGVS validation clashes here w/ our custom validators:
-    #       n. prefix is the problematic one, for now.
+    # TODO(#984): biocommons.HGVS validation clashes here w/ our custom validators:
+    #              n. prefix is the problematic one, for now.
     @pytest.mark.skip()
     def test_invalid_combinations_biocommons(self):
         for t in self.invalid_combinations:

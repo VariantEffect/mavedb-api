@@ -1,6 +1,6 @@
 import pytest
 
-from mavedb.view_models.target_sequence import TargetSequenceCreate, sanitize_target_sequence_label
+from mavedb.view_models.target_sequence import TargetSequenceCreate
 from tests.helpers.constants import TEST_POPULATED_TAXONOMY
 
 SEQUENCE = (
@@ -72,7 +72,7 @@ def test_target_sequence_label_is_sanitized():
 
     assert target_sequence.sequence_type == sequence_type
     assert target_sequence.sequence == SEQUENCE
-    assert target_sequence.label == sanitize_target_sequence_label(label)
+    assert target_sequence.label == "sanitize_this_label"
 
 
 def test_target_sequence_label_can_be_nonetype():

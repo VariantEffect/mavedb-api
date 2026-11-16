@@ -1,7 +1,6 @@
-from mavedb.view_models.raw_read_identifier import RawReadIdentifierCreate, RawReadIdentifier
-
-from tests.helpers.util.common import dummy_attributed_object_from_dict
+from mavedb.view_models.raw_read_identifier import RawReadIdentifier, RawReadIdentifierCreate
 from tests.helpers.constants import TEST_MINIMAL_RAW_READ_IDENTIFIER, TEST_SAVED_MINIMAL_RAW_READ_IDENTIFIER
+from tests.helpers.util.common import dummy_attributed_object_from_dict
 
 
 def test_minimal_raw_read_identifier_create():

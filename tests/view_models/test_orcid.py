@@ -1,8 +1,7 @@
 from mavedb.view_models.orcid import OrcidAuthTokenRequest, OrcidAuthTokenResponse, OrcidUser
-
 from tests.helpers.constants import (
-    TEST_MINIMAL_ORCID_AUTH_TOKEN_RESPONSE,
     TEST_MINIMAL_ORCID_AUTH_TOKEN_REQUEST,
+    TEST_MINIMAL_ORCID_AUTH_TOKEN_RESPONSE,
     TEST_MINIMAL_ORCID_USER,
 )
 

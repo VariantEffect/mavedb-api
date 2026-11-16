@@ -1,4 +1,4 @@
-"""Reusable declarative mixins."""
+"""Valid-time versioning for rows that change over time."""
 
 from datetime import datetime
 from typing import ClassVar, Optional, Sequence, TypeVar

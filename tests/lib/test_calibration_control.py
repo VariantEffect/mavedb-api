@@ -7,6 +7,7 @@ pytest.importorskip("psycopg2")
 import pandas as pd
 from sqlalchemy.exc import IntegrityError
 
+from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.lib.score_calibrations import build_calibration_controls, validate_calibration_controls_in_score_set
 from mavedb.lib.validation.constants.general import (
     calibration_control_status_column_name,
@@ -19,7 +20,6 @@ from mavedb.lib.validation.exceptions import ValidationError
 from mavedb.models.calibration_control import CalibrationControl
 from mavedb.models.enums.calibration_control_status import CalibrationControlStatus
 from mavedb.models.enums.functional_classification import FunctionalClassification
-from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_set import ScoreSet

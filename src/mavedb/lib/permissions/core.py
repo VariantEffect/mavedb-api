@@ -1,6 +1,10 @@
 from typing import Any, Callable, Optional
 
-from mavedb.lib.logging.context import save_to_logging_context
+from mavedb.lib.logging.context import (
+    append_to_logging_context,
+    increment_logging_context,
+    logging_context_list_is_full,
+)
 from mavedb.lib.permissions.actions import Action
 from mavedb.lib.permissions.exceptions import PermissionException
 from mavedb.lib.permissions.models import PermissionResponse
@@ -75,7 +79,26 @@ def has_permission(user_data: Optional[UserData], entity: EntityType, action: Ac
         )
 
     handler = entity_handlers[entity_type]
-    return handler(user_data, entity, action)
+    response = handler(user_data, entity, action)
+
+    # List endpoints check many entities per request, so each check is a capped record rather than
+    # top-level fields that would only describe the last entity checked. Past the cap only the count
+    # changes, so skip building the record there.
+    if response.permitted and logging_context_list_is_full("permissions.checks"):
+        increment_logging_context("permissions.checks_count")
+        return response
+
+    check = {
+        "entity": entity_type.__name__,
+        "id": getattr(entity, "urn", None) or entity.id,
+        "action": action.name,
+        "permitted": response.permitted,
+    }
+    append_to_logging_context("permissions.checks", check)
+    if not response.permitted:
+        append_to_logging_context("permissions.denied", {**check, "message": response.message})
+
+    return response
 
 
 def assert_permission(user_data: Optional[UserData], entity: EntityType, action: Action) -> PermissionResponse:
@@ -103,7 +126,6 @@ def assert_permission(user_data: Optional[UserData], entity: EntityType, action:
         >>> # This will raise PermissionException if user can't update
         >>> assert_permission(user_data, score_set, Action.UPDATE)
     """
-    save_to_logging_context({"permission_boundary": action.name})
     permission = has_permission(user_data, entity, action)
 
     if not permission.permitted:

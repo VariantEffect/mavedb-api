@@ -9,6 +9,7 @@ import jsonschema
 import pytest
 import requests
 import requests_mock
+from sqlalchemy import select
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
@@ -18,7 +19,9 @@ from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.validation.urn_re import MAVEDB_TMP_URN_RE
 from mavedb.models.experiment import Experiment as ExperimentDbModel
 from mavedb.models.experiment_set import ExperimentSet as ExperimentSetDbModel
+from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
+from mavedb.models.score_set_publication_identifier import ScoreSetPublicationIdentifierAssociation
 from mavedb.view_models.experiment import Experiment, ExperimentCreate
 from mavedb.view_models.orcid import OrcidUser
 from tests.helpers.constants import (
@@ -570,7 +573,7 @@ def test_create_experiment_that_keyword_gene_ontology_is_other_without_code(clie
     assert response_data["keywords"][0]["keyword"]["label"] == "Other"
 
 
-# TODO(#511) Re-enable the Gene Ontology code requirement.
+# TODO(#511): Re-enable the Gene Ontology code requirement.
 # def test_cannot_create_experiment_that_keyword_has_an_invalid_code(client, setup_router_db):
 #     invalid_keyword = {
 #         "keywords": [
@@ -1301,6 +1304,55 @@ def test_create_experiment_with_new_primary_crossref_publication(client, setup_r
     # TODO: add separate tests for generating the publication url and referenceHtml
 
 
+def cited_identifiers(experiment, kind):
+    return [publication["identifier"] for publication in experiment[f"{kind}PublicationIdentifiers"]]
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [({"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"})],
+    indirect=["mock_publication_fetch"],
+)
+def test_create_experiment_publication_in_both_lists_is_cited_once_as_primary(
+    client, setup_router_db, mock_publication_fetch
+):
+    publication = {"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}
+
+    experiment = create_experiment(
+        client, {"primaryPublicationIdentifiers": [publication], "secondaryPublicationIdentifiers": [publication]}
+    )
+
+    assert cited_identifiers(experiment, "primary") == [TEST_PUBMED_IDENTIFIER]
+    assert cited_identifiers(experiment, "secondary") == []
+
+
+@pytest.mark.parametrize(
+    "mock_publication_fetch",
+    [
+        [
+            {"dbName": "PubMed", "identifier": f"{TEST_PUBMED_IDENTIFIER}"},
+            {"dbName": "bioRxiv", "identifier": f"{TEST_BIORXIV_IDENTIFIER}"},
+        ]
+    ],
+    indirect=["mock_publication_fetch"],
+)
+def test_update_experiment_swapped_publication_lists_swaps_citations(client, setup_router_db, mock_publication_fetch):
+    pubmed = {"identifier": TEST_PUBMED_IDENTIFIER, "dbName": "PubMed"}
+    biorxiv = {"identifier": TEST_BIORXIV_IDENTIFIER, "dbName": "bioRxiv"}
+    experiment = create_experiment(
+        client, {"primaryPublicationIdentifiers": [pubmed], "secondaryPublicationIdentifiers": [biorxiv]}
+    )
+
+    payload = deepcopy(experiment)
+    payload.update({"primaryPublicationIdentifiers": [biorxiv], "secondaryPublicationIdentifiers": [pubmed]})
+    response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=payload)
+    assert response.status_code == 200
+
+    response = client.get(f"/api/v1/experiments/{experiment['urn']}")
+    assert cited_identifiers(response.json(), "primary") == [TEST_BIORXIV_IDENTIFIER]
+    assert cited_identifiers(response.json(), "secondary") == [TEST_PUBMED_IDENTIFIER]
+
+
 @pytest.mark.parametrize(
     "db_name, identifier", [("biorxiv", TEST_BIORXIV_IDENTIFIER), ("medrxiv", TEST_MEDRXIV_IDENTIFIER)]
 )
@@ -1384,6 +1436,24 @@ def test_create_experiment_crossref_unavailable(client, setup_router_db, db_name
         m.get(f"https://api.crossref.org/works/{identifier}", status_code=503)
         payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
         payload["primaryPublicationIdentifiers"] = [{"identifier": f"{identifier}"}]
+        r = client.post("/api/v1/experiments/", json=payload)
+
+        assert m.called
+        assert r.status_code == 502
+
+
+def test_create_experiment_pubmed_rate_limited_returns_bad_gateway(client, setup_router_db):
+    # setup_router_db stores TEST_PUBMED_IDENTIFIER, which would skip the fetch.
+    unstored_pmid = "29999999"
+    with requests_mock.mock() as m:
+        m.post(
+            "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
+            status_code=429,
+            json={"error": "API rate limit exceeded"},
+            headers={"Content-Type": "application/json"},
+        )
+        payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
+        payload["primaryPublicationIdentifiers"] = [{"identifier": unstored_pmid, "dbName": "PubMed"}]
         r = client.post("/api/v1/experiments/", json=payload)
 
         assert m.called
@@ -1627,6 +1697,53 @@ def test_search_experiments_rejects_explicit_unpublished_search(session, client,
         response.json()["detail"]
         == "Cannot search for private experiments except in the context of the current user's data."
     )
+
+
+def _cite_seeded_publication(session, score_set_urn):
+    publication = session.scalars(
+        select(PublicationIdentifier).where(PublicationIdentifier.identifier == TEST_PUBMED_IDENTIFIER)
+    ).one()
+    score_set = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set_urn)).one()
+    score_set.publication_identifier_associations.append(
+        ScoreSetPublicationIdentifierAssociation(
+            db_name=publication.db_name, identifier=publication.identifier, primary=False
+        )
+    )
+    session.commit()
+
+
+def test_search_experiments_publication_filter_matches_only_own_visible_score_sets(
+    session, data_provider, client, setup_router_db, data_files
+):
+    """`uncited` catches a filter not tied to the experiment; `cited_privately` one that ignores visibility."""
+    cited = _publish_experiment(session, data_provider, client, data_files, update={"title": "Cited"})
+    _cite_seeded_publication(session, cited["scoreSetUrns"][0])
+
+    cited_privately = _publish_experiment(session, data_provider, client, data_files, update={"title": "Private"})
+    private_score_set = create_seq_score_set(client, cited_privately["urn"])
+    _cite_seeded_publication(session, private_score_set["urn"])
+
+    uncited = _publish_experiment(session, data_provider, client, data_files, update={"title": "Uncited"})
+
+    response = client.post("/api/v1/experiments/search", json={"publicationIdentifiers": [TEST_PUBMED_IDENTIFIER]})
+
+    assert response.status_code == 200
+    returned_urns = [item["urn"] for item in response.json()]
+    assert returned_urns == [cited["urn"]]
+    assert cited_privately["urn"] not in returned_urns
+    assert uncited["urn"] not in returned_urns
+
+
+def test_search_my_experiments_publication_filter_matches_own_private_score_sets(session, client, setup_router_db):
+    experiment = create_experiment(client)
+    score_set = create_seq_score_set(client, experiment["urn"])
+    _cite_seeded_publication(session, score_set["urn"])
+    create_experiment(client, update={"title": "Uncited"})
+
+    response = client.post("/api/v1/me/experiments/search", json={"publicationIdentifiers": [TEST_PUBMED_IDENTIFIER]})
+
+    assert response.status_code == 200
+    assert [item["urn"] for item in response.json()] == [experiment["urn"]]
 
 
 def test_search_my_experiments(session, client, setup_router_db):
