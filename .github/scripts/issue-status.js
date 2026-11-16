@@ -178,23 +178,23 @@ async function markPendingRelease(github, core, project, owner, repo, pr) {
 // Long-lived release branches (mavedb-dev) keep their history, so only PRs merged since the branch last shipped count.
 async function lastReleasedAt(github, owner, repo, pr) {
   const { search } = await github.graphql(
-    `query($query: String!) {
-      search(type: ISSUE, query: $query, first: 1) { nodes { ... on PullRequest { mergedAt } } }
+    `query($searchQuery: String!) {
+      search(type: ISSUE, query: $searchQuery, first: 1) { nodes { ... on PullRequest { mergedAt } } }
     }`,
-    { query: `repo:${owner}/${repo} is:pr is:merged head:${pr.head.ref} base:${pr.base.ref} sort:created-desc` },
+    { searchQuery: `repo:${owner}/${repo} is:pr is:merged head:${pr.head.ref} base:${pr.base.ref} sort:created-desc` },
   );
   return search.nodes[0]?.mergedAt ?? null;
 }
 
 async function updateReleaseDescription(github, core, owner, repo, pr) {
   const since = await lastReleasedAt(github, owner, repo, pr);
-  const query = `repo:${owner}/${repo} is:pr is:merged base:${pr.head.ref}` + (since ? ` merged:>${since}` : '');
+  const searchQuery = `repo:${owner}/${repo} is:pr is:merged base:${pr.head.ref}` + (since ? ` merged:>${since}` : '');
   const refs = [];
   let cursor = null;
   do {
     const { search } = await github.graphql(
-      `query($query: String!, $cursor: String) {
-        search(type: ISSUE, query: $query, first: 50, after: $cursor) {
+      `query($searchQuery: String!, $cursor: String) {
+        search(type: ISSUE, query: $searchQuery, first: 50, after: $cursor) {
           pageInfo { hasNextPage endCursor }
           nodes {
             ... on PullRequest {
@@ -204,7 +204,7 @@ async function updateReleaseDescription(github, core, owner, repo, pr) {
           }
         }
       }`,
-      { query, cursor },
+      { searchQuery, cursor },
     );
     for (const merged of search.nodes) {
       refs.push(...linkRefs(merged.closingIssuesReferences), ...closingRefs(merged.body, owner, repo));
