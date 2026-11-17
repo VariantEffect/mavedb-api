@@ -832,6 +832,26 @@ class TestMigrationReplay:
 
         assert sorted(f"{table}.{name}" for table, name in policies if table not in allowed) == []
 
+    def test_upgrade_target_genes_have_one_target_carrying_their_score_set(self, replayed_database):
+        # The models declare these too, but the test template is built from the models, not the migrations.
+        with replayed_database.connect() as conn:
+            constraints = set(
+                conn.execute(
+                    text(
+                        "SELECT conname FROM pg_constraint WHERE conrelid IN "
+                        "('target_genes'::regclass, 'target_sequences'::regclass, 'target_accessions'::regclass)"
+                    )
+                ).scalars()
+            )
+
+        assert {
+            "target_genes_one_target",
+            "target_genes_target_sequence_score_set_fkey",
+            "target_genes_accession_score_set_fkey",
+            "uq_target_sequences_id_score_set_id",
+            "uq_target_accessions_id_score_set_id",
+        } <= constraints
+
     def test_upgrade_enables_row_level_security_on_no_table(self, replayed_database):
         # Enabling is the pilot's and the rollout's job (#825, #878), each in a release of its own.
         with replayed_database.connect() as conn:

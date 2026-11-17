@@ -16,7 +16,7 @@ import pytest
 pytest.importorskip("psycopg2")
 
 from sqlalchemy import text
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from mavedb.db.rls import API_ROLE, WORKER_ROLE
 
@@ -351,6 +351,43 @@ def test_calibration_policy_contributor_removed_from_score_set_sees_neither_it_n
 
 
 @pytest.fixture
+def targets(records):
+    """A sequence and an accession under each score set, with no target gene yet."""
+    seed = records
+    for visibility in ("public", "private"):
+        seed.add(
+            "target_sequences",
+            f"ts_{visibility}",
+            sequence_type="dna",
+            sequence="ATG",
+            score_set_id=seed[f"s_{visibility}"],
+            **DATES,
+        )
+        seed.add(
+            "target_accessions",
+            f"ta_{visibility}",
+            accession="NM_000001.1",
+            is_base_editor=False,
+            score_set_id=seed[f"s_{visibility}"],
+            **DATES,
+        )
+    seed.session.commit()
+    return seed
+
+
+def _add_public_target_gene(seed: Seed, **target_names: str) -> None:
+    seed.add(
+        "target_genes",
+        name="g",
+        category="protein_coding",
+        scoreset_id=seed["s_public"],
+        **DATES,
+        **{column: seed[name] for column, name in target_names.items()},
+    )
+    seed.session.commit()
+
+
+@pytest.fixture
 def owned(records):
     """Rows owned by the records, one under a visible parent and one under a hidden one where it applies."""
     seed = records
@@ -539,3 +576,28 @@ def test_owned_policy_insert_under_a_hidden_parent_is_refused(owned, login_as):
                 ),
                 {"s": owned["s_private"]},
             )
+
+
+@pytest.mark.parametrize(
+    "target_names",
+    [{}, {"target_sequence_id": "ts_public", "accession_id": "ta_public"}],
+    ids=["neither", "both"],
+)
+def test_target_gene_without_exactly_one_target_is_rejected(targets, target_names):
+    with pytest.raises(IntegrityError, match="target_genes_one_target"):
+        _add_public_target_gene(targets, **target_names)
+
+
+@pytest.mark.parametrize(
+    "column, name",
+    [("target_sequence_id", "ts_private"), ("accession_id", "ta_private")],
+    ids=["sequence", "accession"],
+)
+def test_target_gene_whose_target_carries_another_score_set_is_rejected(targets, column, name):
+    with pytest.raises(IntegrityError, match="score_set_fkey"):
+        _add_public_target_gene(targets, **{column: name})
+
+
+@pytest.mark.parametrize("column, name", [("target_sequence_id", "ts_public"), ("accession_id", "ta_public")])
+def test_target_gene_with_one_target_under_its_own_score_set_is_accepted(targets, column, name):
+    _add_public_target_gene(targets, **{column: name})

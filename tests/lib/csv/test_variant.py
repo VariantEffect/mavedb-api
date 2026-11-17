@@ -40,6 +40,7 @@ from mavedb.models.projection_group import ProjectionGroup
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_set import ScoreSet
+from mavedb.models.target_accession import TargetAccession
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.variant import Variant
 from tests.helpers.constants import (
@@ -742,7 +743,14 @@ class TestGetVariantCsv:
 
     def test_provenance_columns(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
-        session.add(TargetGene(score_set_id=variant.score_set.id, name="PTEN", category="protein_coding"))
+        session.add(
+            TargetGene(
+                score_set_id=variant.score_set.id,
+                name="PTEN",
+                category="protein_coding",
+                target_accession=TargetAccession(accession="NM_000314.8"),
+            )
+        )
         session.commit()
 
         rows = _parse_csv(get_variant_csv(session, variant.urn))
