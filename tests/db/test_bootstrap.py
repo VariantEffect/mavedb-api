@@ -17,6 +17,7 @@ from sqlalchemy.pool import NullPool
 
 from mavedb.db import bootstrap
 from mavedb.db.bootstrap import apply_grants, bootstrap_cluster, bootstrap_database, role_problems, setup
+from mavedb.db.policy_snapshot import SNAPSHOT_PATH, render_policy_snapshot
 from mavedb.db.rls import (
     API_ROLE,
     FUNCTIONS,
@@ -794,6 +795,39 @@ class TestMigrationReplay:
             sorted(name for name, config in definers if not any(c.startswith("search_path=") for c in config or []))
             == []
         )
+
+    def test_upgrade_policies_match_the_committed_snapshot(self, replayed_database):
+        # A migration that changes a policy commits the regenerated snapshot, so review sees the whole rule.
+        with replayed_database.connect() as conn:
+            snapshot = render_policy_snapshot(conn)
+
+        assert snapshot == SNAPSHOT_PATH.read_text(), (
+            "src/mavedb/db/policies.sql is out of date; run `python -m mavedb.scripts.write_policy_snapshot` "
+            "against a database at alembic head"
+        )
+
+    def test_upgrade_policies_read_the_principal_only_through_the_helpers(self, replayed_database):
+        with replayed_database.connect() as conn:
+            policies = conn.execute(
+                text(
+                    "SELECT tablename || '.' || policyname FROM pg_policies WHERE schemaname = 'public' "
+                    "AND (coalesce(qual, '') ~ 'current_setting|app\\.' OR coalesce(with_check, '') ~ 'current_setting|app\\.')"
+                )
+            ).scalars()
+
+            assert sorted(policies) == []
+
+    def test_upgrade_enables_row_level_security_on_no_table(self, replayed_database):
+        # Enabling is the pilot's and the rollout's job (#825, #878), each in a release of its own.
+        with replayed_database.connect() as conn:
+            enabled = conn.execute(
+                text(
+                    "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname = 'public' AND (c.relrowsecurity OR c.relforcerowsecurity)"
+                )
+            ).scalars()
+
+            assert sorted(enabled) == []
 
     def test_upgrade_grants_match_the_registry(self, replayed_database):
         # The baseline is dumped without privileges, so these grants have to come from rls.py alone. A grant
