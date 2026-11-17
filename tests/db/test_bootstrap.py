@@ -882,6 +882,19 @@ class TestMigrationReplay:
             "uq_target_accessions_id_score_set_id",
         } <= constraints
 
+    def test_upgrade_plain_views_read_their_tables_as_the_caller(self, replayed_database):
+        # A view that reads as its owner skips every policy on its tables, whoever it's granted to.
+        with replayed_database.connect() as conn:
+            owner_views = conn.execute(
+                text(
+                    "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname = 'public' AND c.relkind = 'v' AND NOT coalesce((SELECT o.option_value::boolean "
+                    "FROM pg_options_to_table(c.reloptions) o WHERE o.option_name = 'security_invoker'), false)"
+                )
+            ).scalars()
+
+            assert sorted(owner_views) == []
+
     def test_upgrade_enables_row_level_security_on_no_table(self, replayed_database):
         # Enabling is the pilot's and the rollout's job (#825, #878), each in a release of its own.
         with replayed_database.connect() as conn:

@@ -142,8 +142,7 @@ RELATIONS: dict[str, Relation] = {
     "annotation_event": WORKER_ONLY,
     "variant_annotation_status": WORKER_ONLY,
     "v_current_annotation_events": WORKER_ONLY,
-    # No route reads it yet. It can become GUARDED once #809 makes it security_invoker; until then it would
-    # read its tables as the owner, past their policies.
+    # No route reads it yet. It's security_invoker (#809), so a route that needs it can make it GUARDED.
     "v_variant_annotations": WORKER_ONLY,
     # Alembic's record of the schema's revision. Only migrations, running as the owner, read or write it.
     "alembic_version": UNGRANTED,
