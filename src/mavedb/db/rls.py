@@ -81,7 +81,6 @@ RELATIONS: dict[str, Relation] = {
     "calibration_controls": GUARDED,
     "scoreset_publication_identifiers": GUARDED,
     "experiment_publication_identifiers": GUARDED,
-    "experiment_set_publication_identifiers": GUARDED,
     "scoreset_doi_identifiers": GUARDED,
     "experiment_doi_identifiers": GUARDED,
     "experiment_set_doi_identifiers": GUARDED,
