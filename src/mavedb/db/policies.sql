@@ -375,6 +375,18 @@ CREATE POLICY scoresets_worker ON scoresets AS PERMISSIVE FOR ALL TO mavedb_work
   USING (true)
   WITH CHECK (true);
 
+-- target_accessions: row-level security not enabled
+CREATE POLICY target_accessions_rule ON target_accessions AS PERMISSIVE FOR ALL TO public
+  USING ((EXISTS ( SELECT 1
+   FROM scoresets p
+  WHERE (p.id = target_accessions.score_set_id))))
+  WITH CHECK ((EXISTS ( SELECT 1
+   FROM scoresets p
+  WHERE (p.id = target_accessions.score_set_id))));
+CREATE POLICY target_accessions_worker ON target_accessions AS PERMISSIVE FOR ALL TO mavedb_worker
+  USING (true)
+  WITH CHECK (true);
+
 -- target_gene_external_identifiers: row-level security not enabled
 CREATE POLICY target_gene_external_identifiers_rule ON target_gene_external_identifiers AS PERMISSIVE FOR ALL TO public
   USING ((EXISTS ( SELECT 1
@@ -406,6 +418,18 @@ CREATE POLICY target_genes_rule ON target_genes AS PERMISSIVE FOR ALL TO public
   WITH CHECK ((scoreset_id IN ( SELECT scoresets.id
    FROM scoresets)));
 CREATE POLICY target_genes_worker ON target_genes AS PERMISSIVE FOR ALL TO mavedb_worker
+  USING (true)
+  WITH CHECK (true);
+
+-- target_sequences: row-level security not enabled
+CREATE POLICY target_sequences_rule ON target_sequences AS PERMISSIVE FOR ALL TO public
+  USING ((EXISTS ( SELECT 1
+   FROM scoresets p
+  WHERE (p.id = target_sequences.score_set_id))))
+  WITH CHECK ((EXISTS ( SELECT 1
+   FROM scoresets p
+  WHERE (p.id = target_sequences.score_set_id))));
+CREATE POLICY target_sequences_worker ON target_sequences AS PERMISSIVE FOR ALL TO mavedb_worker
   USING (true)
   WITH CHECK (true);
 

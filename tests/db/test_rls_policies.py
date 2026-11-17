@@ -388,9 +388,9 @@ def _add_public_target_gene(seed: Seed, **target_names: str) -> None:
 
 
 @pytest.fixture
-def owned(records):
+def owned(targets):
     """Rows owned by the records, one under a visible parent and one under a hidden one where it applies."""
-    seed = records
+    seed = targets
     for visibility in ("public", "private"):
         variant = seed.add(
             "variants",
@@ -493,6 +493,8 @@ def owned(records):
 
 OWNED_TABLES = (
     "variants",
+    "target_sequences",
+    "target_accessions",
     "mapping_records",
     "calibration_controls",
     "score_calibration_functional_classifications",
@@ -507,6 +509,8 @@ OWNED_TABLES = (
 OWNED_EXPECTED = {
     "anonymous": {
         "variants": {"v_public"},
+        "target_sequences": {"ts_public"},
+        "target_accessions": {"ta_public"},
         "mapping_records": {"mr_public"},
         "calibration_controls": {"cc_public"},
         "score_calibration_functional_classifications": {"fc_public"},
@@ -519,6 +523,8 @@ OWNED_EXPECTED = {
     },
     "owner": {
         "variants": {"v_public", "v_private"},
+        "target_sequences": {"ts_public", "ts_private"},
+        "target_accessions": {"ta_public", "ta_private"},
         "mapping_records": {"mr_public", "mr_private"},
         "calibration_controls": {"cc_public", "cc_hidden"},
         "score_calibration_functional_classifications": {"fc_public", "fc_hidden"},
@@ -531,6 +537,8 @@ OWNED_EXPECTED = {
     },
     "admin": {
         "variants": {"v_public", "v_private"},
+        "target_sequences": {"ts_public", "ts_private"},
+        "target_accessions": {"ta_public", "ta_private"},
         "mapping_records": {"mr_public", "mr_private"},
         "calibration_controls": {"cc_public", "cc_hidden"},
         "score_calibration_functional_classifications": {"fc_public", "fc_hidden"},
