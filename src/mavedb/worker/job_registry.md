@@ -42,6 +42,14 @@ BACKGROUND_CRONJOBS: List[CronJob] = [
         keep_result=timedelta(minutes=2).total_seconds(),
     ),
     cron(
+        check_allele_first_published_at,
+        name="check_allele_first_published_at",
+        weekday="sun",
+        hour=21,
+        minute=0,
+        keep_result=timedelta(minutes=2).total_seconds(),
+    ),
+    cron(
         cleanup_stalled_jobs,
         name="cleanup_stalled_jobs_cron",
         minute={5, 15, 25, 35, 45, 55},  # Every 10 minutes

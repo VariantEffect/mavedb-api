@@ -12,6 +12,7 @@ from arq.cron import CronJob, cron
 from mavedb.lib.types.workflow import JobDefinition
 from mavedb.models.enums.job_pipeline import JobType
 from mavedb.worker.jobs.data_management import (
+    check_allele_first_published_at,
     refresh_materialized_views,
     refresh_published_variants_view,
 )
@@ -49,6 +50,7 @@ BACKGROUND_FUNCTIONS: List[Callable] = [
     link_gnomad_variants,
     populate_vep_for_score_set,
     # Data management jobs
+    check_allele_first_published_at,
     refresh_materialized_views,
     refresh_published_variants_view,
     # Pipeline management jobs
@@ -63,6 +65,16 @@ BACKGROUND_CRONJOBS: List[CronJob] = [
         refresh_materialized_views,
         name="refresh_all_materialized_views",
         hour=20,
+        minute=0,
+        keep_result=timedelta(minutes=2).total_seconds(),
+    ),
+    cron(
+        check_allele_first_published_at,
+        name="check_allele_first_published_at",
+        # Weekly: drift comes from rare events such as restores, and the check scans every allele. An hour after
+        # the view refresh, so the two full scans don't overlap.
+        weekday="sun",
+        hour=21,
         minute=0,
         keep_result=timedelta(minutes=2).total_seconds(),
     ),
