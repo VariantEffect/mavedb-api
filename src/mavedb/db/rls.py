@@ -165,6 +165,10 @@ FUNCTIONS: dict[str, Function] = {
     # so they bypass nothing. Any role a policy applies to must be able to run them.
     "mavedb_user_id": Function(frozenset({API_ROLE, WORKER_ROLE})),
     "mavedb_roles": Function(frozenset({API_ROLE, WORKER_ROLE})),
+    # Trigger functions that set alleles.first_published_at (#809). A trigger runs its function whoever fires it,
+    # so nobody needs to call them.
+    "mavedb_mark_alleles_published_by_links": Function(),
+    "mavedb_mark_alleles_published_by_score_set": Function(),
     # Refreshing a materialized view requires owning it, and the worker owns nothing.
     "mavedb_refresh_mat_views": Function(frozenset({WORKER_ROLE}), security_definer=True),
     # From the 2026.3.0 baseline. Nothing calls it.

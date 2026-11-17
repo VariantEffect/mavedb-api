@@ -15,12 +15,17 @@ from sqlalchemy import Connection, text
 
 SNAPSHOT_PATH = Path(__file__).parent / "policies.sql"
 
-# Every function a policy calls. Policy bodies call nothing else.
-RLS_FUNCTIONS = ("mavedb_user_id", "mavedb_roles")
+# Every function a policy calls, and the trigger functions that maintain a column a policy reads.
+RLS_FUNCTIONS = (
+    "mavedb_user_id",
+    "mavedb_roles",
+    "mavedb_mark_alleles_published_by_links",
+    "mavedb_mark_alleles_published_by_score_set",
+)
 
 _HEADER = """\
--- Row-level security in the public schema: the functions it relies on, then each table's RLS state and
--- policies.
+-- Row-level security in the public schema: the functions and triggers it relies on, then each table's RLS
+-- state and policies.
 -- Generated from a database at alembic head by `python -m mavedb.scripts.write_policy_snapshot`. Don't edit
 -- by hand: change policies in a migration and regenerate this file.
 """

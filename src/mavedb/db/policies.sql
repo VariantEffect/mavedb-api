@@ -1,7 +1,38 @@
--- Row-level security in the public schema: the functions it relies on, then each table's RLS state and
--- policies.
+-- Row-level security in the public schema: the functions and triggers it relies on, then each table's RLS
+-- state and policies.
 -- Generated from a database at alembic head by `python -m mavedb.scripts.write_policy_snapshot`. Don't edit
 -- by hand: change policies in a migration and regenerate this file.
+
+CREATE OR REPLACE FUNCTION public.mavedb_mark_alleles_published_by_links()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    UPDATE alleles a
+       SET first_published_at = coalesce(s.published_date, current_date)
+      FROM new_links l
+      JOIN scoresets s ON s.id = l.score_set_id
+     WHERE a.id = l.allele_id
+       AND NOT s.private
+       AND a.first_published_at IS NULL;
+    RETURN NULL;
+END
+$function$;
+
+CREATE OR REPLACE FUNCTION public.mavedb_mark_alleles_published_by_score_set()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+    UPDATE alleles a
+       SET first_published_at = coalesce(NEW.published_date, current_date)
+      FROM mapping_record_alleles m
+     WHERE m.score_set_id = NEW.id
+       AND a.id = m.allele_id
+       AND a.first_published_at IS NULL;
+    RETURN NULL;
+END
+$function$;
 
 CREATE OR REPLACE FUNCTION public.mavedb_roles()
  RETURNS text[]
@@ -14,6 +45,9 @@ CREATE OR REPLACE FUNCTION public.mavedb_user_id()
  LANGUAGE sql
  STABLE PARALLEL SAFE
 AS $function$ SELECT nullif(current_setting('app.user_id', true), '')::integer $function$;
+
+CREATE TRIGGER mapping_record_alleles_mark_alleles_published AFTER INSERT ON public.mapping_record_alleles REFERENCING NEW TABLE AS new_links FOR EACH STATEMENT EXECUTE FUNCTION mavedb_mark_alleles_published_by_links();
+CREATE TRIGGER scoresets_mark_alleles_published AFTER UPDATE OF private ON public.scoresets FOR EACH ROW WHEN ((old.private AND (NOT new.private))) EXECUTE FUNCTION mavedb_mark_alleles_published_by_score_set();
 
 -- calibration_controls: row-level security not enabled
 CREATE POLICY calibration_controls_rule ON calibration_controls AS PERMISSIVE FOR ALL TO public

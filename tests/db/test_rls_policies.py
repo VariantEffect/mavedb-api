@@ -19,6 +19,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from mavedb.db.rls import API_ROLE, WORKER_ROLE
+from mavedb.lib.alleles import first_published_at_drift
 
 pytestmark = pytest.mark.integration
 
@@ -26,6 +27,8 @@ RECORD_TABLES = ("scoresets", "experiments", "experiment_sets", "score_calibrati
 
 # How a row is identified, for tables without an id column.
 ROW_KEYS = {
+    "variant_translations": "aa_clingen_id || ':' || nt_clingen_id",
+    "scoreset_publication_identifiers": "db_name || ':' || identifier || ':' || scoreset_id",
     "collection_score_sets": "collection_id || ':' || score_set_id",
     "collection_experiments": "collection_id || ':' || experiment_id",
 }
@@ -609,3 +612,157 @@ def test_target_gene_whose_target_carries_another_score_set_is_rejected(targets,
 @pytest.mark.parametrize("column, name", [("target_sequence_id", "ts_public"), ("accession_id", "ta_public")])
 def test_target_gene_with_one_target_under_its_own_score_set_is_accepted(targets, column, name):
     _add_public_target_gene(targets, **{column: name})
+
+
+@pytest.fixture
+def shared(owned):
+    """Shared rows, each reached from the public score set's records or only from the private one's."""
+    seed = owned
+    for visibility in ("public", "private"):
+        allele = seed.add(
+            "alleles",
+            f"a_{visibility}",
+            vrs_digest=f"digest-{visibility}",
+            level="genomic",
+            clingen_allele_id=f"CA-{visibility}",
+            **{"created_at": "2026-01-01", "updated_at": "2026-01-01"},
+        )
+        seed.add(
+            "mapping_record_alleles",
+            f"mra_{visibility}",
+            mapping_record_id=seed[f"mr_{visibility}"],
+            allele_id=allele,
+            score_set_id=seed[f"s_{visibility}"],
+            is_authoritative=True,
+            valid_from="2026-01-01",
+        )
+        seed.add(
+            "vep_allele_consequences",
+            f"vep_{visibility}",
+            allele_id=allele,
+            source_version="1",
+            access_date="2026-01-01",
+            valid_from="2026-01-01",
+        )
+        control = seed.add(
+            "clinvar_controls",
+            f"cvc_{visibility}",
+            db_identifier=f"cv-{visibility}",
+            gene_symbol="G",
+            clinical_significance="benign",
+            clinical_review_status="r",
+            db_version="1",
+            db_name="ClinVar",
+            **DATES,
+        )
+        seed.add(
+            "clinvar_allele_links",
+            f"cal_{visibility}",
+            allele_id=allele,
+            clinvar_control_id=control,
+            valid_from="2026-01-01",
+        )
+        gnomad = seed.add(
+            "gnomad_variants",
+            f"gv_{visibility}",
+            db_name="gnomAD",
+            db_identifier=f"gv-{visibility}",
+            db_version="1",
+            allele_count=1,
+            allele_number=1,
+            allele_frequency=1.0,
+            **DATES,
+        )
+        seed.add(
+            "gnomad_allele_links",
+            f"gal_{visibility}",
+            allele_id=allele,
+            gnomad_variant_id=gnomad,
+            valid_from="2026-01-01",
+        )
+        seed.add(
+            "publication_identifiers",
+            f"pub_{visibility}",
+            identifier=f"pub-{visibility}",
+            db_name="PubMed",
+            title="t",
+            authors="[]",
+            **DATES,
+        )
+        seed.add(
+            "scoreset_publication_identifiers",
+            f"spi_{visibility}",
+            scoreset_id=seed[f"s_{visibility}"],
+            db_name="PubMed",
+            identifier=f"pub-{visibility}",
+            primary=False,
+        )
+    seed.add("variant_translations", "vt_public", aa_clingen_id="CA-public", nt_clingen_id="CA-public", **DATES)
+    seed.add("variant_translations", "vt_mixed", aa_clingen_id="CA-public", nt_clingen_id="CA-private", **DATES)
+    seed.session.commit()
+    return seed
+
+
+def _first_published(session, seed: Seed, name: str):
+    session.expire_all()
+    return session.execute(
+        text("SELECT first_published_at FROM alleles WHERE id = :id"), {"id": seed[name]}
+    ).scalar_one()
+
+
+def test_first_published_at_link_from_public_score_set_sets_it_and_private_leaves_it_null(shared, session):
+    assert _first_published(session, shared, "a_public") is not None
+    assert _first_published(session, shared, "a_private") is None
+    assert first_published_at_drift(session) == []
+
+
+def test_first_published_at_publishing_a_score_set_sets_it_for_alleles_it_links(shared, session):
+    session.execute(
+        text("UPDATE scoresets SET private = false, published_date = '2026-02-02' WHERE id = :id"),
+        {"id": shared["s_private"]},
+    )
+    session.commit()
+
+    assert str(_first_published(session, shared, "a_private")) == "2026-02-02"
+    assert first_published_at_drift(session) == []
+
+
+def test_first_published_at_is_never_overwritten(shared, session):
+    before = _first_published(session, shared, "a_public")
+    session.execute(
+        text(
+            "INSERT INTO mapping_record_alleles (mapping_record_id, allele_id, score_set_id, is_authoritative, "
+            "valid_from) VALUES (:mr, :a, :s, false, now())"
+        ),
+        {"mr": shared["mr_private"], "a": shared["a_public"], "s": shared["s_private"]},
+    )
+    session.execute(
+        text("UPDATE scoresets SET private = false, published_date = '2030-01-01' WHERE id = :id"),
+        {"id": shared["s_private"]},
+    )
+    session.commit()
+
+    assert _first_published(session, shared, "a_public") == before
+
+
+def test_first_published_at_link_to_an_already_public_score_set_sets_it(shared, session):
+    session.execute(
+        text(
+            "INSERT INTO mapping_record_alleles (mapping_record_id, allele_id, score_set_id, is_authoritative, "
+            "valid_from) VALUES (:mr, :a, :s, false, now())"
+        ),
+        {"mr": shared["mr_public"], "a": shared["a_private"], "s": shared["s_public"]},
+    )
+    session.commit()
+
+    assert _first_published(session, shared, "a_private") is not None
+    assert first_published_at_drift(session) == []
+
+
+def test_first_published_at_drift_reports_an_allele_set_without_a_public_link(shared, session):
+    session.execute(
+        text("UPDATE alleles SET first_published_at = '2026-01-01' WHERE id = :id"), {"id": shared["a_private"]}
+    )
+    session.commit()
+
+    assert first_published_at_drift(session) == [shared["a_private"]]
