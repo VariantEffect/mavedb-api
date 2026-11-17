@@ -162,6 +162,10 @@ RELATIONS: dict[str, Relation] = {
 # execute one. A SECURITY DEFINER function runs as the owner, so it gets one executor and a reason, and pins its
 # search_path; one that doesn't pin it gets no executors.
 FUNCTIONS: dict[str, Function] = {
+    # Read the request's principal for the RLS policies (#809). Plain SQL that Postgres inlines into each policy,
+    # so they bypass nothing. Any role a policy applies to must be able to run them.
+    "mavedb_user_id": Function(frozenset({API_ROLE, WORKER_ROLE})),
+    "mavedb_roles": Function(frozenset({API_ROLE, WORKER_ROLE})),
     # Refreshing a materialized view requires owning it, and the worker owns nothing.
     "mavedb_refresh_mat_views": Function(frozenset({WORKER_ROLE}), security_definer=True),
     # From the 2026.3.0 baseline. Nothing calls it.
