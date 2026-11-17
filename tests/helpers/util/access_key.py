@@ -1,14 +1,23 @@
+from datetime import date
+from typing import Optional
+
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from mavedb.models.enums.user_role import UserRole
 from mavedb.models.user import User
 from mavedb.routers.access_keys import new_access_key
 
 
-def create_api_key_for_user(db: Session, username: str) -> str:
+def create_api_key_for_user(
+    db: Session, username: str, role: Optional[UserRole] = None, expiration_date: Optional[date] = None
+) -> str:
     user = db.scalars(select(User).where(User.username == username)).one()
     key, _, item = new_access_key(user)
+    if role is not None:
+        item.set_role(db, role)
+    item.expiration_date = expiration_date
     db.add(item)
     db.commit()
 
