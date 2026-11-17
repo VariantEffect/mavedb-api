@@ -217,7 +217,7 @@ def test_replace_score_set_targets_as_api_role_with_target_rls_enabled_succeeds(
 def test_publish_score_set_as_api_role_with_rls_enabled_records_its_redirects(
     session, data_provider, api_role_client, setup_router_db, target_tables_enforcing, data_files
 ):
-    for table in ("variants", "urn_redirects", "mapping_records", "mapping_record_alleles"):
+    for table in ("variants", "urn_redirects", "mapping_records", "mapping_record_alleles", "alleles"):
         session.execute(text(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"))
     session.commit()
     experiment = create_experiment(api_role_client)

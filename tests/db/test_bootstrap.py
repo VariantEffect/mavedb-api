@@ -796,6 +796,36 @@ class TestMigrationReplay:
             == []
         )
 
+    def test_upgrade_every_guarded_table_has_its_rule_and_worker_policies_and_no_other_table_has_any(
+        self, replayed_database
+    ):
+        with replayed_database.connect() as conn:
+            tables = set(
+                conn.execute(
+                    text(
+                        "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                        "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'f')"
+                    )
+                ).scalars()
+            )
+            policies = conn.execute(
+                text(
+                    "SELECT tablename, policyname, roles::text[], qual, with_check FROM pg_policies "
+                    "WHERE schemaname = 'public'"
+                )
+            ).all()
+
+        guarded = {name for name, relation in RELATIONS.items() if relation.api is ApiAccess.GUARDED} & tables
+        names = {(table, name) for table, name, *_ in policies}
+        worker_policies = {(table, name) for table, name, roles, using, check in policies if roles == [WORKER_ROLE]}
+        assert sorted({table for table, _ in names} - guarded) == []
+        assert sorted(names) == sorted((table, f"{table}_{kind}") for table in guarded for kind in ("rule", "worker"))
+        assert {
+            (table, name, using, check)
+            for table, name, roles, using, check in policies
+            if (table, name) in worker_policies
+        } == {(table, f"{table}_worker", "true", "true") for table in guarded}
+
     def test_upgrade_policies_match_the_committed_snapshot(self, replayed_database):
         # A migration that changes a policy commits the regenerated snapshot, so review sees the whole rule.
         with replayed_database.connect() as conn:

@@ -1,11 +1,10 @@
 # ruff: noqa: E402
 
-"""Citing publications under a row-level security read policy on ``publication_identifiers`` (#945).
+"""Citing publications under the row-level security policy on ``publication_identifiers`` (#945, #809).
 
-The api's roles (#827) and the real policy (#809) don't exist yet, so these tests stand them in: a role without
-login rights that isn't a superuser and doesn't own the tables, and a policy that shows a publication only when a
-record the caller can see cites it. "Can see" is reduced to public or created by the caller. #809 replaces this
-fixture with the real policy.
+The requests run as the api's login with the caller's principal, and RLS enabled on the publications, the
+citation tables and the records they read, so a publication is visible only when a record the caller can see
+cites it.
 """
 
 from contextlib import contextmanager
@@ -17,6 +16,7 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
+from mavedb.db.rls import API_ROLE
 from mavedb.models.publication_identifier import PublicationIdentifier
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.user import User
@@ -25,54 +25,32 @@ from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import create_seq_score_set
 from tests.helpers.util.user import change_ownership
 
-API_ROLE = "mavedb_test_rls_api"
-
-# A record makes a publication visible when it cites it and the caller can see the record.
-VISIBLE_CITATION = """
-    EXISTS (
-        SELECT 1 FROM {citations} c JOIN {owners} o ON o.id = c.{owner_id}
-         WHERE c.db_name = publication_identifiers.db_name AND c.identifier = publication_identifiers.identifier
-           AND (NOT o.private OR o.created_by_id = current_setting('mavedb_test.user_id')::int)
-    )
-"""
-READ_POLICY = " OR ".join(
-    VISIBLE_CITATION.format(citations=citations, owners=owners, owner_id=owner_id)
-    for citations, owners, owner_id in [
-        ("scoreset_publication_identifiers", "scoresets", "scoreset_id"),
-        ("experiment_publication_identifiers", "experiments", "experiment_id"),
-        ("score_calibration_publication_identifiers", "score_calibrations", "score_calibration_id"),
-    ]
+# The publications, everything that cites them, and the records the citations' policies read.
+ENFORCING = (
+    "publication_identifiers",
+    "scoreset_publication_identifiers",
+    "experiment_publication_identifiers",
+    "score_calibration_publication_identifiers",
+    "scoresets",
+    "experiments",
+    "experiment_sets",
+    "score_calibrations",
 )
 
 
 @pytest.fixture
 def as_api_role(session, setup_router_db):
-    """Enable the read policy, and return a context manager that runs the requests inside it as the api role."""
-    session.execute(
-        text(
-            f"""
-            DO $$
-            BEGIN
-                CREATE ROLE {API_ROLE} NOLOGIN;
-            -- Roles span the cluster, which parallel test databases share.
-            EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
-            END $$
-            """
-        )
-    )
-    session.execute(text(f"GRANT USAGE ON SCHEMA public TO {API_ROLE}"))
-    session.execute(text(f"GRANT ALL ON ALL TABLES IN SCHEMA public TO {API_ROLE}"))
-    session.execute(text(f"GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO {API_ROLE}"))
-    session.execute(text("ALTER TABLE publication_identifiers ENABLE ROW LEVEL SECURITY"))
-    session.execute(text(f"CREATE POLICY read_cited ON publication_identifiers FOR SELECT USING ({READ_POLICY})"))
-    session.execute(text("CREATE POLICY write_any ON publication_identifiers FOR INSERT WITH CHECK (true)"))
+    """Enable RLS, and return a context manager that runs the requests inside it as the api role."""
+    for table in ENFORCING:
+        session.execute(text(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"))
     session.commit()
 
     caller_id = session.scalars(select(User.id).filter_by(username=TEST_USER["username"])).one()
 
     def switch_role(session, transaction, connection):
         connection.exec_driver_sql(
-            f"SET LOCAL ROLE {API_ROLE}; SELECT set_config('mavedb_test.user_id', '{caller_id}', true)"
+            f"SET LOCAL ROLE {API_ROLE}; SELECT set_config('app.user_id', '{caller_id}', true), "
+            "set_config('app.active_roles', '{}', true)"
         )
 
     @contextmanager

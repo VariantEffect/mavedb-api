@@ -703,6 +703,78 @@ def shared(owned):
     return seed
 
 
+SHARED_TABLES = (
+    "alleles",
+    "mapping_record_alleles",
+    "vep_allele_consequences",
+    "clinvar_allele_links",
+    "clinvar_controls",
+    "gnomad_allele_links",
+    "gnomad_variants",
+    "variant_translations",
+    "publication_identifiers",
+    "scoreset_publication_identifiers",
+)
+
+
+def _shared_expected(*visibilities: str) -> dict[str, set[str]]:
+    prefixes = {
+        "alleles": "a",
+        "mapping_record_alleles": "mra",
+        "vep_allele_consequences": "vep",
+        "clinvar_allele_links": "cal",
+        "clinvar_controls": "cvc",
+        "gnomad_allele_links": "gal",
+        "gnomad_variants": "gv",
+        "publication_identifiers": "pub",
+        "scoreset_publication_identifiers": "spi",
+    }
+    expected = {table: {f"{prefix}_{v}" for v in visibilities} for table, prefix in prefixes.items()}
+    expected["variant_translations"] = {"vt_public", "vt_mixed"} if "private" in visibilities else {"vt_public"}
+    return expected
+
+
+SHARED_EXPECTED = {
+    "anonymous": _shared_expected("public"),
+    "stranger": _shared_expected("public"),
+    "owner": _shared_expected("public", "private"),
+    "mapper": _shared_expected("public", "private"),
+}
+
+
+@pytest.fixture
+def shared_enforcing(shared):
+    """Row-level security on for every table the shared tables' policies read, and the shared tables."""
+    shared.enable(*RECORD_TABLES, *OWNED_TABLES, *SHARED_TABLES)
+
+
+@pytest.mark.usefixtures("shared_enforcing")
+@pytest.mark.parametrize("table", SHARED_TABLES)
+@pytest.mark.parametrize("persona", SHARED_EXPECTED)
+def test_shared_policy_row_visible_exactly_when_a_visible_record_links_it(shared, login_as, persona, table):
+    with _as(login_as, shared, PERSONAS[persona]) as conn:
+        assert _visible(conn, shared, table) == SHARED_EXPECTED[persona][table]
+
+
+@pytest.mark.usefixtures("shared_enforcing")
+@pytest.mark.parametrize("table", SHARED_TABLES)
+def test_shared_policy_worker_sees_every_row(shared, login_as, table):
+    with _as(login_as, shared, PERSONAS["anonymous"], WORKER_ROLE) as conn:
+        assert _visible(conn, shared, table) == shared.rows[table]
+
+
+@pytest.mark.usefixtures("shared_enforcing")
+def test_alleles_policy_allele_with_first_published_at_is_visible_without_a_visible_link(shared, login_as, session):
+    session.execute(
+        text("UPDATE alleles SET first_published_at = '2026-01-01' WHERE id = :id"), {"id": shared["a_private"]}
+    )
+    session.commit()
+
+    with _as(login_as, shared, PERSONAS["anonymous"]) as conn:
+        assert _visible(conn, shared, "alleles") == {"a_public", "a_private"}
+        assert _visible(conn, shared, "mapping_record_alleles") == {"mra_public"}
+
+
 def _first_published(session, seed: Seed, name: str):
     session.expire_all()
     return session.execute(
@@ -766,3 +838,15 @@ def test_first_published_at_drift_reports_an_allele_set_without_a_public_link(sh
     session.commit()
 
     assert first_published_at_drift(session) == [shared["a_private"]]
+
+
+def test_first_published_at_publishing_as_the_api_role_sets_it(shared, session, login_as):
+    shared.enable(*RECORD_TABLES, *OWNED_TABLES, *SHARED_TABLES)
+
+    with _as(login_as, shared, PERSONAS["owner"]) as conn:
+        conn.execute(
+            text("UPDATE scoresets SET private = false, published_date = '2026-02-02' WHERE id = :id"),
+            {"id": shared["s_private"]},
+        )
+
+    assert str(_first_published(session, shared, "a_private")) == "2026-02-02"

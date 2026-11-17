@@ -49,6 +49,18 @@ AS $function$ SELECT nullif(current_setting('app.user_id', true), '')::integer $
 CREATE TRIGGER mapping_record_alleles_mark_alleles_published AFTER INSERT ON public.mapping_record_alleles REFERENCING NEW TABLE AS new_links FOR EACH STATEMENT EXECUTE FUNCTION mavedb_mark_alleles_published_by_links();
 CREATE TRIGGER scoresets_mark_alleles_published AFTER UPDATE OF private ON public.scoresets FOR EACH ROW WHEN ((old.private AND (NOT new.private))) EXECUTE FUNCTION mavedb_mark_alleles_published_by_score_set();
 
+-- alleles: row-level security not enabled
+CREATE POLICY alleles_rule ON alleles AS PERMISSIVE FOR ALL TO public
+  USING (((first_published_at IS NOT NULL) OR (EXISTS ( SELECT 1
+   FROM mapping_record_alleles m
+  WHERE (m.allele_id = alleles.id)))))
+  WITH CHECK (((first_published_at IS NOT NULL) OR (EXISTS ( SELECT 1
+   FROM mapping_record_alleles m
+  WHERE (m.allele_id = alleles.id)))));
+CREATE POLICY alleles_worker ON alleles AS PERMISSIVE FOR ALL TO mavedb_worker
+  USING (true)
+  WITH CHECK (true);
+
 -- calibration_controls: row-level security not enabled
 CREATE POLICY calibration_controls_rule ON calibration_controls AS PERMISSIVE FOR ALL TO public
   USING ((EXISTS ( SELECT 1
@@ -58,6 +70,30 @@ CREATE POLICY calibration_controls_rule ON calibration_controls AS PERMISSIVE FO
    FROM score_calibrations p
   WHERE (p.id = calibration_controls.calibration_id))));
 CREATE POLICY calibration_controls_worker ON calibration_controls AS PERMISSIVE FOR ALL TO mavedb_worker
+  USING (true)
+  WITH CHECK (true);
+
+-- clinvar_allele_links: row-level security not enabled
+CREATE POLICY clinvar_allele_links_rule ON clinvar_allele_links AS PERMISSIVE FOR ALL TO public
+  USING ((EXISTS ( SELECT 1
+   FROM alleles a
+  WHERE (a.id = clinvar_allele_links.allele_id))))
+  WITH CHECK ((EXISTS ( SELECT 1
+   FROM alleles a
+  WHERE (a.id = clinvar_allele_links.allele_id))));
+CREATE POLICY clinvar_allele_links_worker ON clinvar_allele_links AS PERMISSIVE FOR ALL TO mavedb_worker
+  USING (true)
+  WITH CHECK (true);
+
+-- clinvar_controls: row-level security not enabled
+CREATE POLICY clinvar_controls_rule ON clinvar_controls AS PERMISSIVE FOR ALL TO public
+  USING ((EXISTS ( SELECT 1
+   FROM clinvar_allele_links l
+  WHERE (l.clinvar_control_id = clinvar_controls.id))))
+  WITH CHECK ((EXISTS ( SELECT 1
+   FROM clinvar_allele_links l
+  WHERE (l.clinvar_control_id = clinvar_controls.id))));
+CREATE POLICY clinvar_controls_worker ON clinvar_controls AS PERMISSIVE FOR ALL TO mavedb_worker
   USING (true)
   WITH CHECK (true);
 
@@ -213,6 +249,30 @@ CREATE POLICY experiments_worker ON experiments AS PERMISSIVE FOR ALL TO mavedb_
   USING (true)
   WITH CHECK (true);
 
+-- gnomad_allele_links: row-level security not enabled
+CREATE POLICY gnomad_allele_links_rule ON gnomad_allele_links AS PERMISSIVE FOR ALL TO public
+  USING ((EXISTS ( SELECT 1
+   FROM alleles a
+  WHERE (a.id = gnomad_allele_links.allele_id))))
+  WITH CHECK ((EXISTS ( SELECT 1
+   FROM alleles a
+  WHERE (a.id = gnomad_allele_links.allele_id))));
+CREATE POLICY gnomad_allele_links_worker ON gnomad_allele_links AS PERMISSIVE FOR ALL TO mavedb_worker
+  USING (true)
+  WITH CHECK (true);
+
+-- gnomad_variants: row-level security not enabled
+CREATE POLICY gnomad_variants_rule ON gnomad_variants AS PERMISSIVE FOR ALL TO public
+  USING ((EXISTS ( SELECT 1
+   FROM gnomad_allele_links l
+  WHERE (l.gnomad_variant_id = gnomad_variants.id))))
+  WITH CHECK ((EXISTS ( SELECT 1
+   FROM gnomad_allele_links l
+  WHERE (l.gnomad_variant_id = gnomad_variants.id))));
+CREATE POLICY gnomad_variants_worker ON gnomad_variants AS PERMISSIVE FOR ALL TO mavedb_worker
+  USING (true)
+  WITH CHECK (true);
+
 -- job_dependencies: row-level security not enabled
 CREATE POLICY job_dependencies_rule ON job_dependencies AS PERMISSIVE FOR ALL TO public
   USING ((EXISTS ( SELECT 1
@@ -278,6 +338,20 @@ CREATE POLICY projection_groups_rule ON projection_groups AS PERMISSIVE FOR ALL 
    FROM scoresets p
   WHERE (p.id = projection_groups.score_set_id))));
 CREATE POLICY projection_groups_worker ON projection_groups AS PERMISSIVE FOR ALL TO mavedb_worker
+  USING (true)
+  WITH CHECK (true);
+
+-- publication_identifiers: row-level security not enabled
+CREATE POLICY publication_identifiers_rule ON publication_identifiers AS PERMISSIVE FOR ALL TO public
+  USING (((EXISTS ( SELECT 1
+   FROM scoreset_publication_identifiers c
+  WHERE (((c.db_name)::text = (publication_identifiers.db_name)::text) AND ((c.identifier)::text = (publication_identifiers.identifier)::text)))) OR (EXISTS ( SELECT 1
+   FROM experiment_publication_identifiers c
+  WHERE (((c.db_name)::text = (publication_identifiers.db_name)::text) AND ((c.identifier)::text = (publication_identifiers.identifier)::text)))) OR (EXISTS ( SELECT 1
+   FROM score_calibration_publication_identifiers c
+  WHERE (((c.db_name)::text = (publication_identifiers.db_name)::text) AND ((c.identifier)::text = (publication_identifiers.identifier)::text))))))
+  WITH CHECK (true);
+CREATE POLICY publication_identifiers_worker ON publication_identifiers AS PERMISSIVE FOR ALL TO mavedb_worker
   USING (true)
   WITH CHECK (true);
 
@@ -487,6 +561,22 @@ CREATE POLICY urn_redirects_worker ON urn_redirects AS PERMISSIVE FOR ALL TO mav
   USING (true)
   WITH CHECK (true);
 
+-- variant_translations: row-level security not enabled
+CREATE POLICY variant_translations_rule ON variant_translations AS PERMISSIVE FOR ALL TO public
+  USING (((EXISTS ( SELECT 1
+   FROM alleles a
+  WHERE ((a.clingen_allele_id)::text = (variant_translations.aa_clingen_id)::text))) AND (EXISTS ( SELECT 1
+   FROM alleles a
+  WHERE ((a.clingen_allele_id)::text = (variant_translations.nt_clingen_id)::text)))))
+  WITH CHECK (((EXISTS ( SELECT 1
+   FROM alleles a
+  WHERE ((a.clingen_allele_id)::text = (variant_translations.aa_clingen_id)::text))) AND (EXISTS ( SELECT 1
+   FROM alleles a
+  WHERE ((a.clingen_allele_id)::text = (variant_translations.nt_clingen_id)::text)))));
+CREATE POLICY variant_translations_worker ON variant_translations AS PERMISSIVE FOR ALL TO mavedb_worker
+  USING (true)
+  WITH CHECK (true);
+
 -- variants: row-level security not enabled
 CREATE POLICY variants_rule ON variants AS PERMISSIVE FOR ALL TO public
   USING ((scoreset_id IN ( SELECT scoresets.id
@@ -494,5 +584,17 @@ CREATE POLICY variants_rule ON variants AS PERMISSIVE FOR ALL TO public
   WITH CHECK ((scoreset_id IN ( SELECT scoresets.id
    FROM scoresets)));
 CREATE POLICY variants_worker ON variants AS PERMISSIVE FOR ALL TO mavedb_worker
+  USING (true)
+  WITH CHECK (true);
+
+-- vep_allele_consequences: row-level security not enabled
+CREATE POLICY vep_allele_consequences_rule ON vep_allele_consequences AS PERMISSIVE FOR ALL TO public
+  USING ((EXISTS ( SELECT 1
+   FROM alleles a
+  WHERE (a.id = vep_allele_consequences.allele_id))))
+  WITH CHECK ((EXISTS ( SELECT 1
+   FROM alleles a
+  WHERE (a.id = vep_allele_consequences.allele_id))));
+CREATE POLICY vep_allele_consequences_worker ON vep_allele_consequences AS PERMISSIVE FOR ALL TO mavedb_worker
   USING (true)
   WITH CHECK (true);
