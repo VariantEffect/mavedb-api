@@ -69,7 +69,7 @@ const ISSUE_FIELDS = `
     }
   }
   closedByPullRequestsReferences(first: 20, includeClosedPrs: false) {
-    nodes { number headRefName repository { nameWithOwner } }
+    nodes { number state headRefName repository { nameWithOwner } }
   }
 `;
 
@@ -159,8 +159,12 @@ async function markInReview(github, core, project, owner, repo, pr) {
 
 // An issue split across several PRs, possibly in different repos, waits for the last of them. Release PRs link every
 // issue in the release, so they don't count. Only sidebar links are visible here, not "Closes" lines in other PRs.
+// includeClosedPrs: false drops only PRs closed without merging; a PR merged into a release branch stays linked because
+// GitHub never closes its issues, so the state check is what tells merged PRs apart.
 function stillOpenElsewhere(core, issue) {
-  const open = issue.closedByPullRequestsReferences.nodes.filter((p) => !isReleaseBranch(p.headRefName));
+  const open = issue.closedByPullRequestsReferences.nodes.filter(
+    (p) => p.state === 'OPEN' && !isReleaseBranch(p.headRefName),
+  );
   if (open.length) {
     const refs = open.map((p) => `${p.repository.nameWithOwner}#${p.number}`).join(', ');
     core.info(`${issue.repository.nameWithOwner}#${issue.number} is still linked from open ${refs}; leaving it.`);
@@ -169,7 +173,7 @@ function stillOpenElsewhere(core, issue) {
 }
 
 async function markPendingRelease(github, core, project, owner, repo, pr) {
-  // By the time "closed" fires, the merged PR no longer counts as open.
+  // The merged PR still links its issues, but stillOpenElsewhere skips it because it's no longer OPEN.
   for (const issue of await linkedIssues(github, owner, repo, pr)) {
     if (!stillOpenElsewhere(core, issue)) await moveIssue(github, core, project, issue, 'Pending release');
   }
