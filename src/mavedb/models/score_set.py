@@ -33,7 +33,7 @@ score_sets_contributors_association_table = Table(
     "scoreset_contributors",
     Base.metadata,
     Column("scoreset_id", ForeignKey("scoresets.id"), primary_key=True),
-    Column("contributor_id", ForeignKey("contributors.id"), primary_key=True),
+    Column("contributor_id", ForeignKey("contributors.id"), primary_key=True, index=True),
 )
 
 

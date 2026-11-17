@@ -70,7 +70,7 @@ class ScoreCalibration(Base):
     id: Mapped[int] = Column(Integer, primary_key=True)
     urn = Column(String(64), nullable=True, default=generate_calibration_urn, unique=True, index=True)
 
-    score_set_id = Column(Integer, ForeignKey("scoresets.id"), nullable=False)
+    score_set_id = Column(Integer, ForeignKey("scoresets.id"), index=True, nullable=False)
     score_set: Mapped["ScoreSet"] = relationship("ScoreSet", back_populates="score_calibrations")
 
     title = Column(String, nullable=False)

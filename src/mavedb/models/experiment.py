@@ -33,7 +33,7 @@ experiments_contributors_association_table = Table(
     "experiment_contributors",
     Base.metadata,
     Column("experiment_id", ForeignKey("experiments.id"), primary_key=True),
-    Column("contributor_id", ForeignKey("contributors.id"), primary_key=True),
+    Column("contributor_id", ForeignKey("contributors.id"), primary_key=True, index=True),
 )
 
 experiments_legacy_keywords_association_table = Table(
