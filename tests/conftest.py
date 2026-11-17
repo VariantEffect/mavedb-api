@@ -1,6 +1,7 @@
 import logging  # noqa: F401
 import os
 import sys
+import time
 from contextlib import contextmanager
 from datetime import datetime
 from unittest import mock
@@ -11,6 +12,7 @@ import pytest_postgresql
 import pytest_socket
 from pytest_postgresql import factories
 from sqlalchemy import URL, create_engine, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -19,6 +21,8 @@ from sqlalchemy.pool import NullPool
 os.environ.setdefault("CLINGEN_CACHE_BACKEND", "memory")
 
 from mavedb.db.base import Base
+from mavedb.db.bootstrap import apply_grants, bootstrap_cluster, bootstrap_database
+from mavedb.db.rls import API_ROLE, MIGRATE_ROLE, OWNER_ROLE, WORKER_ROLE
 from mavedb.lib.logging.context import set_strict_collisions
 from mavedb.models import *  # noqa: F403
 from mavedb.models.experiment import Experiment
@@ -66,13 +70,60 @@ assert pytest_postgresql.factories
 email_validator.TEST_ENVIRONMENT = True
 
 
+# Lets tests log in as each role over a real connection. The bootstrap never sets a password, so the test
+# harness does, on the test cluster only.
+TEST_ROLE_PASSWORD = "mavedb-test-only"
+
+
+def _bootstrap_cluster(engine):
+    """
+    Bootstrap the PostgreSQL cluster with the necessary roles and grants.
+
+    This function attempts to create or alter the required roles for the MaveDB cluster,
+    retrying up to 5 times in case of concurrent modifications by other test runs.
+
+    Parameters
+    ----------
+    engine : sqlalchemy.engine.Engine
+        An SQLAlchemy engine connected to the PostgreSQL cluster.
+
+    Raises
+    ------
+    sqlalchemy.exc.DBAPIError
+        If the role creation or alteration fails after 5 attempts.
+    """
+    for attempt in range(5):
+        try:
+            with engine.begin() as conn:
+                bootstrap_cluster(conn)
+                unset = conn.execute(
+                    text("SELECT rolname FROM pg_authid WHERE rolname = ANY(:roles) AND rolpassword IS NULL"),
+                    {"roles": [OWNER_ROLE, MIGRATE_ROLE, WORKER_ROLE, API_ROLE]},
+                ).scalars()
+                for role in unset:
+                    conn.execute(text(f"ALTER ROLE {role} PASSWORD '{TEST_ROLE_PASSWORD}'"))
+            return
+        except DBAPIError:
+            if attempt == 4:
+                raise
+            time.sleep(0.2 * (attempt + 1))
+
+
 def _load_schema(host, port, user, dbname, password):
-    """Build the schema once into the server's template database, which each test's database is cloned from."""
+    """Build the schema once into the server's template database, which each test's database is cloned from.
+
+    The roles and grants are applied as they are in a deployed database, with the schema built as the owner,
+    as a migration would. Clones inherit the grants and default privileges.
+    """
     engine = create_engine(
         URL.create("postgresql+psycopg2", username=user, password=password, host=host, port=port, database=dbname),
         poolclass=NullPool,
     )
-    Base.metadata.create_all(bind=engine)
+    _bootstrap_cluster(engine)
+    with engine.begin() as conn:
+        bootstrap_database(conn)
+        conn.execute(text(f"SET LOCAL ROLE {OWNER_ROLE}"))
+        Base.metadata.create_all(bind=conn)
 
     # Create a unique index for the published_variants_materialized_view to
     # enforce uniqueness on (variant_id, mapping_record_id, score_set_id). This
@@ -82,6 +133,8 @@ def _load_schema(host, port, user, dbname, password):
             text("""CREATE UNIQUE INDEX IF NOT EXISTS published_variants_mv_unique_idx
             ON published_variants_materialized_view (variant_id, mapping_record_id, score_set_id)"""),
         )
+        apply_grants(conn)
+
     engine.dispose()
 
 
@@ -152,6 +205,31 @@ def session(postgresql):
         yield session
     finally:
         session.close()
+        engine.dispose()
+
+
+@pytest.fixture
+def login_as(postgresql):
+    """Return a factory for engines that log in to the test database as a given role, on real connections."""
+    engines = []
+
+    def _login(role: str, database: str | None = None):
+        engine = create_engine(
+            URL.create(
+                "postgresql+psycopg2",
+                username=role,
+                password=TEST_ROLE_PASSWORD,
+                host=postgresql.info.host,
+                port=postgresql.info.port,
+                database=database or postgresql.info.dbname,
+            ),
+            poolclass=NullPool,
+        )
+        engines.append(engine)
+        return engine
+
+    yield _login
+    for engine in engines:
         engine.dispose()
 
 

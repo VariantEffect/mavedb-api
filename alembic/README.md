@@ -40,7 +40,33 @@ At each cycle boundary, once the last release has been stable in production for 
 4. Check the replay: run `alembic upgrade head` on an empty database, and diff a schema-only dump of it against production's.
 5. Re-parent the first migration on each open branch onto the baseline, and add a row to the log below.
 
-Ownership and grants aren't in the baseline. The role bootstrap script applies them (#827).
+Ownership and grants aren't in the baseline. The role bootstrap's grants step applies them (#827).
+
+## Roles
+
+Migrations run as `mavedb_migrate`, which runs as `mavedb_owner`, so every object a migration creates belongs to the owner. Every upgrade, downgrade or stamp then runs the bootstrap's grants step in the same transaction (`alembic/env.py`). It revokes every grant on the owner's tables, views, sequences and functions, and grants exactly what `src/mavedb/db/rls.py` lists, so the grants never depend on the migration history, and a squash can't lose one.
+
+So a migration never grants or revokes (`bin/check-migrations` refuses it). A new table, view or function gets no privileges until it has an entry in `rls.py`, which also says whether row-level security decides which rows the api sees. CI fails while anything in the schema has no entry.
+
+The upgrade stops if the database was never set up for the roles, or if a role has privileges the bootstrap doesn't give it. A new database, including a local one, needs setting up once, as the master user (`postgres` locally):
+
+```bash
+poetry run python -m mavedb.scripts.bootstrap_roles setup --commit
+```
+
+A migration may create only what `mavedb_owner` can own: tables, views, functions, policies and indexes. Extensions, roles and cluster or database settings need the master user, so they go in the bootstrap's cluster or database part, run before the migration that relies on them. `bin/build-baseline` leaves extensions out of the baseline for the same reason.
+
+### Restoring a dump
+
+Loading a data-only dump with `session_replication_role = replica`, which skips foreign key checks and triggers, is a master user's job. None of the four roles may set it. Locally `postgres` is a superuser. On RDS the master user borrows the owner's privileges by membership to write its tables, loads the dump as itself, then gives the owner back:
+
+```sql
+GRANT mavedb_owner TO CURRENT_USER;
+-- load the dump, which sets session_replication_role itself
+REVOKE mavedb_owner FROM CURRENT_USER;
+```
+
+Don't `SET ROLE mavedb_owner` for the load. `session_replication_role` is checked against the current role, so a dump setting it after the switch is refused. Revoke even if the load fails: the next upgrade refuses a database where the master user still belongs to the owner. The commands are in `mavedb-deployment`'s `docs/database-dumps.md`.
 
 ## Squash log
 
