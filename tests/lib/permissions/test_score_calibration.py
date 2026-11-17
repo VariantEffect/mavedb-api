@@ -285,6 +285,19 @@ class TestScoreCalibrationReadRequiresScoreSetRead:
         assert not result.permitted
         assert result.http_code == 404
 
+    def test_has_permission_score_set_last_modifier_without_ownership_cannot_read_private_calibration(
+        self, entity_helper: EntityTestHelper
+    ) -> None:
+        score_calibration = entity_helper.create_score_calibration(
+            "private", investigator_provided=True, score_set_state="published"
+        )
+        score_calibration.score_set.modified_by_id = 4
+
+        result = has_permission(entity_helper.create_user_data("other_user"), score_calibration, Action.READ)
+
+        assert not result.permitted
+        assert result.http_code == 404
+
 
 class TestScoreCalibrationUpdateActionHandler:
     """Test the _handle_update_action helper function directly."""
