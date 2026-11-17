@@ -22,6 +22,7 @@ os.environ.setdefault("CLINGEN_CACHE_BACKEND", "memory")
 
 from mavedb.db.base import Base
 from mavedb.db.bootstrap import apply_grants, bootstrap_cluster, bootstrap_database
+from mavedb.db.policy_snapshot import SNAPSHOT_PATH
 from mavedb.db.rls import API_ROLE, MIGRATE_ROLE, OWNER_ROLE, WORKER_ROLE
 from mavedb.lib.logging.context import set_strict_collisions
 from mavedb.models import *  # noqa: F403
@@ -124,6 +125,9 @@ def _load_schema(host, port, user, dbname, password):
         bootstrap_database(conn)
         conn.execute(text(f"SET LOCAL ROLE {OWNER_ROLE}"))
         Base.metadata.create_all(bind=conn)
+        # The models can't declare policies. The snapshot holds the ones the migrations create, and a test
+        # checks it against a replay of them.
+        conn.exec_driver_sql(SNAPSHOT_PATH.read_text())
 
     # Create a unique index for the published_variants_materialized_view to
     # enforce uniqueness on (variant_id, mapping_record_id, score_set_id). This

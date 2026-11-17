@@ -38,12 +38,11 @@ def has_permission(user_data: Optional[UserData], entity: ScoreCalibration, acti
     active_roles = []
     if user_data is not None:
         user_is_owner = entity.created_by_id == user_data.user.id
-        # Contributor status is determined by matching the user's username (ORCID ID) against the contributors' ORCID IDs,
-        # as well as by matching the user's ID against the created_by_id and modified_by_id fields of the ScoreSet.
+        # The score set's owner and contributors, as the RLS policy matches them (#809). Its last modifier isn't
+        # included: that would keep their access to private calibrations after they lost the score set.
         user_is_contributor_to_score_set = (
             user_data.user.username in [c.orcid_id for c in entity.score_set.contributors]
             or user_data.user.id == entity.score_set.created_by_id
-            or user_data.user.id == entity.score_set.modified_by_id
         )
         active_roles = user_data.active_roles
 

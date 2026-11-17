@@ -672,6 +672,8 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         # Protein records pass no genomic HGVS and keep their NP_→NM_ lookup.
         assert resolve(*key, None) is None
 
+        # A target is a sequence or an accession, never both.
+        target_gene.target_sequence = None
         target_gene.target_accession = TargetAccession(accession="NM_999999.3", assembly="GRCh38", gene="GENE")
         session.commit()
         coordinates = FakeCoordinates(mane="NM_888888.2")

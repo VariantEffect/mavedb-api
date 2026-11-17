@@ -17,6 +17,7 @@ from sqlalchemy.pool import NullPool
 
 from mavedb.db import bootstrap
 from mavedb.db.bootstrap import apply_grants, bootstrap_cluster, bootstrap_database, role_problems, setup
+from mavedb.db.policy_snapshot import SNAPSHOT_PATH, render_policy_snapshot
 from mavedb.db.rls import (
     API_ROLE,
     FUNCTIONS,
@@ -794,6 +795,117 @@ class TestMigrationReplay:
             sorted(name for name, config in definers if not any(c.startswith("search_path=") for c in config or []))
             == []
         )
+
+    def test_upgrade_every_guarded_table_has_its_rule_and_worker_policies_and_no_other_table_has_any(
+        self, replayed_database
+    ):
+        with replayed_database.connect() as conn:
+            tables = set(
+                conn.execute(
+                    text(
+                        "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                        "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'f')"
+                    )
+                ).scalars()
+            )
+            policies = conn.execute(
+                text(
+                    "SELECT tablename, policyname, roles::text[], qual, with_check FROM pg_policies "
+                    "WHERE schemaname = 'public'"
+                )
+            ).all()
+
+        guarded = {name for name, relation in RELATIONS.items() if relation.api is ApiAccess.GUARDED} & tables
+        names = {(table, name) for table, name, *_ in policies}
+        worker_policies = {(table, name) for table, name, roles, using, check in policies if roles == [WORKER_ROLE]}
+        assert sorted({table for table, _ in names} - guarded) == []
+        assert sorted(names) == sorted((table, f"{table}_{kind}") for table in guarded for kind in ("rule", "worker"))
+        assert {
+            (table, name, using, check)
+            for table, name, roles, using, check in policies
+            if (table, name) in worker_policies
+        } == {(table, f"{table}_worker", "true", "true") for table in guarded}
+
+    def test_upgrade_policies_match_the_committed_snapshot(self, replayed_database):
+        # A migration that changes a policy commits the regenerated snapshot, so review sees the whole rule.
+        with replayed_database.connect() as conn:
+            snapshot = render_policy_snapshot(conn)
+
+        assert snapshot == SNAPSHOT_PATH.read_text(), (
+            "src/mavedb/db/policies.sql is out of date; run `python -m mavedb.scripts.write_policy_snapshot` "
+            "against a database at alembic head"
+        )
+
+    def test_upgrade_policies_read_the_principal_only_through_the_helpers(self, replayed_database):
+        with replayed_database.connect() as conn:
+            policies = conn.execute(
+                text(
+                    "SELECT tablename || '.' || policyname FROM pg_policies WHERE schemaname = 'public' "
+                    "AND (coalesce(qual, '') ~ 'current_setting|app\\.' OR coalesce(with_check, '') ~ 'current_setting|app\\.')"
+                )
+            ).scalars()
+
+            assert sorted(policies) == []
+
+    def test_upgrade_policies_below_the_records_use_in_only_on_variants_and_target_genes(self, replayed_database):
+        # Below them, IN over a large parent can't be hashed or is mispriced per lookup; EXISTS is priced
+        # correctly (#832). The record tables' own rules use IN over small contributor lists.
+        allowed = {"scoresets", "experiments", "experiment_sets", "collections", "score_calibrations"}
+        allowed |= {"variants", "target_genes", "score_calibration_functional_classification_variants"}
+        with replayed_database.connect() as conn:
+            policies = conn.execute(
+                text(
+                    "SELECT tablename, policyname FROM pg_policies WHERE schemaname = 'public' "
+                    "AND (coalesce(qual, '') ~ ' IN \\( SELECT' OR coalesce(with_check, '') ~ ' IN \\( SELECT')"
+                )
+            ).all()
+
+        assert sorted(f"{table}.{name}" for table, name in policies if table not in allowed) == []
+
+    def test_upgrade_target_genes_have_one_target_carrying_their_score_set(self, replayed_database):
+        # The models declare these too, but the test template is built from the models, not the migrations.
+        with replayed_database.connect() as conn:
+            constraints = set(
+                conn.execute(
+                    text(
+                        "SELECT conname FROM pg_constraint WHERE conrelid IN "
+                        "('target_genes'::regclass, 'target_sequences'::regclass, 'target_accessions'::regclass)"
+                    )
+                ).scalars()
+            )
+
+        assert {
+            "target_genes_one_target",
+            "target_genes_target_sequence_score_set_fkey",
+            "target_genes_accession_score_set_fkey",
+            "uq_target_sequences_id_score_set_id",
+            "uq_target_accessions_id_score_set_id",
+        } <= constraints
+
+    def test_upgrade_plain_views_read_their_tables_as_the_caller(self, replayed_database):
+        # A view that reads as its owner skips every policy on its tables, whoever it's granted to.
+        with replayed_database.connect() as conn:
+            owner_views = conn.execute(
+                text(
+                    "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname = 'public' AND c.relkind = 'v' AND NOT coalesce((SELECT o.option_value::boolean "
+                    "FROM pg_options_to_table(c.reloptions) o WHERE o.option_name = 'security_invoker'), false)"
+                )
+            ).scalars()
+
+            assert sorted(owner_views) == []
+
+    def test_upgrade_enables_row_level_security_on_no_table(self, replayed_database):
+        # Enabling is the pilot's and the rollout's job (#825, #878), each in a release of its own.
+        with replayed_database.connect() as conn:
+            enabled = conn.execute(
+                text(
+                    "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname = 'public' AND (c.relrowsecurity OR c.relforcerowsecurity)"
+                )
+            ).scalars()
+
+            assert sorted(enabled) == []
 
     def test_upgrade_grants_match_the_registry(self, replayed_database):
         # The baseline is dumped without privileges, so these grants have to come from rls.py alone. A grant

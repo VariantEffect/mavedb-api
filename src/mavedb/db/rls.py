@@ -81,7 +81,6 @@ RELATIONS: dict[str, Relation] = {
     "calibration_controls": GUARDED,
     "scoreset_publication_identifiers": GUARDED,
     "experiment_publication_identifiers": GUARDED,
-    "experiment_set_publication_identifiers": GUARDED,
     "scoreset_doi_identifiers": GUARDED,
     "experiment_doi_identifiers": GUARDED,
     "experiment_set_doi_identifiers": GUARDED,
@@ -143,8 +142,7 @@ RELATIONS: dict[str, Relation] = {
     "annotation_event": WORKER_ONLY,
     "variant_annotation_status": WORKER_ONLY,
     "v_current_annotation_events": WORKER_ONLY,
-    # No route reads it yet. It can become GUARDED once #809 makes it security_invoker; until then it would
-    # read its tables as the owner, past their policies.
+    # No route reads it yet. It's security_invoker (#809), so a route that needs it can make it GUARDED.
     "v_variant_annotations": WORKER_ONLY,
     # Alembic's record of the schema's revision. Only migrations, running as the owner, read or write it.
     "alembic_version": UNGRANTED,
@@ -162,6 +160,14 @@ RELATIONS: dict[str, Relation] = {
 # execute one. A SECURITY DEFINER function runs as the owner, so it gets one executor and a reason, and pins its
 # search_path; one that doesn't pin it gets no executors.
 FUNCTIONS: dict[str, Function] = {
+    # Read the request's principal for the RLS policies (#809). Plain SQL that Postgres inlines into each policy,
+    # so they bypass nothing. Any role a policy applies to must be able to run them.
+    "mavedb_user_id": Function(frozenset({API_ROLE, WORKER_ROLE})),
+    "mavedb_roles": Function(frozenset({API_ROLE, WORKER_ROLE})),
+    # Trigger functions that set alleles.first_published_at (#809). A trigger runs its function whoever fires it,
+    # so nobody needs to call them.
+    "mavedb_mark_alleles_published_by_links": Function(),
+    "mavedb_mark_alleles_published_by_score_set": Function(),
     # Refreshing a materialized view requires owning it, and the worker owns nothing.
     "mavedb_refresh_mat_views": Function(frozenset({WORKER_ROLE}), security_definer=True),
     # From the 2026.3.0 baseline. Nothing calls it.

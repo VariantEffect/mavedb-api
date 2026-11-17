@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from sqlalchemy import Column, Date, Index, Integer, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.orm import Mapped, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mavedb.db.base import Base
 from mavedb.lib.hgvs import extract_accession
@@ -32,6 +32,10 @@ class Allele(Base):
 
     clingen_allele_id = Column(String, nullable=True)
     post_mapped: Mapped[Optional[Any]] = Column(JSONB(none_as_null=True), nullable=True)
+
+    # When a public score set first linked this allele, set by database triggers and never cleared (#809). The
+    # RLS policy shows a set allele to everyone without checking its links.
+    first_published_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
     created_at: Mapped[date] = Column(Date, nullable=False, default=date.today)
     updated_at: Mapped[date] = Column(Date, nullable=False, default=date.today, onupdate=date.today)

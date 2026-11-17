@@ -67,6 +67,9 @@ def record_urn_redirect(db: Session, old_urn: Optional[str], new_urn: str) -> No
     if not old_urn or old_urn == new_urn:
         return
 
+    # The redirect's RLS policy shows it only once a record carries new_urn, and inserting it returns its id, so
+    # the rename has to reach the database first. Nothing orders the two inserts otherwise (#809).
+    db.flush()
     db.add(UrnRedirect(old_urn=old_urn, new_urn=new_urn))  # type: ignore[call-arg]
 
 

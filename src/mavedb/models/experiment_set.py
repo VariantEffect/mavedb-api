@@ -22,7 +22,7 @@ experiment_sets_contributors_association_table = Table(
     "experiment_set_contributors",
     Base.metadata,
     Column("experiment_set_id", ForeignKey("experiment_sets.id"), primary_key=True),
-    Column("contributor_id", ForeignKey("contributors.id"), primary_key=True),
+    Column("contributor_id", ForeignKey("contributors.id"), primary_key=True, index=True),
 )
 
 

@@ -84,9 +84,11 @@ class MaterializedView(Base):
 
 @compiler.compiles(CreateView)
 def _create_view(element: CreateView, compiler, **kw):
+    # A plain view reads its tables as the caller, so their RLS policies apply to it (#809). A materialized view
+    # can't: its rows were read as the owner at refresh.
     return "CREATE %s %s AS %s" % (
         "MATERIALIZED VIEW" if element.materialized else "VIEW",
-        element.name,
+        element.name if element.materialized else f"{element.name} WITH (security_invoker = true)",
         compiler.sql_compiler.process(element.selectable, literal_binds=True),
     )
 

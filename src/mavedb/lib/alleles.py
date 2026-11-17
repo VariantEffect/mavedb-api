@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, TypeVar
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, exists, select
 from sqlalchemy.orm import Session, joinedload
 
 from mavedb.lib.permissions import Action, has_permission
@@ -230,4 +230,24 @@ def get_allele_translations(
             .where(MappingRecordAllele.live_at(as_of))
             .distinct()
         ).all()
+    )
+
+
+def first_published_at_drift(db: Session) -> list[int]:
+    """Return the ids of alleles whose ``first_published_at`` disagrees with their links (#809).
+
+    The column should be set exactly when a public score set links the allele, retired links included. The RLS
+    policy shows a set allele to everyone, so one set too early would disclose an allele only private score sets
+    produced. Triggers maintain it; this recomputes it from the links to check them.
+    """
+    linked_from_public = exists(
+        select(1)
+        .select_from(MappingRecordAllele)
+        .join(ScoreSet, ScoreSet.id == MappingRecordAllele.score_set_id)
+        .where(MappingRecordAllele.allele_id == Allele.id, ScoreSet.private.is_(False))
+    )
+    return list(
+        db.scalars(
+            select(Allele.id).where(Allele.first_published_at.is_not(None) != linked_from_public).order_by(Allele.id)
+        )
     )
