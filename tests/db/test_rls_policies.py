@@ -25,7 +25,10 @@ pytestmark = pytest.mark.integration
 RECORD_TABLES = ("scoresets", "experiments", "experiment_sets", "score_calibrations", "collections")
 
 # How a row is identified, for tables without an id column.
-ROW_KEYS: dict[str, str] = {}
+ROW_KEYS = {
+    "collection_score_sets": "collection_id || ':' || score_set_id",
+    "collection_experiments": "collection_id || ':' || experiment_id",
+}
 
 DATES = {"creation_date": "2026-01-01", "modification_date": "2026-01-01"}
 
@@ -345,3 +348,194 @@ def test_calibration_policy_contributor_removed_from_score_set_sees_neither_it_n
 
     assert records["s_private"] not in score_sets
     assert calibration not in calibrations
+
+
+@pytest.fixture
+def owned(records):
+    """Rows owned by the records, one under a visible parent and one under a hidden one where it applies."""
+    seed = records
+    for visibility in ("public", "private"):
+        variant = seed.add(
+            "variants",
+            f"v_{visibility}",
+            data="{}",
+            scoreset_id=seed[f"s_{visibility}"],
+            urn=f"urn:mavedb:s-{visibility}#1",
+            **DATES,
+        )
+        seed.add(
+            "mapping_records",
+            f"mr_{visibility}",
+            variant_id=variant,
+            score_set_id=seed[f"s_{visibility}"],
+            assay_level="genomic",
+            mapping_api_version="1",
+            mapped_date="2026-01-01",
+            valid_from="2026-01-01",
+        )
+
+    # Under a public calibration and a private one, both on the public score set.
+    for name, calibration in (("public", "c_public_on_public"), ("hidden", "c_investigator_private_on_public")):
+        seed.add(
+            "calibration_controls",
+            f"cc_{name}",
+            calibration_id=seed[calibration],
+            variant_id=seed["v_public"],
+            clinical_status="benign",
+            created_by_id=seed["owner"],
+            modified_by_id=seed["owner"],
+            **DATES,
+        )
+        seed.add(
+            "score_calibration_functional_classifications",
+            f"fc_{name}",
+            calibration_id=seed[calibration],
+            label="l",
+            functional_classification="normal",
+        )
+
+    for collection, record in (("col_public", "public"), ("col_private", "public"), ("col_public", "private")):
+        seed.add(
+            "collection_score_sets",
+            f"css_{collection}_{record}",
+            collection_id=seed[collection],
+            score_set_id=seed[f"s_{record}"],
+            position=0,
+        )
+        seed.add(
+            "collection_experiments",
+            f"ce_{collection}_{record}",
+            collection_id=seed[collection],
+            experiment_id=seed[f"e_{record}"],
+            position=0,
+        )
+
+    for kind in ("s", "e", "es"):
+        for visibility in ("public", "private"):
+            seed.add(
+                "urn_redirects",
+                f"ur_{kind}_{visibility}",
+                old_urn=f"tmp:{kind}-{visibility}",
+                new_urn=f"urn:mavedb:{kind}-{visibility}",
+                created_at="2026-01-01",
+            )
+
+    pipeline = seed.add(
+        "pipelines", "p_owner", name="p", status="created", metadata="{}", created_by_user_id=seed["owner"]
+    )
+    runs = {}
+    for name, pipeline_id in (("jr_owner", pipeline), ("jr_ad_hoc", None)):
+        runs[name] = seed.add(
+            "job_runs",
+            name,
+            job_type="t",
+            job_function="f",
+            status="pending",
+            max_retries=0,
+            retry_count=0,
+            pipeline_id=pipeline_id,
+            metadata="{}",
+        )
+    seed.add(
+        "job_dependencies",
+        "jd_owner",
+        id=runs["jr_owner"],
+        depends_on_job_id=runs["jr_ad_hoc"],
+        dependency_type="success_required",
+    )
+    seed.add(
+        "job_dependencies",
+        "jd_ad_hoc",
+        id=runs["jr_ad_hoc"],
+        depends_on_job_id=runs["jr_owner"],
+        dependency_type="success_required",
+    )
+    seed.session.commit()
+    return seed
+
+
+OWNED_TABLES = (
+    "variants",
+    "mapping_records",
+    "calibration_controls",
+    "score_calibration_functional_classifications",
+    "collection_score_sets",
+    "collection_experiments",
+    "urn_redirects",
+    "pipelines",
+    "job_runs",
+    "job_dependencies",
+)
+
+OWNED_EXPECTED = {
+    "anonymous": {
+        "variants": {"v_public"},
+        "mapping_records": {"mr_public"},
+        "calibration_controls": {"cc_public"},
+        "score_calibration_functional_classifications": {"fc_public"},
+        "collection_score_sets": {"css_col_public_public"},
+        "collection_experiments": {"ce_col_public_public"},
+        "urn_redirects": {"ur_s_public", "ur_e_public", "ur_es_public"},
+        "pipelines": set(),
+        "job_runs": set(),
+        "job_dependencies": set(),
+    },
+    "owner": {
+        "variants": {"v_public", "v_private"},
+        "mapping_records": {"mr_public", "mr_private"},
+        "calibration_controls": {"cc_public", "cc_hidden"},
+        "score_calibration_functional_classifications": {"fc_public", "fc_hidden"},
+        "collection_score_sets": {"css_col_public_public", "css_col_private_public", "css_col_public_private"},
+        "collection_experiments": {"ce_col_public_public", "ce_col_private_public", "ce_col_public_private"},
+        "urn_redirects": {f"ur_{kind}_{v}" for kind in ("s", "e", "es") for v in ("public", "private")},
+        "pipelines": {"p_owner"},
+        "job_runs": {"jr_owner"},
+        "job_dependencies": {"jd_owner"},
+    },
+    "admin": {
+        "variants": {"v_public", "v_private"},
+        "mapping_records": {"mr_public", "mr_private"},
+        "calibration_controls": {"cc_public", "cc_hidden"},
+        "score_calibration_functional_classifications": {"fc_public", "fc_hidden"},
+        "collection_score_sets": {"css_col_public_public", "css_col_private_public", "css_col_public_private"},
+        "collection_experiments": {"ce_col_public_public", "ce_col_private_public", "ce_col_public_private"},
+        "urn_redirects": {f"ur_{kind}_{v}" for kind in ("s", "e", "es") for v in ("public", "private")},
+        "pipelines": {"p_owner"},
+        "job_runs": {"jr_owner", "jr_ad_hoc"},
+        "job_dependencies": {"jd_owner", "jd_ad_hoc"},
+    },
+}
+
+
+@pytest.fixture
+def owned_enforcing(owned):
+    """Row-level security on for the record tables and the tables they own."""
+    owned.enable(*RECORD_TABLES, *OWNED_TABLES)
+
+
+@pytest.mark.usefixtures("owned_enforcing")
+@pytest.mark.parametrize("table", OWNED_TABLES)
+@pytest.mark.parametrize("persona", OWNED_EXPECTED)
+def test_owned_policy_row_visible_exactly_when_its_owner_is(owned, login_as, persona, table):
+    with _as(login_as, owned, PERSONAS[persona]) as conn:
+        assert _visible(conn, owned, table) == OWNED_EXPECTED[persona][table]
+
+
+@pytest.mark.usefixtures("owned_enforcing")
+@pytest.mark.parametrize("table", OWNED_TABLES)
+def test_owned_policy_worker_sees_every_row(owned, login_as, table):
+    with _as(login_as, owned, PERSONAS["anonymous"], WORKER_ROLE) as conn:
+        assert _visible(conn, owned, table) == owned.rows[table]
+
+
+@pytest.mark.usefixtures("owned_enforcing")
+def test_owned_policy_insert_under_a_hidden_parent_is_refused(owned, login_as):
+    with _as(login_as, owned, PERSONAS["stranger"]) as conn:
+        with pytest.raises(ProgrammingError, match="row-level security"):
+            conn.execute(
+                text(
+                    "INSERT INTO variants (data, scoreset_id, creation_date, modification_date) "
+                    "VALUES ('{}', :s, now(), now())"
+                ),
+                {"s": owned["s_private"]},
+            )

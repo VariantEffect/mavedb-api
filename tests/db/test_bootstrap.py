@@ -817,6 +817,21 @@ class TestMigrationReplay:
 
             assert sorted(policies) == []
 
+    def test_upgrade_policies_below_the_records_use_in_only_on_variants_and_target_genes(self, replayed_database):
+        # Below them, IN over a large parent can't be hashed or is mispriced per lookup; EXISTS is priced
+        # correctly (#832). The record tables' own rules use IN over small contributor lists.
+        allowed = {"scoresets", "experiments", "experiment_sets", "collections", "score_calibrations"}
+        allowed |= {"variants", "target_genes", "score_calibration_functional_classification_variants"}
+        with replayed_database.connect() as conn:
+            policies = conn.execute(
+                text(
+                    "SELECT tablename, policyname FROM pg_policies WHERE schemaname = 'public' "
+                    "AND (coalesce(qual, '') ~ ' IN \\( SELECT' OR coalesce(with_check, '') ~ ' IN \\( SELECT')"
+                )
+            ).all()
+
+        assert sorted(f"{table}.{name}" for table, name in policies if table not in allowed) == []
+
     def test_upgrade_enables_row_level_security_on_no_table(self, replayed_database):
         # Enabling is the pilot's and the rollout's job (#825, #878), each in a release of its own.
         with replayed_database.connect() as conn:
