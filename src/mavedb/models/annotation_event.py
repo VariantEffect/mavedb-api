@@ -22,6 +22,7 @@ from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mavedb.db.base import Base
+from mavedb.models.annotation_status import ALLELE_SUBJECT_TYPES, VARIANT_SUBJECT_TYPES, sql_in_list
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
@@ -31,27 +32,6 @@ if TYPE_CHECKING:
     from mavedb.models.job_run import JobRun
     from mavedb.models.score_set import ScoreSet
     from mavedb.models.variant import Variant
-
-VARIANT_SUBJECT_TYPES = (
-    AnnotationType.VRS_MAPPING.value,
-    AnnotationType.CROSS_LEVEL_TRANSLATION.value,
-    AnnotationType.VARIANT_TRANSLATION.value,
-    AnnotationType.LDH_SUBMISSION.value,
-)
-"""annotation_type values whose subject is the variant (variant_id set, allele_id null)"""
-
-ALLELE_SUBJECT_TYPES = (
-    AnnotationType.CLINGEN_ALLELE_ID.value,
-    AnnotationType.GNOMAD_ALLELE_FREQUENCY.value,
-    AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE.value,
-    AnnotationType.CLINVAR_CONTROL.value,
-    AnnotationType.MAPPED_HGVS.value,
-)
-"""annotation_type values whose subject is the allele (allele_id set, variant_id null)"""
-
-
-def _sql_in_list(values: tuple[str, ...]) -> str:
-    return ", ".join(f"'{v}'" for v in values)
 
 
 class AnnotationEvent(Base):
@@ -114,9 +94,9 @@ class AnnotationEvent(Base):
     __table_args__ = (
         # Polymorphic subject: the type picks exactly one subject column.
         CheckConstraint(
-            f"(annotation_type IN ({_sql_in_list(VARIANT_SUBJECT_TYPES)}) "
+            f"(annotation_type IN ({sql_in_list(VARIANT_SUBJECT_TYPES)}) "
             "AND variant_id IS NOT NULL AND allele_id IS NULL) "
-            f"OR (annotation_type IN ({_sql_in_list(ALLELE_SUBJECT_TYPES)}) "
+            f"OR (annotation_type IN ({sql_in_list(ALLELE_SUBJECT_TYPES)}) "
             "AND allele_id IS NOT NULL AND variant_id IS NULL)",
             name="ck_annotation_event_subject",
         ),
