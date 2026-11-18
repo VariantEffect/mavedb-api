@@ -281,7 +281,7 @@ class TestCleanupStalledJobsUnit:
         session.add(stalled_job)
         session.commit()
 
-        with patch("mavedb.worker.jobs.system.cleanup.send_slack_error") as mock_slack:
+        with patch("mavedb.worker.jobs.system.cleanup.send_slack_message") as mock_slack:
             result = await cleanup_stalled_jobs(
                 mock_worker_ctx, None, JobManager(session, mock_worker_ctx["redis"], sample_cleanup_job_run.id)
             )
