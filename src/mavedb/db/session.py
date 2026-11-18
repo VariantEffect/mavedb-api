@@ -4,6 +4,8 @@ from contextlib import contextmanager
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from mavedb.db.errors import translate_database_errors
+
 # TODO(#981): Move these to a central config object.
 DB_HOST = os.getenv("DB_HOST") or "localhost"
 DB_PORT = os.getenv("DB_PORT") or 5432
@@ -23,7 +25,10 @@ engine = create_engine(
     max_overflow=DB_MAX_OVERFLOW,
     pool_timeout=DB_POOL_TIMEOUT,
     pool_pre_ping=True,
+    # Hides bound values only; a server DETAIL such as `Failing row contains (...)` stays in the message.
+    hide_parameters=True,
 )
+translate_database_errors(engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
