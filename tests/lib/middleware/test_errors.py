@@ -6,7 +6,9 @@ being guarded against is an ordering mistake, which only a test against the real
 
 # ruff: noqa: E402
 
+import json
 import logging
+from typing import Callable
 from unittest.mock import patch
 
 import pytest
@@ -16,9 +18,9 @@ pytest.importorskip("fastapi")
 
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import OperationalError
-from sqlalchemy.exc import TimeoutError as PoolTimeoutError
+from sqlalchemy.orm.exc import StaleDataError
 
+from mavedb.db.errors import DatabaseBusy, RowSecurityViolation
 from mavedb.server_main import app
 
 BOOM_PATH = "/__test_boom_!__"
@@ -44,34 +46,6 @@ def raising_route():
         app.router.routes.remove(route)
 
 
-class FakePostgresError(Exception):
-    """Stands in for a psycopg2 error, which carries the server's SQLSTATE as ``pgcode``."""
-
-    def __init__(self, pgcode):
-        super().__init__(pgcode)
-        self.pgcode = pgcode
-
-
-def postgres_error(pgcode):
-    return OperationalError("SELECT 1", {}, FakePostgresError(pgcode))
-
-
-@pytest.fixture
-def database_error_route():
-    """Register a route that raises whichever error the test sets on ``raised["error"]``."""
-    raised = {}
-
-    @app.get(BOOM_PATH)
-    def boom():
-        raise raised["error"]
-
-    route = app.router.routes[-1]
-    try:
-        yield raised
-    finally:
-        app.router.routes.remove(route)
-
-
 @pytest.fixture
 def mid_stream_failure_route():
     """Register a streaming route that fails after its first chunk is sent."""
@@ -89,6 +63,33 @@ def mid_stream_failure_route():
         yield
     finally:
         app.router.routes.remove(route)
+
+
+@pytest.fixture
+def mid_stream_raising_route():
+    """Register a streaming route that raises whichever exception the test sets, after its first chunk."""
+    raised: dict[str, Callable[[], Exception]] = {}
+
+    def chunks():
+        yield b"first chunk"
+        raise raised["error"]()
+
+    @app.get(BOOM_PATH)
+    def boom():
+        return StreamingResponse(chunks())
+
+    route = app.router.routes[-1]
+    try:
+        yield raised
+    finally:
+        app.router.routes.remove(route)
+
+
+@pytest.fixture
+def slack_messages():
+    """Capture the text of each Slack message at the webhook boundary, after the real payload is built."""
+    with patch("mavedb.lib.slack.send_slack_message") as mocked:
+        yield lambda: [call.args[0] for call in mocked.call_args_list]
 
 
 @pytest.fixture
@@ -151,35 +152,37 @@ class TestCatchAllErrorMiddleware:
 
 
 @pytest.mark.unit
-class TestDatabaseTimeouts:
+class TestMidStreamExceptions:
+    """Starlette wraps a mapped exception raised after the response started in a ``RuntimeError``."""
+
     @pytest.mark.parametrize(
-        "error",
-        [postgres_error("57014"), postgres_error("55P03"), PoolTimeoutError("QueuePool limit reached")],
-        ids=["statement_timeout", "lock_timeout", "pool_timeout"],
+        "error,alerted",
+        [
+            (lambda: DeliberateFailure("failed mid-stream"), True),
+            (lambda: RowSecurityViolation("INSERT", {}, Exception("policy")), True),
+            (lambda: DatabaseBusy("SELECT", {}, Exception("timeout")), False),
+            (lambda: StaleDataError("matched 0 rows"), True),
+        ],
+        ids=["unmapped", "row_security_violation", "database_busy", "stale_row"],
     )
-    def test_timeout_returns_503_with_cors_headers(self, database_error_route, slack_error, error):
-        database_error_route["error"] = error
+    def test_mid_stream_exception_logs_original_type_and_alerts_as_mapped(
+        self, mid_stream_raising_route, slack_messages, caplog, error, alerted
+    ):
+        mid_stream_raising_route["error"] = error
 
-        with TestClient(app) as tc:
-            response = tc.get(BOOM_PATH, headers={"Origin": TEST_ORIGIN})
-
-        assert response.status_code == 503
-        assert response.headers.get("access-control-allow-origin") in ("*", TEST_ORIGIN)
-        assert response.json()["correlation_id"]
-
-    def test_timeout_does_not_alert_slack(self, database_error_route, slack_error):
-        database_error_route["error"] = postgres_error("57014")
-
-        with TestClient(app) as tc:
-            tc.get(BOOM_PATH)
-
-        slack_error.assert_not_called()
-
-    def test_other_database_errors_are_still_500(self, database_error_route, slack_error):
-        database_error_route["error"] = postgres_error("23505")
-
-        with TestClient(app) as tc:
+        with caplog.at_level(logging.INFO), TestClient(app, raise_server_exceptions=False) as tc:
             response = tc.get(BOOM_PATH)
 
-        assert response.status_code == 500
-        slack_error.assert_called_once()
+        expected_type = type(error()).__name__
+        canonical = [record for record in caplog.records if getattr(record, "canonical", False)]
+        assert len(canonical) == 1
+        assert canonical[0].captured_exception_info["type"] == expected_type
+
+        messages = slack_messages()
+        if not alerted:
+            assert messages == []
+            return
+        (message,) = messages
+        payload = json.loads(message)
+        assert payload["type"] == expected_type
+        assert payload["correlation_id"] == response.headers["X-Correlation-ID"]
