@@ -1,39 +1,18 @@
 import logging
-import time
 
 import uvicorn
 from fastapi import Depends, FastAPI
-from fastapi.encoders import jsonable_encoder
-from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.openapi.utils import get_openapi
 from pydantic.json_schema import models_json_schema
 from sqlalchemy.orm import configure_mappers
-from starlette.requests import Request
-from starlette.responses import JSONResponse
 
 from mavedb import __version__
 from mavedb.db.session import engine
 from mavedb.db.timeouts import SLOW_STATEMENT_SECONDS, apply_api_timeouts, observe_statements
-from mavedb.lib.exceptions import (
-    AmbiguousIdentifierError,
-    HGNCGeneNotFoundError,
-    HGNCServiceError,
-    MixedTargetError,
-    MondoServiceError,
-    NonexistentIdentifierError,
-    PublicationServiceError,
-    PublicationServiceTimeoutError,
-)
-from mavedb.lib.logging.canonical import log_request
-from mavedb.lib.logging.context import (
-    logging_context,
-    record_exception,
-)
+from mavedb.lib.exception_handlers import install_exception_handlers
 from mavedb.lib.middleware import CatchAllErrorMiddleware, RequestContextMiddleware
-from mavedb.lib.permissions.exceptions import PermissionException
-from mavedb.lib.slack import send_slack_error
 from mavedb.lib.urn_redirects import forward_retired_urns
 from mavedb.models import *  # noqa: F403
 from mavedb.routers import (
@@ -129,127 +108,7 @@ app.include_router(variants.router)
 app.include_router(alphafold.router)
 
 
-@app.exception_handler(PermissionException)
-async def permission_exception_handler(request: Request, exc: PermissionException):
-    response = JSONResponse({"detail": exc.message}, status_code=exc.http_code)
-    record_exception(exc)
-    log_request(request, response, time.time_ns())
-    return response
-
-
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    response = JSONResponse(
-        status_code=422,
-        content=jsonable_encoder({"detail": list(map(lambda error: customize_validation_error(error), exc.errors()))}),
-    )
-    record_exception(exc)
-    log_request(request, response, time.time_ns())
-    return response
-
-
-@app.exception_handler(AmbiguousIdentifierError)
-async def ambiguous_identifier_error_exception_handler(request: Request, exc: AmbiguousIdentifierError):
-    response = JSONResponse(status_code=400, content={"message": str(exc)})
-    record_exception(exc)
-    log_request(request, response, time.time_ns())
-    return response
-
-
-@app.exception_handler(NonexistentIdentifierError)
-async def nonexistent_identifier_error_exception_handler(request: Request, exc: NonexistentIdentifierError):
-    response = JSONResponse(status_code=404, content={"message": str(exc)})
-    record_exception(exc)
-    log_request(request, response, time.time_ns())
-    return response
-
-
-@app.exception_handler(HGNCGeneNotFoundError)
-async def hgnc_gene_not_found_error_exception_handler(request: Request, exc: HGNCGeneNotFoundError):
-    response = JSONResponse(status_code=404, content={"message": str(exc)})
-    record_exception(exc)
-    log_request(request, response, time.time_ns())
-    return response
-
-
-@app.exception_handler(HGNCServiceError)
-async def hgnc_service_error_exception_handler(request: Request, exc: HGNCServiceError):
-    response = JSONResponse(status_code=503, content={"message": "Gene information service temporarily unavailable"})
-    record_exception(exc)
-    log_request(request, response, time.time_ns())
-    return response
-
-
-@app.exception_handler(MondoServiceError)
-async def mondo_service_error_exception_handler(request: Request, exc: MondoServiceError):
-    response = JSONResponse(status_code=503, content={"message": "Disease ontology service temporarily unavailable"})
-    record_exception(exc)
-    log_request(request, response, time.time_ns())
-    return response
-
-
-# Starlette picks the handler for the most specific class, so a timeout gets the 504. These answer with `detail`,
-# not `message`, because the ui's record editors show `detail` when a save fails.
-@app.exception_handler(PublicationServiceTimeoutError)
-async def publication_service_timeout_error_exception_handler(request: Request, exc: PublicationServiceTimeoutError):
-    response = JSONResponse(
-        status_code=504,
-        content={
-            "detail": "Gateway Timeout while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later."
-        },
-    )
-    record_exception(exc)
-    log_request(request, response, time.time_ns())
-    return response
-
-
-@app.exception_handler(PublicationServiceError)
-async def publication_service_error_exception_handler(request: Request, exc: PublicationServiceError):
-    response = JSONResponse(
-        status_code=502,
-        content={
-            "detail": "Bad Gateway while attempting to contact PubMed/bioRxiv/medRxiv/Crossref APIs. Please try again later."
-        },
-    )
-    record_exception(exc)
-    log_request(request, response, time.time_ns())
-    return response
-
-
-@app.exception_handler(MixedTargetError)
-async def mixed_target_exception_handler(request: Request, exc: MixedTargetError):
-    response = JSONResponse(status_code=400, content={"message": str(exc)})
-    record_exception(exc)
-    log_request(request, response, time.time_ns())
-    return response
-
-
-def customize_validation_error(error):
-    # surface custom validation loc context
-    if error.get("ctx", {}).get("custom_loc"):
-        error = {
-            "loc": error["ctx"]["custom_loc"],
-            "msg": error["msg"],
-            "type": error["type"],
-        }
-
-    if error["type"] == "type_error.none.not_allowed":
-        return {"loc": error["loc"], "msg": "Required", "type": error["type"]}
-    return error
-
-
-@app.exception_handler(Exception)
-async def exception_handler(request, err):
-    record_exception(err)
-    response = JSONResponse(status_code=500, content={"message": "Internal server error"})
-
-    try:
-        logger.error(msg="Uncaught exception.", extra=logging_context(), exc_info=err)
-        send_slack_error(err=err, request=request)
-    finally:
-        log_request(request, response, time.time_ns())
-
-    return response
+install_exception_handlers(app)
 
 
 def customize_openapi_schema():
