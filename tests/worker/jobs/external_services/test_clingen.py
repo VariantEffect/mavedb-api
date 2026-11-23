@@ -31,6 +31,7 @@ from mavedb.worker.jobs.external_services.clingen import (
 from mavedb.worker.lib.managers.job_manager import JobManager
 from tests.helpers.constants import TEST_CLINGEN_LDH_LINKING_RESPONSE_BAD_REQUEST
 from tests.helpers.util.setup.worker import create_mappings_in_score_set
+from tests.helpers.util.valid_time import add_versioned
 
 
 def _car_response(caid, allele):
@@ -289,15 +290,15 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         )
         session.add(derived_allele)
         session.flush()
-        session.add(
+        add_versioned(
+            session,
             MappingRecordAllele(
                 mapping_record_id=a_link.mapping_record_id,
                 score_set_id=a_link.score_set_id,
                 allele_id=derived_allele.id,
                 is_authoritative=False,
-            )
+            ),
         )
-        session.flush()
 
         def fake_dispatch(hgvs_list):
             return [
@@ -920,11 +921,14 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         )
         session.add_all([gnomad_variant, clinvar_control])
         session.flush()
-        session.add_all(
-            [
-                GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id),
-                ClinvarAlleleLink(allele_id=allele.id, clinvar_control_id=clinvar_control.id),
-            ]
+        add_versioned(
+            session,
+            *(
+                [
+                    GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id),
+                    ClinvarAlleleLink(allele_id=allele.id, clinvar_control_id=clinvar_control.id),
+                ]
+            ),
         )
         session.flush()
         prior = AnnotationStatusManager(session)
@@ -1116,13 +1120,14 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             )
             session.add(derived)
             session.flush()
-            session.add(
+            add_versioned(
+                session,
                 MappingRecordAllele(
                     mapping_record_id=a_link.mapping_record_id,
                     score_set_id=a_link.score_set_id,
                     allele_id=derived.id,
                     is_authoritative=False,
-                )
+                ),
             )
             alleles.append(derived)
 

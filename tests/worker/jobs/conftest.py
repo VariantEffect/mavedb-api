@@ -12,6 +12,7 @@ from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from tests.helpers.constants import VALID_CAID
+from tests.helpers.util.valid_time import add_versioned
 
 try:
     from .conftest_optional import *  # noqa: F403, F401
@@ -315,18 +316,17 @@ def setup_sample_alleles_with_caid(session, with_populated_domain_data, sample_l
         assay_level="genomic",
         mapping_api_version="pytest.0.0",
     )
-    session.add(mapping_record)
-    session.commit()
+    add_versioned(session, mapping_record)
 
-    session.add(
+    add_versioned(
+        session,
         MappingRecordAllele(
             mapping_record_id=mapping_record.id,
             score_set_id=mapping_record.score_set_id,
             allele_id=allele.id,
             is_authoritative=True,
-        )
+        ),
     )
-    session.commit()
     return variant, allele
 
 
@@ -357,15 +357,15 @@ def setup_rt_derived_allele_with_caid(session, setup_sample_alleles_with_caid):
     session.add(rt_allele)
     session.commit()
 
-    session.add(
+    add_versioned(
+        session,
         MappingRecordAllele(
             mapping_record_id=mapping_record.id,
             score_set_id=mapping_record.score_set_id,
             allele_id=rt_allele.id,
             is_authoritative=False,
-        )
+        ),
     )
-    session.commit()
     return variant, authoritative_allele, rt_allele
 
 
@@ -1183,18 +1183,17 @@ def setup_sample_alleles_for_vep(session, with_populated_domain_data, mock_worke
         assay_level="cdna",
         mapping_api_version="pytest.0.0",
     )
-    session.add(mapping_record)
-    session.commit()
+    add_versioned(session, mapping_record)
 
-    session.add(
+    add_versioned(
+        session,
         MappingRecordAllele(
             mapping_record_id=mapping_record.id,
             score_set_id=mapping_record.score_set_id,
             allele_id=allele.id,
             is_authoritative=True,
-        )
+        ),
     )
-    session.commit()
     return variant, allele
 
 
@@ -1230,18 +1229,17 @@ def setup_sample_protein_allele_for_vep(session, with_populated_domain_data, moc
         assay_level="protein",
         mapping_api_version="pytest.0.0",
     )
-    session.add(mapping_record)
-    session.commit()
+    add_versioned(session, mapping_record)
 
-    session.add(
+    add_versioned(
+        session,
         MappingRecordAllele(
             mapping_record_id=mapping_record.id,
             score_set_id=mapping_record.score_set_id,
             allele_id=allele.id,
             is_authoritative=True,
-        )
+        ),
     )
-    session.commit()
     return variant, allele
 
 
@@ -1266,13 +1264,13 @@ def setup_rt_derived_allele_for_vep(session, setup_sample_alleles_for_vep):
     session.add(rt_allele)
     session.commit()
 
-    session.add(
+    add_versioned(
+        session,
         MappingRecordAllele(
             mapping_record_id=mapping_record.id,
             score_set_id=mapping_record.score_set_id,
             allele_id=rt_allele.id,
             is_authoritative=False,
-        )
+        ),
     )
-    session.commit()
     return variant, authoritative_allele, rt_allele

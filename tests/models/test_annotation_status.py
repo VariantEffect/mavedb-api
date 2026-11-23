@@ -14,6 +14,8 @@ from mavedb.models.annotation_status import CAID_INDEPENDENT_TYPES, CAID_MATCHED
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.status_kind import StatusKind
+from mavedb.models.mixins.valid_time import superseding
+from tests.helpers.util.valid_time import add_versioned
 
 # CHECK constraints run before foreign keys, so a subject id that names no row still reaches them.
 UNUSED_VARIANT_ID = 2_000_000_000
@@ -49,18 +51,15 @@ def _status(
 
 
 def _add(session, status):
-    session.add(status)
-    session.commit()
+    add_versioned(session, status)
     session.refresh(status)
     return status
 
 
 def _expect_rejected(session, status, constraint):
     """Adding `status` must violate `constraint` on flush."""
-    session.add(status)
     with pytest.raises(IntegrityError, match=constraint):
-        session.flush()
-    session.rollback()
+        add_versioned(session, status)
 
 
 def test_insert_allele_subject_succeeds(session, allele):
@@ -170,11 +169,12 @@ def test_insert_clinvar_status_per_release_succeeds(session, allele):
     assert sorted(s.release for s in statuses) == ["01_2025", "01_2026"]
 
 
-def test_supersede_with_keeps_old_outcome_as_history(session, allele):
+def test_supersede_keeps_old_outcome_as_history(session, allele):
     old = _add(session, _status(allele_id=allele.id))
+    new = _status(allele_id=allele.id, disposition=Disposition.PRESENT, reason="created")
 
-    new = old.supersede_with(session, _status(allele_id=allele.id, disposition=Disposition.PRESENT, reason="created"))
-    session.commit()
+    with superseding(session, AnnotationStatus):
+        AnnotationStatus.supersede(session, retiring=[old], inserting=[new])
     session.refresh(old)
 
     assert not old.current

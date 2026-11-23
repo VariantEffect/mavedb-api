@@ -103,6 +103,9 @@ Follows the ``migrate_jsonb_ranges_to_table_rows.py`` pattern: invoked outside
 ``alembic upgrade`` (it can take a long time on production data), commits in
 variant batches, and offers ``verify`` / ``rollback`` commands.
 
+Each batch writes inside one ``superseding`` block, so it waits for (and holds off) worker jobs writing the
+same tables until the batch commits.
+
 Usage
 -----
 ::
@@ -150,6 +153,7 @@ from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.mapped_variant import MappedVariant
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.mixins.valid_time import superseding
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
@@ -839,10 +843,10 @@ def _backfill_annotation_timelines(
     pass_start = perf_counter()
     for offset in range(0, total, batch_size):
         chunk = allele_ids[offset : offset + batch_size]
-        observations = _observations_for_alleles(db, chunk)
-        if observations:
-            _write_annotation_timelines(db, observations, stats, run_at)
-            db.commit()
+        with superseding(db, ClinvarAlleleLink, GnomadAlleleLink, VepAlleleConsequence):
+            observations = _observations_for_alleles(db, chunk)
+            if observations:
+                _write_annotation_timelines(db, observations, stats, run_at)
         processed = min(offset + batch_size, total)
         elapsed = perf_counter() - pass_start
         rate = processed / elapsed if elapsed else 0.0
@@ -1033,9 +1037,8 @@ def _migrate_variant(
 
             touched_allele_ids.add(allele.id)
 
-    # Statuses flush once per batch, right before its commit: a flush holds the status lock until the commit, so
-    # flushing per variant would hold it for the whole batch. do_migration's except-block discards a failed
-    # variant's reports.
+    # Statuses flush once per batch, inside the batch's superseding block, outside the per-variant SAVEPOINT.
+    # do_migration's except-block discards a failed variant's reports.
     return touched_allele_ids
 
 
@@ -1152,70 +1155,69 @@ def do_migration(
             mvs_by_variant[cast(int, mv.variant_id)].append(mv)
         phase_seconds["fetch_mapped_variants"] += perf_counter() - mark
 
-        # Bulk pre-fetch, once per chunk instead of once per window — this (not query execution time)
-        # was the actual bottleneck: a per-window round trip for "does this record already exist" plus
-        # another for "does this allele already exist" dominates wall-clock at millions-of-rows scale,
-        # far more than the cost of the queries themselves.
-        mark = perf_counter()
-        existing_records = cast(
-            set[tuple[int, date]],
-            set(
-                db.execute(
-                    sa.select(MappingRecord.variant_id, MappingRecord.mapped_date).where(
-                        MappingRecord.variant_id.in_(chunk)
-                    )
-                ).all()
-            ),
-        )
-        score_set_ids: dict[int, int] = dict(
-            db.execute(sa.select(Variant.id, Variant.score_set_id).where(Variant.id.in_(chunk))).tuples().all()
-        )
-        candidate_digests = {(mv.post_mapped or {}).get("id") for mvs in mvs_by_variant.values() for mv in mvs}
-        candidate_digests.discard(None)
-        allele_cache: dict[str, Allele] = {}
-        if candidate_digests:
-            for allele in db.scalars(sa.select(Allele).where(Allele.vrs_digest.in_(candidate_digests))).all():
-                allele_cache[allele.vrs_digest] = allele
-        phase_seconds["prefetch"] += perf_counter() - mark
+        with superseding(db, MappingRecord, MappingRecordAllele, dry_run=dry_run):
+            # Bulk pre-fetch, once per chunk instead of once per window — this (not query execution time)
+            # was the actual bottleneck: a per-window round trip for "does this record already exist" plus
+            # another for "does this allele already exist" dominates wall-clock at millions-of-rows scale,
+            # far more than the cost of the queries themselves.
+            mark = perf_counter()
+            existing_records = cast(
+                set[tuple[int, date]],
+                set(
+                    db.execute(
+                        sa.select(MappingRecord.variant_id, MappingRecord.mapped_date).where(
+                            MappingRecord.variant_id.in_(chunk)
+                        )
+                    ).all()
+                ),
+            )
+            score_set_ids: dict[int, int] = dict(
+                db.execute(sa.select(Variant.id, Variant.score_set_id).where(Variant.id.in_(chunk))).tuples().all()
+            )
+            candidate_digests = {(mv.post_mapped or {}).get("id") for mvs in mvs_by_variant.values() for mv in mvs}
+            candidate_digests.discard(None)
+            allele_cache: dict[str, Allele] = {}
+            if candidate_digests:
+                for allele in db.scalars(sa.select(Allele).where(Allele.vrs_digest.in_(candidate_digests))).all():
+                    allele_cache[allele.vrs_digest] = allele
+            phase_seconds["prefetch"] += perf_counter() - mark
 
-        mark = perf_counter()
-        for variant_id in chunk:
-            # A per-variant SAVEPOINT so one bad variant rolls back only its own inserts (not the
-            # whole batch), and its touched allele ids are simply never added rather than referencing
-            # rolled-back rows.
-            pending_events_before = len(annotation_manager._pending_reports)
-            try:
-                with db.begin_nested():
-                    variant_touched_allele_ids = _migrate_variant(
-                        db,
-                        variant_id,
-                        score_set_ids[variant_id],
-                        mvs_by_variant[variant_id],
-                        stats,
-                        skipped,
-                        annotation_manager,
-                        existing_records,
-                        allele_cache,
-                        sequence_guard,
-                    )
-            except Exception as exc:  # noqa: BLE001 — one bad variant must not abort the batch
-                # Discard the reports this variant buffered: they reference its now-rolled-back rows, and the
-                # batch's flush would otherwise write them (an FK violation far from its cause).
-                del annotation_manager._pending_reports[pending_events_before:]
-                stats["variants_errored"] += 1
-                logger.exception("Failed to migrate variant %s: %s", variant_id, exc)
-                continue
-            touched_allele_ids.update(variant_touched_allele_ids)
-        phase_seconds["build_records"] += perf_counter() - mark
+            mark = perf_counter()
+            for variant_id in chunk:
+                # A per-variant SAVEPOINT so one bad variant rolls back only its own inserts (not the
+                # whole batch), and its touched allele ids are simply never added rather than referencing
+                # rolled-back rows.
+                pending_events_before = len(annotation_manager._pending_reports)
+                try:
+                    with db.begin_nested():
+                        variant_touched_allele_ids = _migrate_variant(
+                            db,
+                            variant_id,
+                            score_set_ids[variant_id],
+                            mvs_by_variant[variant_id],
+                            stats,
+                            skipped,
+                            annotation_manager,
+                            existing_records,
+                            allele_cache,
+                            sequence_guard,
+                        )
+                except Exception as exc:  # noqa: BLE001 — one bad variant must not abort the batch
+                    # Discard the reports this variant buffered: they reference its now-rolled-back rows, and the
+                    # batch's flush would otherwise write them (an FK violation far from its cause).
+                    del annotation_manager._pending_reports[pending_events_before:]
+                    stats["variants_errored"] += 1
+                    logger.exception("Failed to migrate variant %s: %s", variant_id, exc)
+                    continue
+                touched_allele_ids.update(variant_touched_allele_ids)
+            phase_seconds["build_records"] += perf_counter() - mark
 
-        mark = perf_counter()
-        if dry_run:
-            db.rollback()
-            annotation_manager._pending_reports.clear()
-            touched_allele_ids.clear()  # nothing persisted this batch; these ids are now invalid
-        else:
-            annotation_manager.flush()
-            db.commit()
+            mark = perf_counter()
+            if dry_run:
+                annotation_manager._pending_reports.clear()
+                touched_allele_ids.clear()  # nothing persisted this batch; these ids are now invalid
+            else:
+                annotation_manager.flush()
         phase_seconds["commit"] += perf_counter() - mark
 
         processed = min(offset + batch_size, len(variant_ids))

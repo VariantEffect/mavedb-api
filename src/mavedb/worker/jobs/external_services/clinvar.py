@@ -39,6 +39,7 @@ from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.job_pipeline import FailureCategory
 from mavedb.models.enums.sequence_level import SequenceLevel
+from mavedb.models.mixins.valid_time import superseding
 from mavedb.models.score_set import ScoreSet
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
@@ -229,8 +230,9 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
     for version_index, (year, month) in enumerate(versions):
         clinvar_version = f"{month:02d}_{year}"
         job_manager.append_to_context("clinvar_versions", clinvar_version)
+        version_progress = LOOKUP_PROGRESS_SHARE + int(version_index / len(versions) * (100 - LOOKUP_PROGRESS_SHARE))
         job_manager.update_progress(
-            LOOKUP_PROGRESS_SHARE + int(version_index / len(versions) * (100 - LOOKUP_PROGRESS_SHARE)),
+            version_progress,
             100,
             f"Processing ClinVar version {clinvar_version} ({version_index + 1}/{len(versions)}).",
         )
@@ -252,17 +254,26 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
             )
             continue
 
-        _evaluate_release(
-            job_manager,
-            annotation_manager,
-            clinvar_version,
-            tsv_data,
-            pending,
-            allele_data,
-            known_allele_ids,
-            corrected,
-            annotation_counts,
-        )
+        # The release's links and statuses commit together when the block exits, which releases the ClinVar link
+        # lock. The data fetch above stays outside it.
+        async with superseding(
+            job_manager.db,
+            ClinvarAlleleLink,
+            on_wait=lambda: job_manager.update_progress(
+                version_progress, 100, "Waiting for another job to finish linking ClinVar controls."
+            ),
+        ):
+            _evaluate_release(
+                job_manager,
+                annotation_manager,
+                clinvar_version,
+                tsv_data,
+                pending,
+                allele_data,
+                known_allele_ids,
+                corrected,
+                annotation_counts,
+            )
         versions_completed += 1
 
     logger.info(
@@ -429,8 +440,8 @@ def _evaluate_release(
 ) -> None:
     """Step 2, for one release: link each pending allele whose AlleleID is in the release's data, and report
     whether it is. A ``corrected`` allele's link through its old AlleleID is replaced by the new link, or withdrawn
-    when the new AlleleID isn't in the release. The next release's progress checkpoint commits these, before its data
-    fetch awaits."""
+    when the new AlleleID isn't in the release. Runs inside a :class:`superseding` block for ``ClinvarAlleleLink``,
+    whose exit commits these."""
     for allele_id in pending:
         caid, clinvar_allele_id = allele_data[allele_id], known_allele_ids[allele_id]
         # The allele has a ClinVar AlleleID but it is absent from this release's snapshot — a genuine, version-scoped
@@ -439,11 +450,10 @@ def _evaluate_release(
             counts["skipped_link_count"] += 1
             if allele_id in corrected:
                 release_controls = select(ClinvarControl.id).where(ClinvarControl.db_version == release)
-                job_manager.db.execute(
-                    ClinvarAlleleLink.retire_live_where(
-                        ClinvarAlleleLink.allele_id == allele_id,
-                        ClinvarAlleleLink.clinvar_control_id.in_(release_controls),
-                    )
+                ClinvarAlleleLink.retire_where(
+                    job_manager.db,
+                    ClinvarAlleleLink.allele_id == allele_id,
+                    ClinvarAlleleLink.clinvar_control_id.in_(release_controls),
                 )
             _report_release(
                 annotation_manager,
@@ -542,13 +552,17 @@ def _link_clinvar_control(
         )
     )
     if live_link is None:
-        job_manager.db.add(ClinvarAlleleLink(allele_id=allele_id, clinvar_control_id=clinvar_control.id))
+        ClinvarAlleleLink.supersede(
+            job_manager.db, inserting=[ClinvarAlleleLink(allele_id=allele_id, clinvar_control_id=clinvar_control.id)]
+        )
         return EventReason.CREATED
     if live_link.clinvar_control_id == clinvar_control.id:
         return EventReason.PREEXISTING
 
-    live_link.supersede_with(
-        job_manager.db, ClinvarAlleleLink(allele_id=allele_id, clinvar_control_id=clinvar_control.id)
+    ClinvarAlleleLink.supersede(
+        job_manager.db,
+        retiring=[live_link],
+        inserting=[ClinvarAlleleLink(allele_id=allele_id, clinvar_control_id=clinvar_control.id)],
     )
     logger.warning(
         msg=(

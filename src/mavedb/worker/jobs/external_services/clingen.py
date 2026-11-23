@@ -11,6 +11,7 @@ variant interpretation and data sharing.
 import functools
 import logging
 from collections.abc import Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any
 
@@ -36,12 +37,15 @@ from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.utils import batched
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.allele import Allele as AlleleModel
+from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.job_pipeline import FailureCategory
+from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.mixins.valid_time import superseding
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.worker.jobs.utils.setup import validate_job_params
@@ -343,118 +347,144 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
                 extra=job_manager.logging_context(),
             )
 
-        for hgvs_string, response in zip(hgvs_list, registered_alleles if aligned else []):
-            allele_ids_for_hgvs = hgvs_to_allele_ids[hgvs_string]
+        # Only force_reregister resubmits an allele that already holds a CAID, so only then can a changed CAID retire
+        # gnomAD and ClinVar links. The batch's CAIDs, retirements and statuses then commit together when the block
+        # exits, which releases both link locks.
+        replaces_caids = force_reregister and any(
+            allele_data[allele_id].existing_caid for hgvs in hgvs_list for allele_id in hgvs_to_allele_ids[hgvs]
+        )
+        link_lock = (
+            superseding(
+                job_manager.db,
+                GnomadAlleleLink,
+                ClinvarAlleleLink,
+                on_wait=lambda: job_manager.update_progress(
+                    15 + (45 * batch_idx) // len(batches),
+                    100,
+                    "Waiting for other jobs to finish linking gnomAD variants and ClinVar controls.",
+                ),
+            )
+            if replaces_caids
+            else nullcontext()
+        )
+        async with link_lock:
+            for hgvs_string, response in zip(hgvs_list, registered_alleles if aligned else []):
+                allele_ids_for_hgvs = hgvs_to_allele_ids[hgvs_string]
 
-            if "errorType" in response:
-                logger.warning(
-                    msg=f"CAR rejected HGVS '{hgvs_string}' ({response.get('errorType', 'unknown')}): {response.get('message', 'unknown')}",
-                    extra=job_manager.logging_context(),
-                )
-                for allele_id in allele_ids_for_hgvs:
-                    failed_allele_ids.add(allele_id)
-                    _annotate_caid(
-                        annotation_manager,
-                        allele_id,
-                        Disposition.FAILED,
-                        EventReason.SERVICE_REJECTED,
-                        error_message="Failed to register allele with ClinGen Allele Registry.",
-                        metadata={
-                            "submitted_hgvs": hgvs_string,
-                            "car_error_type": response.get("errorType"),
-                            "car_error_message": response.get("message"),
-                        },
-                    )
-
-                continue
-
-            # A response that is neither an error nor a registration (no "@id") is malformed.
-            caid_iri = response.get("@id")
-            if not caid_iri:
-                logger.error(
-                    msg=f"CAR returned a response for HGVS '{hgvs_string}' with neither an error nor an allele identifier.",
-                    extra=job_manager.logging_context(),
-                )
-                for allele_id in allele_ids_for_hgvs:
-                    failed_allele_ids.add(allele_id)
-                    _annotate_caid(
-                        annotation_manager,
-                        allele_id,
-                        Disposition.FAILED,
-                        EventReason.MALFORMED_RESPONSE,
-                        error_message="ClinGen Allele Registry returned a malformed response with no allele identifier.",
-                        metadata={"submitted_hgvs": hgvs_string},
-                    )
-
-                continue
-
-            caid = caid_iri.split("/")[-1]
-
-            # CAR lists its own normalized spellings, not the submitted one, so an indel or identity written
-            # differently from CAR's form is expected to be missing from the list. The positional zip (with the
-            # count check above) ties the response to the submission; an unlisted spelling is recorded for audit.
-            spelling_metadata: dict[str, Any] = {}
-            if hgvs_string not in _response_hgvs(response):
-                unlisted_allele_ids.update(allele_ids_for_hgvs)
-                spelling_metadata = {"submitted_hgvs": hgvs_string, "submitted_hgvs_unlisted": True}
-                logger.debug(
-                    msg=f"CAR returned {caid!r} for HGVS '{hgvs_string}' without listing that spelling.",
-                    extra=job_manager.logging_context(),
-                )
-
-            for allele_id in allele_ids_for_hgvs:
-                entry = allele_data[allele_id]
-                prior_caid = entry.existing_caid
-
-                # Only force_reregister resubmits an allele that already holds a CAID, and CAR's answer for the
-                # allele's own HGVS wins. Its gnomAD and ClinVar links were matched through the old CAID, so retire
-                # them and the later steps link the allele again.
-                if prior_caid and prior_caid != caid:
-                    linked_allele_ids.add(allele_id)
-                    alleles_by_id[allele_id].clingen_allele_id = caid
-                    retired_gnomad, retired_clinvar = retire_caid_matches(job_manager.db, annotation_manager, allele_id)
+                if "errorType" in response:
                     logger.warning(
-                        msg=(
-                            f"Replaced CAID {prior_caid!r} with {caid!r} for allele {allele_id}; retired "
-                            f"{retired_gnomad} gnomAD and {retired_clinvar} ClinVar link(s)."
-                        ),
+                        msg=f"CAR rejected HGVS '{hgvs_string}' ({response.get('errorType', 'unknown')}): {response.get('message', 'unknown')}",
                         extra=job_manager.logging_context(),
                     )
-                    _annotate_caid(
-                        annotation_manager,
-                        allele_id,
-                        Disposition.PRESENT,
-                        EventReason.CORRECTED,
-                        metadata={
-                            **spelling_metadata,
-                            "clingen_allele_id": caid,
-                            "replaced_caid": prior_caid,
-                            "submitted_hgvs": hgvs_string,
-                            "retired_gnomad_links": retired_gnomad,
-                            "retired_clinvar_links": retired_clinvar,
-                        },
-                    )
-
-                # CAID is new or matches the stored value — link it to the allele and record success.
-                else:
-                    linked_allele_ids.add(allele_id)
-                    allele = alleles_by_id[allele_id]
-                    allele.clingen_allele_id = caid
-
-                    reason = EventReason.RECONFIRMED if prior_caid else EventReason.CREATED
-                    if prior_caid:
-                        logger.info(
-                            msg=f"Force re-registration confirmed same CAID {caid!r} for allele {allele_id}.",
-                            extra=job_manager.logging_context(),
+                    for allele_id in allele_ids_for_hgvs:
+                        failed_allele_ids.add(allele_id)
+                        _annotate_caid(
+                            annotation_manager,
+                            allele_id,
+                            Disposition.FAILED,
+                            EventReason.SERVICE_REJECTED,
+                            error_message="Failed to register allele with ClinGen Allele Registry.",
+                            metadata={
+                                "submitted_hgvs": hgvs_string,
+                                "car_error_type": response.get("errorType"),
+                                "car_error_message": response.get("message"),
+                            },
                         )
 
-                    _annotate_caid(
-                        annotation_manager,
-                        allele_id,
-                        Disposition.PRESENT,
-                        reason,
-                        metadata={**spelling_metadata, "clingen_allele_id": caid},
+                    continue
+
+                # A response that is neither an error nor a registration (no "@id") is malformed.
+                caid_iri = response.get("@id")
+                if not caid_iri:
+                    logger.error(
+                        msg=f"CAR returned a response for HGVS '{hgvs_string}' with neither an error nor an allele identifier.",
+                        extra=job_manager.logging_context(),
                     )
+                    for allele_id in allele_ids_for_hgvs:
+                        failed_allele_ids.add(allele_id)
+                        _annotate_caid(
+                            annotation_manager,
+                            allele_id,
+                            Disposition.FAILED,
+                            EventReason.MALFORMED_RESPONSE,
+                            error_message="ClinGen Allele Registry returned a malformed response with no allele identifier.",
+                            metadata={"submitted_hgvs": hgvs_string},
+                        )
+
+                    continue
+
+                caid = caid_iri.split("/")[-1]
+
+                # CAR lists its own normalized spellings, not the submitted one, so an indel or identity written
+                # differently from CAR's form is expected to be missing from the list. The positional zip (with the
+                # count check above) ties the response to the submission; an unlisted spelling is recorded for audit.
+                spelling_metadata: dict[str, Any] = {}
+                if hgvs_string not in _response_hgvs(response):
+                    unlisted_allele_ids.update(allele_ids_for_hgvs)
+                    spelling_metadata = {"submitted_hgvs": hgvs_string, "submitted_hgvs_unlisted": True}
+                    logger.debug(
+                        msg=f"CAR returned {caid!r} for HGVS '{hgvs_string}' without listing that spelling.",
+                        extra=job_manager.logging_context(),
+                    )
+
+                for allele_id in allele_ids_for_hgvs:
+                    entry = allele_data[allele_id]
+                    prior_caid = entry.existing_caid
+
+                    # Only force_reregister resubmits an allele that already holds a CAID, and CAR's answer for the
+                    # allele's own HGVS wins. Its gnomAD and ClinVar links were matched through the old CAID, so retire
+                    # them and the later steps link the allele again.
+                    if prior_caid and prior_caid != caid:
+                        linked_allele_ids.add(allele_id)
+                        alleles_by_id[allele_id].clingen_allele_id = caid
+                        retired_gnomad, retired_clinvar = retire_caid_matches(
+                            job_manager.db, annotation_manager, allele_id
+                        )
+                        logger.warning(
+                            msg=(
+                                f"Replaced CAID {prior_caid!r} with {caid!r} for allele {allele_id}; retired "
+                                f"{retired_gnomad} gnomAD and {retired_clinvar} ClinVar link(s)."
+                            ),
+                            extra=job_manager.logging_context(),
+                        )
+                        _annotate_caid(
+                            annotation_manager,
+                            allele_id,
+                            Disposition.PRESENT,
+                            EventReason.CORRECTED,
+                            metadata={
+                                **spelling_metadata,
+                                "clingen_allele_id": caid,
+                                "replaced_caid": prior_caid,
+                                "submitted_hgvs": hgvs_string,
+                                "retired_gnomad_links": retired_gnomad,
+                                "retired_clinvar_links": retired_clinvar,
+                            },
+                        )
+
+                    # CAID is new or matches the stored value — link it to the allele and record success.
+                    else:
+                        linked_allele_ids.add(allele_id)
+                        allele = alleles_by_id[allele_id]
+                        allele.clingen_allele_id = caid
+
+                        reason = EventReason.RECONFIRMED if prior_caid else EventReason.CREATED
+                        if prior_caid:
+                            logger.info(
+                                msg=f"Force re-registration confirmed same CAID {caid!r} for allele {allele_id}.",
+                                extra=job_manager.logging_context(),
+                            )
+
+                        _annotate_caid(
+                            annotation_manager,
+                            allele_id,
+                            Disposition.PRESENT,
+                            reason,
+                            metadata={**spelling_metadata, "clingen_allele_id": caid},
+                        )
+
+            if replaces_caids:
+                annotation_manager.flush()
 
         # Submitted HGVS with no trustworthy response: the truncated tail when the counts line up
         # (network drop, service-side omission), or the entire batch when the response count

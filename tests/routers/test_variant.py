@@ -40,6 +40,7 @@ from tests.helpers.util.score_set import (
     seed_csv_substrate,
 )
 from tests.helpers.util.user import change_ownership
+from tests.helpers.util.valid_time import add_versioned
 
 _VALID_DIGEST = "0123456789abcdefghijABCDEFGHIJ_-"
 
@@ -79,8 +80,7 @@ def _seed_mapping(session, variant_urn):
         hgvs_assay_level="NM_000546.6:c.1216G>A",
         mapping_api_version="test.0.0",
     )
-    session.add(record)
-    session.commit()
+    add_versioned(session, record)
 
     measured = Allele(
         vrs_digest="cdna-digest",
@@ -106,62 +106,63 @@ def _seed_mapping(session, variant_urn):
         hgvs_p=protein.hgvs_p,
     )
     cousin_group = ProjectionGroup(mapping_record_id=record.id, score_set_id=record.score_set_id, hgvs_c=cousin.hgvs_c)
-    session.add_all([measured, genomic, protein, cousin, measured_group, cousin_group])
-    session.commit()
+    add_versioned(session, *([measured, genomic, protein, cousin, measured_group, cousin_group]))
 
-    session.add_all(
-        [
-            # The measured group holds the measured cdna, its genomic projection, and the protein apex; the
-            # cousin sits in its own projection group.
-            MappingRecordAllele(
-                mapping_record_id=record.id,
-                score_set_id=record.score_set_id,
-                allele_id=measured.id,
-                is_authoritative=True,
-                projection_group=measured_group.id,
-            ),
-            MappingRecordAllele(
-                mapping_record_id=record.id,
-                score_set_id=record.score_set_id,
-                allele_id=genomic.id,
-                is_authoritative=False,
-                projection_group=measured_group.id,
-            ),
-            MappingRecordAllele(
-                mapping_record_id=record.id,
-                score_set_id=record.score_set_id,
-                allele_id=protein.id,
-                is_authoritative=False,
-                projection_group=measured_group.id,
-            ),
-            MappingRecordAllele(
-                mapping_record_id=record.id,
-                score_set_id=record.score_set_id,
-                allele_id=cousin.id,
-                is_authoritative=False,
-                projection_group=cousin_group.id,
-            ),
-            VepAlleleConsequence(
-                allele_id=measured.id,
-                functional_consequence="missense_variant",
-                consequence_terms=["missense_variant"],
-                consequence_source=VepConsequenceSource.transcript,
-                matched_transcript="NM_000546.6",
-                source_version="116",
-                access_date="2026-01-01",
-            ),
-            # The genomic sibling has no transcript to match, so VEP's cross-transcript worst case.
-            VepAlleleConsequence(
-                allele_id=genomic.id,
-                functional_consequence="splice_region_variant",
-                consequence_terms=["splice_region_variant", "missense_variant"],
-                consequence_source=VepConsequenceSource.most_severe,
-                source_version="116",
-                access_date="2026-01-01",
-            ),
-        ]
+    add_versioned(
+        session,
+        *(
+            [
+                # The measured group holds the measured cdna, its genomic projection, and the protein apex; the
+                # cousin sits in its own projection group.
+                MappingRecordAllele(
+                    mapping_record_id=record.id,
+                    score_set_id=record.score_set_id,
+                    allele_id=measured.id,
+                    is_authoritative=True,
+                    projection_group=measured_group.id,
+                ),
+                MappingRecordAllele(
+                    mapping_record_id=record.id,
+                    score_set_id=record.score_set_id,
+                    allele_id=genomic.id,
+                    is_authoritative=False,
+                    projection_group=measured_group.id,
+                ),
+                MappingRecordAllele(
+                    mapping_record_id=record.id,
+                    score_set_id=record.score_set_id,
+                    allele_id=protein.id,
+                    is_authoritative=False,
+                    projection_group=measured_group.id,
+                ),
+                MappingRecordAllele(
+                    mapping_record_id=record.id,
+                    score_set_id=record.score_set_id,
+                    allele_id=cousin.id,
+                    is_authoritative=False,
+                    projection_group=cousin_group.id,
+                ),
+                VepAlleleConsequence(
+                    allele_id=measured.id,
+                    functional_consequence="missense_variant",
+                    consequence_terms=["missense_variant"],
+                    consequence_source=VepConsequenceSource.transcript,
+                    matched_transcript="NM_000546.6",
+                    source_version="116",
+                    access_date="2026-01-01",
+                ),
+                # The genomic sibling has no transcript to match, so VEP's cross-transcript worst case.
+                VepAlleleConsequence(
+                    allele_id=genomic.id,
+                    functional_consequence="splice_region_variant",
+                    consequence_terms=["splice_region_variant", "missense_variant"],
+                    consequence_source=VepConsequenceSource.most_severe,
+                    source_version="116",
+                    access_date="2026-01-01",
+                ),
+            ]
+        ),
     )
-    session.commit()
 
 
 def test_get_variant_detail_envelope(client, session, data_provider, data_files, setup_router_db):

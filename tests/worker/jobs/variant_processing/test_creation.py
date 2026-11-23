@@ -25,6 +25,7 @@ from mavedb.models.score_calibration_functional_classification import ScoreCalib
 from mavedb.models.variant import Variant
 from mavedb.worker.jobs.variant_processing.creation import create_variants_for_score_set
 from mavedb.worker.lib.managers.job_manager import JobManager
+from tests.helpers.util.valid_time import add_versioned
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
@@ -315,24 +316,25 @@ class TestCreateVariantsForScoreSetUnit:
         variant = Variant(data={}, score_set_id=sample_score_set.id)
         session.add(variant)
         session.commit()
-        session.add(
+        add_versioned(
+            session,
             MappingRecord(
                 variant_id=variant.id,
                 score_set_id=sample_score_set.id,
                 assay_level="cdna",
                 mapping_api_version="test.0.0",
-            )
+            ),
         )
-        session.add(
+        add_versioned(
+            session,
             AnnotationStatus(
                 annotation_type=AnnotationType.VRS_MAPPING,
                 kind="outcome",
                 variant_id=variant.id,
                 disposition=Disposition.PRESENT,
                 reason="mapped",
-            )
+            ),
         )
-        session.commit()
         variant_id = variant.id
 
         with (

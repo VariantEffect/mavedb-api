@@ -8,8 +8,10 @@ rarity of variants in their datasets.
 
 import logging
 from collections import Counter
+from contextlib import nullcontext
+from typing import Any, Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import Row, select
 
 from mavedb.db import athena
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
@@ -27,6 +29,7 @@ from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
+from mavedb.models.mixins.valid_time import superseding
 from mavedb.models.score_set import ScoreSet
 from mavedb.worker.jobs.utils.setup import validate_job_params
 from mavedb.worker.lib.decorators.pipeline_management import with_pipeline_management
@@ -191,7 +194,7 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
         }
     )
 
-    verdicts: dict[int, GnomadLinkVerdict] = {}
+    gnomad_variant_data: Sequence[Row[Any]] = []
     if variant_caids:
         with athena.engine.connect() as athena_session:
             logger.debug("Fetching gnomAD variants from Athena.")
@@ -203,9 +206,6 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
             75, 100, f"Found {num_gnomad_variants_with_caid_match} gnomAD variants matching CAIDs."
         )
 
-        logger.info(msg="Attempting to link alleles to gnomAD variants.", extra=job_manager.logging_context())
-        verdicts = link_gnomad_variants_to_alleles(job_manager.db, gnomad_variant_data)
-        job_manager.db.flush()
     else:
         logger.info(
             msg="All CAID-bearing alleles are already linked at the current gnomAD version; skipping Athena query.",
@@ -213,6 +213,45 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
         )
         job_manager.update_progress(75, 100, "All alleles already current at this gnomAD version.")
 
+    # Links and their statuses commit together when the block exits, which releases the gnomAD link lock. Nothing
+    # links when every allele is already current, so there's no lock to wait for.
+    link_lock = (
+        superseding(
+            job_manager.db,
+            GnomadAlleleLink,
+            on_wait=lambda: job_manager.update_progress(
+                75, 100, "Waiting for another job to finish linking gnomAD variants."
+            ),
+        )
+        if gnomad_variant_data
+        else nullcontext()
+    )
+    async with link_lock:
+        verdicts: dict[int, GnomadLinkVerdict] = {}
+        if gnomad_variant_data:
+            logger.info(msg="Attempting to link alleles to gnomAD variants.", extra=job_manager.logging_context())
+            verdicts = link_gnomad_variants_to_alleles(job_manager.db, gnomad_variant_data)
+
+        _report_gnomad_statuses(
+            annotation_manager, allele_data, allele_levels, already_current, verdicts, annotation_counts
+        )
+        annotation_manager.flush()
+
+    outcome_data = dict(annotation_counts)
+    job_manager.save_to_context(outcome_data)
+    logger.info(msg="Done linking gnomAD variants to alleles.", extra=job_manager.logging_context())
+    return JobExecutionOutcome.succeeded(data=outcome_data)
+
+
+def _report_gnomad_statuses(
+    annotation_manager: AnnotationStatusManager,
+    allele_data: dict[int, str],
+    allele_levels: dict[int, Optional[str]],
+    already_current: set[int],
+    verdicts: dict[int, GnomadLinkVerdict],
+    annotation_counts: Counter[str],
+) -> None:
+    """Report each allele's gnomAD status from the linker's verdicts, counting each outcome."""
     for allele_id, caid in allele_data.items():
         # gnomAD is a nucleotide-level, genomic-coordinate resource. Skip any protein alleles.
         if allele_levels.get(allele_id) == SequenceLevel.protein.value:
@@ -256,11 +295,3 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
                 error_message="No gnomAD variant could be linked for this allele.",
                 metadata={"clingen_allele_id": caid},
             )
-
-    annotation_manager.flush()
-
-    outcome_data = dict(annotation_counts)
-    job_manager.save_to_context(outcome_data)
-    logger.info(msg="Done linking gnomAD variants to alleles.", extra=job_manager.logging_context())
-    job_manager.db.flush()
-    return JobExecutionOutcome.succeeded(data=outcome_data)

@@ -37,6 +37,7 @@ from mavedb.models.variant import Variant
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 from tests.helpers.constants import TEST_MINIMAL_VARIANT, TEST_USER
 from tests.helpers.util.query_plan import captured_statements
+from tests.helpers.util.valid_time import add_versioned, retire_versioned, update_versioned
 
 # A spec-valid post_mapped VRS Allele — the Cat-VRS builder hydrates this, so it must parse.
 _VALID_DIGEST = "0123456789abcdefghijABCDEFGHIJ_-"
@@ -101,8 +102,7 @@ def _record(session, variant, *, assay_level="cdna", hgvs_assay_level=None):
         hgvs_assay_level=hgvs_assay_level,
         mapping_api_version="test.0.0",
     )
-    session.add(record)
-    session.commit()
+    add_versioned(session, record)
     return record
 
 
@@ -110,8 +110,7 @@ def _group(session, record, *, hgvs_c=None, hgvs_g=None, hgvs_p=None):
     group = ProjectionGroup(
         mapping_record_id=record.id, score_set_id=record.score_set_id, hgvs_c=hgvs_c, hgvs_g=hgvs_g, hgvs_p=hgvs_p
     )
-    session.add(group)
-    session.commit()
+    add_versioned(session, group)
     return group
 
 
@@ -123,18 +122,17 @@ def _link(session, record, allele, *, is_authoritative=False, group=None):
         is_authoritative=is_authoritative,
         projection_group=group.id if group is not None else None,
     )
-    session.add(link)
-    session.commit()
+    add_versioned(session, link)
     return link
 
 
 def _vep(session, allele, value):
-    session.add(
+    add_versioned(
+        session,
         VepAlleleConsequence(
             allele_id=allele.id, functional_consequence=value, source_version="116", access_date="2026-01-01"
-        )
+        ),
     )
-    session.commit()
 
 
 def _calibration(session, score_set, *, primary, classifications):
@@ -404,8 +402,7 @@ def _gnomad_link(session, allele, gnomad_id, *, valid_from=None):
     link = GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id)
     if valid_from is not None:
         link.valid_from = valid_from
-    session.add(link)
-    session.flush()
+    add_versioned(session, link)
     return link
 
 
@@ -437,8 +434,7 @@ def test_categorical_variant_cross_references_linked_gnomad_and_clinvar_records(
     )
     session.add(control)
     session.flush()
-    session.add(ClinvarAlleleLink(allele_id=measured.id, clinvar_control_id=control.id))
-    session.commit()
+    add_versioned(session, ClinvarAlleleLink(allele_id=measured.id, clinvar_control_id=control.id))
 
     detail = get_variant_detail(session, variant)
 
@@ -462,16 +458,13 @@ def test_categorical_variant_mappings_follow_as_of(session, setup_lib_db_with_sc
     measured = _allele(session, "cdna-digest", level="cdna")
     genomic = _allele(session, "gen-digest", level="genomic")
     measured_group = _group(session, record)
-    for row in (
+    links = [
         _link(session, record, measured, is_authoritative=True, group=measured_group),
         _link(session, record, genomic, group=measured_group),
-        measured_group,
-    ):
-        row.valid_from = T0
-    record.valid_from = T0
-    _gnomad_link(session, genomic, "17-1-A-G", valid_from=T0).retire(at=T1)
+    ]
+    update_versioned(session, [*links, measured_group, record], valid_from=T0)
+    retire_versioned(session, _gnomad_link(session, genomic, "17-1-A-G", valid_from=T0), at=T1)
     _gnomad_link(session, genomic, "17-1-A-T", valid_from=T1)
-    session.commit()
 
     def gnomad_ids(as_of):
         detail = get_variant_detail(session, variant, as_of=as_of)

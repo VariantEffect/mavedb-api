@@ -26,6 +26,7 @@ from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_re
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import create_seq_score_set_with_variants
 from tests.helpers.util.user import change_ownership
+from tests.helpers.util.valid_time import add_versioned
 
 _VALID_DIGEST = "0123456789abcdefghijABCDEFGHIJ_-"
 
@@ -247,19 +248,18 @@ def test_get_allele_detail_scopes_equivalence_class_to_readable_score_sets(
     record = MappingRecord(
         variant_id=variant.id, score_set_id=variant.score_set_id, assay_level="cdna", mapping_api_version="test.0.0"
     )
-    session.add(record)
-    session.commit()
+    add_versioned(session, record)
     for digest, is_authoritative in ((CDNA, True), (PROT, False)):
         allele = session.scalar(select(Allele).where(Allele.vrs_digest == digest))
-        session.add(
+        add_versioned(
+            session,
             MappingRecordAllele(
                 mapping_record_id=record.id,
                 score_set_id=record.score_set_id,
                 allele_id=allele.id,
                 is_authoritative=is_authoritative,
-            )
+            ),
         )
-    session.commit()
 
     response = client.get(f"/api/v1/alleles/{CDNA}")
 

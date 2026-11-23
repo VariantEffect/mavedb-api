@@ -31,6 +31,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mavedb.data_providers.services import cdot_rest
+from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.mixins.valid_time import superseding
+from mavedb.models.projection_group import ProjectionGroup
 from mavedb.models.score_set import ScoreSet
 from mavedb.scripts.environment import DatabaseSessionAction, script_environment, with_database_session
 from mavedb.worker.jobs.variant_processing.reverse_translation import cdna_transcript_resolver
@@ -85,17 +88,16 @@ def project_measured_variants_command(
     totals: Counter[str] = Counter()
     started = time.monotonic()
     for index, (score_set_id, urn) in enumerate(score_sets, start=1):
-        counts = project_measured_variants(
-            db,
-            score_set_id,
-            coordinates=coordinates,
-            resolve_transcript=cdna_transcript_resolver(db, score_set_id, coordinates),
-            missing_only=missing_only,
-        )
-        if action is DatabaseSessionAction.COMMIT:
-            db.commit()
-        else:
-            db.flush()
+        resolve_transcript = cdna_transcript_resolver(db, score_set_id, coordinates)
+        dry_run = action is not DatabaseSessionAction.COMMIT
+        with superseding(db, MappingRecordAllele, ProjectionGroup, dry_run=dry_run):
+            counts = project_measured_variants(
+                db,
+                score_set_id,
+                coordinates=coordinates,
+                resolve_transcript=resolve_transcript,
+                missing_only=missing_only,
+            )
         db.expunge_all()
         totals.update(counts)
         logger.info(f"[{index}/{len(score_sets)}] {urn}: {dict(counts)}")

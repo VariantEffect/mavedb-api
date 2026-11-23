@@ -112,6 +112,7 @@ from tests.helpers.util.score_set import (
     shift_hgvs_position,
 )
 from tests.helpers.util.user import change_ownership
+from tests.helpers.util.valid_time import add_versioned, update_versioned
 from tests.helpers.util.variant import (
     mock_worker_variant_insertion,
 )
@@ -3718,21 +3719,22 @@ def test_can_delete_own_private_scoreset_with_mapped_variants(
         select(VariantDbModel).join(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
     ).first()
     variant_ids = [variant.id]
-    session.add(
+    add_versioned(
+        session,
         MappingRecord(
             variant_id=variant.id, score_set_id=variant.score_set_id, assay_level="cdna", mapping_api_version="test.0.0"
-        )
+        ),
     )
-    session.add(
+    add_versioned(
+        session,
         AnnotationStatus(
             annotation_type=AnnotationType.VRS_MAPPING,
             kind="outcome",
             variant_id=variant.id,
             disposition=Disposition.PRESENT,
             reason="mapped",
-        )
+        ),
     )
-    session.commit()
 
     response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
 
@@ -5290,9 +5292,7 @@ def test_clinical_control_options_exclude_non_current(client, setup_router_db, s
     # by stamping valid_to) must leave no current controls and 404. Test-isolated DB, so these are
     # the only links present.
     links = session.scalars(select(ClinvarAlleleLink).where(ClinvarAlleleLink.valid_to.is_(None))).all()
-    for link in links:
-        link.valid_to = datetime.now(timezone.utc)
-    session.commit()
+    update_versioned(session, links, valid_to=datetime.now(timezone.utc))
 
     response = client.get(f"/api/v1/score-sets/{score_set['urn']}/clinical-controls/options")
     assert response.status_code == 404

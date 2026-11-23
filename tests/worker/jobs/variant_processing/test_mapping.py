@@ -32,6 +32,7 @@ from mavedb.worker.jobs.variant_processing.mapping import (
 from mavedb.worker.lib.managers.job_manager import JobManager
 from tests.helpers.constants import TEST_CODING_LAYER, TEST_GENOMIC_LAYER, TEST_PROTEIN_LAYER
 from tests.helpers.util.setup.worker import construct_mock_mapping_output, create_variants_in_score_set
+from tests.helpers.util.valid_time import add_versioned
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
@@ -1026,8 +1027,7 @@ class TestMapVariantsForScoreSetUnit:
             mapped_date=date(2023, 1, 1),
             mapping_api_version="v1.0.0",
         )
-        session.add(mapping_record)
-        session.commit()
+        add_versioned(session, mapping_record)
         # Link the prior record to an authoritative allele. Re-mapping must retire this link too,
         # not just the record — a live link dangling off a retired record breaks the temporal model.
         prior_allele = Allele(vrs_digest="ga4gh:VA.prior", level=SequenceLevel.genomic.value)
@@ -1039,13 +1039,11 @@ class TestMapVariantsForScoreSetUnit:
             allele_id=prior_allele.id,
             is_authoritative=True,
         )
-        session.add(prior_link)
-        session.commit()
+        add_versioned(session, prior_link)
         prior_event = AnnotationStatus(
             variant_id=variant.id, annotation_type="vrs_mapping", kind="outcome", disposition="present", reason="mapped"
         )
-        session.add(prior_event)
-        session.commit()
+        add_versioned(session, prior_event)
 
         with (
             patch(
@@ -1568,10 +1566,8 @@ class TestMapVariantsForScoreSetIntegration:
                 disposition="present",
                 reason="mapped",
             )
-            session.add(prior_event)
-            session.commit()
-            session.add(mapping_record)
-            session.commit()
+            add_versioned(session, prior_event)
+            add_versioned(session, mapping_record)
 
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(

@@ -19,6 +19,7 @@ from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.variant import Variant
 from mavedb.scripts.variant_annotations import current_annotation_summary
 from tests.helpers.constants import TEST_MINIMAL_VARIANT
+from tests.helpers.util.valid_time import add_versioned
 
 
 def _variant_mapped_to_allele(session, score_set, allele):
@@ -30,14 +31,13 @@ def _variant_mapped_to_allele(session, score_set, allele):
     record = MappingRecord(
         variant_id=variant.id, score_set_id=variant.score_set_id, assay_level="genomic", mapping_api_version="test.0.0"
     )
-    session.add(record)
-    session.commit()
-    session.add(
+    add_versioned(session, record)
+    add_versioned(
+        session,
         MappingRecordAllele(
             mapping_record_id=record.id, score_set_id=record.score_set_id, allele_id=allele.id, is_authoritative=True
-        )
+        ),
     )
-    session.commit()
     return variant
 
 

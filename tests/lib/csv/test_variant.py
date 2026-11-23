@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 from tests.helpers.util.query_plan import captured_statements
+from tests.helpers.util.valid_time import add_versioned, retire_versioned
 
 pytest.importorskip("psycopg2")
 
@@ -222,8 +223,7 @@ def _add_clinvar_control(db, mapped_variant, significance, review_status, db_ver
     ).first()
     assert allele is not None, "no authoritative allele to link a ClinVar control to"
 
-    db.add(ClinvarAlleleLink(allele_id=allele.id, clinvar_control_id=control.id))
-    db.commit()
+    add_versioned(db, ClinvarAlleleLink(allele_id=allele.id, clinvar_control_id=control.id))
 
 
 def _live_alleles_by_level(db, variant_id):
@@ -274,8 +274,7 @@ def _authoritative_allele(db, variant_id):
 def _link_gnomad(db, allele, gnomad_variant):
     db.add(gnomad_variant)
     db.commit()
-    db.add(GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id))
-    db.commit()
+    add_versioned(db, GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id))
 
 
 def _parse_csv(csv_text):
@@ -807,8 +806,7 @@ class TestGetVariantCsv:
     def test_superseded_mapping_is_ignored(self, session, setup_lib_db_with_mapped_variant):
         """Re-mapping retires the prior record rather than clearing a flag, and only the live one is read."""
         mapped_variant = setup_lib_db_with_mapped_variant
-        _live_mapping_record(session, mapped_variant.variant_id).retire(session)
-        session.commit()
+        retire_versioned(session, _live_mapping_record(session, mapped_variant.variant_id))
 
         seed_mapping_record(
             session,
@@ -1101,13 +1099,14 @@ class TestOneLiveMappingPerVariantIsGuaranteed:
     def test_a_second_live_mapping_record_is_rejected(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
         # The fixture already seeded one live record for this variant.
-        session.add(
+        add_versioned(
+            session,
             MappingRecord(
                 variant_id=variant.id,
                 score_set_id=variant.score_set_id,
                 assay_level="genomic",
                 mapping_api_version="test.0.0",
-            )
+            ),
         )
 
         with pytest.raises(IntegrityError):
@@ -1139,14 +1138,15 @@ class TestOneLiveMappingPerVariantIsGuaranteed:
         live = session.scalars(
             select(MappingRecord).where(MappingRecord.variant_id == variant.id).where(MappingRecord.valid_to.is_(None))
         ).one()
-        live.retire(session)
-        session.add(
+        retire_versioned(session, live)
+        add_versioned(
+            session,
             MappingRecord(
                 variant_id=variant.id,
                 score_set_id=other.id,
                 assay_level="genomic",
                 mapping_api_version="test.1.0",
-            )
+            ),
         )
 
         with pytest.raises(IntegrityError):
@@ -1163,7 +1163,9 @@ class TestOneLiveMappingPerVariantIsGuaranteed:
         allele = Allele(vrs_digest="lib-csv-unlinked", level="genomic")
         session.add(allele)
         session.commit()
-        session.add(MappingRecordAllele(mapping_record_id=live.id, score_set_id=other.id, allele_id=allele.id))
+        add_versioned(
+            session, MappingRecordAllele(mapping_record_id=live.id, score_set_id=other.id, allele_id=allele.id)
+        )
 
         with pytest.raises(IntegrityError):
             session.commit()
@@ -1176,16 +1178,16 @@ class TestOneLiveMappingPerVariantIsGuaranteed:
             select(MappingRecord).where(MappingRecord.variant_id == variant.id).where(MappingRecord.valid_to.is_(None))
         ).one()
 
-        live.retire(session)
-        session.add(
+        retire_versioned(session, live)
+        add_versioned(
+            session,
             MappingRecord(
                 variant_id=variant.id,
                 score_set_id=variant.score_set_id,
                 assay_level="genomic",
                 mapping_api_version="test.1.0",
-            )
+            ),
         )
-        session.commit()
 
         still_live = session.scalars(
             select(MappingRecord).where(MappingRecord.variant_id == variant.id).where(MappingRecord.valid_to.is_(None))

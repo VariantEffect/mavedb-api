@@ -5,9 +5,9 @@ scope: all current MappingRecordAllele links (authoritative and RT-derived) for 
 score set.  A single definition here prevents the two jobs from drifting apart.
 """
 
-from typing import Callable, Iterable, NamedTuple, Optional, TypeVar, cast
+from typing import Callable, Iterable, NamedTuple, Optional, TypeVar
 
-from sqlalchemy import CursorResult, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
@@ -120,11 +120,10 @@ def retire_caid_matches(db: Session, annotation_manager: AnnotationStatusManager
     the CAID is replaced. Returns how many gnomAD and ClinVar links were retired.
 
     Without them the allele counts as never checked, so the next gnomAD and ClinVar runs check and link it again
-    under its corrected CAID. The withdrawals take effect on the manager's next flush.
+    under its corrected CAID. The withdrawals take effect on the manager's next flush. Runs inside a
+    :class:`~mavedb.models.mixins.valid_time.superseding` block for both link tables.
     """
-    gnomad = cast(CursorResult, db.execute(GnomadAlleleLink.retire_live_where(GnomadAlleleLink.allele_id == allele_id)))
-    clinvar = cast(
-        CursorResult, db.execute(ClinvarAlleleLink.retire_live_where(ClinvarAlleleLink.allele_id == allele_id))
-    )
+    gnomad = GnomadAlleleLink.retire_where(db, GnomadAlleleLink.allele_id == allele_id)
+    clinvar = ClinvarAlleleLink.retire_where(db, ClinvarAlleleLink.allele_id == allele_id)
     annotation_manager.withdraw(CAID_MATCHED_TYPES, [allele_id])
-    return gnomad.rowcount, clinvar.rowcount
+    return gnomad, clinvar

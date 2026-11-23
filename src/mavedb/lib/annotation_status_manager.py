@@ -14,14 +14,13 @@ report fails with a clear ``ValueError`` rather than a CHECK violation when it's
 """
 
 import logging
-import time
 from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Iterable, NamedTuple, Optional, cast
+from typing import Any, Iterable, NamedTuple, Optional
 
-from sqlalchemy import CursorResult, func, insert, or_, select, text
+from sqlalchemy import insert, or_, select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.logging.context import increment_logging_context, logging_context, save_to_logging_context
@@ -37,14 +36,12 @@ from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.status_kind import StatusKind
+from mavedb.models.mixins.valid_time import superseding
 
 logger = logging.getLogger(__name__)
 
 STATEMENT_CHUNK_SIZE = 1000
 """Rows per statement, so we can keep statements under Postgres's 65,535 bind parameter limit."""
-
-STATUS_LOCK_POLL_SECONDS = 0.1
-"""How often :meth:`AnnotationStatusManager.flush` retries the status lock while another job holds it."""
 
 STATUS_MAX_WAIT = timedelta(seconds=60)
 """How long :meth:`AnnotationStatusManager.flush` waits for another job's status write to commit. The wait
@@ -220,9 +217,9 @@ def _annotation_status_row(status: Status, job_run_id: Optional[int]) -> dict[st
 class AnnotationStatusManager:
     """Buffered writer that keeps ``annotation_status`` in step with what checks found.
 
-    Reports and withdrawals accumulate in memory until :meth:`flush` writes them. The manager never commits: the
-    caller owns the transaction, and commits right after each flush. Flush at the job's batch boundaries and after the
-    last :meth:`report`; anything never flushed is lost with the manager.
+    Reports and withdrawals accumulate in memory until :meth:`flush` writes them, inside a :class:`superseding` block
+    for ``annotation_status``. Flush at the job's batch boundaries and after the last :meth:`report`; anything never
+    flushed is lost with the manager.
 
     Each flush adds to counters in the open logging context, so a job's canonical log shows what its checks changed:
     ``annotation_status.keys_changed`` and ``annotation_status.keys_unchanged`` for reported keys,
@@ -267,35 +264,29 @@ class AnnotationStatusManager:
             self._pending_withdrawals[AnnotationType(annotation_type)] |= allele_ids
 
     def flush(self) -> None:
-        """Write the pending withdrawals, then what the pending reports change. The caller owns the transaction:
-        commit right after.
+        """Write the pending withdrawals, then what the pending reports change.
 
-        Takes the status lock before reading the live statuses and holds it until the caller's commit, so no other
-        job writes between that read and this write. Until then, other jobs' flushes wait, so don't do other work,
-        and especially don't ``await``, between flushing and committing. Does nothing when nothing is pending.
+        Reads the live statuses and writes inside a :class:`superseding` block for ``annotation_status``, so no other
+        job writes between that read and this write. On its own the block commits on exit, including the caller's
+        other pending work; inside an enclosing block that holds ``annotation_status``, that block's exit commits
+        instead. Does nothing when nothing is pending.
         """
         if not self._pending_reports and not self._pending_withdrawals:
             return
 
-        self._lock_statuses()
-        now = self.session.scalars(select(func.now())).one()
-        self._write_withdrawals(now)
-        self._write_reports(now)
+        with superseding(self.session, AnnotationStatus, max_wait=STATUS_MAX_WAIT) as block:
+            self._write_withdrawals()
+            self._write_reports(block.at)
 
-    def _write_withdrawals(self, now: datetime) -> None:
+    def _write_withdrawals(self) -> None:
         for annotation_type, allele_ids in sorted(self._pending_withdrawals.items()):
             for batch in batched(sorted(allele_ids), STATEMENT_CHUNK_SIZE):
-                result = cast(
-                    CursorResult,
-                    self.session.execute(
-                        AnnotationStatus.retire_live_where(
-                            AnnotationStatus.annotation_type == annotation_type.value,
-                            AnnotationStatus.allele_id.in_(batch),
-                            at=now,
-                        )
-                    ),
+                withdrawn = AnnotationStatus.retire_where(
+                    self.session,
+                    AnnotationStatus.annotation_type == annotation_type.value,
+                    AnnotationStatus.allele_id.in_(batch),
                 )
-                increment_logging_context("annotation_status.withdrawn", result.rowcount)
+                increment_logging_context("annotation_status.withdrawn", withdrawn)
 
         self._pending_withdrawals.clear()
 
@@ -307,9 +298,9 @@ class AnnotationStatusManager:
         live_statuses = self._live_statuses(reported_keys)
         statuses_to_retire, statuses_to_insert, keys_changed = plan(live_statuses, self._pending_reports, now)
 
-        # Retiring and inserting at the same `now` keeps each handoff gap-free, as the ValidTime mixin does.
+        # Inserting at the block's time, which retire_where also uses, keeps each handoff gap-free.
         for ids in batched([status.id for status in statuses_to_retire], STATEMENT_CHUNK_SIZE):
-            self.session.execute(AnnotationStatus.retire_live_where(AnnotationStatus.id.in_(ids), at=now))
+            AnnotationStatus.retire_where(self.session, AnnotationStatus.id.in_(ids))
         for statuses in batched(statuses_to_insert, STATEMENT_CHUNK_SIZE):
             rows = [{**_annotation_status_row(status, self.job_run_id), "valid_from": now} for status in statuses]
             self.session.execute(insert(AnnotationStatus).values(rows))
@@ -335,18 +326,6 @@ class AnnotationStatusManager:
             for row in self.current_statuses(annotation_type, subject_ids)
             if row.disposition is not None and row.source_version == source_version and row.failing_since is None
         }
-
-    def _lock_statuses(self) -> None:
-        """Take the transaction's status lock, which the caller's commit releases.
-
-        Retries rather than waiting in Postgres, so a stuck holder raises after :data:`STATUS_MAX_WAIT` instead of
-        hanging. The retries sleep the worker's thread, but status writes are short.
-        """
-        deadline = time.monotonic() + STATUS_MAX_WAIT.total_seconds()
-        while not self.session.scalar(text("SELECT pg_try_advisory_xact_lock(hashtext('mavedb.annotation_status'))")):
-            if time.monotonic() >= deadline:
-                raise TimeoutError(f"Timed out after {STATUS_MAX_WAIT} waiting for another job's status write")
-            time.sleep(STATUS_LOCK_POLL_SECONDS)
 
     def current_statuses(
         self, annotation_type: AnnotationType, subject_ids: Iterable[int]

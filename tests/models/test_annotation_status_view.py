@@ -15,6 +15,8 @@ from mavedb.models.annotation_status_view import CurrentAnnotationStatusView
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.status_kind import StatusKind
+from mavedb.models.mixins.valid_time import superseding
+from tests.helpers.util.valid_time import add_versioned
 
 OUTAGE_START = datetime(2026, 11, 12, tzinfo=timezone.utc)
 """The failing_since given to failure rows, earlier than any row written during a test."""
@@ -40,8 +42,7 @@ def _add(session, allele, kind, disposition, reason, annotation_type=AnnotationT
         allele_id=allele.id,
         **kw,
     )
-    session.add(status)
-    session.commit()
+    add_versioned(session, status)
     session.refresh(status)
     return status
 
@@ -95,17 +96,15 @@ def test_view_failure_without_outcome_has_no_outcome_columns(session, allele):
 
 def test_view_excludes_retired_rows(session, allele):
     old = _add(session, allele, StatusKind.OUTCOME, Disposition.ABSENT, "no_record")
-    old.supersede_with(
-        session,
-        AnnotationStatus(
-            annotation_type=AnnotationType.GNOMAD_ALLELE_FREQUENCY,
-            kind=StatusKind.OUTCOME,
-            disposition=Disposition.PRESENT,
-            reason="created",
-            allele_id=allele.id,
-        ),
+    new = AnnotationStatus(
+        annotation_type=AnnotationType.GNOMAD_ALLELE_FREQUENCY,
+        kind=StatusKind.OUTCOME,
+        disposition=Disposition.PRESENT,
+        reason="created",
+        allele_id=allele.id,
     )
-    session.commit()
+    with superseding(session, AnnotationStatus):
+        AnnotationStatus.supersede(session, retiring=[old], inserting=[new])
 
     [row] = _current(session, allele)
 

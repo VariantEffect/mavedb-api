@@ -33,6 +33,7 @@ from mavedb.scripts.audit_reverse_translation import (
     run_sql_check,
 )
 from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
+from tests.helpers.util.valid_time import update_versioned
 
 CHECKS = {check.name: check for check in SQL_CHECKS}
 
@@ -308,12 +309,10 @@ class TestSqlChecks:
             )
         ]
         retired_at = datetime.now(timezone.utc)
-        records[0].valid_to = retired_at
-        for link in session.scalars(
+        links = session.scalars(
             select(MappingRecordAllele).where(MappingRecordAllele.mapping_record_id == records[0].id)
-        ):
-            link.valid_to = retired_at
-        session.commit()
+        ).all()
+        update_versioned(session, [records[0], *links], valid_to=retired_at)
 
         assert _count(session, "clingen_allele_id_on_twin_alleles", [score_set.id]).count == 0
         assert _count(session, "clingen_allele_id_on_retired_twin", [score_set.id]).count == 1
@@ -380,8 +379,7 @@ class TestSqlChecks:
     def test_flags_a_live_link_on_a_retired_record(self, session, make_score_set):
         score_set, (variant,) = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000007-a-1", 1)
         record = _healthy_record(session, variant, 7)
-        record.valid_to = datetime.now(timezone.utc)
-        session.commit()
+        update_versioned(session, [record], valid_to=datetime.now(timezone.utc))
 
         assert _count(session, "live_link_on_retired_record", [score_set.id]).count == 3
 

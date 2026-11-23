@@ -21,6 +21,7 @@ from mavedb.models.enums.vep import VepConsequenceSource
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
+from tests.helpers.util.valid_time import add_versioned, retire_versioned
 
 T0 = datetime(2020, 1, 1, tzinfo=timezone.utc)
 T1 = datetime(2021, 1, 1, tzinfo=timezone.utc)
@@ -42,8 +43,7 @@ def _vep(session, allele, value, *, source_version="116", valid_from=None, **pro
         valid_from=valid_from,
         **provenance,
     )
-    session.add(row)
-    session.commit()
+    add_versioned(session, row)
     return row
 
 
@@ -60,8 +60,7 @@ def _gnomad(session, allele, *, allele_frequency=0.0123, db_version="4.1.0"):
     session.add(gv)
     session.commit()
     link = GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gv.id)
-    session.add(link)
-    session.commit()
+    add_versioned(session, link)
     return gv
 
 
@@ -78,8 +77,7 @@ def _clinvar(session, allele, *, significance="Likely benign", db_version="11_20
     session.add(control)
     session.commit()
     link = ClinvarAlleleLink(allele_id=allele.id, clinvar_control_id=control.id)
-    session.add(link)
-    session.commit()
+    add_versioned(session, link)
     return control
 
 
@@ -153,8 +151,7 @@ def test_as_of_reconstructs_the_historical_annotation(session, setup_lib_db):
     """A changed VEP consequence supersedes the old row; as_of selects the value live at the instant."""
     allele = _allele(session, "vep-digest")
     old = _vep(session, allele, "missense_variant", source_version="110", valid_from=T0)
-    old.retire(session, at=T1)
-    session.commit()
+    retire_versioned(session, old, at=T1)
     _vep(session, allele, "stop_gained", source_version="116", valid_from=T1)
 
     current = get_allele_annotations(session, [allele])["vep-digest"]

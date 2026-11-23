@@ -37,6 +37,7 @@ from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.sequence_level import SequenceLevel
+from mavedb.models.mixins.valid_time import superseding
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 from mavedb.worker.jobs.utils.setup import validate_job_params
@@ -307,7 +308,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         }
     )
 
-    verdicts: dict[int, VepLinkVerdict] = {}
+    linkable: dict[int, ConsequenceResolution] = {}
     errored_allele_ids: set[int] = set()
     if unique_inputs:
         # The shared orchestration exposes no per-input progress hook, so resolve in chunks and report
@@ -345,10 +346,6 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         linkable = {
             aid: res for aid, res in resolution_by_allele.items() if res.outcome is not ConsequenceOutcome.ERRORED
         }
-        verdicts = link_vep_consequences_to_alleles(
-            job_manager.db, linkable, source_version=ensembl_release, access_date=date.today()
-        )
-        job_manager.db.flush()
     else:
         logger.info(
             msg="All eligible alleles are already resolved at the current Ensembl release; skipping VEP query.",
@@ -356,6 +353,64 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         )
         job_manager.update_progress(99, 100, "All alleles already current at this Ensembl release.")
 
+    # Consequences and their statuses commit together when the block exits, which releases the VEP link lock. Every
+    # API call is above, so the lock covers only database work. Nothing links when every allele is already current.
+    link_lock = (
+        superseding(
+            job_manager.db,
+            VepAlleleConsequence,
+            on_wait=lambda: job_manager.update_progress(
+                99, 100, "Waiting for another job to finish linking VEP consequences."
+            ),
+        )
+        if linkable
+        else contextlib.nullcontext()
+    )
+    async with link_lock:
+        verdicts: dict[int, VepLinkVerdict] = {}
+        if linkable:
+            verdicts = link_vep_consequences_to_alleles(
+                job_manager.db, linkable, source_version=ensembl_release, access_date=date.today()
+            )
+
+        _report_vep_statuses(
+            annotation_manager,
+            allele_inputs,
+            already_current,
+            errored_allele_ids,
+            verdicts,
+            status_version,
+            annotation_counts,
+        )
+        annotation_manager.flush()
+
+    outcome_data = dict(annotation_counts)
+    job_manager.save_to_context(outcome_data)
+    job_manager.update_progress(
+        100,
+        100,
+        (
+            f"Completed VEP linkage: {annotation_counts['created_allele_count'] + annotation_counts['preexisting_allele_count']} linked, "
+            f"{annotation_counts['absent_allele_count']} absent (no result), "
+            f"{annotation_counts['errored_allele_count']} errored, "
+            f"{annotation_counts['retained_on_absence_count']} retained despite no result this run."
+        ),
+    )
+    logger.info(msg="Done linking VEP consequences to alleles.", extra=job_manager.logging_context())
+    job_manager.db.flush()
+    return JobExecutionOutcome.succeeded(data=outcome_data)
+
+
+def _report_vep_statuses(
+    annotation_manager: AnnotationStatusManager,
+    allele_inputs: dict[int, VepInput],
+    already_current: set[int],
+    errored_allele_ids: set[int],
+    verdicts: dict[int, VepLinkVerdict],
+    status_version: str,
+    annotation_counts: Counter[str],
+) -> None:
+    """Report each allele's VEP status from the linker's verdicts, counting each outcome."""
     for allele_id, vep_input in allele_inputs.items():
         verdict = verdicts.get(allele_id)
         if verdict is VepLinkVerdict.CREATED:
@@ -410,21 +465,3 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 error_message="VEP found no functional consequence for this allele, even after Variant Recoder fallback.",
                 metadata={"hgvs": vep_input.hgvs},
             )
-
-    annotation_manager.flush()
-
-    outcome_data = dict(annotation_counts)
-    job_manager.save_to_context(outcome_data)
-    job_manager.update_progress(
-        100,
-        100,
-        (
-            f"Completed VEP linkage: {annotation_counts['created_allele_count'] + annotation_counts['preexisting_allele_count']} linked, "
-            f"{annotation_counts['absent_allele_count']} absent (no result), "
-            f"{annotation_counts['errored_allele_count']} errored, "
-            f"{annotation_counts['retained_on_absence_count']} retained despite no result this run."
-        ),
-    )
-    logger.info(msg="Done linking VEP consequences to alleles.", extra=job_manager.logging_context())
-    job_manager.db.flush()
-    return JobExecutionOutcome.succeeded(data=outcome_data)

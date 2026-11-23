@@ -15,9 +15,9 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date
-from typing import Callable, Optional, cast
+from typing import Callable, Optional
 
-from sqlalchemy import CursorResult, select, true
+from sqlalchemy import select, true
 from sqlalchemy.orm import Session
 from variant_annotation.lib.translation import coding_to_genomic, genomic_to_coding
 
@@ -150,7 +150,8 @@ def project_measured_variants(
     reports the retired links as ``detached_rt_links`` and must be followed by reverse translation for
     each score set with a non-zero count. ``missing_only`` runs never supersede a group.
 
-    Does not commit.
+    Runs inside a ``superseding`` block for :class:`MappingRecordAllele` and :class:`ProjectionGroup`, which
+    commits on exit.
     """
     counts: Counter[str] = Counter()
     # Scoped through variants: mapping_records has no score-set index, so filtering on its own score_set_id
@@ -229,23 +230,18 @@ def project_measured_variants(
         return counts
 
     # Retire before inserting: the live-unique indexes on links (one per record and allele, one authoritative
-    # per record) must see the old rows closed. Both statements and the inserts below take the transaction's
-    # now(), so the handoff is gap-free.
+    # per record) must see the old rows closed.
     prior_group_ids = [link.projection_group for _, link, _ in pending if link.projection_group is not None]
     if prior_group_ids:
-        detached = cast(
-            CursorResult,
-            db.execute(
-                MappingRecordAllele.retire_live_where(
-                    MappingRecordAllele.projection_group.in_(prior_group_ids),
-                    MappingRecordAllele.is_authoritative.is_(False),
-                )
-            ),
+        detached = MappingRecordAllele.retire_where(
+            db,
+            MappingRecordAllele.projection_group.in_(prior_group_ids),
+            MappingRecordAllele.is_authoritative.is_(False),
         )
-        if detached.rowcount:
-            counts["detached_rt_links"] += detached.rowcount
-        db.execute(ProjectionGroup.retire_live_where(ProjectionGroup.id.in_(prior_group_ids)))
-    db.execute(MappingRecordAllele.retire_live_where(MappingRecordAllele.id.in_([link.id for _, link, _ in pending])))
+        if detached:
+            counts["detached_rt_links"] += detached
+        ProjectionGroup.retire_where(db, ProjectionGroup.id.in_(prior_group_ids))
+    MappingRecordAllele.supersede(db, retiring=[link for _, link, _ in pending])
 
     groups = [
         ProjectionGroup(

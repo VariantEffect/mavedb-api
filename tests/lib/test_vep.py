@@ -34,7 +34,15 @@ from mavedb.lib.vep import (
 )
 from mavedb.models.allele import Allele
 from mavedb.models.enums.vep import VepConsequenceSource
+from mavedb.models.mixins.valid_time import superseding
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
+from tests.helpers.util.valid_time import add_versioned
+
+
+def _link_vep(session, *args, **kwargs):
+    """The linker inside the lock block its job takes."""
+    with superseding(session, VepAlleleConsequence):
+        return link_vep_consequences_to_alleles(session, *args, **kwargs)
 
 
 def _resolved(
@@ -135,7 +143,7 @@ def test_link_vep_creates_new_consequence(session):
     and its full resolution provenance, and is reported changed."""
     allele = _make_allele(session, vrs_digest="vrs-1")
 
-    verdicts = link_vep_consequences_to_alleles(
+    verdicts = _link_vep(
         session,
         {
             allele.id: _resolved(
@@ -169,17 +177,17 @@ def test_link_vep_unchanged_bumps_version_and_fills_provenance_in_place(session)
     place — no supersede — and fills in the resolution provenance a pre-#772 row was missing. The allele
     is reported UNCHANGED (status preexisting) so the caller need not re-query consequence state."""
     allele = _make_allele(session, vrs_digest="vrs-1")
-    session.add(
+    add_versioned(
+        session,
         VepAlleleConsequence(
             allele_id=allele.id,
             functional_consequence="missense_variant",
             source_version="115",
             access_date=date.today() - timedelta(days=90),
-        )
+        ),
     )
-    session.commit()
 
-    verdicts = link_vep_consequences_to_alleles(
+    verdicts = _link_vep(
         session,
         {
             allele.id: _resolved(
@@ -208,18 +216,18 @@ def test_link_vep_source_change_same_term_advances_in_place(session):
     """A better provenance for the *same* headline term (most_severe -> transcript) is not a value
     change: it advances in place rather than churning a new history row. History records term changes."""
     allele = _make_allele(session, vrs_digest="vrs-1")
-    session.add(
+    add_versioned(
+        session,
         VepAlleleConsequence(
             allele_id=allele.id,
             functional_consequence="missense_variant",
             consequence_source=VepConsequenceSource.most_severe,
             source_version="116",
             access_date=date.today() - timedelta(days=1),
-        )
+        ),
     )
-    session.commit()
 
-    verdicts = link_vep_consequences_to_alleles(
+    verdicts = _link_vep(
         session,
         {
             allele.id: _resolved(
@@ -242,17 +250,17 @@ def test_link_vep_changed_consequence_supersedes(session):
     """A changed headline term retires the live row and inserts the successor — exactly one live row,
     keyed on allele_id, with the old one preserved as retired history."""
     allele = _make_allele(session, vrs_digest="vrs-1")
-    session.add(
+    add_versioned(
+        session,
         VepAlleleConsequence(
             allele_id=allele.id,
             functional_consequence="synonymous_variant",
             source_version="115",
             access_date=date.today() - timedelta(days=90),
-        )
+        ),
     )
-    session.commit()
 
-    verdicts = link_vep_consequences_to_alleles(
+    verdicts = _link_vep(
         session,
         {allele.id: _resolved("NM_1:c.5G>A", "missense_variant")},
         source_version="116",
@@ -276,19 +284,17 @@ def test_link_vep_absent_leaves_live_row_untouched(session):
     (value, version, and date). The held consequence is reported RETAINED_ON_ABSENCE (status
     preexisting) — the allele still has a live consequence, it just was not re-confirmed this run."""
     allele = _make_allele(session, vrs_digest="vrs-1")
-    session.add(
+    add_versioned(
+        session,
         VepAlleleConsequence(
             allele_id=allele.id,
             functional_consequence="missense_variant",
             source_version="115",
             access_date=date.today() - timedelta(days=90),
-        )
+        ),
     )
-    session.commit()
 
-    verdicts = link_vep_consequences_to_alleles(
-        session, {allele.id: _absent("NM_1:c.5G>A")}, source_version="116", access_date=date.today()
-    )
+    verdicts = _link_vep(session, {allele.id: _absent("NM_1:c.5G>A")}, source_version="116", access_date=date.today())
     session.commit()
 
     # RETAINED_ON_ABSENCE, not UNCHANGED: the prior value was held because VEP found nothing this run,
@@ -308,9 +314,7 @@ def test_link_vep_absent_with_no_live_row_writes_nothing(session):
     no-match handling."""
     allele = _make_allele(session, vrs_digest="vrs-1")
 
-    verdicts = link_vep_consequences_to_alleles(
-        session, {allele.id: _absent("NM_1:c.5G>A")}, source_version="116", access_date=date.today()
-    )
+    verdicts = _link_vep(session, {allele.id: _absent("NM_1:c.5G>A")}, source_version="116", access_date=date.today())
     session.commit()
 
     assert verdicts == {}
@@ -322,7 +326,7 @@ def test_link_vep_errored_is_never_linked(session):
     with a failure). It is ignored defensively and leaves no verdict — failures live in the event stream."""
     allele = _make_allele(session, vrs_digest="vrs-1")
 
-    verdicts = link_vep_consequences_to_alleles(
+    verdicts = _link_vep(
         session,
         {
             allele.id: ConsequenceResolution(

@@ -39,6 +39,7 @@ from mavedb.models.user import User
 from mavedb.models.variant import Variant
 from tests.helpers.constants import EXTRA_USER, TEST_MINIMAL_VARIANT, TEST_SEQ_SCORESET, TEST_USER
 from tests.helpers.util.query_plan import captured_statements
+from tests.helpers.util.valid_time import add_versioned
 
 
 def _user(session, username):
@@ -80,21 +81,20 @@ def _record(session, variant, *, assay_level="cdna", hgvs_assay_level=None):
         hgvs_assay_level=hgvs_assay_level,
         mapping_api_version="test.0.0",
     )
-    session.add(record)
-    session.commit()
+    add_versioned(session, record)
     return record
 
 
 def _link(session, record, allele, *, is_authoritative=False):
-    session.add(
+    add_versioned(
+        session,
         MappingRecordAllele(
             mapping_record_id=record.id,
             score_set_id=record.score_set_id,
             allele_id=allele.id,
             is_authoritative=is_authoritative,
-        )
+        ),
     )
-    session.commit()
 
 
 def _calibration(

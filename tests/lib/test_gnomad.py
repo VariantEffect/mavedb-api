@@ -1,9 +1,12 @@
 # ruff: noqa: E402
 
+import threading
+import time
 from unittest.mock import Mock, patch
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 pyathena = pytest.importorskip("pyathena")
 
@@ -19,11 +22,20 @@ from mavedb.lib.gnomad import (
 from mavedb.models.allele import Allele
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
+from mavedb.models.mixins.valid_time import superseding
 from tests.helpers.constants import (
     TEST_GNOMAD_DATA_VERSION,
     TEST_GNOMAD_VARIANT,
     TEST_MAVEDB_ATHENA_ROW,
 )
+from tests.helpers.util.valid_time import add_versioned
+
+
+def _link_gnomad(session, rows):
+    """The linker inside the lock block its job takes."""
+    with superseding(session, GnomadAlleleLink):
+        return link_gnomad_variants_to_alleles(session, rows)
+
 
 ### Tests for gnomad_identifier function ###
 
@@ -183,7 +195,7 @@ def test_links_new_gnomad_variant_to_allele(session, mocked_gnomad_variant_row):
     allele = _make_allele(session, mocked_gnomad_variant_row.caid, vrs_digest="vrs-1")
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
-        result = link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row])
+        result = _link_gnomad(session, [mocked_gnomad_variant_row])
         assert result == {allele.id: GnomadLinkVerdict.CREATED}
         session.commit()
 
@@ -199,7 +211,7 @@ def test_can_link_gnomad_variants_with_none_type_faf_fields(session, mocked_gnom
     mocked_gnomad_variant_row.__setattr__("joint.fafmax.faf95_max", None)
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
-        result = link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row])
+        result = _link_gnomad(session, [mocked_gnomad_variant_row])
         assert result == {allele.id: GnomadLinkVerdict.CREATED}
         session.commit()
 
@@ -215,7 +227,7 @@ def test_links_existing_gnomad_variant(session, mocked_gnomad_variant_row):
     allele = _make_allele(session, mocked_gnomad_variant_row.caid, vrs_digest="vrs-1")
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
-        result = link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row])
+        result = _link_gnomad(session, [mocked_gnomad_variant_row])
         assert result == {allele.id: GnomadLinkVerdict.CREATED}
         session.commit()
 
@@ -234,14 +246,10 @@ def test_re_running_unchanged_data_is_idempotent(session, mocked_gnomad_variant_
     allele = _make_allele(session, mocked_gnomad_variant_row.caid, vrs_digest="vrs-1")
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
-        assert link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row]) == {
-            allele.id: GnomadLinkVerdict.CREATED
-        }
+        assert _link_gnomad(session, [mocked_gnomad_variant_row]) == {allele.id: GnomadLinkVerdict.CREATED}
         session.commit()
         # Second run sees the live link already points to this gnomAD variant → unchanged, no DB write.
-        assert link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row]) == {
-            allele.id: GnomadLinkVerdict.UNCHANGED
-        }
+        assert _link_gnomad(session, [mocked_gnomad_variant_row]) == {allele.id: GnomadLinkVerdict.UNCHANGED}
         session.commit()
 
     # One link, still live, never retired — the re-run did not churn the history.
@@ -257,15 +265,11 @@ def test_version_bump_supersedes_to_single_live_link(session, mocked_gnomad_vari
     allele = _make_allele(session, mocked_gnomad_variant_row.caid, vrs_digest="vrs-1")
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", "v1.old"):
-        assert link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row]) == {
-            allele.id: GnomadLinkVerdict.CREATED
-        }
+        assert _link_gnomad(session, [mocked_gnomad_variant_row]) == {allele.id: GnomadLinkVerdict.CREATED}
         session.commit()
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", "v2.new"):
-        assert link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row]) == {
-            allele.id: GnomadLinkVerdict.CREATED
-        }
+        assert _link_gnomad(session, [mocked_gnomad_variant_row]) == {allele.id: GnomadLinkVerdict.CREATED}
         session.commit()
 
     live_links = _live_links_for(session, allele.id)
@@ -293,13 +297,10 @@ def test_same_version_different_identifier_supersedes_newest_wins(session, mocke
     )
     session.add(stale)
     session.commit()
-    session.add(GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=stale.id))
-    session.commit()
+    add_versioned(session, GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=stale.id))
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
-        assert link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row]) == {
-            allele.id: GnomadLinkVerdict.CREATED
-        }
+        assert _link_gnomad(session, [mocked_gnomad_variant_row]) == {allele.id: GnomadLinkVerdict.CREATED}
         session.commit()
 
     live_links = _live_links_for(session, allele.id)
@@ -313,7 +314,7 @@ def test_links_one_gnomad_variant_to_multiple_alleles_sharing_a_caid(session, mo
     allele2 = _make_allele(session, mocked_gnomad_variant_row.caid, vrs_digest="vrs-2", level="cdna")
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
-        result = link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row])
+        result = _link_gnomad(session, [mocked_gnomad_variant_row])
         assert result == {allele1.id: GnomadLinkVerdict.CREATED, allele2.id: GnomadLinkVerdict.CREATED}
         session.commit()
 
@@ -330,7 +331,7 @@ def test_links_allele_when_dump_strips_leading_zero_from_caid(session, mocked_gn
     mocked_gnomad_variant_row.caid = "CA25094"  # dump form: leading zero stripped
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
-        result = link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row])
+        result = _link_gnomad(session, [mocked_gnomad_variant_row])
         assert result == {allele.id: GnomadLinkVerdict.CREATED}
         session.commit()
 
@@ -354,7 +355,7 @@ def test_links_a_batch_of_rows_in_one_pass(session):
     row_b.__setattr__("locus.position", "87961094")  # identifier 10-87961094-A-G
 
     with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
-        result = link_gnomad_variants_to_alleles(session, [row_a, row_b])
+        result = _link_gnomad(session, [row_a, row_b])
         assert result == {
             allele_a.id: GnomadLinkVerdict.CREATED,
             allele_b1.id: GnomadLinkVerdict.CREATED,
@@ -376,7 +377,7 @@ def test_links_a_batch_of_rows_in_one_pass(session):
 
 
 def test_returns_empty_map_when_no_alleles_match(session, mocked_gnomad_variant_row):
-    result = link_gnomad_variants_to_alleles(session, [mocked_gnomad_variant_row])
+    result = _link_gnomad(session, [mocked_gnomad_variant_row])
     assert result == {}
     assert len(session.scalars(select(GnomadAlleleLink)).all()) == 0
     # No gnomAD variant is created when nothing matches the CAID.
@@ -402,3 +403,31 @@ def test_gnomad_variant_url_encodes_the_identifier():
     assert gnomad_variant_url("1-100-A/G", "v4.1") == (
         "https://gnomad.broadinstitute.org/variant/1-100-A%2FG?dataset=gnomad_r4"
     )
+
+
+def test_concurrent_linking_over_a_shared_allele_both_succeed(session, mocked_gnomad_variant_row, monkeypatch):
+    # The second job waits for the first to commit, then finds the identical live link and leaves it (#889).
+    monkeypatch.setattr("mavedb.models.mixins.valid_time.SUPERSEDE_POLL_SECONDS", 0.05)
+    allele = _make_allele(session, mocked_gnomad_variant_row.caid, vrs_digest="vrs-1")
+    first, second = Session(bind=session.get_bind()), Session(bind=session.get_bind())
+    second_result: dict = {}
+
+    try:
+        with patch("mavedb.lib.gnomad.GNOMAD_DATA_VERSION", TEST_GNOMAD_DATA_VERSION):
+            with superseding(first, GnomadAlleleLink):
+                first_result = link_gnomad_variants_to_alleles(first, [mocked_gnomad_variant_row])
+                thread = threading.Thread(
+                    target=lambda: second_result.update(_link_gnomad(second, [mocked_gnomad_variant_row]))
+                )
+                thread.start()
+                time.sleep(0.5)
+                assert thread.is_alive()
+            thread.join(timeout=10)
+    finally:
+        first.close()
+        second.close()
+
+    assert not thread.is_alive()
+    assert first_result == {allele.id: GnomadLinkVerdict.CREATED}
+    assert second_result == {allele.id: GnomadLinkVerdict.UNCHANGED}
+    assert len(_live_links_for(session, allele.id)) == 1

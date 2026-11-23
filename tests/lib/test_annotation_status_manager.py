@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("psycopg2")
 
-from sqlalchemy import insert, inspect, select, text
+from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.annotation_status_manager import (
@@ -25,6 +25,8 @@ from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.status_kind import StatusKind
+from mavedb.models.gnomad_allele_link import GnomadAlleleLink
+from mavedb.models.mixins.valid_time import superseding
 
 GNOMAD = AnnotationType.GNOMAD_ALLELE_FREQUENCY
 """The single-version allele type most tests report against."""
@@ -350,20 +352,22 @@ def test_report_writes_nothing_until_flush(session, manager, allele):
     assert [row.disposition for row in _rows(session, allele)] == ["absent"]
 
 
-def test_flush_holds_the_status_lock_until_the_commit(session, manager, allele):
-    other = Session(bind=session.get_bind())
-    try_lock = text("SELECT pg_try_advisory_xact_lock(hashtext('mavedb.annotation_status'))")
-    try:
-        _record(manager, allele, Disposition.ABSENT, EventReason.NO_RECORD)
-        manager.flush()
-        assert not other.scalar(try_lock)
-        other.rollback()
+def test_flush_commits(session, manager, allele):
+    _record(manager, allele, Disposition.ABSENT, EventReason.NO_RECORD)
+    manager.flush()
+    session.rollback()
 
-        session.commit()
-        assert other.scalar(try_lock)
-    finally:
-        other.rollback()
-        other.close()
+    assert len(_rows(session, allele)) == 1
+
+
+def test_flush_inside_a_link_block_commits_with_it(session, manager, allele):
+    with pytest.raises(ZeroDivisionError):
+        with superseding(session, GnomadAlleleLink):
+            _record(manager, allele, Disposition.ABSENT, EventReason.NO_RECORD)
+            manager.flush()
+            1 / 0
+
+    assert _rows(session, allele) == []
 
 
 def test_flush_batches_statements(session, manager, allele, monkeypatch):
@@ -386,20 +390,19 @@ def test_flush_batches_statements(session, manager, allele, monkeypatch):
 def test_flush_waits_for_another_jobs_write(session, allele, monkeypatch):
     # The other job's live status lands while this one waits, so this one plans against it and writes nothing.
     # Without the lock it would read no live row and insert a duplicate.
-    monkeypatch.setattr("mavedb.lib.annotation_status_manager.STATUS_LOCK_POLL_SECONDS", 0.05)
+    monkeypatch.setattr("mavedb.models.mixins.valid_time.SUPERSEDE_POLL_SECONDS", 0.05)
     other = Session(bind=session.get_bind())
     waiting = AnnotationStatusManager(Session(bind=session.get_bind()))
     waiting.report(GNOMAD, allele_id=allele.id, disposition=Disposition.ABSENT, reason=EventReason.NO_RECORD)
 
     try:
-        other.execute(text("SELECT pg_advisory_xact_lock(hashtext('mavedb.annotation_status'))"))
-        thread = threading.Thread(target=lambda: (waiting.flush(), waiting.session.commit()))
-        thread.start()
-        time.sleep(0.5)
-        assert thread.is_alive()
-        live = Status(StatusKey(GNOMAD, allele.id, None, None), Disposition.ABSENT, "no_record")
-        other.execute(insert(AnnotationStatus).values([_annotation_status_row(live, None)]))
-        other.commit()
+        with superseding(other, AnnotationStatus):
+            thread = threading.Thread(target=waiting.flush)
+            thread.start()
+            time.sleep(0.5)
+            assert thread.is_alive()
+            live = Status(StatusKey(GNOMAD, allele.id, None, None), Disposition.ABSENT, "no_record")
+            AnnotationStatus.supersede(other, inserting=[AnnotationStatus(**_annotation_status_row(live, None))])
         thread.join(timeout=10)
     finally:
         other.close()

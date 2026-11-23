@@ -24,6 +24,7 @@ from mavedb.models.variant import Variant
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 from tests.helpers.constants import TEST_MINIMAL_VARIANT
 from tests.helpers.util.query_plan import captured_statements, unkeyed_scans
+from tests.helpers.util.valid_time import add_versioned, retire_versioned
 
 # Deterministic windows far from the transaction clock (mirrors tests/lib/test_alleles.py).
 T0 = datetime(2020, 1, 1, tzinfo=timezone.utc)
@@ -77,8 +78,7 @@ def _record(session, variant, *, assay_level="cdna", hgvs_assay_level=None, vali
         mapping_api_version="test.0.0",
         valid_from=valid_from,
     )
-    session.add(record)
-    session.commit()
+    add_versioned(session, record)
     return record
 
 
@@ -91,8 +91,7 @@ def _group(session, record, *, hgvs_c=None, hgvs_g=None, hgvs_p=None, valid_from
         hgvs_p=hgvs_p,
         valid_from=valid_from,
     )
-    session.add(group)
-    session.commit()
+    add_versioned(session, group)
     return group
 
 
@@ -105,8 +104,7 @@ def _link(session, record, allele, *, is_authoritative=True, group=None, valid_f
         projection_group=group.id if group is not None else None,
         valid_from=valid_from,
     )
-    session.add(link)
-    session.commit()
+    add_versioned(session, link)
     return link
 
 
@@ -114,8 +112,7 @@ def _consequence(session, allele, value):
     row = VepAlleleConsequence(
         allele_id=allele.id, functional_consequence=value, source_version="116", access_date="2026-01-01"
     )
-    session.add(row)
-    session.commit()
+    add_versioned(session, row)
     return row
 
 
@@ -364,7 +361,7 @@ def test_as_of_reconstructs_the_historical_assay_level(session, setup_lib_db_wit
         group=_group(session, old_record, hgvs_c="NM_000546.6:c.1216G>A", valid_from=T0),
         valid_from=T0,
     )
-    old_record.retire(session, at=T1)  # cascades to the link via __retire_cascade__
+    retire_versioned(session, old_record, at=T1)  # cascades to the link via __retire_cascade__
 
     new_record = _record(session, variant, assay_level="cdna", hgvs_assay_level="NM_000546.6:c.500A>T", valid_from=T1)
     new_allele = _allele(session, "new-digest", level="cdna")

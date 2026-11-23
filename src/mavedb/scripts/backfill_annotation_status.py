@@ -28,6 +28,7 @@ Usage:
 
 import logging
 from collections import defaultdict
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import datetime
 from itertools import groupby, islice
@@ -53,6 +54,7 @@ from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.status_kind import StatusKind
+from mavedb.models.mixins.valid_time import superseding
 from mavedb.scripts.environment import DatabaseSessionAction, script_environment, with_database_session
 
 logger = logging.getLogger(__name__)
@@ -282,29 +284,24 @@ def backfilled_through(db: Session) -> int:
 
 
 def run_pass(db: Session, chunks: Iterable[list[Event]], through: int, *, commit_each_chunk: bool) -> None:
-    """Replay ``chunks``, then move the mark to ``through``, holding the status lock in each transaction."""
+    """Replay ``chunks``, then move the mark to ``through``. Each chunk's block commits it, unless the pass is one
+    transaction, when the chunks' blocks join the pass's block and it commits them all."""
     retired = inserted = 0
-    for number, events in enumerate(chunks, start=1):
-        _lock_statuses(db)
-        chunk_retired, chunk_inserted = replay_chunk(db, events)
-        retired, inserted = retired + chunk_retired, inserted + chunk_inserted
-        if commit_each_chunk:
-            db.commit()
-        logger.info(f"Chunk {number}: {len(events)} events; {retired} rows retired, {inserted} inserted so far.")
+    with nullcontext() if commit_each_chunk else superseding(db, AnnotationStatus):
+        for number, events in enumerate(chunks, start=1):
+            with superseding(db, AnnotationStatus):
+                chunk_retired, chunk_inserted = replay_chunk(db, events)
+            retired, inserted = retired + chunk_retired, inserted + chunk_inserted
+            logger.info(f"Chunk {number}: {len(events)} events; {retired} rows retired, {inserted} inserted so far.")
 
-    _lock_statuses(db)
-    db.execute(
-        pg_insert(AnnotationEventBackfill)
-        .values(id=1, through_event_id=through)
-        .on_conflict_do_update(index_elements=["id"], set_={"through_event_id": through})
-    )
-    db.commit()
+        with superseding(db, AnnotationStatus):
+            db.execute(
+                pg_insert(AnnotationEventBackfill)
+                .values(id=1, through_event_id=through)
+                .on_conflict_do_update(index_elements=["id"], set_={"through_event_id": through})
+            )
+
     logger.info(f"Backfilled through event {through}: {retired} rows retired, {inserted} inserted.")
-
-
-def _lock_statuses(db: Session) -> None:
-    # Waits rather than polling: nothing else should be writing statuses while the backfill runs.
-    db.execute(text("SELECT pg_advisory_xact_lock(hashtext('mavedb.annotation_status'))"))
 
 
 @script_environment.command(name="run")

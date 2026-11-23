@@ -18,6 +18,7 @@ from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
 from tests.helpers.constants import TEST_VALID_POST_MAPPED_VRS_ALLELE
 from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
+from tests.helpers.util.valid_time import add_versioned, retire_versioned
 
 T0 = datetime(2020, 1, 1, tzinfo=timezone.utc)
 T1 = datetime(2021, 1, 1, tzinfo=timezone.utc)
@@ -176,11 +177,10 @@ class TestVariantAnnotationContextSubject:
         )
         old_link = session.scalar(select(GnomadAlleleLink).where(GnomadAlleleLink.gnomad_variant_id == old_id))
         assert old_link is not None
-        old_link.retire(at=T1)
+        retire_versioned(session, old_link, at=T1)
         new_link = GnomadAlleleLink(allele_id=old_link.allele_id, gnomad_variant_id=new_id)
         new_link.valid_from = T1
-        session.add(new_link)
-        session.commit()
+        add_versioned(session, new_link)
 
         past = variant_annotation_context(
             session, mapped_variant.variant, as_of=datetime(2020, 6, 1, tzinfo=timezone.utc)

@@ -16,6 +16,7 @@ from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.worker.jobs.external_services.clingen_cache import warm_clingen_cache
 from mavedb.worker.lib.managers.job_manager import JobManager
+from tests.helpers.util.valid_time import add_versioned
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
@@ -54,8 +55,7 @@ def _make_allele_with_caid(
         mapping_api_version="1.0.0",
         mapped_date=date.today(),
     )
-    session.add(mapping_record)
-    session.flush()
+    add_versioned(session, mapping_record)
 
     link = MappingRecordAllele(
         mapping_record_id=mapping_record.id,
@@ -63,8 +63,7 @@ def _make_allele_with_caid(
         allele_id=allele.id,
         is_authoritative=True,
     )
-    session.add(link)
-    session.flush()
+    add_versioned(session, link)
 
     return allele
 
@@ -244,8 +243,7 @@ class TestWarmClingenCacheUnit:
         )
         # Close this record so it is non-current (valid_to set)
         old_mapping_record.valid_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        session.add(old_mapping_record)
-        session.flush()
+        add_versioned(session, old_mapping_record)
 
         old_link = MappingRecordAllele(
             mapping_record_id=old_mapping_record.id,
@@ -254,8 +252,7 @@ class TestWarmClingenCacheUnit:
             is_authoritative=True,
         )
         old_link.valid_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        session.add(old_link)
-        session.flush()
+        add_versioned(session, old_link)
 
         # Current allele (MappingRecord with valid_to=NULL — current)
         current_allele = Allele(
@@ -274,8 +271,7 @@ class TestWarmClingenCacheUnit:
             mapping_api_version="1.0.0",
             mapped_date=date.today(),
         )
-        session.add(current_mapping_record)
-        session.flush()
+        add_versioned(session, current_mapping_record)
 
         current_link = MappingRecordAllele(
             mapping_record_id=current_mapping_record.id,
@@ -283,8 +279,7 @@ class TestWarmClingenCacheUnit:
             allele_id=current_allele.id,
             is_authoritative=True,
         )
-        session.add(current_link)
-        session.commit()
+        add_versioned(session, current_link)
 
         mock_get_allele_data = AsyncMock(return_value={"some": "data"})
 

@@ -35,6 +35,7 @@ from tests.helpers.constants import (
     TEST_VALID_POST_MAPPED_VRS_ALLELE_VRS2_X,
 )
 from tests.helpers.util.annotation import AlleleSpec, seed_mapping_record
+from tests.helpers.util.valid_time import add_versioned, retire_versioned
 
 try:
     from .conftest_optional import *  # noqa: F401, F403
@@ -399,8 +400,7 @@ def make_dump_score_set(session, sample_user, dump_experiment, dump_licenses, du
                 )
                 if not current:
                     # A fully superseded score set: the record is in history, but nothing is live.
-                    record.retire(session)
-                    session.commit()
+                    retire_versioned(session, record)
 
         session.refresh(score_set)
         return score_set
@@ -433,7 +433,6 @@ def add_clinvar_control(session):
         )
         session.add(control)
         session.commit()
-        session.add(ClinvarAlleleLink(allele_id=allele.id, clinvar_control_id=control.id))
-        session.commit()
+        add_versioned(session, ClinvarAlleleLink(allele_id=allele.id, clinvar_control_id=control.id))
 
     return _add

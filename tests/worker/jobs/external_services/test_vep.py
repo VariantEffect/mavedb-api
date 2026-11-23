@@ -29,6 +29,7 @@ from mavedb.models.enums.vep import VepConsequenceSource
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 from mavedb.worker.jobs.external_services.vep import populate_vep_for_score_set
 from mavedb.worker.lib.managers.job_manager import JobManager
+from tests.helpers.util.valid_time import add_versioned
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
@@ -443,16 +444,16 @@ class TestPopulateVepForScoreSetIntegration:
         _, allele = setup_sample_alleles_for_vep
 
         # Simulate a prior run at the current release and resolver version (current on both axes).
-        session.add(
+        add_versioned(
+            session,
             VepAlleleConsequence(
                 allele_id=allele.id,
                 functional_consequence="missense_variant",
                 source_version=_ENSEMBL_RELEASE,
                 resolver_version=RESOLVER_VERSION,
                 access_date=date.today(),
-            )
+            ),
         )
-        session.commit()
 
         with patch(_RESOLVE) as mock_resolve:
             result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
@@ -487,16 +488,16 @@ class TestPopulateVepForScoreSetIntegration:
         _, allele = setup_sample_alleles_for_vep
 
         # Current Ensembl release but a stale resolver version -> only the resolver axis is out of date.
-        session.add(
+        add_versioned(
+            session,
             VepAlleleConsequence(
                 allele_id=allele.id,
                 functional_consequence="missense_variant",
                 source_version=_ENSEMBL_RELEASE,
                 resolver_version=f"{RESOLVER_VERSION}-stale",
                 access_date=date.today() - timedelta(days=1),
-            )
+            ),
         )
-        session.commit()
 
         with patch(
             _RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}
@@ -526,15 +527,15 @@ class TestPopulateVepForScoreSetIntegration:
         are the linker's, covered by test_link_vep_unchanged_bumps_version_and_fills_provenance_in_place."""
         _, allele = setup_sample_alleles_for_vep
 
-        session.add(
+        add_versioned(
+            session,
             VepAlleleConsequence(
                 allele_id=allele.id,
                 functional_consequence="missense_variant",
                 source_version="115",
                 access_date=date.today() - timedelta(days=90),
-            )
+            ),
         )
-        session.commit()
 
         with patch(
             _RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}
@@ -560,16 +561,16 @@ class TestPopulateVepForScoreSetIntegration:
         _, allele = setup_sample_alleles_for_vep
 
         # Prior live consequence already current on both axes (would be skipped without force).
-        session.add(
+        add_versioned(
+            session,
             VepAlleleConsequence(
                 allele_id=allele.id,
                 functional_consequence="missense_variant",
                 source_version=_ENSEMBL_RELEASE,
                 resolver_version=RESOLVER_VERSION,
                 access_date=date.today() - timedelta(days=1),
-            )
+            ),
         )
-        session.commit()
 
         sample_populate_vep_run.job_params = {**sample_populate_vep_run.job_params, "force": True}
         session.commit()
@@ -598,15 +599,15 @@ class TestPopulateVepForScoreSetIntegration:
         _, allele = setup_sample_alleles_for_vep
 
         # Prior live consequence at an older release -> not skipped, eligible for re-query.
-        session.add(
+        add_versioned(
+            session,
             VepAlleleConsequence(
                 allele_id=allele.id,
                 functional_consequence="synonymous_variant",
                 source_version="115",
                 access_date=date.today() - timedelta(days=90),
-            )
+            ),
         )
-        session.commit()
 
         with patch(
             _RESOLVE, return_value={allele.hgvs_c: _resolved(allele.hgvs_c, "missense_variant")}
@@ -631,15 +632,15 @@ class TestPopulateVepForScoreSetIntegration:
         _, allele = setup_sample_alleles_for_vep
 
         # Prior live consequence at an older release -> re-queried, but VEP returns nothing this run.
-        session.add(
+        add_versioned(
+            session,
             VepAlleleConsequence(
                 allele_id=allele.id,
                 functional_consequence="missense_variant",
                 source_version="115",
                 access_date=date.today() - timedelta(days=90),
-            )
+            ),
         )
-        session.commit()
 
         with patch(_RESOLVE, return_value={}):
             result = await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)

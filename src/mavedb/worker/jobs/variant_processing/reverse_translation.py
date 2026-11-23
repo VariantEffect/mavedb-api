@@ -20,7 +20,7 @@ from datetime import date
 from typing import Any, Callable, NamedTuple, Sequence
 
 from ga4gh.vrs.extras.translator import AlleleTranslator
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from variant_annotation import __version__ as variant_annotation_version
 from variant_annotation.lib.accessions import looks_like_refseq_protein_accession
@@ -47,6 +47,7 @@ from mavedb.models.enums.sequence_level import NUCLEOTIDE_LEVELS, SequenceLevel
 from mavedb.models.enums.target_category import TargetCategory
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.mixins.valid_time import superseding
 from mavedb.models.projection_group import ProjectionGroup
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_accession import TargetAccession
@@ -318,9 +319,15 @@ async def reverse_translate_variants_for_score_set(
     resolve_cdna_transcript = cdna_transcript_resolver(job_manager.db, score_set_id, coordinates)
 
     # The measured groups come first: candidates that match the measured variant join its group below.
-    projection_counts = project_measured_variants(
-        job_manager.db, score_set_id, coordinates=coordinates, resolve_transcript=resolve_cdna_transcript
-    )
+    async with superseding(
+        job_manager.db,
+        MappingRecordAllele,
+        ProjectionGroup,
+        on_wait=lambda: job_manager.update_progress(0, 100, "Waiting for another job to finish writing allele links."),
+    ):
+        projection_counts = project_measured_variants(
+            job_manager.db, score_set_id, coordinates=coordinates, resolve_transcript=resolve_cdna_transcript
+        )
     logger.info(
         msg=f"Measured projection groups: {dict(projection_counts)}.",
         extra=job_manager.logging_context(),
@@ -670,94 +677,98 @@ async def reverse_translate_variants_for_score_set(
         .where(MappingRecordAllele.mapping_record_id.in_(current_record_ids))
     )
 
-    # Supersede the prior candidate groups and derived links under one timestamp. Measured groups belong to
-    # project_measured_variants and are never retired here; their derived links are, and are re-added above.
-    # TODO(#765): re-runs retire and recreate the whole derived set because re-mapping re-mints
-    # records; idempotent records would allow unchanged links to stay live.
-    superseded_at = job_manager.db.scalar(select(func.now()))
-    ProjectionGroup.supersede_live_where(
+    # The derived groups, links and statuses commit together when the block exits.
+    async with superseding(
         job_manager.db,
-        [group for group, _ in new_groups],
-        ProjectionGroup.id.not_in(measured_group_ids),
-        ProjectionGroup.mapping_record_id.in_(current_record_ids),
-        ProjectionGroup.mapping_record_id.not_in(unavailable_record_ids),
-        at=superseded_at,
-    )
-    job_manager.db.flush()
-    for group, links in new_groups:
-        for group_link in links:
-            group_link.projection_group = group.id
-        new_links.extend(links)
+        MappingRecordAllele,
+        ProjectionGroup,
+        on_wait=lambda: job_manager.update_progress(70, 100, "Waiting for another job to finish writing allele links."),
+    ):
+        # Supersede the prior candidate groups and derived links under one timestamp. Measured groups belong to
+        # project_measured_variants and are never retired here; their derived links are, and are re-added above.
+        # TODO(#765): re-runs retire and recreate the whole derived set because re-mapping re-mints
+        # records; idempotent records would allow unchanged links to stay live.
+        ProjectionGroup.retire_where(
+            job_manager.db,
+            ProjectionGroup.id.not_in(measured_group_ids),
+            ProjectionGroup.mapping_record_id.in_(current_record_ids),
+            ProjectionGroup.mapping_record_id.not_in(unavailable_record_ids),
+        )
+        ProjectionGroup.supersede(job_manager.db, inserting=[group for group, _ in new_groups])
+        job_manager.db.flush()
+        for group, links in new_groups:
+            for group_link in links:
+                group_link.projection_group = group.id
+            new_links.extend(links)
 
-    MappingRecordAllele.supersede_live_where(
-        job_manager.db,
-        new_links,
-        MappingRecordAllele.is_authoritative.is_(False),
-        MappingRecordAllele.mapping_record_id.in_(current_record_ids),
-        MappingRecordAllele.mapping_record_id.not_in(unavailable_record_ids),
-        at=superseded_at,
-    )
+        MappingRecordAllele.retire_where(
+            job_manager.db,
+            MappingRecordAllele.is_authoritative.is_(False),
+            MappingRecordAllele.mapping_record_id.in_(current_record_ids),
+            MappingRecordAllele.mapping_record_id.not_in(unavailable_record_ids),
+        )
+        MappingRecordAllele.supersede(job_manager.db, inserting=new_links)
 
-    # The library types each error's reason: NOT_TRANSLATABLE is a benign structural gap (the
-    # protein consequence's edit type — ins/delins/dup/fs/ext/stop-loss — has no DNA equivalence
-    # class to construct), UPSTREAM_UNAVAILABLE is a UTA outage that outlasted the library's
-    # retries, and FAILED is a genuine translation error. Split on that typed reason rather than
-    # pattern-matching the engine's error text.
-    for error in errors:
-        _rec, variant = variant_input_map[id(error.input)]
-        if error.reason is TranslationErrorReason.NOT_TRANSLATABLE:
-            # A structural gap ("we could not ask"), not a failure — count it as a skip and record
-            # NOT_APPLICABLE so it never pollutes the failed tally (mirrors NO_ASSAY_LEVEL_HGVS).
-            annotation_counts["skipped"] += 1
+        # The library types each error's reason: NOT_TRANSLATABLE is a benign structural gap (the
+        # protein consequence's edit type — ins/delins/dup/fs/ext/stop-loss — has no DNA equivalence
+        # class to construct), UPSTREAM_UNAVAILABLE is a UTA outage that outlasted the library's
+        # retries, and FAILED is a genuine translation error. Split on that typed reason rather than
+        # pattern-matching the engine's error text.
+        for error in errors:
+            _rec, variant = variant_input_map[id(error.input)]
+            if error.reason is TranslationErrorReason.NOT_TRANSLATABLE:
+                # A structural gap ("we could not ask"), not a failure — count it as a skip and record
+                # NOT_APPLICABLE so it never pollutes the failed tally (mirrors NO_ASSAY_LEVEL_HGVS).
+                annotation_counts["skipped"] += 1
+                _annotate_translation(
+                    annotation_manager,
+                    variant_id=variant.id,
+                    disposition=Disposition.NOT_APPLICABLE,
+                    reason=EventReason.NOT_TRANSLATABLE,
+                    metadata={"hgvs_input": error.input.hgvs, "error_message": error.error},
+                )
+                continue
+
+            annotation_counts["failed"] += 1
             _annotate_translation(
                 annotation_manager,
                 variant_id=variant.id,
-                disposition=Disposition.NOT_APPLICABLE,
-                reason=EventReason.NOT_TRANSLATABLE,
+                disposition=Disposition.FAILED,
+                # An upstream outage says nothing about the variant, so keep it out of translation_error.
+                reason=(
+                    EventReason.API_ERROR
+                    if error.reason is TranslationErrorReason.UPSTREAM_UNAVAILABLE
+                    else EventReason.TRANSLATION_ERROR
+                ),
                 metadata={"hgvs_input": error.input.hgvs, "error_message": error.error},
             )
-            continue
 
-        annotation_counts["failed"] += 1
-        _annotate_translation(
-            annotation_manager,
-            variant_id=variant.id,
-            disposition=Disposition.FAILED,
-            # An upstream outage says nothing about the variant, so keep it out of translation_error.
-            reason=(
-                EventReason.API_ERROR
-                if error.reason is TranslationErrorReason.UPSTREAM_UNAVAILABLE
-                else EventReason.TRANSLATION_ERROR
-            ),
-            metadata={"hgvs_input": error.input.hgvs, "error_message": error.error},
-        )
+        # skipped already holds the NOT_TRANSLATABLE skips counted above; add the transcript-unresolved
+        # skips (skipped_variants) rather than overwriting.
+        annotation_counts["skipped"] += len(skipped_variants)
+        for p in skipped_variants:
+            category = target_category_by_gene.get(p.target_gene_id) if p.target_gene_id is not None else None
+            reason, disposition = _classify_skip(p, category)
+            _annotate_translation(
+                annotation_manager,
+                variant_id=p.variant.id,
+                disposition=disposition,
+                reason=reason,
+                metadata={"hgvs_input": p.rec.hgvs_assay_level},
+            )
 
-    # skipped already holds the NOT_TRANSLATABLE skips counted above; add the transcript-unresolved
-    # skips (skipped_variants) rather than overwriting.
-    annotation_counts["skipped"] += len(skipped_variants)
-    for p in skipped_variants:
-        category = target_category_by_gene.get(p.target_gene_id) if p.target_gene_id is not None else None
-        reason, disposition = _classify_skip(p, category)
-        _annotate_translation(
-            annotation_manager,
-            variant_id=p.variant.id,
-            disposition=disposition,
-            reason=reason,
-            metadata={"hgvs_input": p.rec.hgvs_assay_level},
-        )
+        # add cis-phased multivariant inputs as NOT_APPLICABLE skips
+        annotation_counts["skipped"] += len(cis_phased_variants)
+        for p in cis_phased_variants:
+            _annotate_translation(
+                annotation_manager,
+                variant_id=p.variant.id,
+                disposition=Disposition.NOT_APPLICABLE,
+                reason=EventReason.CIS_PHASED_UNSUPPORTED,
+                metadata={"hgvs_input": p.rec.hgvs_assay_level},
+            )
 
-    # add cis-phased multivariant inputs as NOT_APPLICABLE skips
-    annotation_counts["skipped"] += len(cis_phased_variants)
-    for p in cis_phased_variants:
-        _annotate_translation(
-            annotation_manager,
-            variant_id=p.variant.id,
-            disposition=Disposition.NOT_APPLICABLE,
-            reason=EventReason.CIS_PHASED_UNSUPPORTED,
-            metadata={"hgvs_input": p.rec.hgvs_assay_level},
-        )
-
-    annotation_manager.flush()
+        annotation_manager.flush()
 
     outcome_data = dict(annotation_counts)
     job_manager.save_to_context(outcome_data)

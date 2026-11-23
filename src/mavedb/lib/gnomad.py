@@ -380,10 +380,10 @@ def link_gnomad_variants_to_alleles(
 
             # Change: retire any live link for the allele, insert the successor (allele-keyed, so a
             # version bump replaces rather than accumulates).
-            GnomadAlleleLink.supersede_live_where(
+            GnomadAlleleLink.supersede(
                 db,
-                [GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id)],
-                GnomadAlleleLink.allele_id == allele.id,
+                retiring=[live_link] if live_link is not None else [],
+                inserting=[GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id)],
             )
             verdicts[allele.id] = GnomadLinkVerdict.CREATED  # created always wins over a same-run unchanged
 

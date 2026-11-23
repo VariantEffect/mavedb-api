@@ -11,17 +11,24 @@ the gap bug relied on, so the explicit ``at`` is what actually proves the timest
 """
 
 # ruff: noqa: E402
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 pytest.importorskip("psycopg2")
 
-from sqlalchemy import Column, ForeignKey, Index, Integer, select, text
+from sqlalchemy import Column, ForeignKey, Index, Integer, String, delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import aliased, declarative_base, relationship
+from sqlalchemy.orm import Session, aliased, declarative_base, relationship
 
-from mavedb.models.mixins.valid_time import ValidTime
+from mavedb.models.mixins.valid_time import (
+    SupersedeLockTimeout,
+    ValidTime,
+    _lock_key,
+    holds_supersede_lock,
+    superseding,
+)
 
 VtBase = declarative_base()
 
@@ -56,6 +63,15 @@ class _VtChild(ValidTime, VtBase):
     )
 
 
+class _VtNote(VtBase):
+    """An unversioned table, for checking what a block commits."""
+
+    __tablename__ = "vt_notes"
+
+    id = Column(Integer, primary_key=True)
+    text = Column(String, nullable=False)
+
+
 @pytest.fixture(autouse=True)
 def vt_tables(session):
     """Create the throwaway ValidTime tables on the test engine, drop them after. Autouse so every
@@ -70,22 +86,22 @@ def vt_tables(session):
     VtBase.metadata.drop_all(bind=engine)
 
 
-def _parent(session, key, *, valid_from=None):
-    p = _VtParent(key=key, valid_from=valid_from) if valid_from else _VtParent(key=key)
-    session.add(p)
-    session.commit()
+def _parent(session, key, *, valid_from=None, valid_to=None):
+    p = _VtParent(key=key, valid_from=valid_from, valid_to=valid_to)
+    with superseding(session, _VtParent):
+        session.add(p)
     return p
 
 
-def _child(session, parent, tag, *, valid_from=None):
-    c = (
-        _VtChild(parent_id=parent.id, tag=tag, valid_from=valid_from)
-        if valid_from
-        else _VtChild(parent_id=parent.id, tag=tag)
-    )
-    session.add(c)
-    session.commit()
+def _child(session, parent, tag, *, valid_from=None, valid_to=None):
+    c = _VtChild(parent_id=parent.id, tag=tag, valid_from=valid_from, valid_to=valid_to)
+    with superseding(session, _VtChild):
+        session.add(c)
     return c
+
+
+def _live(session, model):
+    return session.scalars(select(model).where(model.current).order_by(model.id)).all()
 
 
 class TestCurrentAndAsOf:
@@ -95,24 +111,17 @@ class TestCurrentAndAsOf:
         assert p.current is True
 
     def test_retired_row_is_not_current(self, session):
-        p = _parent(session, 1)
-        p.retire(session, at=T1)
+        p = _parent(session, 1, valid_from=T0, valid_to=T1)
         assert p.current is False
 
     def test_current_expression_filters_to_live_rows(self, session):
         live = _parent(session, 1)
-        retired = _parent(session, 2)
-        retired.retire(session, at=T1)
-        session.commit()
+        _parent(session, 2, valid_from=T0, valid_to=T1)
 
-        rows = session.scalars(select(_VtParent).where(_VtParent.current)).all()
-        assert [r.id for r in rows] == [live.id]
+        assert [r.id for r in _live(session, _VtParent)] == [live.id]
 
     def test_as_of_selects_rows_live_at_timestamp(self, session):
-        # Window [T0, T2): explicit valid_from and a retire at T2.
-        p = _parent(session, 1, valid_from=T0)
-        p.retire(session, at=T2)
-        session.commit()
+        p = _parent(session, 1, valid_from=T0, valid_to=T2)
 
         def live_ids(ts):
             return [r.id for r in session.scalars(select(_VtParent).where(_VtParent.as_of(ts))).all()]
@@ -130,23 +139,19 @@ class TestLiveAt:
 
     def test_live_at_none_is_current_on_instance(self, session):
         live = _parent(session, 1)
-        retired = _parent(session, 2)
-        retired.retire(session, at=T1)
+        retired = _parent(session, 2, valid_from=T0, valid_to=T1)
         assert live.live_at(None) is True
         assert retired.live_at(None) is False
 
     def test_live_at_ts_matches_the_window_on_instance(self, session):
-        p = _parent(session, 1, valid_from=T0)
-        p.retire(session, at=T2)
+        p = _parent(session, 1, valid_from=T0, valid_to=T2)
         assert p.live_at(T0 - timedelta(days=1)) is False  # before the window opens
         assert p.live_at(T0) is True  # at valid_from (inclusive)
         assert p.live_at(T1) is True  # inside the window
         assert p.live_at(T2) is False  # at valid_to (exclusive)
 
     def test_live_at_expression_agrees_with_current_and_as_of(self, session):
-        p = _parent(session, 1, valid_from=T0)
-        p.retire(session, at=T2)
-        session.commit()
+        p = _parent(session, 1, valid_from=T0, valid_to=T2)
 
         def ids(pred):
             return [r.id for r in session.scalars(select(_VtParent).where(pred)).all()]
@@ -158,177 +163,253 @@ class TestLiveAt:
         # The point of live_at: it scopes to the alias, not the base table (a plain classmethod on an
         # aliased entity is the trap this avoids). Both the compiled SQL and a query through the alias.
         p = _parent(session, 1, valid_from=T0)
-        session.commit()
         alias = aliased(_VtParent, name="pa")
         assert "pa." in str(alias.live_at(T1))
         rows = session.scalars(select(alias).where(alias.live_at(T1))).all()
         assert [r.id for r in rows] == [p.id]
 
 
-class TestRetire:
-    def test_retire_closes_valid_to(self, session):
-        c = _child(session, _parent(session, 1), 1)
-        c.retire(at=T1)
-        assert c.valid_to == T1
+class TestSupersede:
+    def test_handoff_is_gap_free_and_reuses_the_live_key(self, session):
+        old = _parent(session, 1)
+        new = _VtParent(key=1)
 
-    def test_retire_is_idempotent(self, session):
-        c = _child(session, _parent(session, 1), 1)
-        c.retire(at=T1)
-        c.retire(at=T2)  # already closed — keeps the original valid_to
-        assert c.valid_to == T1
+        with superseding(session, _VtParent) as block:
+            _VtParent.supersede(session, retiring=[old], inserting=[new])
+            at = block.at
 
-    def test_leaf_retire_needs_no_session(self, session):
-        c = _child(session, _parent(session, 1), 1)
-        c.retire()  # no cascade declared, so no session required
-        session.commit()
-        assert c.valid_to is not None
+        session.refresh(old)
+        session.refresh(new)
+        assert old.valid_to == new.valid_from == at
+        assert [r.id for r in _live(session, _VtParent)] == [new.id]
 
-    def test_retire_cascades_to_live_child_links(self, session):
+    def test_retiring_alone_withdraws(self, session):
+        c = _child(session, _parent(session, 1), 1)
+
+        with superseding(session, _VtChild):
+            _VtChild.supersede(session, retiring=[c])
+
+        assert _live(session, _VtChild) == []
+
+    def test_cascades_to_live_children(self, session):
         p = _parent(session, 1)
-        c1 = _child(session, p, 1)
-        c2 = _child(session, p, 2)
+        children = [_child(session, p, tag) for tag in (1, 2)]
 
-        p.retire(session, at=T1)
-        session.commit()
+        with superseding(session, _VtParent) as block:
+            _VtParent.supersede(session, retiring=[p])
+            at = block.at
 
+        for child in children:
+            session.refresh(child)
+            assert child.valid_to == at
+
+    def test_already_retired_rows_keep_their_valid_to(self, session):
+        p = _parent(session, 1, valid_from=T0, valid_to=T1)
+
+        with superseding(session, _VtParent):
+            _VtParent.supersede(session, retiring=[p])
+
+        session.refresh(p)
         assert p.valid_to == T1
-        assert c1.valid_to == T1  # cascade closes the children at the same instant
-        assert c2.valid_to == T1
 
-    def test_cascade_retire_without_session_raises(self, session):
+    def test_retires_in_batches(self, session, monkeypatch):
+        monkeypatch.setattr("mavedb.models.mixins.valid_time.STATEMENT_CHUNK_SIZE", 1)
         p = _parent(session, 1)
-        with pytest.raises(ValueError, match="cascade-retire"):
-            p.retire()  # cascade declared but no session to issue the child UPDATE
+        old = [_child(session, p, tag) for tag in (1, 2)]
 
-    def test_cascade_runs_even_when_row_already_closed(self, session):
-        # A half-finished prior retire (parent closed, child not) must still converge.
+        with superseding(session, _VtChild):
+            _VtChild.supersede(session, retiring=old, inserting=[_VtChild(parent_id=p.id, tag=tag) for tag in (1, 2)])
+
+        live = _live(session, _VtChild)
+        assert sorted(c.tag for c in live) == [1, 2]
+        assert not {c.id for c in live} & {c.id for c in old}
+
+    def test_outside_a_block_raises(self, session):
+        with pytest.raises(RuntimeError, match="outside superseding"):
+            _VtParent.supersede(session, inserting=[_VtParent(key=1)])
+
+    def test_rows_of_another_model_raise(self, session):
+        with superseding(session, _VtParent):
+            with pytest.raises(TypeError, match="_VtChild"):
+                _VtParent.supersede(session, inserting=[_VtChild(parent_id=1, tag=1)])
+
+
+class TestRetireWhere:
+    def test_retires_matching_live_rows_and_counts_them(self, session):
         p = _parent(session, 1)
-        c = _child(session, p, 1)
-        p.valid_to = T0  # simulate parent closed without its child
-        session.commit()
+        _child(session, p, 1)
+        _child(session, p, 2)
+        _child(session, p, 3, valid_from=T0, valid_to=T1)
 
-        p.retire(session, at=T1)  # idempotent on the parent, but still cascades
-        session.commit()
-        assert p.valid_to == T0  # unchanged (idempotent)
-        assert c.valid_to == T1  # child still retired
+        with superseding(session, _VtChild):
+            retired = _VtChild.retire_where(session, _VtChild.parent_id == p.id)
 
+        assert retired == 2
+        assert _live(session, _VtChild) == []
 
-class TestRetireLiveWhere:
-    def test_retires_matching_live_rows(self, session):
+    def test_cascades_to_live_children(self, session):
         p = _parent(session, 1)
-        c1 = _child(session, p, 1)
-        c2 = _child(session, p, 2)
+        _child(session, p, 1)
 
-        session.execute(_VtChild.retire_live_where(_VtChild.parent_id == p.id, at=T1))
-        session.commit()
+        with superseding(session, _VtParent):
+            _VtParent.retire_where(session, _VtParent.key == 1)
 
-        assert c1.valid_to == T1
-        assert c2.valid_to == T1
+        assert _live(session, _VtChild) == []
 
-    def test_leaves_already_retired_rows_untouched(self, session):
+
+class TestSupersedingLocksCascadeTargets:
+    def test_a_parent_block_locks_its_children(self, session):
+        with superseding(session, _VtParent):
+            assert holds_supersede_lock(session, _VtChild)
+
+
+class TestWritesNeedABlock:
+    def test_orm_insert_outside_a_block_raises(self, session):
+        session.add(_VtParent(key=1))
+        with pytest.raises(RuntimeError, match="outside superseding"):
+            session.flush()
+
+    def test_orm_update_outside_a_block_raises(self, session):
         p = _parent(session, 1)
-        already = _child(session, p, 1)
-        already.retire(at=T0)
-        session.commit()
-        live = _child(session, p, 2)
+        p.key = 2
+        with pytest.raises(RuntimeError, match="outside superseding"):
+            session.flush()
 
-        session.execute(_VtChild.retire_live_where(_VtChild.parent_id == p.id, at=T1))
-        session.commit()
+    def test_statement_outside_a_block_raises(self, session):
+        with pytest.raises(RuntimeError, match="outside superseding"):
+            session.execute(update(_VtParent).values(key=2))
 
-        assert already.valid_to == T0  # retired row keeps its original valid_to
-        assert live.valid_to == T1
+    def test_block_for_another_table_doesnt_count(self, session):
+        with pytest.raises(RuntimeError, match="outside superseding"):
+            with superseding(session, _VtChild):
+                session.add(_VtParent(key=1))
 
-
-class TestSupersedeWith:
-    def test_gap_free_handoff_with_explicit_at(self, session):
-        old = _parent(session, 1, valid_from=T0)
-        new = _VtParent(key=1)
-
-        old.supersede_with(session, new, at=T1)
+    def test_deletes_are_allowed(self, session):
+        _parent(session, 1)
+        session.execute(delete(_VtParent))
         session.commit()
 
-        # The retired valid_to equals the successor's valid_from exactly — no point-in-time hole.
-        assert old.valid_to == T1
-        assert new.valid_from == T1
 
-    def test_default_at_handoff_is_gap_free(self, session):
-        old = _parent(session, 1)
-        new = _VtParent(key=1)
-
-        old.supersede_with(session, new)  # at defaults to a single captured func.now()
-        session.commit()
-
-        assert old.valid_to is not None
-        assert old.valid_to == new.valid_from
-
-    def test_cascades_child_links_at_the_handoff_timestamp(self, session):
-        old = _parent(session, 1)
-        child = _child(session, old, 1)
-        new = _VtParent(key=1)
-
-        old.supersede_with(session, new, at=T1)
-        session.commit()
-
-        assert old.valid_to == T1
-        assert new.valid_from == T1
-        assert child.valid_to == T1  # the old parent's child link retired under the same timestamp
-
-    def test_respects_partial_unique_index_via_flush_ordering(self, session):
-        # old and new share natural key=1; supersede flushes the retire before inserting the
-        # successor, so the two are never simultaneously live and the unique index does not trip.
-        old = _parent(session, 1)
-        new = _VtParent(key=1)
-
-        old.supersede_with(session, new, at=T1)
-        session.commit()  # would raise IntegrityError if both were live at the INSERT
-
-        live = session.scalars(select(_VtParent).where(_VtParent.key == 1, _VtParent.current)).all()
-        assert [r.id for r in live] == [new.id]
+@pytest.fixture
+def other_session(session):
+    """A second connection, standing in for another job."""
+    other = Session(bind=session.get_bind())
+    yield other
+    other.rollback()
+    other.close()
 
 
-class TestSupersedeLiveWhere:
-    def test_stamps_explicit_valid_from_on_inserts(self, session):
-        # Without flushing, valid_from would be None under the server_default path; supersede sets it
-        # explicitly, which is what keeps the handoff gap-free across a later-transaction flush.
-        new = _VtChild(parent_id=1, tag=1)
-        _VtChild.supersede_live_where(session, [new], _VtChild.parent_id == 1, at=T1)
-        assert new.valid_from == T1
+@pytest.fixture
+def fast_polling(monkeypatch):
+    monkeypatch.setattr("mavedb.models.mixins.valid_time.SUPERSEDE_POLL_SECONDS", 0.01)
 
-    def test_gap_free_handoff_with_reused_natural_key(self, session):
+
+def _hold_lock(other_session, model):
+    other_session.execute(select(func.pg_advisory_xact_lock(_lock_key(model.__tablename__))))
+
+
+class TestSuperseding:
+    def test_commits_on_exit_and_releases_the_lock(self, session):
         p = _parent(session, 1)
-        old = _child(session, p, 1)
-        new = _VtChild(parent_id=p.id, tag=1)  # same natural key (parent_id, tag)
+        with superseding(session, _VtChild):
+            assert holds_supersede_lock(session, _VtChild)
+            session.add(_VtChild(parent_id=p.id, tag=1))
 
-        _VtChild.supersede_live_where(session, [new], _VtChild.parent_id == p.id, at=T1)
-        session.commit()  # reused key: retire executes before the insert, so the index holds
+        session.rollback()
+        assert _live(session, _VtChild) != []
+        assert not holds_supersede_lock(session, _VtChild)
 
-        assert old.valid_to == T1
-        assert new.valid_from == T1
-        live = session.scalars(select(_VtChild).where(_VtChild.parent_id == p.id, _VtChild.current)).all()
-        assert [r.id for r in live] == [new.id]
-
-    def test_empty_new_rows_retires_the_scope(self, session):
-        # A re-run that produces nothing should still withdraw the prior live set.
+    def test_rolls_back_on_exception(self, session):
         p = _parent(session, 1)
-        old = _child(session, p, 1)
+        with pytest.raises(ZeroDivisionError):
+            with superseding(session, _VtChild):
+                session.add(_VtChild(parent_id=p.id, tag=1))
+                session.flush()
+                1 / 0
 
-        _VtChild.supersede_live_where(session, [], _VtChild.parent_id == p.id, at=T1)
-        session.commit()
+        assert _live(session, _VtChild) == []
+        assert not holds_supersede_lock(session, _VtChild)
 
-        assert old.valid_to == T1
-        assert session.scalars(select(_VtChild).where(_VtChild.current)).all() == []
+    def test_dry_run_rolls_back(self, session):
+        p = _parent(session, 1)
+        with superseding(session, _VtChild, dry_run=True):
+            session.add(_VtChild(parent_id=p.id, tag=1))
+            session.flush()
 
-    def test_refuses_a_cascade_bearing_class(self, session):
-        # Bulk supersede cannot fire __retire_cascade__, so it must refuse rather than orphan links.
-        with pytest.raises(ValueError, match="__retire_cascade__"):
-            _VtParent.supersede_live_where(session, [], _VtParent.key == 1)
+        assert _live(session, _VtChild) == []
+
+    def test_commits_pending_work_before_waiting(self, session):
+        session.add(_VtNote(text="pending"))
+        with superseding(session, _VtChild):
+            pass
+
+        session.rollback()
+        assert [n.text for n in session.scalars(select(_VtNote))] == ["pending"]
+
+    def test_nested_block_commits_with_the_outer_one_and_shares_its_time(self, session):
+        p = _parent(session, 1)
+        with pytest.raises(ZeroDivisionError):
+            with superseding(session, _VtParent) as outer:
+                with superseding(session, _VtChild) as inner:
+                    assert inner.at == outer.at
+                    session.add(_VtChild(parent_id=p.id, tag=1))
+                assert holds_supersede_lock(session, _VtChild)
+                1 / 0
+
+        assert _live(session, _VtChild) == []
+
+    @pytest.mark.asyncio
+    async def test_nested_async_block_raises(self, session):
+        with superseding(session, _VtParent):
+            with pytest.raises(RuntimeError, match="plain `with`"):
+                async with superseding(session, _VtChild):
+                    pass
+
+    def test_inside_a_savepoint_raises(self, session):
+        with session.begin_nested():
+            with pytest.raises(RuntimeError, match="savepoint"):
+                with superseding(session, _VtChild):
+                    pass
+
+    def test_commit_inside_the_block_raises_on_exit(self, session):
+        with pytest.raises(RuntimeError, match="committed inside the block"):
+            with superseding(session, _VtChild):
+                session.commit()
+
+    def test_times_out_waiting_and_calls_on_wait(self, session, other_session, fast_polling):
+        _hold_lock(other_session, _VtChild)
+        waits = []
+
+        with pytest.raises(SupersedeLockTimeout):
+            with superseding(session, _VtChild, max_wait=timedelta(seconds=0.2), on_wait=lambda: waits.append(1)):
+                pass
+
+        assert waits, "on_wait is called while waiting"
+
+    @pytest.mark.asyncio
+    async def test_async_block_waits_until_the_lock_is_free(self, session, other_session, fast_polling):
+        _hold_lock(other_session, _VtChild)
+        asyncio.get_running_loop().call_later(0.2, other_session.commit)
+
+        async with superseding(session, _VtChild, max_wait=timedelta(seconds=5)):
+            assert holds_supersede_lock(session, _VtChild)
+
+    def test_releases_a_partial_set_while_waiting(self, session, other_session, fast_polling):
+        # vt_children sorts before vt_parents, so this block gets _VtChild's lock, then waits for _VtParent's.
+        _hold_lock(other_session, _VtParent)
+
+        with pytest.raises(SupersedeLockTimeout):
+            with superseding(session, _VtParent, _VtChild, max_wait=timedelta(seconds=0.2)):
+                pass
+
+        assert other_session.scalar(select(func.pg_try_advisory_xact_lock(_lock_key(_VtChild.__tablename__))))
 
 
 class TestPartialUniqueIndexBackstop:
     def test_two_live_rows_for_one_key_raise(self, session):
         # The DB index is the loud backstop: forgetting to retire a predecessor before inserting its
         # successor fails at flush instead of silently leaving two live rows.
-        session.add(_VtParent(key=1))
-        session.add(_VtParent(key=1))
         with pytest.raises(IntegrityError):
-            session.commit()
+            with superseding(session, _VtParent):
+                session.add(_VtParent(key=1))
+                session.add(_VtParent(key=1))

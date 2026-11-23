@@ -25,6 +25,7 @@ from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
+from mavedb.models.mixins.valid_time import superseding
 from mavedb.models.projection_group import ProjectionGroup
 from mavedb.models.variant import Variant
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
@@ -92,80 +93,93 @@ def seed_mapping_record(
         assert resolved is not None, f"variant with URN '{variant}' not found"
         variant = resolved
 
-    record = MappingRecord(
-        variant_id=variant.id,
-        score_set_id=variant.score_set_id,
-        assay_level=assay_level,
-        hgvs_assay_level=hgvs_assay_level,
-        mapping_api_version=mapping_api_version,
-        pre_mapped=pre_mapped,
-    )
-    if valid_from is not None:
-        record.valid_from = valid_from
-    session.add(record)
-    session.commit()
-
-    # Keyed by instance identity so equal-looking GroupSpecs stay distinct groups.
-    groups: dict[int, ProjectionGroup] = {}
-    for spec in alleles:
-        if spec.group is None or id(spec.group) in groups:
-            continue
-        group = ProjectionGroup(
-            mapping_record_id=record.id,
-            score_set_id=record.score_set_id,
-            hgvs_c=spec.group.hgvs_c,
-            hgvs_g=spec.group.hgvs_g,
-            hgvs_p=spec.group.hgvs_p,
+    # Production writes versioned rows inside a superseding block, which commits on exit.
+    with superseding(
+        session,
+        ClinvarAlleleLink,
+        GnomadAlleleLink,
+        MappingRecord,
+        MappingRecordAllele,
+        ProjectionGroup,
+        VepAlleleConsequence,
+    ):
+        record = MappingRecord(
+            variant_id=variant.id,
+            score_set_id=variant.score_set_id,
+            assay_level=assay_level,
+            hgvs_assay_level=hgvs_assay_level,
+            mapping_api_version=mapping_api_version,
+            pre_mapped=pre_mapped,
         )
         if valid_from is not None:
-            group.valid_from = valid_from
-        groups[id(spec.group)] = group
+            record.valid_from = valid_from
+        session.add(record)
+        session.flush()
 
-    session.add_all(groups.values())
-    session.flush()
-
-    # Alleles are deduplicated by digest, so one seeded under the same digest before is reused (an allele
-    # several records share, like a protein consequence).
-    for spec in alleles:
-        allele = session.scalar(select(Allele).where(Allele.vrs_digest == spec.digest))
-        if allele is None:
-            allele = Allele(
-                vrs_digest=spec.digest,
-                level=spec.level,
-                clingen_allele_id=spec.clingen_allele_id,
-                hgvs_c=spec.hgvs_c,
-                hgvs_p=spec.hgvs_p,
-                hgvs_g=spec.hgvs_g,
-                post_mapped=spec.post_mapped if spec.post_mapped is not None else {"type": "Allele"},
-            )
-            session.add(allele)
-            session.commit()
-
-        links: list[Any] = [
-            MappingRecordAllele(
+        # Keyed by instance identity so equal-looking GroupSpecs stay distinct groups.
+        groups: dict[int, ProjectionGroup] = {}
+        for spec in alleles:
+            if spec.group is None or id(spec.group) in groups:
+                continue
+            group = ProjectionGroup(
                 mapping_record_id=record.id,
                 score_set_id=record.score_set_id,
-                allele_id=allele.id,
-                is_authoritative=spec.is_authoritative,
-                projection_group=groups[id(spec.group)].id if spec.group is not None else None,
+                hgvs_c=spec.group.hgvs_c,
+                hgvs_g=spec.group.hgvs_g,
+                hgvs_p=spec.group.hgvs_p,
             )
-        ]
-        if spec.vep_consequence is not None:
-            links.append(
-                VepAlleleConsequence(
-                    allele_id=allele.id,
-                    functional_consequence=spec.vep_consequence,
-                    source_version="116",
-                    access_date="2026-01-01",
+            if valid_from is not None:
+                group.valid_from = valid_from
+            groups[id(spec.group)] = group
+
+        session.add_all(groups.values())
+        session.flush()
+
+        # Alleles are deduplicated by digest, so one seeded under the same digest before is reused (an allele
+        # several records share, like a protein consequence).
+        for spec in alleles:
+            allele = session.scalar(select(Allele).where(Allele.vrs_digest == spec.digest))
+            if allele is None:
+                allele = Allele(
+                    vrs_digest=spec.digest,
+                    level=spec.level,
+                    clingen_allele_id=spec.clingen_allele_id,
+                    hgvs_c=spec.hgvs_c,
+                    hgvs_p=spec.hgvs_p,
+                    hgvs_g=spec.hgvs_g,
+                    post_mapped=spec.post_mapped if spec.post_mapped is not None else {"type": "Allele"},
                 )
+                session.add(allele)
+                session.flush()
+
+            links: list[Any] = [
+                MappingRecordAllele(
+                    mapping_record_id=record.id,
+                    score_set_id=record.score_set_id,
+                    allele_id=allele.id,
+                    is_authoritative=spec.is_authoritative,
+                    projection_group=groups[id(spec.group)].id if spec.group is not None else None,
+                )
+            ]
+            if spec.vep_consequence is not None:
+                links.append(
+                    VepAlleleConsequence(
+                        allele_id=allele.id,
+                        functional_consequence=spec.vep_consequence,
+                        source_version="116",
+                        access_date="2026-01-01",
+                    )
+                )
+            links.extend(
+                ClinvarAlleleLink(allele_id=allele.id, clinvar_control_id=cid) for cid in spec.clinvar_control_ids
             )
-        links.extend(ClinvarAlleleLink(allele_id=allele.id, clinvar_control_id=cid) for cid in spec.clinvar_control_ids)
-        links.extend(GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gid) for gid in spec.gnomad_variant_ids)
+            links.extend(
+                GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gid) for gid in spec.gnomad_variant_ids
+            )
 
-        if valid_from is not None:
-            for link in links:
-                link.valid_from = valid_from
-        session.add_all(links)
+            if valid_from is not None:
+                for link in links:
+                    link.valid_from = valid_from
+            session.add_all(links)
 
-    session.commit()
     return record

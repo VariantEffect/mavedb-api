@@ -21,6 +21,7 @@ from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
 from mavedb.worker.jobs.external_services.gnomad import link_gnomad_variants
 from mavedb.worker.lib.managers.job_manager import JobManager
+from tests.helpers.util.valid_time import add_versioned
 
 pytestmark = pytest.mark.usefixtures("patch_db_session_ctxmgr")
 
@@ -361,8 +362,7 @@ class TestLinkGnomadVariantsIntegration:
         )
         session.add(gnomad_variant)
         session.commit()
-        session.add(GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id))
-        session.commit()
+        add_versioned(session, GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id))
 
         with patch("mavedb.worker.jobs.external_services.gnomad.gnomad_variant_data_for_caids") as fetch_spy:
             result = await link_gnomad_variants(mock_worker_ctx, sample_link_gnomad_variants_run.id)
@@ -444,8 +444,7 @@ class TestLinkGnomadVariantsIntegration:
         )
         session.add(gnomad_variant)
         session.commit()
-        session.add(GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id))
-        session.commit()
+        add_versioned(session, GnomadAlleleLink(allele_id=allele.id, gnomad_variant_id=gnomad_variant.id))
 
         sample_link_gnomad_variants_run.job_params = {**sample_link_gnomad_variants_run.job_params, "force": True}
         session.commit()

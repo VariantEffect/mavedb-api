@@ -33,6 +33,7 @@ from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import create_seq_score_set_with_variants
 from tests.helpers.util.user import change_ownership
+from tests.helpers.util.valid_time import add_versioned
 
 
 def _seed_cdna_measurement(session, variant_urn, *, clingen_allele_id="CA123", vrs_digest="cdna-digest"):
@@ -47,18 +48,17 @@ def _seed_cdna_measurement(session, variant_urn, *, clingen_allele_id="CA123", v
         hgvs_assay_level="NM_000546.6:c.1216G>A",
         mapping_api_version="test.0.0",
     )
-    session.add(record)
-    session.commit()
+    add_versioned(session, record)
 
     measured = Allele(vrs_digest=vrs_digest, level="cdna", clingen_allele_id=clingen_allele_id)
     session.add(measured)
     session.commit()
-    session.add(
+    add_versioned(
+        session,
         MappingRecordAllele(
             mapping_record_id=record.id, score_set_id=record.score_set_id, allele_id=measured.id, is_authoritative=True
-        )
+        ),
     )
-    session.commit()
 
 
 def test_measurements_serialize(client, session, data_provider, data_files, setup_router_db):
@@ -176,20 +176,20 @@ def test_nucleotide_siblings_shown(client, session, data_provider, data_files, s
         record = MappingRecord(
             variant_id=variant.id, score_set_id=variant.score_set_id, assay_level="cdna", mapping_api_version="test.0.0"
         )
-        session.add(record)
-        session.commit()
+        add_versioned(session, record)
         nt = Allele(vrs_digest=digest, level="cdna", clingen_allele_id=caid)
         session.add(nt)
         session.commit()
-        session.add(
+        add_versioned(
+            session,
             MappingRecordAllele(
                 mapping_record_id=record.id, score_set_id=record.score_set_id, allele_id=nt.id, is_authoritative=True
-            )
+            ),
         )
-        session.add(
-            MappingRecordAllele(mapping_record_id=record.id, score_set_id=record.score_set_id, allele_id=prot.id)
+        add_versioned(
+            session,
+            MappingRecordAllele(mapping_record_id=record.id, score_set_id=record.score_set_id, allele_id=prot.id),
         )
-        session.commit()
 
     response = client.get("/api/v1/clingen-alleles/CA111/measurements")
     assert response.status_code == 200
@@ -215,20 +215,20 @@ def test_direct_measurements_sort_before_related(client, session, data_provider,
         record = MappingRecord(
             variant_id=variant.id, score_set_id=variant.score_set_id, assay_level="cdna", mapping_api_version="test.0.0"
         )
-        session.add(record)
-        session.commit()
+        add_versioned(session, record)
         nt = Allele(vrs_digest=digest, level="cdna", clingen_allele_id=caid)
         session.add(nt)
         session.commit()
-        session.add(
+        add_versioned(
+            session,
             MappingRecordAllele(
                 mapping_record_id=record.id, score_set_id=record.score_set_id, allele_id=nt.id, is_authoritative=True
-            )
+            ),
         )
-        session.add(
-            MappingRecordAllele(mapping_record_id=record.id, score_set_id=record.score_set_id, allele_id=prot.id)
+        add_versioned(
+            session,
+            MappingRecordAllele(mapping_record_id=record.id, score_set_id=record.score_set_id, allele_id=prot.id),
         )
-        session.commit()
 
     response = client.get("/api/v1/clingen-alleles/CA111/measurements")
 

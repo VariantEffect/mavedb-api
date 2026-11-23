@@ -220,9 +220,10 @@ def link_vep_consequences_to_alleles(
             continue
 
         # New or changed consequence: retire any live row, insert the successor with full provenance.
-        VepAlleleConsequence.supersede_live_where(
+        VepAlleleConsequence.supersede(
             db,
-            [
+            retiring=[live] if live is not None else [],
+            inserting=[
                 VepAlleleConsequence(
                     allele_id=allele_id,
                     functional_consequence=consequence,
@@ -234,7 +235,6 @@ def link_vep_consequences_to_alleles(
                     access_date=access_date,
                 )
             ],
-            VepAlleleConsequence.allele_id == allele_id,
         )
         verdicts[allele_id] = VepLinkVerdict.CREATED
 

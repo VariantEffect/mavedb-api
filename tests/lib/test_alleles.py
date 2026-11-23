@@ -18,6 +18,7 @@ from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.variant import Variant
 from tests.helpers.constants import TEST_MINIMAL_VARIANT
+from tests.helpers.util.valid_time import add_versioned, retire_versioned
 
 # Deterministic windows far from the transaction clock, so an accidental func.now() stamp is visibly
 # wrong rather than coincidentally equal (mirrors tests/db/test_mixins.py).
@@ -48,8 +49,7 @@ def _record(session, variant, *, assay_level="genomic", valid_from=None):
         mapping_api_version="test.0.0",
         valid_from=valid_from,
     )
-    session.add(record)
-    session.commit()
+    add_versioned(session, record)
     return record
 
 
@@ -61,8 +61,7 @@ def _link(session, record, allele, *, is_authoritative=False, valid_from=None):
         is_authoritative=is_authoritative,
         valid_from=valid_from,
     )
-    session.add(link)
-    session.commit()
+    add_versioned(session, link)
     return link
 
 
@@ -108,8 +107,7 @@ def test_excludes_a_retired_link(session, setup_lib_db_with_score_set):
     stale = _allele(session, "stale")
     _link(session, record, live, is_authoritative=True)
     retired = _link(session, record, stale)
-    retired.retire(at=T1)
-    session.commit()
+    retire_versioned(session, retired, at=T1)
 
     assert _digests(_links(session, variant.id)) == {"live"}
 
@@ -123,8 +121,7 @@ def test_excludes_a_superseded_record(session, setup_lib_db_with_score_set):
 
     old_record = _record(session, variant, valid_from=T0)
     _link(session, old_record, old_allele, is_authoritative=True, valid_from=T0)
-    old_record.retire(session, at=T1)  # cascades to the link via __retire_cascade__
-    session.commit()
+    retire_versioned(session, old_record, at=T1)  # cascades to the link via __retire_cascade__
 
     new_record = _record(session, variant, valid_from=T1)
     _link(session, new_record, new_allele, is_authoritative=True, valid_from=T1)
@@ -164,8 +161,7 @@ def test_as_of_returns_the_historical_link_set(session, setup_lib_db_with_score_
 
     old_record = _record(session, variant, valid_from=T0)
     _link(session, old_record, past_allele, is_authoritative=True, valid_from=T0)
-    old_record.retire(session, at=T1)
-    session.commit()
+    retire_versioned(session, old_record, at=T1)
 
     new_record = _record(session, variant, valid_from=T1)
     _link(session, new_record, current_allele, is_authoritative=True, valid_from=T1)
