@@ -707,6 +707,116 @@ class TestRefreshClinvarControlsUnit:
         [release_status] = [s for s in _statuses(session, AnnotationType.CLINVAR_CONTROL) if s.current]
         assert release_status.disposition == (Disposition.PRESENT if live_controls else Disposition.ABSENT)
 
+    async def test_refresh_clinvar_controls_allele_id_changed_back_relinks_through_it(
+        self,
+        mock_worker_ctx,
+        session,
+        with_refresh_clinvar_controls_job,
+        sample_refresh_clinvar_controls_job_run,
+        setup_sample_alleles_with_caid,
+    ):
+        """An AlleleID that goes A, then B (in no release), then back to A is a correction too: the release absent
+        under B is evaluated again under A and linked."""
+        _, allele = setup_sample_alleles_with_caid
+
+        def run(force):
+            sample_refresh_clinvar_controls_job_run.job_params = {
+                **sample_refresh_clinvar_controls_job_run.job_params,
+                "force": force,
+            }
+            session.commit()
+            return refresh_clinvar_controls(
+                mock_worker_ctx,
+                sample_refresh_clinvar_controls_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
+            )
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
+                side_effect=["VCV000000123", "VCV000000999", "VCV000000123"],
+            ),
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                return_value=MOCK_CLINVAR_DATA,
+            ),
+        ):
+            await run(force=False)
+            await run(force=True)
+            outcome = await run(force=False)
+
+        assert outcome.status == JobStatus.SUCCEEDED
+        [allele_id_status] = [s for s in _statuses(session, AnnotationType.CLINVAR_ALLELE_ID) if s.current]
+        assert allele_id_status.reason == EventReason.CORRECTED
+        assert allele_id_status.status_metadata["clinvar_allele_id"] == "VCV000000123"
+        [release_status] = [s for s in _statuses(session, AnnotationType.CLINVAR_CONTROL) if s.current]
+        assert release_status.disposition == Disposition.PRESENT
+        live = session.scalars(
+            select(ClinvarControl.db_identifier)
+            .join(ClinvarAlleleLink, ClinvarAlleleLink.clinvar_control_id == ClinvarControl.id)
+            .where(ClinvarAlleleLink.allele_id == allele.id, ClinvarAlleleLink.current)
+        ).all()
+        assert live == ["VCV000000123"]
+
+    async def test_refresh_clinvar_controls_stale_link_from_unfetched_release_is_relinked(
+        self,
+        mock_worker_ctx,
+        session,
+        with_refresh_clinvar_controls_job,
+        sample_refresh_clinvar_controls_job_run,
+        setup_sample_alleles_with_caid,
+    ):
+        """A correction whose run can't fetch one release leaves that release's link through the old AlleleID. The
+        next run finds links through two AlleleIDs, keeps the stored one, and relinks the stale release."""
+        _, allele = setup_sample_alleles_with_caid
+        both = {**MOCK_CLINVAR_DATA, "VCV000000999": MOCK_CLINVAR_DATA["VCV000000123"]}
+        fetches = iter([both, both, requests.exceptions.ConnectionError(), both, both, both])
+
+        async def release_data(month, year):
+            result = next(fetches)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        def run(force):
+            sample_refresh_clinvar_controls_job_run.job_params = {
+                **sample_refresh_clinvar_controls_job_run.job_params,
+                "force": force,
+            }
+            session.commit()
+            return refresh_clinvar_controls(
+                mock_worker_ctx,
+                sample_refresh_clinvar_controls_job_run.id,
+                JobManager(session, mock_worker_ctx["redis"], sample_refresh_clinvar_controls_job_run.id),
+            )
+
+        with (
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar._generate_clinvar_versions",
+                return_value=[(2015, 2), (2026, 1)],
+            ),
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.get_associated_clinvar_allele_id",
+                side_effect=["VCV000000123", "VCV000000999"],
+            ) as lookup_spy,
+            patch(
+                "mavedb.worker.jobs.external_services.clinvar.fetch_clinvar_variant_data",
+                side_effect=release_data,
+            ),
+        ):
+            await run(force=False)
+            await run(force=True)
+            outcome = await run(force=False)
+
+        assert outcome.status == JobStatus.SUCCEEDED
+        assert lookup_spy.call_count == 2  # the third run takes the stored AlleleID, not a lookup
+        live = session.scalars(
+            select(ClinvarControl.db_identifier)
+            .join(ClinvarAlleleLink, ClinvarAlleleLink.clinvar_control_id == ClinvarControl.id)
+            .where(ClinvarAlleleLink.allele_id == allele.id, ClinvarAlleleLink.current)
+        ).all()
+        assert live == ["VCV000000999", "VCV000000999"]  # one per release
+
     async def test_release_reresolution_supersedes_newest_wins(
         self,
         mock_worker_ctx,

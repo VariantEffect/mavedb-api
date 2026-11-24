@@ -302,15 +302,16 @@ async def _resolve_allele_ids(
     counts: Counter[str],
 ) -> tuple[dict[int, str], set[int]]:
     """Step 1: each allele's ClinVar AlleleID, which doesn't depend on the release. Returns the alleles that have one,
-    and those whose AlleleID differs from the one stored before.
+    and those to evaluate against every release again: their AlleleID differs from the stored one, or they hold live
+    links through another AlleleID.
 
     A known AlleleID is stable, so only alleles without one (never linked through one) are looked up, unless
     ``force``. Lookups run in chunks, each committed by a progress checkpoint before the next one
     awaits ClinGen.
     """
-    previous = _linked_clinvar_allele_ids(job_manager, set(allele_data))
-    known = {} if force else dict(previous)
-    corrected: set[int] = set()
+    stored = _stored_clinvar_allele_ids(annotation_manager, set(allele_data))
+    linked = _linked_clinvar_allele_ids(job_manager, set(allele_data))
+    known = {} if force else {allele_id: stored.get(allele_id) or min(ids) for allele_id, ids in linked.items()}
     to_look_up: list[tuple[int, str]] = []
     for allele_id, caid in allele_data.items():
         # ClinVar is a nucleotide-level database, so protein-level alleles never apply.
@@ -394,12 +395,11 @@ async def _resolve_allele_ids(
             else:
                 known[allele_id] = clinvar_allele_id
                 # Metadata alone isn't a change, so a different AlleleID needs a different reason to be stored.
-                replaced = previous.get(allele_id) not in (None, clinvar_allele_id)
+                replaced = stored.get(allele_id) not in (None, clinvar_allele_id)
                 if replaced:
-                    corrected.add(allele_id)
                     logger.warning(
                         f"ClinGen allele ID {caid} now resolves to ClinVar allele {clinvar_allele_id}, not "
-                        f"{previous[allele_id]}. Retiring allele {allele_id}'s ClinVar links to evaluate it again.",
+                        f"{stored[allele_id]}. Evaluating allele {allele_id} against every release again.",
                         extra=job_manager.logging_context(),
                     )
                 _report_allele_id(
@@ -413,6 +413,14 @@ async def _resolve_allele_ids(
         annotation_manager.flush()
 
     annotation_manager.flush()
+    # The stored AlleleID, not the links, decides a correction: an AlleleID that no release contains leaves no links,
+    # and every release's status was evaluated through it.
+    corrected = {
+        allele_id
+        for allele_id, clinvar_allele_id in known.items()
+        if stored.get(allele_id, clinvar_allele_id) != clinvar_allele_id
+        or linked.get(allele_id, {clinvar_allele_id}) != {clinvar_allele_id}
+    }
     return known, corrected
 
 
@@ -466,12 +474,22 @@ def _evaluate_release(
     logger.info(f"Completed ClinVar version {release} for {len(pending)} alleles.", extra=job_manager.logging_context())
 
 
-def _linked_clinvar_allele_ids(job_manager: JobManager, allele_ids: set[int]) -> dict[int, str]:
-    """The alleles whose ClinVar AlleleID is known, with it: the AlleleID of a control they're linked to.
+def _stored_clinvar_allele_ids(annotation_manager: AnnotationStatusManager, allele_ids: set[int]) -> dict[int, str]:
+    """The ClinVar AlleleID each allele's ``clinvar_allele_id`` status last found, for alleles that have one."""
+    return {
+        row.allele_id: row.status_metadata["clinvar_allele_id"]
+        for row in annotation_manager.current_statuses(AnnotationType.CLINVAR_ALLELE_ID, allele_ids)
+        if row.disposition == Disposition.PRESENT.value and (row.status_metadata or {}).get("clinvar_allele_id")
+    }
+
+
+def _linked_clinvar_allele_ids(job_manager: JobManager, allele_ids: set[int]) -> dict[int, set[str]]:
+    """The AlleleIDs of the controls each allele has live links to. More than one means a correction left a stale
+    link, for instance when a release's data couldn't be fetched.
 
     An allele with an AlleleID that no release contains has no link, so it's looked up again each run.
     """
-    known: dict[int, str] = {}
+    known: defaultdict[int, set[str]] = defaultdict(set)
     for batch in batched(sorted(allele_ids), STATEMENT_CHUNK_SIZE):
         rows = job_manager.db.execute(
             select(ClinvarAlleleLink.allele_id, ClinvarControl.db_identifier)
@@ -479,8 +497,9 @@ def _linked_clinvar_allele_ids(job_manager: JobManager, allele_ids: set[int]) ->
             .where(ClinvarAlleleLink.allele_id.in_(batch), ClinvarAlleleLink.current)
             .distinct()
         )
-        known.update({allele_id: db_identifier for allele_id, db_identifier in rows})
-    return known
+        for allele_id, db_identifier in rows:
+            known[allele_id].add(db_identifier)
+    return dict(known)
 
 
 def _evaluated_releases(
