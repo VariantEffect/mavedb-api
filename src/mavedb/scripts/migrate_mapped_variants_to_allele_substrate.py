@@ -140,7 +140,7 @@ from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.lib.vrs_utils import CANONICAL_ACCESSION_PREFIXES, canonical_variation_document, location_refgets
 from mavedb.models import *  # noqa: F401,F403  pylint: disable=wildcard-import  — register all mappers for configure_mappers()
 from mavedb.models.allele import Allele
-from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.annotation_status import AnnotationStatus
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
@@ -1020,7 +1020,7 @@ def _migrate_variant(
             reason=EventReason.MIGRATED.value,
             source_version=mv.mapping_api_version,
         )
-        stats["annotation_events_written"] += 1
+        stats["annotation_status_reports"] += 1
 
         if allele is not None:
             # CLINGEN_ALLELE_ID / MAPPED_HGVS: allele-subject, only meaningful once an allele exists.
@@ -1039,7 +1039,7 @@ def _migrate_variant(
                 reason=EventReason.MIGRATED.value,
                 source_version=mv.mapping_api_version,
             )
-            stats["annotation_events_written"] += 2
+            stats["annotation_status_reports"] += 2
 
             touched_allele_ids.add(allele.id)
 
@@ -1120,13 +1120,10 @@ def do_migration(
     ClinVar link that would otherwise land live — see :func:`_write_allele_timeline`. Exposed as a
     parameter mainly for deterministic tests; a real run just wants "now".
 
-    Also backfills the ``annotation_event`` audit log — but only for the mapping/identity side
-    (``VRS_MAPPING``, ``CLINGEN_ALLELE_ID``, ``MAPPED_HGVS``), not gnomAD/ClinVar/VEP. That scope split
-    is deliberate: the mapping side is a genuine, non-lossy reconstruction (one real historical event
-    per ``mapped_variants`` version, the same data already trusted enough to build ``MappingRecord``/
-    ``Allele`` from), whereas gnomAD/ClinVar/VEP would need to guess at a created/reconfirmed/skipped
-    cadence legacy data never recorded — and those sources get real, fresh events again once each score
-    set is re-annotated, so the audit gap there is temporary, not permanent. See
+    Also reports ``annotation_status`` for the mapping/identity side (``VRS_MAPPING``, ``CLINGEN_ALLELE_ID``,
+    ``MAPPED_HGVS``), not gnomAD/ClinVar/VEP. The mapping side is a faithful reconstruction from the same
+    ``mapped_variants`` data trusted to build ``MappingRecord``/``Allele``, whereas gnomAD/ClinVar/VEP statuses
+    would be guesses; those sources get real statuses once each score set is re-annotated. See
     :data:`EventReason.MIGRATED`.
     """
     print("Backfilling the Allele substrate from mapped_variants...")
@@ -1253,7 +1250,7 @@ def do_migration(
         "alleles_off_sequence",
         "hgvs_recovered_from_level_column",
         "hgvs_recovered_from_vrs_expression",
-        "annotation_events_written",
+        "annotation_status_reports",
         "gnomad_links",
         "protein_gnomad_links_closed",
         "clinvar_links",
@@ -1349,8 +1346,8 @@ def verify_migration(db: Session, *, score_set_urn: Optional[str] = None) -> Non
     gnomad_links = db.scalar(sa.select(sa.func.count(GnomadAlleleLink.id)))
     clinvar_links = db.scalar(sa.select(sa.func.count(ClinvarAlleleLink.id)))
     vep_consequences = db.scalar(sa.select(sa.func.count(VepAlleleConsequence.id)))
-    migrated_events = db.scalar(
-        sa.select(sa.func.count(AnnotationEvent.id)).where(AnnotationEvent.reason == EventReason.MIGRATED.value)
+    migrated_statuses = db.scalar(
+        sa.select(sa.func.count(AnnotationStatus.id)).where(AnnotationStatus.reason == EventReason.MIGRATED.value)
     )
 
     print(f"  Variants with mapped_variants:      {total_mapped_variant_variants}")
@@ -1359,7 +1356,7 @@ def verify_migration(db: Session, *, score_set_urn: Optional[str] = None) -> Non
     print(f"  Alleles (deduped):                  {total_alleles}")
     print(f"  Live authoritative links:           {live_auth_links}")
     print(f"  gnomAD / ClinVar / VEP annotations: {gnomad_links} / {clinvar_links} / {vep_consequences}")
-    print(f"  MIGRATED annotation_event rows:      {migrated_events}")
+    print(f"  MIGRATED annotation_status rows:    {migrated_statuses}")
     if remaining == 0:
         print("  ✓ Every legacy variant has a MappingRecord.")
     else:
@@ -1375,10 +1372,8 @@ def rollback_migration(db: Session) -> None:
     -addressed and harmless if orphaned (a re-run reuses them), and annotation
     links re-existence-check. Delete those manually if a full teardown is needed.
 
-    ``AnnotationEvent`` rows (reason ``MIGRATED``) are left in place too, on purpose: it is an
-    append-only audit log, and deleting them on rollback would erase the very audit trail it exists to
-    keep — a re-run after rollback just appends a fresh set (matching how ``MappingRecord`` itself gets
-    deleted and recreated), not a duplicate-avoidance concern the way the ValidTime domain tables are.
+    ``annotation_status`` rows (reason ``MIGRATED``) are left in place too: they record what the legacy data
+    said, which a rollback doesn't change, and a re-run reports the same statuses, which writes nothing.
     """
     print("Rolling back backfilled MappingRecords (scoped to variants with mapped_variants)...")
     legacy_variant_ids = sa.select(sa.distinct(MappedVariant.variant_id))
@@ -1389,8 +1384,8 @@ def rollback_migration(db: Session) -> None:
     db.execute(sa.delete(MappingRecord).where(MappingRecord.variant_id.in_(legacy_variant_ids)))
     db.commit()
     print(f"Deleted {count} MappingRecords (and their allele links via cascade).")
-    print("Note: deduped Alleles, annotation links, and MIGRATED annotation_event rows were left in place")
-    print("(re-runnable / harmless orphans; the event log is append-only by design).")
+    print("Note: deduped Alleles, annotation links, and MIGRATED annotation_status rows were left in place")
+    print("(a re-run reuses them).")
 
 
 def _parse_args() -> argparse.Namespace:

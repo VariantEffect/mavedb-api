@@ -1629,8 +1629,8 @@ class TestMapVariantsForScoreSetIntegration:
             assert new_mapping_record.mapping_api_version != "v1.0.0"
 
         # Append-only: each variant keeps its prior event and gains a new one from this run.
-        annotation_events = session.query(AnnotationStatus).all()
-        assert len(annotation_events) == len(variants) * 2
+        statuses = session.query(AnnotationStatus).all()
+        assert len(statuses) == len(variants) * 2
         for variant in variants:
             variant_events = (
                 session.query(AnnotationStatus)

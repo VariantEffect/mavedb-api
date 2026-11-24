@@ -88,8 +88,8 @@ def group_alleles_for_annotation(
     job-specific payload per allele, keyed by ``allele_id``.
 
     The same allele recurs once per variant that links it, so this dedups those rows down to one
-    entry per allele — the shape every allele-keyed annotation job wants now that annotation events
-    are allele-keyed (one event per allele, never fanned per-variant).
+    entry per allele — the shape every allele-keyed annotation job wants, since their annotation statuses
+    are allele-keyed (one status per allele, never fanned per-variant).
 
     ``payload`` builds the job-specific payload from the first row seen for an allele — the CAID for
     gnomAD/ClinVar, the HGVS for VEP, etc. Returning ``None`` skips the allele entirely (e.g. it

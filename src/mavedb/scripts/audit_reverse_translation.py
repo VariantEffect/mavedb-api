@@ -18,7 +18,7 @@ sequences, both digests were internally consistent, every existing check passed,
 silently read as projections.
 
 `invariants` runs the structural checks in SQL, plus a comparison of every stored refget against
-SeqRepo and a scan of SeqRepo for sequences carrying a ga4gh alias other than their own digest. `outcomes` rolls the latest RT result per variant up by score set, so an outlier score set
+SeqRepo and a scan of SeqRepo for sequences carrying a ga4gh alias other than their own digest. `outcomes` rolls each variant's current RT status up by score set, so an outlier score set
 stands out. `round-trip` re-translates a sample of projection pairs with the same coordinate mapper RT
 uses and checks that each pair and its protein apex identify as the same VRS alleles RT stored.
 
@@ -243,9 +243,9 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
             WHERE mr.valid_to IS NULL {record_filter}
               AND NOT EXISTS (SELECT 1 FROM mapping_record_alleles l
                               WHERE l.mapping_record_id = mr.id AND l.is_authoritative AND l.valid_to IS NULL)
-              AND (SELECT e.disposition FROM annotation_event e
-                   WHERE e.variant_id = mr.variant_id AND e.annotation_type = 'vrs_mapping'
-                   ORDER BY e.id DESC LIMIT 1) = 'present'
+              AND EXISTS (SELECT 1 FROM v_annotation_status_current s
+                          WHERE s.variant_id = mr.variant_id AND s.annotation_type = 'vrs_mapping'
+                            AND s.disposition = 'present' AND s.failing_since IS NULL)
         """,
     ),
     SqlCheck(
@@ -306,7 +306,7 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
         description=(
             "A live candidate projection group is not exactly one cdna allele and one genomic allele. Either the library could "
             "not project the coding candidate to the genome (its entry under candidates in the variant's "
-            "cross_level_translation event has no hgvs_g), or a member failed VRS translation (listed under "
+            "cross_level_translation status metadata has no hgvs_g), or a member failed VRS translation (listed under "
             "failed_candidates with the error)."
         ),
         sql="""
@@ -340,15 +340,15 @@ SQL_CHECKS: tuple[SqlCheck, ...] = (
     SqlCheck(
         name="mapped_record_never_reverse_translated",
         severity=INFO,
-        description="A live record with an authoritative allele has no RT event; expected until RT has run on its score set.",
+        description="A live record with an authoritative allele has no RT status; expected until RT has run on its score set.",
         sql="""
             SELECT mr.id AS mapping_record_id, mr.variant_id, mr.score_set_id
             FROM mapping_records mr
             WHERE mr.valid_to IS NULL {record_filter}
               AND EXISTS (SELECT 1 FROM mapping_record_alleles l
                           WHERE l.mapping_record_id = mr.id AND l.is_authoritative AND l.valid_to IS NULL)
-              AND NOT EXISTS (SELECT 1 FROM annotation_event e
-                              WHERE e.variant_id = mr.variant_id AND e.annotation_type = 'cross_level_translation')
+              AND NOT EXISTS (SELECT 1 FROM annotation_status s
+                              WHERE s.variant_id = mr.variant_id AND s.annotation_type = 'cross_level_translation')
         """,
     ),
     SqlCheck(
@@ -543,23 +543,23 @@ def invariants(
         sys.exit(1)
 
 
+# A failing key reports as failed, with its failure reason.
 RT_OUTCOMES_SQL = """
-    WITH latest AS (
-        SELECT DISTINCT ON (e.variant_id) e.variant_id, e.score_set_id, e.disposition, e.reason
-        FROM annotation_event e
-        WHERE e.annotation_type = 'cross_level_translation' {event_filter}
-        ORDER BY e.variant_id, e.id DESC
-    )
-    SELECT s.urn, latest.disposition, latest.reason, count(*) AS variants
-    FROM latest
-    JOIN scoresets s ON s.id = latest.score_set_id
+    SELECT ss.urn,
+           CASE WHEN s.failing_since IS NOT NULL THEN 'failed' ELSE s.disposition END AS disposition,
+           CASE WHEN s.failing_since IS NOT NULL THEN s.failure_reason ELSE s.reason END AS reason,
+           count(*) AS variants
+    FROM v_annotation_status_current s
+    JOIN variants v ON v.id = s.variant_id
+    JOIN scoresets ss ON ss.id = v.scoreset_id
+    WHERE s.annotation_type = 'cross_level_translation' {score_set_filter}
     GROUP BY 1, 2, 3
 """
 
 
 @dataclass
 class ScoreSetOutcome:
-    """The latest RT result of every variant in one score set, by disposition and by failure reason."""
+    """The current RT status of every variant in one score set, by disposition and by failure reason."""
 
     urn: str
     by_disposition: Counter = field(default_factory=Counter)
@@ -603,12 +603,12 @@ def outcomes(
     translated_since: Optional[datetime],
     max_failed_pct: float,
 ) -> None:
-    """Summarize the latest reverse-translation result per variant, by score set."""
+    """Summarize each variant's current reverse-translation status, by score set."""
     score_set_ids = resolve_scope(db, urns, collection, translated_since)
-    event_filter = "AND e.score_set_id = ANY(:score_set_ids)" if score_set_ids is not None else ""
+    score_set_filter = "AND v.scoreset_id = ANY(:score_set_ids)" if score_set_ids is not None else ""
     params = {"score_set_ids": score_set_ids} if score_set_ids is not None else {}
 
-    rows = db.execute(text(RT_OUTCOMES_SQL.format(event_filter=event_filter)), params).all()
+    rows = db.execute(text(RT_OUTCOMES_SQL.format(score_set_filter=score_set_filter)), params).all()
     results = collect_outcomes([tuple(row) for row in rows])  # type: ignore[misc]
 
     logger.info("%-28s %9s %9s %9s %9s  %s", "score set", "variants", "present", "n/a", "failed %", "failure reasons")

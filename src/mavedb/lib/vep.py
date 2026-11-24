@@ -148,7 +148,7 @@ def link_vep_consequences_to_alleles(
 
     ``resolutions_by_allele_id`` maps each queried allele to the kernel's :class:`ConsequenceResolution`.
     Only ``RESOLVED`` and ``ABSENT`` resolutions belong here — an ``ERRORED`` allele's failure is
-    recorded in the annotation event stream and it is retried, never linked, so passing one is a caller
+    recorded as a failing annotation status and it is retried, never linked, so passing one is a caller
     bug and is ignored defensively. ``source_version`` is the Ensembl release the run resolved against.
     Each allele holds at most one live :class:`VepAlleleConsequence`, handled per allele:
 

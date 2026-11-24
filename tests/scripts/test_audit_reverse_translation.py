@@ -12,14 +12,18 @@ biocommons = pytest.importorskip("biocommons")
 bioutils = pytest.importorskip("bioutils")
 pytest.importorskip("ga4gh.vrs")
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
+from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.seqrepo import SequenceNotFoundError
-from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.enums.annotation_type import AnnotationType
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.variant import Variant
 from mavedb.scripts.audit_reverse_translation import (
     ERROR,
+    RT_OUTCOMES_SQL,
     SQL_CHECKS,
     ProjectionPair,
     check_foreign_refget_aliases,
@@ -31,6 +35,13 @@ from mavedb.scripts.audit_reverse_translation import (
 from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 
 CHECKS = {check.name: check for check in SQL_CHECKS}
+
+
+def _report(session, variant, disposition, reason, annotation_type=AnnotationType.VRS_MAPPING):
+    manager = AnnotationStatusManager(session)
+    manager.report(annotation_type, variant_id=variant.id, disposition=disposition, reason=reason)
+    manager.flush()
+    session.commit()
 
 
 def _post_mapped(refget: str) -> dict:
@@ -377,32 +388,15 @@ class TestSqlChecks:
     def test_flags_a_mapped_record_with_no_authoritative_allele(self, session, make_score_set):
         score_set, (variant,) = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000008-a-1", 1)
         seed_mapping_record(session, variant, alleles=[])
-        session.add(
-            AnnotationEvent(
-                annotation_type="vrs_mapping",
-                variant_id=variant.id,
-                score_set_id=score_set.id,
-                disposition="present",
-                reason="mapped",
-            )
-        )
-        session.commit()
+        _report(session, variant, Disposition.PRESENT, EventReason.CREATED)
 
         assert _count(session, "mapped_record_without_authoritative_link", [score_set.id]).count == 1
 
-    def test_does_not_flag_a_record_whose_mapping_failed(self, session, make_score_set):
+    def test_does_not_flag_a_record_whose_latest_mapping_failed(self, session, make_score_set):
         score_set, (variant,) = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000009-a-1", 1)
         seed_mapping_record(session, variant, alleles=[])
-        session.add(
-            AnnotationEvent(
-                annotation_type="vrs_mapping",
-                variant_id=variant.id,
-                score_set_id=score_set.id,
-                disposition="failed",
-                reason="failed",
-            )
-        )
-        session.commit()
+        _report(session, variant, Disposition.PRESENT, EventReason.CREATED)
+        _report(session, variant, Disposition.FAILED, EventReason.API_ERROR)
 
         assert _count(session, "mapped_record_without_authoritative_link", [score_set.id]).count == 0
 
@@ -558,6 +552,30 @@ class TestCollectOutcomes:
         assert outcomes[0].failed_pct == 50.0
         assert outcomes[0].failure_reasons.most_common(1) == [("translation_failed", 30)]
         assert outcomes[1].total == 100
+
+
+@pytest.mark.integration
+class TestRtOutcomesSql:
+    def test_counts_each_variants_current_rt_status_with_failing_keys_as_failed(self, session, make_score_set):
+        score_set, (present, failing, not_applicable) = _score_set_with_variants(
+            session, make_score_set, "urn:mavedb:00000030-a-1", 3
+        )
+        _, (other,) = _score_set_with_variants(session, make_score_set, "urn:mavedb:00000031-a-1", 1)
+        rt = AnnotationType.CROSS_LEVEL_TRANSLATION
+        _report(session, present, Disposition.PRESENT, EventReason.TRANSLATED, rt)
+        _report(session, failing, Disposition.PRESENT, EventReason.TRANSLATED, rt)
+        _report(session, failing, Disposition.FAILED, EventReason.API_ERROR, rt)
+        _report(session, not_applicable, Disposition.NOT_APPLICABLE, EventReason.NO_CODING_TRANSCRIPT, rt)
+        _report(session, other, Disposition.PRESENT, EventReason.TRANSLATED, rt)
+
+        sql = RT_OUTCOMES_SQL.format(score_set_filter="AND v.scoreset_id = ANY(:score_set_ids)")
+        rows = session.execute(text(sql), {"score_set_ids": [score_set.id]}).all()
+
+        assert sorted(tuple(row) for row in rows) == [
+            (score_set.urn, "failed", "api_error", 1),
+            (score_set.urn, "not_applicable", "no_coding_transcript", 1),
+            (score_set.urn, "present", "translated", 1),
+        ]
 
 
 class TestForeignRefgetAliases:
