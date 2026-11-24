@@ -6,9 +6,10 @@ Each pass replays the events past the high-water mark in ``annotation_event_back
 exactly as if the jobs had always written statuses. Events written in one transaction share a ``created_at`` and
 are planned together, as one flush.
 
-The first pass replays the whole log while the old code keeps writing it, committing per chunk of subjects. If it
-stops partway, rerun with ``--reset``, which empties ``annotation_status`` first. Later passes replay only the
-events since, in one transaction: run one with annotation jobs paused, deploy, and resume.
+Run it with the worker stopped, so no event commits below the mark after a pass reads past it. A pass refuses to
+start while events are still being written. The first pass replays the whole log, committing per chunk of subjects.
+If it stops partway, rerun with ``--reset``, which empties ``annotation_status`` first. Later passes replay only the
+events since, in one transaction.
 
 Two kinds of event change shape on the way:
 
@@ -29,12 +30,12 @@ Usage:
 import logging
 from collections import defaultdict
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import groupby, islice
 from typing import Any, Iterable, Iterator, NamedTuple, Optional
 
 import asyncclick as click
-from sqlalchemy import func, insert, select, text, update
+from sqlalchemy import Interval, func, insert, select, text, type_coerce, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -62,6 +63,9 @@ DROPPED_TYPES = ("mapped_hgvs", "variant_translation")
 
 SUBJECTS_PER_CHUNK = 5000
 """Subjects whose events one chunk replays and writes together."""
+
+QUIET_BEFORE_PASS = timedelta(minutes=10)
+"""How long no event must have been written before a pass starts, as a sign the worker is stopped."""
 
 
 class Event(NamedTuple):
@@ -314,6 +318,14 @@ def run(db: Session, action: DatabaseSessionAction, reset: bool) -> None:
     """Replay the events past the mark into annotation_status. Commits as it goes, so needs --commit."""
     if action is not DatabaseSessionAction.COMMIT:
         raise click.UsageError("The backfill commits as it goes, so it has no dry run. Pass --commit.")
+
+    newest_age = db.scalar(select(type_coerce(func.now() - func.max(AnnotationEvent.created_at), Interval)))
+    if newest_age is not None and newest_age < QUIET_BEFORE_PASS:
+        raise click.UsageError(
+            f"The newest event was written {newest_age.total_seconds():.0f} seconds ago, within the last "
+            f"{QUIET_BEFORE_PASS.total_seconds() / 60:.0f} minutes. Stop the worker and wait for its jobs to "
+            "finish: an event that commits below the mark after the pass reads past it is never replayed."
+        )
 
     after = backfilled_through(db)
     through = db.scalar(select(func.max(AnnotationEvent.id))) or 0
