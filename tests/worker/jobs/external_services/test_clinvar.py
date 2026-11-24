@@ -10,7 +10,7 @@ from unittest.mock import patch
 from sqlalchemy import select, text
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
-from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.annotation_status import AnnotationStatus
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.enums.annotation_type import AnnotationType
@@ -69,7 +69,7 @@ class TestRefreshClinvarControlsUnit:
         assert result.status == JobStatus.SUCCEEDED
         assert session.scalars(select(ClinvarControl)).all() == []
         assert session.scalars(select(ClinvarAlleleLink)).all() == []
-        assert session.scalars(select(AnnotationEvent)).all() == []
+        assert session.scalars(select(AnnotationStatus)).all() == []
 
     async def test_fetch_failure_skips_version(
         self,
@@ -126,7 +126,7 @@ class TestRefreshClinvarControlsUnit:
 
         # Allele-keyed event: a cis-block CAID structurally can't key ClinVar — a pipeline gap, not a
         # statement about the source.
-        event = session.scalars(select(AnnotationEvent)).one()
+        event = session.scalars(select(AnnotationStatus)).one()
         assert event.annotation_type == AnnotationType.CLINVAR_CONTROL
         assert event.disposition == Disposition.NOT_APPLICABLE
         assert event.reason == EventReason.MULTI_VARIANT_CAID
@@ -170,7 +170,7 @@ class TestRefreshClinvarControlsUnit:
 
         # Allele-keyed not-applicable event: ClinVar is nucleotide-level, so a protein allele is a
         # structural gap (like a multi-variant CAID), not a statement about the source.
-        event = session.scalars(select(AnnotationEvent)).one()
+        event = session.scalars(select(AnnotationStatus)).one()
         assert event.annotation_type == AnnotationType.CLINVAR_CONTROL
         assert event.disposition == Disposition.NOT_APPLICABLE
         assert event.reason == EventReason.PROTEIN_LEVEL_ALLELE
@@ -206,7 +206,7 @@ class TestRefreshClinvarControlsUnit:
         assert result.status == JobStatus.SUCCEEDED
         assert session.scalars(select(ClinvarAlleleLink)).all() == []
         # ClinGen had no ClinVar AlleleID for this CAID — an informative negative about the source.
-        event = session.scalars(select(AnnotationEvent)).one()
+        event = session.scalars(select(AnnotationStatus)).one()
         assert event.disposition == Disposition.ABSENT
         assert event.reason == EventReason.NO_RECORD
         assert event.allele_id == allele.id and event.variant_id is None
@@ -242,7 +242,7 @@ class TestRefreshClinvarControlsUnit:
         assert session.scalars(select(ClinvarAlleleLink)).all() == []
         # The CAID resolved to a ClinVar AlleleID, but it's absent from this release's snapshot — a
         # genuine, version-scoped negative.
-        event = session.scalars(select(AnnotationEvent)).one()
+        event = session.scalars(select(AnnotationStatus)).one()
         assert event.disposition == Disposition.ABSENT
         assert event.reason == EventReason.NO_RECORD
         assert event.allele_id == allele.id and event.variant_id is None
@@ -276,7 +276,7 @@ class TestRefreshClinvarControlsUnit:
 
         assert result.status == JobStatus.FAILED
         assert result.failure_category == FailureCategory.DEPENDENCY_FAILURE
-        event = session.scalars(select(AnnotationEvent)).one()
+        event = session.scalars(select(AnnotationStatus)).one()
         assert event.disposition == Disposition.FAILED
         assert event.reason == EventReason.API_ERROR
         assert event.allele_id == allele.id and event.variant_id is None
@@ -324,7 +324,7 @@ class TestRefreshClinvarControlsUnit:
         assert len(links) == 1
         assert links[0].clinvar_control_id == control.id
 
-        event = session.scalars(select(AnnotationEvent)).one()
+        event = session.scalars(select(AnnotationStatus)).one()
         assert event.disposition == Disposition.PRESENT
         assert event.reason == EventReason.CREATED
         assert event.annotation_type == AnnotationType.CLINVAR_CONTROL
@@ -385,7 +385,7 @@ class TestRefreshClinvarControlsUnit:
         # One allele-keyed event per allele (never per-variant): the linked RT allele is present, the
         # unmatched authoritative allele is absent. The variant resolves its derived allele's status
         # through the live links — no variant_id on the events.
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert all(e.annotation_type == AnnotationType.CLINVAR_CONTROL for e in events)
         assert all(e.variant_id is None for e in events)
         by_allele = {e.allele_id: e for e in events}
@@ -509,15 +509,11 @@ class TestRefreshClinvarControlsUnit:
         assert len(links) == 1
         assert links[0].valid_to is None
 
-        # Per-version events: two allele-keyed events (one per run), no current flag. The first run
-        # created the link; the second found it preexisting. Latest event (by id) wins.
-        events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.allele_id == allele.id).order_by(AnnotationEvent.id)
-        ).all()
-        assert len(events) == 2
-        assert events[0].reason == EventReason.CREATED
-        assert events[1].reason == EventReason.PREEXISTING
-        assert all(e.disposition == Disposition.PRESENT for e in events)
+        # The first run created the link; the second found it preexisting, which changes no status.
+        statuses = session.scalars(select(AnnotationStatus).where(AnnotationStatus.allele_id == allele.id)).all()
+        assert [(st.disposition, st.reason, st.current) for st in statuses] == [
+            (Disposition.PRESENT, EventReason.CREATED, True)
+        ]
 
     async def test_release_reresolution_supersedes_newest_wins(
         self,
@@ -683,7 +679,7 @@ class TestRefreshClinvarControlsArqContext:
         assert len(session.scalars(select(ClinvarControl)).all()) >= 1
         assert len(session.scalars(select(ClinvarAlleleLink).where(ClinvarAlleleLink.current)).all()) == 1
 
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 1
         assert events[0].disposition == Disposition.PRESENT
         assert events[0].annotation_type == AnnotationType.CLINVAR_CONTROL
@@ -720,7 +716,7 @@ class TestRefreshClinvarControlsArqContext:
 
         mock_slack.assert_called_once()
         assert session.scalars(select(ClinvarAlleleLink)).all() == []
-        assert session.scalars(select(AnnotationEvent)).all() == []
+        assert session.scalars(select(AnnotationStatus)).all() == []
 
         session.refresh(sample_refresh_clinvar_controls_job_run)
         assert sample_refresh_clinvar_controls_job_run.status == JobStatus.ERRORED

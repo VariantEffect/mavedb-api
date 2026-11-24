@@ -18,7 +18,7 @@ from variant_annotation.lib.vep import (
 )
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
-from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.annotation_status import AnnotationStatus
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.enums.vep import VepConsequenceSource
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
@@ -159,7 +159,7 @@ class TestPopulateVepForScoreSetIntegration:
         assert result.status == JobStatus.SUCCEEDED
 
         assert len(session.scalars(select(VepAlleleConsequence)).all()) == 0
-        assert len(session.scalars(select(AnnotationEvent)).all()) == 0
+        assert len(session.scalars(select(AnnotationStatus)).all()) == 0
 
         session.refresh(sample_populate_vep_run)
         assert sample_populate_vep_run.status == JobStatus.SUCCEEDED
@@ -184,7 +184,7 @@ class TestPopulateVepForScoreSetIntegration:
         assert result.data["absent_allele_count"] == 1
         assert len(_live_consequences_for(session, allele.id)) == 0
 
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 1
         assert events[0].disposition == "absent"
         assert events[0].reason == "no_record"
@@ -211,7 +211,7 @@ class TestPopulateVepForScoreSetIntegration:
         assert result.status == JobStatus.SUCCEEDED
         mock_resolve.assert_not_called()  # protein allele routed out before any query
         assert len(_live_consequences_for(session, allele.id)) == 0
-        assert session.scalars(select(AnnotationEvent).where(AnnotationEvent.allele_id == allele.id)).all() == []
+        assert session.scalars(select(AnnotationStatus).where(AnnotationStatus.allele_id == allele.id)).all() == []
 
     async def test_request_failure_recorded_as_errored(
         self,
@@ -235,7 +235,7 @@ class TestPopulateVepForScoreSetIntegration:
         assert result.data["absent_allele_count"] == 0
         assert len(_live_consequences_for(session, allele.id)) == 0
 
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 1
         assert events[0].disposition == "failed"
         assert events[0].reason == "api_error"
@@ -266,7 +266,7 @@ class TestPopulateVepForScoreSetIntegration:
         assert live[0].source_version == _ENSEMBL_RELEASE
         assert live[0].access_date == date.today()
 
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 1
         assert events[0].disposition == "present"
         assert events[0].reason == "created"
@@ -305,7 +305,7 @@ class TestPopulateVepForScoreSetIntegration:
 
         # One allele-keyed event per allele (never per-variant): the resolved RT allele is present, the
         # unclassifiable authoritative allele is absent/no_record (queried, genuinely empty).
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert all(e.annotation_type == "vep_functional_consequence" for e in events)
         assert all(e.variant_id is None for e in events)
         by_allele = {e.allele_id: e for e in events}
@@ -348,7 +348,7 @@ class TestPopulateVepForScoreSetIntegration:
         assert live[0].consequence_source == VepConsequenceSource.reference_identical
         assert live[0].matched_transcript is None
 
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 1
         assert events[0].disposition == "present"
         assert events[0].reason == "created"
@@ -426,7 +426,7 @@ class TestPopulateVepForScoreSetIntegration:
         assert len(rows) == 1
         assert rows[0].valid_to is None
 
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 1
         assert events[0].disposition == "present"
         assert events[0].reason == "preexisting"
@@ -634,7 +634,7 @@ class TestPopulateVepForScoreSetIntegration:
         assert result.status == JobStatus.SUCCEEDED
         assert len(session.scalars(select(VepAlleleConsequence).where(VepAlleleConsequence.current)).all()) == 1
 
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 1
         assert events[0].disposition == "present"
         assert events[0].reason == "created"
@@ -696,7 +696,7 @@ class TestPopulateVepForScoreSetArqContext:
 
         assert len(session.scalars(select(VepAlleleConsequence).where(VepAlleleConsequence.current)).all()) == 1
 
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 1
         assert events[0].disposition == "present"
         assert events[0].reason == "created"
@@ -752,7 +752,7 @@ class TestPopulateVepForScoreSetArqContext:
 
         mock_send_slack_job_error.assert_called_once()
         assert len(session.scalars(select(VepAlleleConsequence)).all()) == 0
-        assert len(session.scalars(select(AnnotationEvent)).all()) == 0
+        assert len(session.scalars(select(AnnotationStatus)).all()) == 0
 
         session.refresh(sample_populate_vep_run)
         assert sample_populate_vep_run.status == JobStatus.ERRORED
@@ -778,7 +778,7 @@ class TestPopulateVepForScoreSetArqContext:
 
         mock_send_slack_job_error.assert_called_once()
         assert len(session.scalars(select(VepAlleleConsequence)).all()) == 0
-        assert len(session.scalars(select(AnnotationEvent)).all()) == 0
+        assert len(session.scalars(select(AnnotationStatus)).all()) == 0
 
         session.refresh(sample_populate_vep_run_pipeline)
         assert sample_populate_vep_run_pipeline.status == JobStatus.ERRORED

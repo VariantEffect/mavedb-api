@@ -93,7 +93,7 @@ def _annotate_clinvar(
     if error_message is not None:
         meta["error_message"] = error_message
 
-    annotation_manager.record_event(
+    annotation_manager.report(
         AnnotationType.CLINVAR_CONTROL,
         allele_id=allele_id,
         disposition=disposition,
@@ -221,9 +221,7 @@ async def refresh_clinvar_controls(ctx: dict, job_id: int, job_manager: JobManag
         # bypasses the skip but the link write still get-or-creates, so a forced no-op writes nothing.
         already_linked = set() if force else alleles_linked_at_version(clinvar_version)
 
-        annotation_manager = AnnotationStatusManager(
-            job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
-        )
+        annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
         allele_items = list(allele_data.items())
         for chunk_start in range(0, len(allele_items), CLINVAR_PROGRESS_EVERY_ALLELES):
             if chunk_start:

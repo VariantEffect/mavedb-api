@@ -3,15 +3,15 @@
 The score set is the entry point (pipelines run per score set), but annotation status is a per-allele
 fact: this resolves the score set's *current* alleles (and variants) through the live mapping links and
 reports each subject's true current status — including statuses produced by another score set's run
-that landed on a shared allele. It does **not** filter by which run wrote the event.
+that landed on a shared allele. It does **not** filter by which run wrote the status.
 
 Usage:
     poetry run python -m mavedb.scripts.variant_annotations show-score-set urn:mavedb:00000001-a-1
     poetry run python -m mavedb.scripts.variant_annotations show-score-set urn:mavedb:00000001-a-1 --json
 
-For per-subject detail, query the v_current_annotation_events view directly:
-    SELECT * FROM v_current_annotation_events WHERE allele_id = <id>;
-    SELECT * FROM v_current_annotation_events WHERE disposition = 'failed';
+For per-subject detail, query the v_annotation_status_current view directly:
+    SELECT * FROM v_annotation_status_current WHERE allele_id = <id>;
+    SELECT * FROM v_annotation_status_current WHERE failing_since IS NOT NULL;
 """
 
 import json
@@ -19,11 +19,12 @@ import logging
 from typing import Optional
 
 import asyncclick as click
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from mavedb.lib.clingen.alleles import get_alleles_for_score_set
-from mavedb.models.annotation_event_view import CurrentAnnotationEventView
+from mavedb.models.annotation_status_view import CurrentAnnotationStatusView
+from mavedb.models.enums.disposition import Disposition
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
 from mavedb.scripts.environment import script_environment, with_database_session
@@ -40,9 +41,10 @@ def current_annotation_summary(db: Session, score_set: ScoreSet) -> list[dict]:
 
     Resolves the score set's subjects — its current alleles (via the live mapping links) for
     allele-subject types, and its variants for variant-subject types (mapping/RT/LDH) — then counts the
-    current status of each in ``v_current_annotation_events``. Allele-subject counts are per allele
-    (shared alleles counted once), reflecting the true current status regardless of which run produced
-    it; variant-subject counts are per variant.
+    current status of each in ``v_annotation_status_current``. A status whose checks are failing counts as
+    ``failed``, even when an earlier check's outcome is still held. Allele-subject counts are per allele
+    (shared alleles counted once, and per release for ClinVar), reflecting the true current status regardless
+    of which run produced it; variant-subject counts are per variant.
     """
     allele_ids = {row.allele_id for row in get_alleles_for_score_set(db, score_set.id)}
     variant_ids = set(db.scalars(select(Variant.id).where(Variant.score_set_id == score_set.id)).all())
@@ -50,20 +52,13 @@ def current_annotation_summary(db: Session, score_set: ScoreSet) -> list[dict]:
     if not allele_ids and not variant_ids:
         return []
 
+    status = CurrentAnnotationStatusView
+    disposition = case((status.failing_since.is_not(None), Disposition.FAILED.value), else_=status.disposition)
     rows = db.execute(
-        select(
-            CurrentAnnotationEventView.annotation_type,
-            CurrentAnnotationEventView.disposition,
-            func.count().label("count"),
-        )
-        .where(
-            or_(
-                CurrentAnnotationEventView.allele_id.in_(allele_ids),
-                CurrentAnnotationEventView.variant_id.in_(variant_ids),
-            )
-        )
-        .group_by(CurrentAnnotationEventView.annotation_type, CurrentAnnotationEventView.disposition)
-        .order_by(CurrentAnnotationEventView.annotation_type, CurrentAnnotationEventView.disposition)
+        select(status.annotation_type, disposition.label("disposition"), func.count().label("count"))
+        .where(or_(status.allele_id.in_(allele_ids), status.variant_id.in_(variant_ids)))
+        .group_by(status.annotation_type, disposition)
+        .order_by(status.annotation_type, disposition)
     ).all()
 
     return [{"annotation_type": r.annotation_type, "disposition": r.disposition, "count": r.count} for r in rows]
@@ -102,7 +97,7 @@ def show_score_set(db: Session, score_set_urn: str, as_json: bool) -> None:
         click.echo(f"{r['annotation_type']:<32} {str(r['disposition']):<16} {r['count']}")
 
     if not summary:
-        click.echo("No current annotation events found for this score set.")
+        click.echo("No current annotation statuses found for this score set.")
 
 
 if __name__ == "__main__":

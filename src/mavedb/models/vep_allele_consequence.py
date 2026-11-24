@@ -49,8 +49,7 @@ class VepAlleleConsequence(ValidTime, Base):
       'transcript'`` (not assumed equal to the allele's own transcript, since the match is
       version-insensitive).
 
-    Transient request failures are not stored here, they live in the annotation event stream
-    (``AnnotationEvent``).
+    Transient request failures are not stored here; they live in ``AnnotationStatus`` as failure rows.
     """
 
     __tablename__ = "vep_allele_consequences"

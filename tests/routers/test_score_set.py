@@ -30,7 +30,7 @@ from mavedb.lib.logging.context import logging_context_scope
 from mavedb.lib.score_distribution import summarize_scores
 from mavedb.lib.score_set_variants import LEAN_VARIANT_BATCH_SIZE, get_lean_score_set_variants
 from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
-from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.annotation_status import AnnotationStatus
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.collection import Collection as CollectionDbModel
 from mavedb.models.enums.annotation_type import AnnotationType
@@ -3724,8 +3724,9 @@ def test_can_delete_own_private_scoreset_with_mapped_variants(
         )
     )
     session.add(
-        AnnotationEvent(
+        AnnotationStatus(
             annotation_type=AnnotationType.VRS_MAPPING,
+            kind="outcome",
             variant_id=variant.id,
             disposition=Disposition.PRESENT,
             reason="mapped",
@@ -3737,7 +3738,7 @@ def test_can_delete_own_private_scoreset_with_mapped_variants(
 
     assert response.status_code == 200
     assert not session.scalars(select(MappingRecord).where(MappingRecord.variant_id.in_(variant_ids))).first()
-    assert not session.scalars(select(AnnotationEvent).where(AnnotationEvent.variant_id.in_(variant_ids))).first()
+    assert not session.scalars(select(AnnotationStatus).where(AnnotationStatus.variant_id.in_(variant_ids))).first()
 
 
 def test_cannot_delete_own_published_scoreset(session, data_provider, client, setup_router_db, data_files):

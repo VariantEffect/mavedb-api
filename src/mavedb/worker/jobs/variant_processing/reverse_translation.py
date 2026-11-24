@@ -272,7 +272,7 @@ def _annotate_translation(
     if error_message is not None:
         meta["error_message"] = error_message
 
-    annotation_manager.record_event(
+    annotation_manager.report(
         AnnotationType.CROSS_LEVEL_TRANSLATION,
         variant_id=variant_id,
         disposition=disposition,
@@ -473,9 +473,7 @@ async def reverse_translate_variants_for_score_set(
         extra=job_manager.logging_context(),
     )
 
-    annotation_manager = AnnotationStatusManager(
-        job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set_id
-    )
+    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
     allele_translator = AlleleTranslator(ctx["seqrepo"])
 
     current_record_ids = (

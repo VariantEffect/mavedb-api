@@ -122,7 +122,7 @@ def _annotate_vep(
     if error_message is not None:
         meta["error_message"] = error_message
 
-    annotation_manager.record_event(
+    annotation_manager.report(
         AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
         allele_id=allele_id,
         disposition=disposition,
@@ -342,9 +342,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         )
         job_manager.update_progress(99, 100, "All alleles already current at this Ensembl release.")
 
-    annotation_manager = AnnotationStatusManager(
-        job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
-    )
+    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
     for allele_id, vep_input in allele_inputs.items():
         verdict = verdicts.get(allele_id)
         if verdict is VepLinkVerdict.CREATED:

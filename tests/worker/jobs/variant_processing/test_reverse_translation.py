@@ -19,7 +19,7 @@ from variant_annotation.lib.translation.types import (
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.vrs_utils import canonical_variation_document
 from mavedb.models.allele import Allele
-from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.annotation_status import AnnotationStatus
 from mavedb.models.enums.job_pipeline import JobStatus
 from mavedb.models.enums.sequence_level import SequenceLevel
 from mavedb.models.enums.target_category import TargetCategory
@@ -263,17 +263,17 @@ async def _reverse_translate(session, mock_worker_ctx, rt_run, coordinates=None)
 
 def _cross_level_events(session, score_set_id, disposition=None, reason=None):
     query = (
-        session.query(AnnotationEvent)
-        .join(Variant, AnnotationEvent.variant_id == Variant.id)
+        session.query(AnnotationStatus)
+        .join(Variant, AnnotationStatus.variant_id == Variant.id)
         .filter(
             Variant.score_set_id == score_set_id,
-            AnnotationEvent.annotation_type == "cross_level_translation",
+            AnnotationStatus.annotation_type == "cross_level_translation",
         )
     )
     if disposition is not None:
-        query = query.filter(AnnotationEvent.disposition == disposition)
+        query = query.filter(AnnotationStatus.disposition == disposition)
     if reason is not None:
-        query = query.filter(AnnotationEvent.reason == reason)
+        query = query.filter(AnnotationStatus.reason == reason)
     return query.all()
 
 
@@ -515,7 +515,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         events = _cross_level_events(session, sample_score_set.id, reason="cis_phased_unsupported")
         assert len(events) == 1
         assert events[0].disposition == "not_applicable"
-        assert events[0].event_metadata["hgvs_input"] == cis_phased
+        assert events[0].status_metadata["hgvs_input"] == cis_phased
 
     async def test_falls_back_to_mapped_date_when_the_record_has_no_job_run_id(
         self,
@@ -896,7 +896,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert len(events) == 1
         assert events[0].disposition == "present"
         # The event metadata carries the paired projection pair shape, not the removed flat lists.
-        assert events[0].event_metadata["candidates"] == [
+        assert events[0].status_metadata["candidates"] == [
             {"hgvs_c": c_candidate, "hgvs_g": g_candidate, "variant_type": None, "measured": False}
         ]
 
@@ -1176,7 +1176,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
             measured_group_id,
         ]
 
-        metadata = _cross_level_events(session, sample_score_set.id)[0].event_metadata
+        metadata = _cross_level_events(session, sample_score_set.id)[0].status_metadata
         assert metadata["fold_in_missed"] is False
         assert metadata["candidates"] == [
             {"hgvs_c": c_candidate, "hgvs_g": g_sibling, "variant_type": None, "measured": True}
@@ -1283,7 +1283,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         ] == [True]
         (candidate_group_id,) = {link.projection_group for link in _non_authoritative_links(session)}
         assert candidate_group_id != measured_group_id
-        assert _cross_level_events(session, sample_score_set.id)[0].event_metadata["fold_in_missed"] is True
+        assert _cross_level_events(session, sample_score_set.id)[0].status_metadata["fold_in_missed"] is True
 
     async def test_projection_failed_candidate_is_a_one_member_group(
         self,
@@ -1505,11 +1505,9 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         # The two candidate alleles are reused across runs, not duplicated.
         assert session.query(Allele).filter(Allele.vrs_digest.in_(["ga4gh:VA.genomic", "ga4gh:VA.coding"])).count() == 2
 
-        # The cross-level translation log is append-only: the rerun adds a second event, and
-        # "current" is the latest by id (there is no current flag to desync).
-        events = _cross_level_events(session, sample_score_set.id)
-        assert len(events) == 2
-        assert max(events, key=lambda e: e.id).disposition == "present"
+        # The rerun translated the variant the same way, so its status is unchanged.
+        statuses = _cross_level_events(session, sample_score_set.id)
+        assert [(st.disposition, st.current) for st in statuses] == [("present", True)]
 
     @pytest.mark.parametrize(
         "rerun_pairs, rerun_unavailable, expected_live, candidate_group_kept",
@@ -1890,9 +1888,9 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         assert _non_authoritative_links(session) == []
         failed_events = _cross_level_events(session, sample_score_set.id, disposition="failed")
         assert len(failed_events) == 1
-        assert failed_events[0].event_metadata["error_message"] == "forward translation failed"
+        assert failed_events[0].status_metadata["error_message"] == "forward translation failed"
         # Library/input-level failures still carry the assay-level HGVS as metadata.
-        assert failed_events[0].event_metadata["hgvs_input"] == assay_hgvs
+        assert failed_events[0].status_metadata["hgvs_input"] == assay_hgvs
 
     async def test_partial_success_succeeds_with_mixed_annotations(
         self,
@@ -1995,7 +1993,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         events = _cross_level_events(session, sample_score_set.id, reason="not_translatable")
         assert len(events) == 1
         assert events[0].disposition == "not_applicable"
-        assert events[0].event_metadata["hgvs_input"] == assay_hgvs
+        assert events[0].status_metadata["hgvs_input"] == assay_hgvs
 
     async def test_non_translatable_skip_coexists_with_success_and_failure(
         self,
@@ -2044,7 +2042,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         failed = _cross_level_events(session, sample_score_set.id, disposition="failed")
         assert len(failed) == 1
         assert failed[0].reason == "translation_error"
-        assert failed[0].event_metadata["error_message"] == "forward translation failed"
+        assert failed[0].status_metadata["error_message"] == "forward translation failed"
 
         # The non-translatable one is not_applicable / not_translatable.
         skipped = _cross_level_events(session, sample_score_set.id, reason="not_translatable")
@@ -2092,7 +2090,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
         failed = _cross_level_events(session, sample_score_set.id, disposition="failed")
         assert len(failed) == 1
         assert failed[0].reason == "api_error"
-        assert failed[0].event_metadata["error_message"] == outage
+        assert failed[0].status_metadata["error_message"] == outage
         assert _cross_level_events(session, sample_score_set.id, reason="translation_error") == []
 
     async def test_partial_candidate_translation_failure_keeps_success_with_metadata(
@@ -2139,7 +2137,7 @@ class TestReverseTranslateVariantsForScoreSetUnit:
 
         events = _cross_level_events(session, sample_score_set.id, disposition="present")
         assert len(events) == 1
-        failed_candidates = events[0].event_metadata["failed_candidates"]
+        failed_candidates = events[0].status_metadata["failed_candidates"]
         assert failed_candidates == [{"hgvs": bad_genomic, "level": "genomic", "error": "untranslatable form"}]
 
     async def test_all_candidates_failing_translation_marks_variant_failed(
@@ -2182,8 +2180,8 @@ class TestReverseTranslateVariantsForScoreSetUnit:
 
         failed_events = _cross_level_events(session, sample_score_set.id, disposition="failed")
         assert len(failed_events) == 1
-        assert failed_events[0].event_metadata["error_message"] == "All candidate HGVS failed VRS translation."
-        metadata = failed_events[0].event_metadata
+        assert failed_events[0].status_metadata["error_message"] == "All candidate HGVS failed VRS translation."
+        metadata = failed_events[0].status_metadata
         assert metadata["hgvs_input"] == assay_hgvs
         assert metadata["failed_candidates"] == [
             {"hgvs": bad_candidate, "level": "cdna", "error": "untranslatable form"}

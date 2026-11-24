@@ -1,5 +1,7 @@
 from enum import Enum
 
+from mavedb.models.enums.disposition import Disposition
+
 
 class StatusKind(str, Enum):
     """Which of a key's two live slots an ``annotation_status`` row fills.
@@ -13,3 +15,8 @@ class StatusKind(str, Enum):
 
     OUTCOME = "outcome"
     FAILURE = "failure"
+
+    @classmethod
+    def for_disposition(cls, disposition: Disposition) -> "StatusKind":
+        """The slot a row with ``disposition`` fills."""
+        return cls.FAILURE if disposition is Disposition.FAILED else cls.OUTCOME

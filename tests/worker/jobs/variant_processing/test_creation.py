@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from unittest.mock import ANY, call, patch
 
 from mavedb.lib.mondo import get_generic_disease_term
-from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.annotation_status import AnnotationStatus
 from mavedb.models.calibration_control import CalibrationControl
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.calibration_control_status import CalibrationControlStatus
@@ -324,8 +324,9 @@ class TestCreateVariantsForScoreSetUnit:
             )
         )
         session.add(
-            AnnotationEvent(
+            AnnotationStatus(
                 annotation_type=AnnotationType.VRS_MAPPING,
+                kind="outcome",
                 variant_id=variant.id,
                 disposition=Disposition.PRESENT,
                 reason="mapped",
@@ -366,7 +367,7 @@ class TestCreateVariantsForScoreSetUnit:
         remaining_variants = session.query(Variant).filter(Variant.score_set_id == sample_score_set.id).all()
         assert len(remaining_variants) == 0
         assert session.query(MappingRecord).filter(MappingRecord.score_set_id == sample_score_set.id).count() == 0
-        assert session.query(AnnotationEvent).filter(AnnotationEvent.variant_id == variant_id).count() == 0
+        assert session.query(AnnotationStatus).filter(AnnotationStatus.variant_id == variant_id).count() == 0
         session.refresh(sample_score_set)
         assert sample_score_set.num_variants == 0  # Updated after creation
 

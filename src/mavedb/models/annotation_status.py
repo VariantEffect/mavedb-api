@@ -99,7 +99,7 @@ class AnnotationStatus(ValidTime, Base):
 
     # DB column is "metadata"; the attribute avoids the reserved Declarative name.
     status_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(
-        "metadata", MutableDict.as_mutable(JSONB), nullable=True
+        "metadata", MutableDict.as_mutable(JSONB(none_as_null=True)), nullable=True
     )
 
     # When the key's current outage began, set only on failure rows. A failure whose reason changes supersedes the

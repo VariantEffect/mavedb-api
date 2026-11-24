@@ -1013,7 +1013,7 @@ def _migrate_variant(
             mapping_disposition = Disposition.PRESENT
         else:
             mapping_disposition = Disposition.ABSENT
-        annotation_manager.record_event(
+        annotation_manager.report(
             AnnotationType.VRS_MAPPING,
             variant_id=variant_id,
             disposition=mapping_disposition,
@@ -1025,14 +1025,14 @@ def _migrate_variant(
         if allele is not None:
             # CLINGEN_ALLELE_ID / MAPPED_HGVS: allele-subject, only meaningful once an allele exists.
             # allele.id is real now — this loop runs after the single flush above.
-            annotation_manager.record_event(
+            annotation_manager.report(
                 AnnotationType.CLINGEN_ALLELE_ID,
                 allele_id=allele.id,
                 disposition=Disposition.PRESENT if mv.clingen_allele_id else Disposition.ABSENT,
                 reason=EventReason.MIGRATED.value,
                 source_version=mv.mapping_api_version,
             )
-            annotation_manager.record_event(
+            annotation_manager.report(
                 AnnotationType.MAPPED_HGVS,
                 allele_id=allele.id,
                 disposition=Disposition.PRESENT if hgvs_assay_level else Disposition.ABSENT,
@@ -1043,12 +1043,9 @@ def _migrate_variant(
 
             touched_allele_ids.add(allele.id)
 
-    # Flushed once for the whole variant (not per event) — still inside this variant's own SAVEPOINT
-    # (the caller's `with db.begin_nested():` wraps this entire call), so a buffered event never
-    # outlives the rollback of the record/allele it references. See do_migration's except-block for the
-    # backstop: if something *between* here and there still raised, pending events for this variant are
-    # explicitly discarded rather than leaking into a later, unrelated flush.
-    annotation_manager.flush()
+    # Statuses flush once per batch, right before its commit: a flush holds the status lock until the commit, so
+    # flushing per variant would hold it for the whole batch. do_migration's except-block discards a failed
+    # variant's reports.
     return touched_allele_ids
 
 
@@ -1199,7 +1196,7 @@ def do_migration(
             # A per-variant SAVEPOINT so one bad variant rolls back only its own inserts (not the
             # whole batch), and its touched allele ids are simply never added rather than referencing
             # rolled-back rows.
-            pending_events_before = len(annotation_manager._pending)
+            pending_events_before = len(annotation_manager._pending_reports)
             try:
                 with db.begin_nested():
                     variant_touched_allele_ids = _migrate_variant(
@@ -1215,12 +1212,9 @@ def do_migration(
                         sequence_guard,
                     )
             except Exception as exc:  # noqa: BLE001 — one bad variant must not abort the batch
-                # Discard any events this variant buffered but never got to flush before raising — they
-                # would otherwise linger in the manager's queue and get inserted by a later, unrelated
-                # flush, still referencing this variant/allele's now-rolled-back id (an FK violation far
-                # from its actual cause). _migrate_variant flushes its own events before returning
-                # normally, so this is a no-op on the success path.
-                del annotation_manager._pending[pending_events_before:]
+                # Discard the reports this variant buffered: they reference its now-rolled-back rows, and the
+                # batch's flush would otherwise write them (an FK violation far from its cause).
+                del annotation_manager._pending_reports[pending_events_before:]
                 stats["variants_errored"] += 1
                 logger.exception("Failed to migrate variant %s: %s", variant_id, exc)
                 continue
@@ -1230,8 +1224,10 @@ def do_migration(
         mark = perf_counter()
         if dry_run:
             db.rollback()
+            annotation_manager._pending_reports.clear()
             touched_allele_ids.clear()  # nothing persisted this batch; these ids are now invalid
         else:
+            annotation_manager.flush()
             db.commit()
         phase_seconds["commit"] += perf_counter() - mark
 

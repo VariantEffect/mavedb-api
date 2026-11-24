@@ -54,7 +54,7 @@ def _annotate_gnomad(
     if error_message is not None:
         meta["error_message"] = error_message
 
-    annotation_manager.record_event(
+    annotation_manager.report(
         AnnotationType.GNOMAD_ALLELE_FREQUENCY,
         allele_id=allele_id,
         disposition=disposition,
@@ -199,9 +199,7 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
         )
         job_manager.update_progress(75, 100, "All alleles already current at this gnomAD version.")
 
-    annotation_manager = AnnotationStatusManager(
-        job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
-    )
+    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
     for allele_id, caid in allele_data.items():
         # gnomAD is a nucleotide-level, genomic-coordinate resource. Skip any protein alleles.
         if allele_levels.get(allele_id) == SequenceLevel.protein.value:

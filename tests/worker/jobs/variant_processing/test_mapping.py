@@ -14,7 +14,7 @@ from sqlalchemy.exc import NoResultFound
 from mavedb.lib.mapping import EXCLUDED_PREMAPPED_ANNOTATION_KEYS
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.allele import Allele
-from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.annotation_status import AnnotationStatus
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.enums.mapping_state import MappingState
 from mavedb.models.enums.sequence_level import SequenceLevel
@@ -101,8 +101,8 @@ class TestMapVariantsForScoreSetUnit:
 
         # Verify no annotations were created
         annotation_statuses = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id)
             .all()
         )
@@ -148,8 +148,8 @@ class TestMapVariantsForScoreSetUnit:
 
         # Verify no annotations were created
         annotation_statuses = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id)
             .all()
         )
@@ -195,8 +195,8 @@ class TestMapVariantsForScoreSetUnit:
 
         # Verify no annotations were created
         annotation_statuses = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id)
             .all()
         )
@@ -250,8 +250,8 @@ class TestMapVariantsForScoreSetUnit:
 
         # Verify no annotations were created
         annotation_statuses = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id)
             .all()
         )
@@ -297,8 +297,8 @@ class TestMapVariantsForScoreSetUnit:
 
         # Verify no annotations were created
         annotation_statuses = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id)
             .all()
         )
@@ -365,8 +365,8 @@ class TestMapVariantsForScoreSetUnit:
 
         # Verify that annotation statuses were created and correct
         annotation_statuses = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id)
             .all()
         )
@@ -594,8 +594,8 @@ class TestMapVariantsForScoreSetUnit:
 
         # Verify that annotation statuses were created and correct
         annotation_statuses = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id)
             .all()
         )
@@ -711,8 +711,8 @@ class TestMapVariantsForScoreSetUnit:
 
         # Verify that annotation statuses were created and correct
         annotation_statuses = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id)
             .all()
         )
@@ -795,17 +795,17 @@ class TestMapVariantsForScoreSetUnit:
 
         # Verify that annotation statuses were created and correct
         annotation_status_success = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
-            .filter(Variant.score_set_id == sample_score_set.id, AnnotationEvent.disposition == "present")
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id, AnnotationStatus.disposition == "present")
             .all()
         )
         assert len(annotation_status_success) == 1
         assert annotation_status_success[0].annotation_type == "vrs_mapping"
         annotation_status_failed = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
-            .filter(Variant.score_set_id == sample_score_set.id, AnnotationEvent.disposition == "failed")
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
+            .filter(Variant.score_set_id == sample_score_set.id, AnnotationStatus.disposition == "failed")
             .all()
         )
         assert len(annotation_status_failed) == 1
@@ -892,8 +892,8 @@ class TestMapVariantsForScoreSetUnit:
         # Benign outcomes carry no allele → recorded as `absent` (not `failed`), with the finer
         # outcome preserved as the event `reason`.
         events = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id)
             .all()
         )
@@ -978,8 +978,8 @@ class TestMapVariantsForScoreSetUnit:
 
         # Verify that annotation statuses were created and correct
         annotation_statuses = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id)
             .all()
         )
@@ -1041,8 +1041,8 @@ class TestMapVariantsForScoreSetUnit:
         )
         session.add(prior_link)
         session.commit()
-        prior_event = AnnotationEvent(
-            variant_id=variant.id, annotation_type="vrs_mapping", disposition="present", reason="mapped"
+        prior_event = AnnotationStatus(
+            variant_id=variant.id, annotation_type="vrs_mapping", kind="outcome", disposition="present", reason="mapped"
         )
         session.add(prior_event)
         session.commit()
@@ -1100,8 +1100,8 @@ class TestMapVariantsForScoreSetUnit:
         # Append-only: the prior event is retained and the re-map appends a new one, so the variant
         # now has two vrs_mapping events (there is no current flag to flip).
         events = (
-            session.query(AnnotationEvent)
-            .filter(AnnotationEvent.variant_id == variant.id, AnnotationEvent.annotation_type == "vrs_mapping")
+            session.query(AnnotationStatus)
+            .filter(AnnotationStatus.variant_id == variant.id, AnnotationStatus.annotation_type == "vrs_mapping")
             .all()
         )
         assert len(events) == 2
@@ -1187,8 +1187,8 @@ class TestMapVariantsForScoreSetIntegration:
 
         # Verify that each variant has an annotation status
         annotation_statuses = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id)
             .all()
         )
@@ -1278,8 +1278,8 @@ class TestMapVariantsForScoreSetIntegration:
 
         # Verify that each variant has an annotation status
         annotation_statuses = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id)
             .all()
         )
@@ -1363,7 +1363,7 @@ class TestMapVariantsForScoreSetIntegration:
         assert len(mapping_records) == 0
 
         # Verify that no annotation statuses were created
-        annotation_statuses = session.query(AnnotationEvent).all()
+        annotation_statuses = session.query(AnnotationStatus).all()
         assert len(annotation_statuses) == 0
 
         # Verify that the job status was updated.
@@ -1440,7 +1440,7 @@ class TestMapVariantsForScoreSetIntegration:
         assert len(mapping_records) == 0
 
         # Verify that no annotation statuses were created
-        annotation_statuses = session.query(AnnotationEvent).all()
+        annotation_statuses = session.query(AnnotationStatus).all()
         assert len(annotation_statuses) == 0
 
         # Verify that the job status was updated.
@@ -1516,7 +1516,7 @@ class TestMapVariantsForScoreSetIntegration:
         assert len(mapping_records) == 0
 
         # Verify that no annotation statuses were created
-        annotation_statuses = session.query(AnnotationEvent).all()
+        annotation_statuses = session.query(AnnotationStatus).all()
         assert len(annotation_statuses) == 0
 
         # Verify that the job status was updated.
@@ -1561,12 +1561,17 @@ class TestMapVariantsForScoreSetIntegration:
                 mapped_date=date(2023, 1, 1),
                 mapping_api_version="v1.0.0",
             )
-            prior_event = AnnotationEvent(
-                variant_id=variant.id, annotation_type="vrs_mapping", disposition="present", reason="mapped"
+            prior_event = AnnotationStatus(
+                variant_id=variant.id,
+                annotation_type="vrs_mapping",
+                kind="outcome",
+                disposition="present",
+                reason="mapped",
             )
             session.add(prior_event)
+            session.commit()
             session.add(mapping_record)
-        session.commit()
+            session.commit()
 
         async def dummy_mapping_job():
             return await construct_mock_mapping_output(
@@ -1624,12 +1629,12 @@ class TestMapVariantsForScoreSetIntegration:
             assert new_mapping_record.mapping_api_version != "v1.0.0"
 
         # Append-only: each variant keeps its prior event and gains a new one from this run.
-        annotation_events = session.query(AnnotationEvent).all()
+        annotation_events = session.query(AnnotationStatus).all()
         assert len(annotation_events) == len(variants) * 2
         for variant in variants:
             variant_events = (
-                session.query(AnnotationEvent)
-                .filter(AnnotationEvent.variant_id == variant.id, AnnotationEvent.annotation_type == "vrs_mapping")
+                session.query(AnnotationStatus)
+                .filter(AnnotationStatus.variant_id == variant.id, AnnotationStatus.annotation_type == "vrs_mapping")
                 .all()
             )
             assert len(variant_events) == 2
@@ -1693,7 +1698,7 @@ class TestMapVariantsForScoreSetIntegration:
         assert len(mapping_records) == 0
 
         # Verify that no annotation statuses were created
-        annotation_statuses = session.query(AnnotationEvent).all()
+        annotation_statuses = session.query(AnnotationStatus).all()
         assert len(annotation_statuses) == 0
 
         # Verify that the job status was updated.
@@ -1752,7 +1757,7 @@ class TestMapVariantsForScoreSetIntegration:
         assert len(mapping_records) == 0
 
         # Verify that no annotation statuses were created
-        annotation_statuses = session.query(AnnotationEvent).all()
+        annotation_statuses = session.query(AnnotationStatus).all()
         assert len(annotation_statuses) == 0
 
         # Verify that the job status was updated.
@@ -1836,8 +1841,8 @@ class TestMapVariantsForScoreSetArqContext:
 
         # Verify that each variant has an annotation status
         annotation_statuses = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id)
             .all()
         )
@@ -1924,8 +1929,8 @@ class TestMapVariantsForScoreSetArqContext:
 
         # Verify that each variant has an annotation status
         annotation_statuses = (
-            session.query(AnnotationEvent)
-            .join(Variant, AnnotationEvent.variant_id == Variant.id)
+            session.query(AnnotationStatus)
+            .join(Variant, AnnotationStatus.variant_id == Variant.id)
             .filter(Variant.score_set_id == sample_score_set.id)
             .all()
         )
@@ -1994,7 +1999,7 @@ class TestMapVariantsForScoreSetArqContext:
         assert len(mapping_records) == 0
 
         # Verify that no annotation statuses were created
-        annotation_statuses = session.query(AnnotationEvent).all()
+        annotation_statuses = session.query(AnnotationStatus).all()
         assert len(annotation_statuses) == 0
 
         # Verify that the job status was updated.
@@ -2048,7 +2053,7 @@ class TestMapVariantsForScoreSetArqContext:
         assert len(mapping_records) == 0
 
         # Verify that no annotation statuses were created
-        annotation_statuses = session.query(AnnotationEvent).all()
+        annotation_statuses = session.query(AnnotationStatus).all()
         assert len(annotation_statuses) == 0
 
         # Verify that the job status was updated.

@@ -99,7 +99,7 @@ def _annotate_caid(
     if error_message is not None:
         meta["error_message"] = error_message
 
-    annotation_manager.record_event(
+    annotation_manager.report(
         AnnotationType.CLINGEN_ALLELE_ID,
         allele_id=allele_id,
         disposition=disposition,
@@ -202,9 +202,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
         if row.allele_id not in allele_data:
             allele_data[row.allele_id] = _AlleleEntry(post_mapped=row.post_mapped, existing_caid=row.clingen_allele_id)
 
-    annotation_manager = AnnotationStatusManager(
-        job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
-    )
+    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
 
     # Track outcomes by distinct allele_id. clingen_allele_id is an allele-level fact (the CAID
     # lives on the Allele) and CAR's operation is per-allele, so the reported counts are in allele
@@ -651,9 +649,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
     )
 
     # See https://reg.clinicalgenome.org/doc/AlleleRegistry_1.01.xx_api_v1.pdf
-    annotation_manager = AnnotationStatusManager(
-        job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
-    )
+    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
     submitted_variant_urns = set()
     for success in submission_successes:
         logger.debug(
@@ -672,7 +668,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
             )
             continue
 
-        annotation_manager.record_event(
+        annotation_manager.report(
             AnnotationType.LDH_SUBMISSION,
             variant_id=submitted_variant.id,
             disposition=Disposition.PRESENT,
@@ -694,7 +690,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
 
         failed_variant = variant_for_urn[failure_urn]
 
-        annotation_manager.record_event(
+        annotation_manager.report(
             AnnotationType.LDH_SUBMISSION,
             variant_id=failed_variant.id,
             disposition=Disposition.FAILED,
