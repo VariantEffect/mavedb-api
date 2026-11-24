@@ -339,21 +339,6 @@ def test_flush_clinvar_keeps_one_status_per_release(session, manager, allele):
     assert [(row.release, row.current) for row in rows] == [("01_2025", True), ("01_2026", True)]
 
 
-def test_flush_counts_keys_across_flushes(session, manager, allele):
-    _run(
-        session,
-        manager,
-        allele,
-        (Disposition.ABSENT, EventReason.NO_RECORD),
-        (Disposition.ABSENT, EventReason.NO_RECORD),
-        (Disposition.FAILED, EventReason.API_ERROR),
-        (Disposition.FAILED, EventReason.API_ERROR),
-        (Disposition.ABSENT, EventReason.NO_RECORD),
-    )
-
-    assert (manager.keys_changed, manager.keys_unchanged) == (3, 2)
-
-
 def test_report_writes_nothing_until_flush(session, manager, allele):
     _record(manager, allele, Disposition.ABSENT, EventReason.NO_RECORD)
     assert _rows(session, allele) == []
@@ -396,7 +381,6 @@ def test_flush_batches_statements(session, manager, allele, monkeypatch):
         session.commit()
 
     assert [[row.disposition for row in _rows(session, allele, t) if row.current] for t in types] == [["present"]] * 3
-    assert (manager.keys_changed, manager.keys_unchanged) == (6, 0)
 
 
 def test_flush_waits_for_another_jobs_write(session, allele, monkeypatch):
@@ -423,7 +407,6 @@ def test_flush_waits_for_another_jobs_write(session, allele, monkeypatch):
 
     assert not thread.is_alive()
     assert len(_rows(session, allele)) == 1
-    assert (waiting.keys_changed, waiting.keys_unchanged) == (0, 1)
 
 
 def test_current_statuses_reads_allele_subject_keys_per_release(session, manager, allele):
@@ -495,7 +478,6 @@ def test_withdraw_retires_live_statuses_of_the_given_types(session, manager, all
 
     assert [row.current for row in _rows(session, allele)] == [False]
     assert [row.current for row in _rows(session, allele, AnnotationType.CLINGEN_ALLELE_ID)] == [True]
-    assert manager.statuses_withdrawn == 1
 
 
 def test_flush_applies_withdrawals_before_reports(session, manager, allele):

@@ -24,6 +24,7 @@ from typing import Any, Iterable, NamedTuple, Optional, cast
 from sqlalchemy import CursorResult, func, insert, or_, select, text
 from sqlalchemy.orm import Session
 
+from mavedb.lib.logging.context import increment_logging_context, logging_context, save_to_logging_context
 from mavedb.lib.utils import batched
 from mavedb.models.annotation_status import (
     ALLELE_SUBJECT_TYPES,
@@ -223,16 +224,15 @@ class AnnotationStatusManager:
     caller owns the transaction, and commits right after each flush. Flush at the job's batch boundaries and after the
     last :meth:`report`; anything never flushed is lost with the manager.
 
-    ``keys_changed`` and ``keys_unchanged`` count the reported keys flushed so far whose status did and didn't change.
-    ``statuses_withdrawn`` counts the live statuses withdrawals retired.
+    Each flush adds to counters in the open logging context, so a job's canonical log shows what its checks changed:
+    ``annotation_status.keys_changed`` and ``annotation_status.keys_unchanged`` for reported keys,
+    ``annotation_status.withdrawn`` for live statuses withdrawals retired, and ``annotation_status.source_versions``
+    for the source versions reported.
     """
 
     def __init__(self, session: Session, job_run_id: Optional[int] = None):
         self.session = session
         self.job_run_id = job_run_id
-        self.keys_changed = 0
-        self.keys_unchanged = 0
-        self.statuses_withdrawn = 0
         self._pending_reports: list[Status] = []
         self._pending_withdrawals: defaultdict[AnnotationType, set[int]] = defaultdict(set)
 
@@ -295,7 +295,7 @@ class AnnotationStatusManager:
                         )
                     ),
                 )
-                self.statuses_withdrawn += result.rowcount
+                increment_logging_context("annotation_status.withdrawn", result.rowcount)
 
         self._pending_withdrawals.clear()
 
@@ -314,8 +314,13 @@ class AnnotationStatusManager:
             rows = [{**_annotation_status_row(status, self.job_run_id), "valid_from": now} for status in statuses]
             self.session.execute(insert(AnnotationStatus).values(rows))
 
-        self.keys_changed += keys_changed
-        self.keys_unchanged += len(reported_keys) - keys_changed
+        increment_logging_context("annotation_status.keys_changed", keys_changed)
+        increment_logging_context("annotation_status.keys_unchanged", len(reported_keys) - keys_changed)
+        source_versions = {report.source_version for report in self._pending_reports if report.source_version}
+        if source_versions:
+            source_versions |= set(logging_context().get("annotation_status.source_versions", []))
+            save_to_logging_context({"annotation_status.source_versions": sorted(source_versions)}, overwrite=True)
+
         logger.debug(f"Wrote {len(self._pending_reports)} annotation status reports: {keys_changed} keys changed")
         self._pending_reports.clear()
 
