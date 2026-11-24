@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Iterable, NamedTuple, Optional, cast
 
-from sqlalchemy import CursorResult, func, insert, or_, select, text
+from sqlalchemy import CursorResult, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from mavedb.lib.logging.context import increment_logging_context, logging_context, save_to_logging_context
@@ -311,12 +311,29 @@ class AnnotationStatusManager:
         live_statuses = self._live_statuses(reported_keys)
         statuses_to_retire, statuses_to_insert, keys_changed = plan(live_statuses, self._pending_reports, now)
 
-        # Retiring and inserting at the same `now` keeps each handoff gap-free, as the ValidTime mixin does.
-        for ids in batched([status.id for status in statuses_to_retire], STATEMENT_CHUNK_SIZE):
+        retired_ids: defaultdict[StatusKey, list[int]] = defaultdict(list)
+        for status in statuses_to_retire:
+            retired_ids[status.key].append(cast(int, status.id))
+        inserted: defaultdict[StatusKey, list[Status]] = defaultdict(list)
+        for status in statuses_to_insert:
+            inserted[status.key].append(status)
+
+        # A key with nothing to insert is a recovered failure, retired with no successor.
+        withdrawn = [status_id for key, ids in retired_ids.items() if key not in inserted for status_id in ids]
+        for ids in batched(withdrawn, STATEMENT_CHUNK_SIZE):
             self.session.execute(AnnotationStatus.retire_live_where(AnnotationStatus.id.in_(ids), at=now))
-        for statuses in batched(statuses_to_insert, STATEMENT_CHUNK_SIZE):
-            rows = [{**_annotation_status_row(status, self.job_run_id), "valid_from": now} for status in statuses]
-            self.session.execute(insert(AnnotationStatus).values(rows))
+        # A key retires at most two rows, so a chunk's ids stay within the bind parameter limit.
+        for keys in batched(list(inserted), STATEMENT_CHUNK_SIZE):
+            AnnotationStatus.supersede_live_where(
+                self.session,
+                [
+                    AnnotationStatus(**_annotation_status_row(status, self.job_run_id))
+                    for key in keys
+                    for status in inserted[key]
+                ],
+                AnnotationStatus.id.in_([status_id for key in keys for status_id in retired_ids[key]]),
+                at=now,
+            )
 
         increment_logging_context("annotation_status.keys_changed", keys_changed)
         increment_logging_context("annotation_status.keys_unchanged", len(reported_keys) - keys_changed)
