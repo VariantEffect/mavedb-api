@@ -13,13 +13,6 @@ class AnnotationType(str, Enum):
     CLINGEN_ALLELE_ID = "clingen_allele_id"
     """Does ClinGen's Allele Registry give this allele a CAID?"""
 
-    MAPPED_HGVS = "mapped_hgvs"
-    """Legacy: only the mapped-variants backfill wrote it. Live mapping records the HGVS in ``VRS_MAPPING``'s
-    metadata."""
-
-    VARIANT_TRANSLATION = "variant_translation"
-    """Legacy: no job writes it any more."""
-
     GNOMAD_ALLELE_FREQUENCY = "gnomad_allele_frequency"
     """Is this allele in gnomAD, at the current gnomAD version?"""
 

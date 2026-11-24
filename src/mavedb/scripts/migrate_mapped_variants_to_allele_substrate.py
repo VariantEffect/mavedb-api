@@ -864,8 +864,8 @@ def _migrate_variant(
     """Reconstruct as much of a variant's record history as its data supports, returning the ids of
     every allele this variant authoritatively touched.
 
-    Also records one ``VRS_MAPPING`` event per version created (variant-subject) and one
-    ``CLINGEN_ALLELE_ID`` / ``MAPPED_HGVS`` event per allele-touch (allele-subject), all reason
+    Also reports one ``VRS_MAPPING`` status per version created (variant-subject) and one
+    ``CLINGEN_ALLELE_ID`` status per allele-touch (allele-subject), all reason
     :data:`EventReason.MIGRATED` — see :func:`do_migration`'s docstring for why this is scoped to the
     mapping/identity side only, not gnomAD/ClinVar/VEP.
 
@@ -918,12 +918,9 @@ def _migrate_variant(
         stats["variants_live_precedes_history"] += 1
         skipped["live_precedes_history"].append(variant_id)
 
-    # (mv, record, allele-or-None, hgvs_assay_level, valid_from, valid_to) per window actually created
-    # this pass — resolved to real ids by one flush below, then walked again to emit events and collect
-    # touched allele ids.
-    pending: list[
-        tuple[MappedVariant, MappingRecord, Optional[Allele], Optional[str], datetime, Optional[datetime]]
-    ] = []
+    # (mv, allele-or-None) per window actually created this pass — resolved to real ids by one flush below,
+    # then walked again to report statuses and collect touched allele ids.
+    pending: list[tuple[MappedVariant, Optional[Allele]]] = []
 
     for mv, valid_from, valid_to in result.windows:
         if (variant_id, mv.mapped_date) in existing_records:
@@ -995,7 +992,7 @@ def _migrate_variant(
             )
             stats["record_alleles"] += 1
 
-        pending.append((mv, record, allele, hgvs_assay_level, valid_from, valid_to))
+        pending.append((mv, allele))
 
     if not pending:
         return set()
@@ -1004,7 +1001,7 @@ def _migrate_variant(
     stats["variants"] += 1
 
     touched_allele_ids: set[int] = set()
-    for mv, record, allele, hgvs_assay_level, valid_from, valid_to in pending:
+    for mv, allele in pending:
         # VRS_MAPPING: variant-subject, written for every version regardless of allele — mirrors the
         # live job (mapping.py), whose FAILED/ABSENT outcomes get a record but no allele too.
         if mv.error_message:
@@ -1023,7 +1020,7 @@ def _migrate_variant(
         stats["annotation_status_reports"] += 1
 
         if allele is not None:
-            # CLINGEN_ALLELE_ID / MAPPED_HGVS: allele-subject, only meaningful once an allele exists.
+            # CLINGEN_ALLELE_ID: allele-subject, only meaningful once an allele exists.
             # allele.id is real now — this loop runs after the single flush above.
             annotation_manager.report(
                 AnnotationType.CLINGEN_ALLELE_ID,
@@ -1032,14 +1029,7 @@ def _migrate_variant(
                 reason=EventReason.MIGRATED.value,
                 source_version=mv.mapping_api_version,
             )
-            annotation_manager.report(
-                AnnotationType.MAPPED_HGVS,
-                allele_id=allele.id,
-                disposition=Disposition.PRESENT if hgvs_assay_level else Disposition.ABSENT,
-                reason=EventReason.MIGRATED.value,
-                source_version=mv.mapping_api_version,
-            )
-            stats["annotation_status_reports"] += 2
+            stats["annotation_status_reports"] += 1
 
             touched_allele_ids.add(allele.id)
 
@@ -1120,8 +1110,8 @@ def do_migration(
     ClinVar link that would otherwise land live — see :func:`_write_allele_timeline`. Exposed as a
     parameter mainly for deterministic tests; a real run just wants "now".
 
-    Also reports ``annotation_status`` for the mapping/identity side (``VRS_MAPPING``, ``CLINGEN_ALLELE_ID``,
-    ``MAPPED_HGVS``), not gnomAD/ClinVar/VEP. The mapping side is a faithful reconstruction from the same
+    Also reports ``annotation_status`` for the mapping/identity side (``VRS_MAPPING``, ``CLINGEN_ALLELE_ID``),
+    not gnomAD/ClinVar/VEP. The mapping side is a faithful reconstruction from the same
     ``mapped_variants`` data trusted to build ``MappingRecord``/``Allele``, whereas gnomAD/ClinVar/VEP statuses
     would be guesses; those sources get real statuses once each score set is re-annotated. See
     :data:`EventReason.MIGRATED`.

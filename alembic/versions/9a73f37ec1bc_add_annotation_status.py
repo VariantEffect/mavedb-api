@@ -2,6 +2,7 @@
 
 annotation_status replaces the append-only annotation_event log with a ValidTime table whose rows change only
 when an outcome does (#973). This revision only adds it; annotation_event stays until the cutover revision.
+annotation_event_backfill holds how far the backfill from annotation_event has got, which the cutover checks.
 
 Revision ID: 9a73f37ec1bc
 Revises: 020b7e003efd
@@ -18,12 +19,12 @@ down_revision = "020b7e003efd"
 branch_labels = None
 depends_on = None
 
-VARIANT_SUBJECT_TYPES = "'vrs_mapping', 'cross_level_translation', 'variant_translation', 'ldh_submission'"
+VARIANT_SUBJECT_TYPES = "'vrs_mapping', 'cross_level_translation', 'ldh_submission'"
 """annotation_type values whose subject is the variant, as an SQL list."""
 
 ALLELE_SUBJECT_TYPES = (
     "'clingen_allele_id', 'gnomad_allele_frequency', 'vep_functional_consequence', 'clinvar_allele_id', "
-    "'clinvar_control', 'mapped_hgvs'"
+    "'clinvar_control'"
 )
 """annotation_type values whose subject is the allele, as an SQL list."""
 
@@ -102,8 +103,17 @@ def upgrade():
         """
     )
 
+    op.create_table(
+        "annotation_event_backfill",
+        sa.Column("id", sa.SmallInteger(), nullable=False),
+        sa.Column("through_event_id", sa.BigInteger(), nullable=False),
+        sa.CheckConstraint("id = 1", name="ck_annotation_event_backfill_single_row"),
+        sa.PrimaryKeyConstraint("id"),
+    )
+
 
 def downgrade():
+    op.drop_table("annotation_event_backfill")
     op.execute("DROP VIEW v_annotation_status_current")
     op.drop_index("ix_annotation_status_job_run_id", table_name="annotation_status")
     op.drop_index("ix_annotation_status_variant_type", table_name="annotation_status")

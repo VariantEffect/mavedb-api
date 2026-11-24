@@ -30,7 +30,6 @@ if TYPE_CHECKING:
 VARIANT_SUBJECT_TYPES = (
     AnnotationType.VRS_MAPPING.value,
     AnnotationType.CROSS_LEVEL_TRANSLATION.value,
-    AnnotationType.VARIANT_TRANSLATION.value,
     AnnotationType.LDH_SUBMISSION.value,
 )
 """annotation_type values whose subject is the variant (variant_id set, allele_id null)"""
@@ -41,7 +40,6 @@ ALLELE_SUBJECT_TYPES = (
     AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE.value,
     AnnotationType.CLINVAR_ALLELE_ID.value,
     AnnotationType.CLINVAR_CONTROL.value,
-    AnnotationType.MAPPED_HGVS.value,
 )
 """annotation_type values whose subject is the allele (allele_id set, variant_id null)"""
 
@@ -60,8 +58,6 @@ CAID_INDEPENDENT_TYPES = (
     AnnotationType.VRS_MAPPING.value,
     AnnotationType.CROSS_LEVEL_TRANSLATION.value,
     AnnotationType.CLINGEN_ALLELE_ID.value,
-    AnnotationType.MAPPED_HGVS.value,
-    AnnotationType.VARIANT_TRANSLATION.value,
     AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE.value,
     AnnotationType.LDH_SUBMISSION.value,
 )

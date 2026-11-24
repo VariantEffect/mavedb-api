@@ -369,7 +369,7 @@ def test_flush_holds_the_status_lock_until_the_commit(session, manager, allele):
 def test_flush_batches_statements(session, manager, allele, monkeypatch):
     # Batches of two make three keys span two reads and two inserts, then two retires on the second run.
     monkeypatch.setattr("mavedb.lib.annotation_status_manager.STATEMENT_CHUNK_SIZE", 2)
-    types = [GNOMAD, AnnotationType.CLINGEN_ALLELE_ID, AnnotationType.MAPPED_HGVS]
+    types = [GNOMAD, AnnotationType.CLINGEN_ALLELE_ID, AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE]
 
     for disposition, reason in [
         (Disposition.ABSENT, EventReason.NO_RECORD),
