@@ -9,12 +9,16 @@ from unittest.mock import MagicMock, patch
 
 from sqlalchemy import select
 
+from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.allele import Allele
 from mavedb.models.annotation_status import AnnotationStatus
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
+from mavedb.models.enums.annotation_type import AnnotationType
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
@@ -923,6 +927,12 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             ]
         )
         session.flush()
+        prior = AnnotationStatusManager(session)
+        for annotation_type in (AnnotationType.GNOMAD_ALLELE_FREQUENCY, AnnotationType.CLINVAR_ALLELE_ID):
+            prior.report(
+                annotation_type, allele_id=allele.id, disposition=Disposition.PRESENT, reason=EventReason.CREATED
+            )
+        prior.flush()
 
         submit_score_set_mappings_to_car_sample_job_run.job_params = {
             **submit_score_set_mappings_to_car_sample_job_run.job_params,
@@ -966,6 +976,15 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert corrected.status_metadata["clingen_allele_id"] == "CA_FROM_CAR"
         assert corrected.status_metadata["retired_gnomad_links"] == 1
         assert corrected.status_metadata["retired_clinvar_links"] == 1
+
+        # Results matched through the old CAID are withdrawn, so the next gnomAD and ClinVar runs check it again.
+        assert not session.scalars(
+            select(AnnotationStatus).where(
+                AnnotationStatus.allele_id == allele.id,
+                AnnotationStatus.annotation_type.in_(["gnomad_allele_frequency", "clinvar_allele_id"]),
+                AnnotationStatus.current,
+            )
+        ).all()
 
     async def test_submit_score_set_mappings_to_car_links_a_caid_whose_response_does_not_list_the_submitted_hgvs(
         self,

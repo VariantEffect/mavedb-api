@@ -19,9 +19,9 @@ from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Iterable, NamedTuple, Optional
+from typing import Any, Iterable, NamedTuple, Optional, cast
 
-from sqlalchemy import func, insert, or_, select, text
+from sqlalchemy import CursorResult, func, insert, or_, select, text
 from sqlalchemy.orm import Session
 
 from mavedb.lib.utils import batched
@@ -219,11 +219,12 @@ def _annotation_status_row(status: Status, job_run_id: Optional[int]) -> dict[st
 class AnnotationStatusManager:
     """Buffered writer that keeps ``annotation_status`` in step with what checks found.
 
-    Reports accumulate in memory until :meth:`flush` writes what they change. The manager never commits: the caller
-    owns the transaction, and commits right after each flush. Flush at the job's batch boundaries and after the last
-    :meth:`report`; reports never flushed are lost with the manager.
+    Reports and withdrawals accumulate in memory until :meth:`flush` writes them. The manager never commits: the
+    caller owns the transaction, and commits right after each flush. Flush at the job's batch boundaries and after the
+    last :meth:`report`; anything never flushed is lost with the manager.
 
-    ``keys_changed`` and ``keys_unchanged`` count the keys flushed so far whose status did and didn't change.
+    ``keys_changed`` and ``keys_unchanged`` count the reported keys flushed so far whose status did and didn't change.
+    ``statuses_withdrawn`` counts the live statuses withdrawals retired.
     """
 
     def __init__(self, session: Session, job_run_id: Optional[int] = None):
@@ -231,7 +232,9 @@ class AnnotationStatusManager:
         self.job_run_id = job_run_id
         self.keys_changed = 0
         self.keys_unchanged = 0
+        self.statuses_withdrawn = 0
         self._pending_reports: list[Status] = []
+        self._pending_withdrawals: defaultdict[AnnotationType, set[int]] = defaultdict(set)
 
     def report(
         self,
@@ -254,19 +257,53 @@ class AnnotationStatusManager:
         )
         self._pending_reports.append(Status(key, Disposition(disposition), _value(reason), source_version, metadata))
 
+    def withdraw(self, annotation_types: Iterable[AnnotationType | str], allele_ids: Iterable[int]) -> None:
+        """Buffer retiring the live statuses of ``allele_ids`` for ``annotation_types``, so their next check starts as
+        if they were never checked. For results a change elsewhere has invalidated, like everything matched through an
+        allele's replaced CAID. :meth:`flush` retires them before writing any reports.
+        """
+        allele_ids = set(allele_ids)
+        for annotation_type in annotation_types:
+            self._pending_withdrawals[AnnotationType(annotation_type)] |= allele_ids
+
     def flush(self) -> None:
-        """Write what the pending reports change. The caller owns the transaction: commit right after.
+        """Write the pending withdrawals, then what the pending reports change. The caller owns the transaction:
+        commit right after.
 
         Takes the status lock before reading the live statuses and holds it until the caller's commit, so no other
         job writes between that read and this write. Until then, other jobs' flushes wait, so don't do other work,
-        and especially don't ``await``, between flushing and committing. Does nothing when no reports are pending.
+        and especially don't ``await``, between flushing and committing. Does nothing when nothing is pending.
         """
+        if not self._pending_reports and not self._pending_withdrawals:
+            return
+
+        self._lock_statuses()
+        now = self.session.scalars(select(func.now())).one()
+        self._write_withdrawals(now)
+        self._write_reports(now)
+
+    def _write_withdrawals(self, now: datetime) -> None:
+        for annotation_type, allele_ids in sorted(self._pending_withdrawals.items()):
+            for batch in batched(sorted(allele_ids), STATEMENT_CHUNK_SIZE):
+                result = cast(
+                    CursorResult,
+                    self.session.execute(
+                        AnnotationStatus.retire_live_where(
+                            AnnotationStatus.annotation_type == annotation_type.value,
+                            AnnotationStatus.allele_id.in_(batch),
+                            at=now,
+                        )
+                    ),
+                )
+                self.statuses_withdrawn += result.rowcount
+
+        self._pending_withdrawals.clear()
+
+    def _write_reports(self, now: datetime) -> None:
         if not self._pending_reports:
             return
 
         reported_keys = {report.key for report in self._pending_reports}
-        self._lock_statuses()
-        now = self.session.scalars(select(func.now())).one()
         live_statuses = self._live_statuses(reported_keys)
         statuses_to_retire, statuses_to_insert, keys_changed = plan(live_statuses, self._pending_reports, now)
 
@@ -281,6 +318,18 @@ class AnnotationStatusManager:
         self.keys_unchanged += len(reported_keys) - keys_changed
         logger.debug(f"Wrote {len(self._pending_reports)} annotation status reports: {keys_changed} keys changed")
         self._pending_reports.clear()
+
+    def outcomes_at(
+        self, annotation_type: AnnotationType, subject_ids: Iterable[int], source_version: str
+    ) -> dict[int, Disposition]:
+        """The settled outcome of each subject checked at ``source_version``: its disposition, for keys whose live
+        outcome is at that version and whose checks aren't failing. A job skips these, since checking the same
+        source version again can't change them."""
+        return {
+            row.variant_id if row.variant_id is not None else row.allele_id: Disposition(row.disposition)
+            for row in self.current_statuses(annotation_type, subject_ids)
+            if row.disposition is not None and row.source_version == source_version and row.failing_since is None
+        }
 
     def _lock_statuses(self) -> None:
         """Take the transaction's status lock, which the caller's commit releases.

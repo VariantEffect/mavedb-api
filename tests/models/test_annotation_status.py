@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from mavedb.models.allele import Allele
-from mavedb.models.annotation_status import AnnotationStatus
+from mavedb.models.annotation_status import CAID_INDEPENDENT_TYPES, CAID_MATCHED_TYPES, AnnotationStatus
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.status_kind import StatusKind
@@ -21,6 +21,10 @@ UNUSED_VARIANT_ID = 2_000_000_000
 
 OUTAGE_START = datetime(2026, 11, 12, tzinfo=timezone.utc)
 """The failing_since given to failure rows that don't set their own."""
+
+
+def test_every_annotation_type_is_classified_by_caid_dependence():
+    assert sorted(CAID_MATCHED_TYPES + CAID_INDEPENDENT_TYPES) == sorted(t.value for t in AnnotationType)
 
 
 @pytest.fixture

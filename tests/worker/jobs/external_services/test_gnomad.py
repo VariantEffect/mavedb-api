@@ -9,6 +9,7 @@ from unittest.mock import patch
 from sqlalchemy import select
 
 from mavedb.lib import gnomad as gnomad_lib
+from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.gnomad import GNOMAD_DATA_VERSION
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.annotation_status import AnnotationStatus
@@ -380,6 +381,43 @@ class TestLinkGnomadVariantsIntegration:
         assert len(events) == 1
         assert events[0].disposition == "present"
         assert events[0].reason == "preexisting"
+
+    @pytest.mark.parametrize(
+        "prior_version, queried", [(GNOMAD_DATA_VERSION, False), ("v2.1.1", True)], ids=["this-version", "older"]
+    )
+    async def test_link_gnomad_variants_skips_allele_known_absent_at_this_version(
+        self,
+        session,
+        with_populated_domain_data,
+        with_gnomad_linking_job,
+        mock_worker_ctx,
+        sample_link_gnomad_variants_run,
+        setup_sample_alleles_with_caid,
+        prior_version,
+        queried,
+    ):
+        """An allele a prior run found absent at this gnomAD version isn't queried again, and its status doesn't
+        change. One found absent at an older version is queried."""
+        _, allele = setup_sample_alleles_with_caid
+        prior = AnnotationStatusManager(session)
+        prior.report(
+            AnnotationType.GNOMAD_ALLELE_FREQUENCY,
+            allele_id=allele.id,
+            disposition=Disposition.ABSENT,
+            reason=EventReason.NO_RECORD,
+            source_version=prior_version,
+        )
+        prior.flush()
+        session.commit()
+
+        with patch(
+            "mavedb.worker.jobs.external_services.gnomad.gnomad_variant_data_for_caids", return_value=[]
+        ) as fetch_spy:
+            await link_gnomad_variants(mock_worker_ctx, sample_link_gnomad_variants_run.id)
+
+        assert fetch_spy.called is queried
+        statuses = session.scalars(select(AnnotationStatus)).all()
+        assert len(statuses) == (2 if queried else 1)
 
     async def test_link_gnomad_variants_force_refetches_without_churn(
         self,

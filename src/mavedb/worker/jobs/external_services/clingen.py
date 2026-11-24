@@ -15,10 +15,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
-from mavedb.lib.clingen.alleles import get_alleles_for_score_set
+from mavedb.lib.clingen.alleles import get_alleles_for_score_set, retire_caid_matches
 from mavedb.lib.clingen.constants import (
     CAR_SUBMISSION_ENDPOINT,
     CLIN_GEN_SUBMISSION_ENABLED,
@@ -37,12 +36,10 @@ from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.utils import batched
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.allele import Allele as AlleleModel
-from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.job_pipeline import FailureCategory
-from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_set import ScoreSet
@@ -68,17 +65,6 @@ def _response_hgvs(response: ClinGenAllele) -> set[str]:
         *response.get("aminoAcidAlleles", []),
     ]
     return {hgvs for definition in definitions for hgvs in definition.get("hgvs", [])}
-
-
-def _retire_caid_keyed_links(db: Session, allele_id: int) -> tuple[int, int]:
-    """Retire an allele's live gnomAD and ClinVar links, which were matched through its CAID.
-
-    Both linkers skip an allele only while it holds a live link, so retiring them makes the next
-    gnomAD and ClinVar runs link the allele again under its corrected CAID.
-    """
-    gnomad = db.execute(GnomadAlleleLink.retire_live_where(GnomadAlleleLink.allele_id == allele_id))
-    clinvar = db.execute(ClinvarAlleleLink.retire_live_where(ClinvarAlleleLink.allele_id == allele_id))
-    return gnomad.rowcount, clinvar.rowcount  # type: ignore[attr-defined]
 
 
 def _annotate_caid(
@@ -426,7 +412,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
                 if prior_caid and prior_caid != caid:
                     linked_allele_ids.add(allele_id)
                     alleles_by_id[allele_id].clingen_allele_id = caid
-                    retired_gnomad, retired_clinvar = _retire_caid_keyed_links(job_manager.db, allele_id)
+                    retired_gnomad, retired_clinvar = retire_caid_matches(job_manager.db, annotation_manager, allele_id)
                     logger.warning(
                         msg=(
                             f"Replaced CAID {prior_caid!r} with {caid!r} for allele {allele_id}; retired "

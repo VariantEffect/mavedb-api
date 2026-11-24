@@ -49,6 +49,25 @@ RELEASE_KEYED_TYPES = (AnnotationType.CLINVAR_CONTROL.value,)
 """annotation_type values that keep one live status per source release, so ``release`` is part of their key.
 Other versioned sources (gnomAD, VEP) supersede on a new release and record it in ``source_version``."""
 
+CAID_MATCHED_TYPES = (
+    AnnotationType.GNOMAD_ALLELE_FREQUENCY.value,
+    AnnotationType.CLINVAR_ALLELE_ID.value,
+    AnnotationType.CLINVAR_CONTROL.value,
+)
+"""annotation_type values whose checks match the allele through its CAID, so replacing the CAID invalidates them."""
+
+CAID_INDEPENDENT_TYPES = (
+    AnnotationType.VRS_MAPPING.value,
+    AnnotationType.CROSS_LEVEL_TRANSLATION.value,
+    AnnotationType.CLINGEN_ALLELE_ID.value,
+    AnnotationType.MAPPED_HGVS.value,
+    AnnotationType.VARIANT_TRANSLATION.value,
+    AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE.value,
+    AnnotationType.LDH_SUBMISSION.value,
+)
+"""annotation_type values whose checks don't depend on the CAID. Every type is in this or
+:data:`CAID_MATCHED_TYPES`, so a new type has to be classified."""
+
 
 def sql_in_list(values: tuple[str, ...]) -> str:
     """``values`` as the body of an SQL ``IN (...)`` list, for CHECK constraints."""

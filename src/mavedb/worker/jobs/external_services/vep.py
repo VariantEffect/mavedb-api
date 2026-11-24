@@ -31,6 +31,7 @@ from mavedb.lib.vep import (
     get_ensembl_release,
     link_vep_consequences_to_alleles,
     resolve_consequences,
+    vep_status_version,
 )
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
@@ -113,10 +114,10 @@ def _annotate_vep(
 ) -> None:
     """Record one VEP_FUNCTIONAL_CONSEQUENCE event for an allele (the consequence is an allele-level fact).
 
-    The single choke point for VEP's status writes. One event per allele, stamped with the Ensembl
-    release queried; provenance (which variants drove the linkage) is derived from the live links
+    The single choke point for VEP's status writes. One event per allele, stamped with the check's version
+    (:func:`vep_status_version`); provenance (which variants drove the linkage) is derived from the live links
     as-of the event, not fanned out here. The consequence value itself is not embedded — it lives in
-    the ``VepAlleleConsequence`` value table, joinable by ``allele_id`` + ``source_version``.
+    the ``VepAlleleConsequence`` value table.
     """
     meta = dict(metadata or {})
     if error_message is not None:
@@ -273,12 +274,24 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             ).all()
         )
 
+    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
     # Skip alleles already resolved at the current Ensembl release AND resolver version (they cannot
     # change without one of those bumping). force re-queries all regardless — for re-ingestion or to heal
     # suspected corruption. The linker still supersedes only on a value change, so a forced (or
     # resolver-bumped) no-op advances the version in place and writes no new history row.
     already_current = set() if force else alleles_at_current_release(all_allele_ids)
-    inputs_by_allele = {aid: allele_inputs[aid] for aid in allele_inputs if aid not in already_current}
+    # Also skip alleles already found to have no consequence at this release and resolver version: querying again
+    # can't find one. The status loop below reports them absent again, which changes no status.
+    status_version = vep_status_version(ensembl_release)
+    outcomes = (
+        {}
+        if force
+        else annotation_manager.outcomes_at(AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE, all_allele_ids, status_version)
+    )
+    known_absent = {aid for aid, disposition in outcomes.items() if disposition is Disposition.ABSENT}
+    inputs_by_allele = {
+        aid: allele_inputs[aid] for aid in allele_inputs if aid not in already_current and aid not in known_absent
+    }
     # HGVS alone identifies a unique resolution question here: this job never sets VepInput.transcript
     # (a coding allele's transcript rides inside its c. HGVS; a genomic allele is transcript-agnostic —
     # see _vep_input_for_allele), and resolve_consequences re-keys its result by HGVS to match. If this
@@ -288,6 +301,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
     job_manager.save_to_context(
         {
             "num_alleles_already_current": len(already_current),
+            "num_alleles_known_absent": len(known_absent),
             "num_hgvs_to_query": len(unique_inputs),
             "force": force,
         }
@@ -342,7 +356,6 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
         )
         job_manager.update_progress(99, 100, "All alleles already current at this Ensembl release.")
 
-    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
     for allele_id, vep_input in allele_inputs.items():
         verdict = verdicts.get(allele_id)
         if verdict is VepLinkVerdict.CREATED:
@@ -352,7 +365,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 allele_id,
                 Disposition.PRESENT,
                 EventReason.CREATED,
-                source_version=ensembl_release,
+                source_version=status_version,
                 metadata={"hgvs": vep_input.hgvs},
             )
 
@@ -370,7 +383,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 allele_id,
                 Disposition.PRESENT,
                 EventReason.PREEXISTING,
-                source_version=ensembl_release,
+                source_version=status_version,
                 metadata={"hgvs": vep_input.hgvs},
             )
 
@@ -381,7 +394,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 allele_id,
                 Disposition.FAILED,
                 EventReason.API_ERROR,
-                source_version=ensembl_release,
+                source_version=status_version,
                 error_message="The VEP/Variant Recoder request for this allele failed; result unknown.",
                 metadata={"hgvs": vep_input.hgvs},
             )
@@ -393,7 +406,7 @@ async def populate_vep_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
                 allele_id,
                 Disposition.ABSENT,
                 EventReason.NO_RECORD,
-                source_version=ensembl_release,
+                source_version=status_version,
                 error_message="VEP found no functional consequence for this allele, even after Variant Recoder fallback.",
                 metadata={"hgvs": vep_input.hgvs},
             )

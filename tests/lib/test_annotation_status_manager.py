@@ -450,3 +450,63 @@ def test_current_statuses_reads_variant_subject_keys(session, manager, setup_lib
     [row] = manager.current_statuses(AnnotationType.VRS_MAPPING, [variant.id])
 
     assert (row.variant_id, row.allele_id, row.disposition) == (variant.id, None, "present")
+
+
+def test_outcomes_at_returns_settled_outcomes_at_that_version(session, manager, allele):
+    _record(manager, allele, Disposition.ABSENT, EventReason.NO_RECORD, source_version="4.1.0")
+    _record(
+        manager,
+        allele,
+        Disposition.PRESENT,
+        EventReason.CREATED,
+        source_version="116",
+        annotation_type=AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
+    )
+    manager.flush()
+    session.commit()
+
+    assert manager.outcomes_at(GNOMAD, [allele.id], "4.1.0") == {allele.id: Disposition.ABSENT}
+    assert manager.outcomes_at(GNOMAD, [allele.id], "4.2.0") == {}
+
+
+def test_outcomes_at_leaves_out_failing_keys(session, manager, allele):
+    _run(
+        session,
+        manager,
+        allele,
+        (Disposition.ABSENT, EventReason.NO_RECORD),
+        (Disposition.FAILED, EventReason.API_ERROR),
+    )
+
+    assert manager.outcomes_at(GNOMAD, [allele.id], "4.1.0") == {}
+
+
+def test_withdraw_retires_live_statuses_of_the_given_types(session, manager, allele):
+    _record(manager, allele, Disposition.ABSENT, EventReason.NO_RECORD)
+    _record(manager, allele, Disposition.PRESENT, EventReason.CREATED, annotation_type=AnnotationType.CLINGEN_ALLELE_ID)
+    manager.flush()
+    session.commit()
+
+    manager.withdraw([GNOMAD], [allele.id])
+    assert [row.current for row in _rows(session, allele)] == [True]
+
+    manager.flush()
+    session.commit()
+
+    assert [row.current for row in _rows(session, allele)] == [False]
+    assert [row.current for row in _rows(session, allele, AnnotationType.CLINGEN_ALLELE_ID)] == [True]
+    assert manager.statuses_withdrawn == 1
+
+
+def test_flush_applies_withdrawals_before_reports(session, manager, allele):
+    _record(manager, allele, Disposition.ABSENT, EventReason.NO_RECORD)
+    manager.flush()
+    session.commit()
+
+    manager.withdraw([GNOMAD], [allele.id])
+    _record(manager, allele, Disposition.ABSENT, EventReason.NO_RECORD)
+    manager.flush()
+    session.commit()
+
+    # The report lands on a withdrawn key, so it starts a new live status rather than matching the old one.
+    assert [row.current for row in _rows(session, allele)] == [False, True]

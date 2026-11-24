@@ -80,6 +80,12 @@ async def get_ensembl_release() -> str:
         return await loop.run_in_executor(None, client.software_release)
 
 
+def vep_status_version(ensembl_release: str) -> str:
+    """The version a VEP status was checked at: the Ensembl release and our resolver's rules, which can change
+    without a release. A new value for either is a new version of the check, so its statuses are superseded."""
+    return f"{ensembl_release}+r{RESOLVER_VERSION}"
+
+
 async def resolve_consequences(
     inputs: Sequence[VepInput], *, reference: Optional[ReferenceSequence] = None
 ) -> dict[str, ConsequenceResolution]:

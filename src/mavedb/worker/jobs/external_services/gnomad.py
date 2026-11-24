@@ -156,22 +156,36 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
             ).all()
         )
 
+    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
     # Skip alleles already linked at the current version (they can't change). force re-fetches
     # all; the linker still supersedes only on change, so a forced no-op writes nothing.
     already_current = set() if force else alleles_linked_at_current_version(set(allele_data.keys()))
+    # Also skip alleles already found absent from this gnomAD version: querying it again can't find them. The loop
+    # below reports them absent again, which changes no status.
+    outcomes = (
+        {}
+        if force
+        else annotation_manager.outcomes_at(
+            AnnotationType.GNOMAD_ALLELE_FREQUENCY, set(allele_data), GNOMAD_DATA_VERSION
+        )
+    )
+    known_absent = {aid for aid, disposition in outcomes.items() if disposition is Disposition.ABSENT}
     # Never query Athena for protein alleles — gnomAD is nucleotide-level, so they can't match. They
     # are still recorded as not-applicable in the loop below; this only spares them the round-trip.
     variant_caids = sorted(
         {
             allele_data[aid]
             for aid in allele_data
-            if aid not in already_current and allele_levels.get(aid) != SequenceLevel.protein.value
+            if aid not in already_current
+            and aid not in known_absent
+            and allele_levels.get(aid) != SequenceLevel.protein.value
         }
     )
 
     job_manager.save_to_context(
         {
             "num_alleles_already_current": len(already_current),
+            "num_alleles_known_absent": len(known_absent),
             "num_caids_to_query": len(variant_caids),
             "force": force,
         }
@@ -199,7 +213,6 @@ async def link_gnomad_variants(ctx: dict, job_id: int, job_manager: JobManager) 
         )
         job_manager.update_progress(75, 100, "All alleles already current at this gnomAD version.")
 
-    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
     for allele_id, caid in allele_data.items():
         # gnomAD is a nucleotide-level, genomic-coordinate resource. Skip any protein alleles.
         if allele_levels.get(allele_id) == SequenceLevel.protein.value:

@@ -17,8 +17,13 @@ from variant_annotation.lib.vep import (
     VepInput,
 )
 
+from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.types.workflow import JobExecutionOutcome
+from mavedb.lib.vep import vep_status_version
 from mavedb.models.annotation_status import AnnotationStatus
+from mavedb.models.enums.annotation_type import AnnotationType
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.enums.vep import VepConsequenceSource
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
@@ -387,6 +392,41 @@ class TestPopulateVepForScoreSetIntegration:
         # Both alleles linked -> results from both chunks were merged, not overwritten by the last.
         assert len(_live_consequences_for(session, authoritative_allele.id)) == 1
         assert len(_live_consequences_for(session, rt_allele.id)) == 1
+
+    @pytest.mark.parametrize(
+        "resolver_version, queried", [(RESOLVER_VERSION, False), ("0", True)], ids=["same", "bumped"]
+    )
+    async def test_skips_allele_known_absent_at_this_release_and_resolver(
+        self,
+        session,
+        with_populated_domain_data,
+        with_populate_vep_job,
+        mock_worker_ctx,
+        sample_populate_vep_run,
+        setup_sample_alleles_for_vep,
+        resolver_version,
+        queried,
+    ):
+        """An allele a prior run found without a consequence at this release and resolver version isn't queried
+        again. One found absent under different resolver rules is."""
+        _, allele = setup_sample_alleles_for_vep
+        with patch("mavedb.lib.vep.RESOLVER_VERSION", resolver_version):
+            prior_version = vep_status_version(_ENSEMBL_RELEASE)
+        prior = AnnotationStatusManager(session)
+        prior.report(
+            AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
+            allele_id=allele.id,
+            disposition=Disposition.ABSENT,
+            reason=EventReason.NO_RECORD,
+            source_version=prior_version,
+        )
+        prior.flush()
+        session.commit()
+
+        with patch(_RESOLVE, return_value={}) as mock_resolve:
+            await populate_vep_for_score_set(mock_worker_ctx, sample_populate_vep_run.id)
+
+        assert mock_resolve.called is queried
 
     async def test_skips_allele_already_at_current_release(
         self,
