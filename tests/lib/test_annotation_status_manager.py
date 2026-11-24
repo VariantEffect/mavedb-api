@@ -424,3 +424,29 @@ def test_flush_waits_for_another_jobs_write(session, allele, monkeypatch):
     assert not thread.is_alive()
     assert len(_rows(session, allele)) == 1
     assert (waiting.keys_changed, waiting.keys_unchanged) == (0, 1)
+
+
+def test_current_statuses_reads_allele_subject_keys_per_release(session, manager, allele):
+    clinvar = AnnotationType.CLINVAR_CONTROL
+    for release in ("01_2025", "01_2026"):
+        _record(
+            manager, allele, Disposition.ABSENT, EventReason.NO_RECORD, source_version=release, annotation_type=clinvar
+        )
+    _record(manager, allele, Disposition.PRESENT, EventReason.CREATED)
+    manager.flush()
+    session.commit()
+
+    rows = manager.current_statuses(clinvar, [allele.id])
+
+    assert sorted(row.release for row in rows) == ["01_2025", "01_2026"]
+
+
+def test_current_statuses_reads_variant_subject_keys(session, manager, setup_lib_db_with_variant):
+    variant = setup_lib_db_with_variant
+    manager.report(AnnotationType.VRS_MAPPING, variant_id=variant.id, disposition=Disposition.PRESENT, reason="mapped")
+    manager.flush()
+    session.commit()
+
+    [row] = manager.current_statuses(AnnotationType.VRS_MAPPING, [variant.id])
+
+    assert (row.variant_id, row.allele_id, row.disposition) == (variant.id, None, "present")

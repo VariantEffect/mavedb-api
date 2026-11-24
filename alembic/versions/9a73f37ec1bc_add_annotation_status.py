@@ -22,7 +22,8 @@ VARIANT_SUBJECT_TYPES = "'vrs_mapping', 'cross_level_translation', 'variant_tran
 """annotation_type values whose subject is the variant, as an SQL list."""
 
 ALLELE_SUBJECT_TYPES = (
-    "'clingen_allele_id', 'gnomad_allele_frequency', 'vep_functional_consequence', 'clinvar_control', 'mapped_hgvs'"
+    "'clingen_allele_id', 'gnomad_allele_frequency', 'vep_functional_consequence', 'clinvar_allele_id', "
+    "'clinvar_control', 'mapped_hgvs'"
 )
 """annotation_type values whose subject is the allele, as an SQL list."""
 

@@ -19,7 +19,7 @@ from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, NamedTuple, Optional
+from typing import Any, Iterable, NamedTuple, Optional
 
 from sqlalchemy import func, insert, or_, select, text
 from sqlalchemy.orm import Session
@@ -31,6 +31,7 @@ from mavedb.models.annotation_status import (
     VARIANT_SUBJECT_TYPES,
     AnnotationStatus,
 )
+from mavedb.models.annotation_status_view import CurrentAnnotationStatusView
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
@@ -292,6 +293,25 @@ class AnnotationStatusManager:
             if time.monotonic() >= deadline:
                 raise TimeoutError(f"Timed out after {STATUS_MAX_WAIT} waiting for another job's status write")
             time.sleep(STATUS_LOCK_POLL_SECONDS)
+
+    def current_statuses(
+        self, annotation_type: AnnotationType, subject_ids: Iterable[int]
+    ) -> list[CurrentAnnotationStatusView]:
+        """The current status of each subject for ``annotation_type``: one row per key, so one per release for a
+        release-keyed type. ``subject_ids`` are variant or allele ids, whichever the type keys on. Keys never
+        reported have no row."""
+        annotation_type = AnnotationType(annotation_type)
+        view = CurrentAnnotationStatusView
+        subject = view.variant_id if annotation_type.value in VARIANT_SUBJECT_TYPES else view.allele_id
+        rows: list[CurrentAnnotationStatusView] = []
+        for batch in batched(sorted(subject_ids), STATEMENT_CHUNK_SIZE):
+            rows.extend(
+                self.session.scalars(
+                    select(view).where(view.annotation_type == annotation_type.value, subject.in_(batch))
+                )
+            )
+
+        return rows
 
     def _live_statuses(self, keys: set[StatusKey]) -> LiveRows:
         """The live statuses for ``keys``, read in batches that keep each query under the bind parameter limit."""

@@ -39,6 +39,7 @@ ALLELE_SUBJECT_TYPES = (
     AnnotationType.CLINGEN_ALLELE_ID.value,
     AnnotationType.GNOMAD_ALLELE_FREQUENCY.value,
     AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE.value,
+    AnnotationType.CLINVAR_ALLELE_ID.value,
     AnnotationType.CLINVAR_CONTROL.value,
     AnnotationType.MAPPED_HGVS.value,
 )
