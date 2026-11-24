@@ -101,6 +101,13 @@ def test_plan_changed_outcome_supersedes_live_outcome(change):
     assert (result.retire, result.insert) == ([1], [change])
 
 
+def test_plan_correction_after_a_correction_supersedes_live_outcome():
+    correction = _report(Disposition.PRESENT, EventReason.CORRECTED)
+    result = _plan(correction, outcome=_live(1, Disposition.PRESENT, EventReason.CORRECTED))
+
+    assert (result.retire, result.insert) == ([1], [correction])
+
+
 def test_plan_run_relative_report_keeps_the_change_before_it():
     result = _plan(
         _report(Disposition.PRESENT, EventReason.CORRECTED),

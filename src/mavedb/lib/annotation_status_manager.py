@@ -156,6 +156,10 @@ def plan(live: LiveRows, reports: list[Status], now: datetime) -> tuple[list[Sta
 def _changes_outcome(live: Status, reported: Status) -> bool:
     if reported.disposition != live.disposition or reported.source_version != live.source_version:
         return True
+    # Jobs report a correction only when the stored value changed, which lives in metadata, so a second correction
+    # in a row is still a change.
+    if reported.reason == EventReason.CORRECTED.value:
+        return True
 
     return reported.reason not in RUN_RELATIVE_REASONS and reported.reason != live.reason
 
