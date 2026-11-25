@@ -188,22 +188,6 @@ files = [
 ]
 
 [[package]]
-name = "authlib"
-version = "1.6.12"
-description = "The ultimate Python library in building OAuth and OpenID Connect servers and clients."
-optional = true
-python-versions = ">=3.9"
-groups = ["main"]
-markers = "extra == \"server\""
-files = [
-    {file = "authlib-1.6.12-py2.py3-none-any.whl", hash = "sha256:e9229ad7fde610b139dd12f5edbe97eab9ee78bfb85691247e767727850b99ab"},
-    {file = "authlib-1.6.12.tar.gz", hash = "sha256:0656d8482f28fc8221929d5f35b2bde5d13e10555ebc06b4561b0d622e83b1bd"},
-]
-
-[package.dependencies]
-cryptography = "*"
-
-[[package]]
 name = "bbi-variant-annotation"
 version = "1.2.0b3"
 description = "Genetic variant mapping and annotation pipeline"
@@ -5311,9 +5295,9 @@ test = ["big-O", "jaraco.functools", "jaraco.itertools", "jaraco.test", "more_it
 type = ["pytest-mypy"]
 
 [extras]
-server = ["aiocache", "alembic", "alembic-utils", "arq", "authlib", "bbi-variant-annotation", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "psycopg2", "pyathena", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "uvicorn", "watchtower"]
+server = ["aiocache", "alembic", "alembic-utils", "arq", "bbi-variant-annotation", "biocommons", "boto3", "cdot", "cryptography", "fastapi", "hgvs", "orcid", "psycopg2", "pyathena", "python-jose", "python-multipart", "requests", "slack-sdk", "starlette", "uvicorn", "watchtower"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "a84ef58850968a6c9779bc4f8fc4db738026d25f6487661516a807eb7ddaa020"
+content-hash = "44076ad1533a7cf1dd1de6d15619c7de1ae24ba144ae3b44fca293ea38c3c15d"
