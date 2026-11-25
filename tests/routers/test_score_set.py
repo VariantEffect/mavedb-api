@@ -45,7 +45,12 @@ from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_calibration import ScoreCalibration as ScoreCalibrationDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
-from mavedb.routers.score_sets import _LEAN_VARIANTS, _annotation_stream_record, _stream_lean_variants
+from mavedb.routers.score_sets import (
+    _LEAN_VARIANTS,
+    _annotation_stream_record,
+    _existing_variant_dataframe,
+    _stream_lean_variants,
+)
 from mavedb.view_models.lean_variant import LeanVariant
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
@@ -6795,3 +6800,33 @@ def test_official_collections_list_only_readable_collections_and_members(
     assert members(anonymous_view["experiment"]["officialCollections"]) == expected
     assert members(experiment_view["officialCollections"]) == expected
     assert [members(e["officialCollections"]) for e in experiment_list] == [expected]
+
+
+def test_existing_variant_dataframe_is_what_an_upload_of_those_columns_would_have_produced():
+    """Re-uploading one of a score set's files rebuilds the other from its stored variants."""
+    variants = [
+        VariantDbModel(
+            urn="urn:mavedb:00000001-a-1#1",
+            hgvs_nt="c.1A>G",
+            hgvs_pro=None,
+            hgvs_splice=None,
+            data={"score_data": {"score": 0.5, "se": "NA"}, "count_data": {"c_0": 3}},
+        ),
+        VariantDbModel(
+            urn="urn:mavedb:00000001-a-1#2",
+            hgvs_nt="c.2A>G",
+            hgvs_pro="p.Thr2Ala",
+            hgvs_splice=None,
+            data={"score_data": {"score": -1.0}},
+        ),
+    ]
+
+    scores = _existing_variant_dataframe(variants, "scores", ["score", "se"])
+
+    assert list(scores.columns) == ["hgvs_nt", "hgvs_splice", "hgvs_pro", "score", "se"]
+    assert scores["hgvs_nt"].tolist() == ["c.1A>G", "c.2A>G"]
+    assert scores["hgvs_pro"].isna().tolist() == [True, False]
+    assert scores["score"].tolist() == ["0.5", "-1.0"]
+    # Missing and NA-valued cells both come back as NaN, as a parsed upload's would.
+    assert scores["hgvs_splice"].isna().all()
+    assert scores["se"].isna().all()

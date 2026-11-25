@@ -1,27 +1,17 @@
-"""Column planning and row assembly for the CSV exports.
+"""Planning an export's columns and writing its rows.
 
-Pure functions over already-fetched objects; nothing here touches the database. What a namespace *is*
-lives in ``specs``; this module only applies it.
+Pure functions over rows that are already filled in; nothing here touches the database. What a namespace
+*is* lives in ``specs``; this module only applies it.
 """
 
 import csv
 import io
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any, Callable
 
-from mavedb.lib.annotation.flatten import FlatAnnotation
-from mavedb.lib.csv.namespaces import (
-    CALIBRATION_NS_PATTERN,
-    CLINVAR_NS_PATTERN,
-    parse_calibration_namespace,
-    parse_clinvar_namespace,
-)
-from mavedb.lib.csv.specs import CORE_NAMESPACE, CsvMappedRow, RowSource, namespace_spec
+from mavedb.lib.csv.specs import CORE_NAMESPACE, CsvRow, RowSource, namespace_spec
 from mavedb.lib.mave.utils import NA_VALUE, NULL_VALUES
-from mavedb.lib.validation.constants.general import hgvs_columns
-from mavedb.models.clinical_control import ClinvarControl
-from mavedb.models.gnomad_variant import GnomADVariant
-from mavedb.models.variant import Variant
 
 _OUTPUT_NULL_STRINGS = frozenset(value.lower() for value in NULL_VALUES if value)
 """The null tokens this export recognises, derived from the shared vocabulary rather than restated.
@@ -29,16 +19,6 @@ _OUTPUT_NULL_STRINGS = frozenset(value.lower() for value in NULL_VALUES if value
 The empty string is dropped because ``_is_output_null`` tests emptiness directly, and ``NA_VALUE`` folds
 into ``"na"`` once lowercased.
 """
-
-
-@dataclass(frozen=True)
-class CsvColumnPlan:
-    namespaced_columns: dict[str, list[str]]
-    """Namespace -> list of column keys to emit for that namespace."""
-    clinvar_namespaces: dict[str, str]
-    """Requested ClinVar namespace -> the ``"MM_YYYY"`` db_version it names."""
-    calibration_namespaces: dict[str, str]
-    """Requested calibration namespace -> the calibration URN it names."""
 
 
 def _is_output_null(value: Any) -> bool:
@@ -59,198 +39,142 @@ def _value_or_na(value: Any, na_rep: str = NA_VALUE) -> str:
     return str(value)
 
 
-def _format_column_key(namespace: str, column_key: str, namespaced: bool = False) -> str:
-    """Shared key-formatting logic used by both header assembly and row assembly."""
-    # Always namespaced regardless of the caller's preference: the release or calibration URN is what
-    # disambiguates columns when several are requested at once.
-    if CLINVAR_NS_PATTERN.match(namespace) or CALIBRATION_NS_PATTERN.match(namespace):
-        return f"{namespace}.{column_key}"
+@dataclass(frozen=True)
+class CsvCell:
+    """One column of an export: its header, and how its value is read off a row."""
 
-    if namespace == CORE_NAMESPACE:  # core is never namespaced
-        return column_key
-
-    if namespaced:
-        spec = namespace_spec(namespace)
-        prefix = spec.emit_under if spec is not None and spec.emit_under is not None else namespace
-        return f"{prefix}.{column_key}"
-
-    return column_key
+    header: str
+    source: RowSource
+    read: Callable[[Any], Any]
+    """Called with the row's *source* datum, which may be absent."""
 
 
-def plan_csv_columns(dataset_columns: dict, namespaces: list[str]) -> CsvColumnPlan:
-    """Build the namespaced column map and the ClinVar and calibration namespace mappings.
+@dataclass(frozen=True)
+class CsvPlan:
+    """An export's columns, worked out once and applied to every row."""
 
-    An unknown namespace is kept with no columns rather than rejected — validating the vocabulary belongs
-    to the request layer.
-    """
-    namespaced_columns: dict[str, list[str]] = {}
-    clinvar_namespaces: dict[str, str] = {}
-    calibration_namespaces: dict[str, str] = {}
+    cells: tuple[CsvCell, ...]
 
-    for namespace in dict.fromkeys([CORE_NAMESPACE, *namespaces]):
-        spec = namespace_spec(namespace)
-        namespaced_columns[namespace] = spec.columns(dataset_columns) if spec else []
+    parameters: Mapping[RowSource, Mapping[str, str]]
+    """For each parameterized source, the requested namespaces and the release or URN each names."""
 
-        db_version = parse_clinvar_namespace(namespace)
-        if db_version is not None:
-            clinvar_namespaces[namespace] = db_version
+    needs_score_set: bool
+    """Whether the variant query has to eager-load each row's score set."""
 
-        calibration_urn = parse_calibration_namespace(namespace)
-        if calibration_urn is not None:
-            calibration_namespaces[namespace] = calibration_urn
+    @property
+    def headers(self) -> list[str]:
+        return [cell.header for cell in self.cells]
 
-    return CsvColumnPlan(
-        namespaced_columns=namespaced_columns,
-        clinvar_namespaces=clinvar_namespaces,
-        calibration_namespaces=calibration_namespaces,
-    )
+    @property
+    def sources(self) -> frozenset[RowSource]:
+        """The sources a row has to carry for every cell to be read."""
+        return frozenset(cell.source for cell in self.cells)
 
+    @classmethod
+    def build(cls, dataset_columns: dict, namespaces: Iterable[str], *, namespaced: bool = False) -> "CsvPlan":
+        """Plan the core columns plus every requested namespace's, for a score set with *dataset_columns*.
 
-def assemble_csv_headers(namespaced_columns: dict[str, list[str]], namespaced: bool = False) -> list[str]:
-    """Build the flat column-header list from the namespace dict.
+        An unknown namespace contributes no columns rather than being rejected: validating the vocabulary
+        belongs to the request layer.
+        """
+        columns = {}
+        for namespace in dict.fromkeys([CORE_NAMESPACE, *namespaces]):
+            spec = namespace_spec(namespace)
+            columns[namespace] = spec.columns(dataset_columns) if spec else []
 
-    Raises:
-        ValueError: if two namespaces resolve to the same header. Un-namespaced output strips the prefix
-            that would otherwise keep them apart, so requesting two namespaces that share a column name
-            would emit it twice; the callers that ask for un-namespaced output request one namespace each,
-            and this holds them to it rather than letting a future caller find out from a broken file.
-    """
-    headers = [
-        _format_column_key(namespace, col, namespaced) for namespace, cols in namespaced_columns.items() for col in cols
-    ]
+        return cls.from_columns(columns, namespaced=namespaced)
 
-    duplicates = sorted({header for header in headers if headers.count(header) > 1})
-    if duplicates:
-        raise ValueError(
-            f"CSV namespaces resolve to duplicate columns: {', '.join(duplicates)}."
-            f" Requested namespaces: {', '.join(namespaced_columns)}."
-        )
+    @classmethod
+    def from_columns(cls, columns: Mapping[str, Sequence[str]], *, namespaced: bool = False) -> "CsvPlan":
+        """Plan exactly *columns*, namespace -> column keys, in order.
 
-    return headers
+        Raises:
+            ValueError: if a namespace names a column it can't resolve, or two namespaces resolve to the same
+                header. Un-namespaced output strips the prefix that would otherwise keep them apart; the callers
+                that ask for it request one namespace each, and this holds them to it rather than letting a
+                future caller find out from a broken file.
+        """
+        cells: list[CsvCell] = []
+        parameters: dict[RowSource, dict[str, str]] = {}
+        needs_score_set = False
 
+        for namespace, column_keys in columns.items():
+            spec = namespace_spec(namespace)
+            if spec is None:
+                continue
 
-def variant_to_csv_row(
-    variant: Variant,
-    columns: dict[str, list[str]],
-    mapping: Optional[CsvMappedRow] = None,
-    gnomad_data: Optional[GnomADVariant] = None,
-    clinvar_data_by_ns: Optional[dict[str, Optional[ClinvarControl]]] = None,
-    annotations_by_ns: Optional[dict[str, Optional[FlatAnnotation]]] = None,
-    match_type: Optional[str] = None,
-    namespaced: bool = False,
-    na_rep=NA_VALUE,
-) -> dict[str, Any]:
-    """Format a variant into a dict containing the keys specified in *columns*.
+            needs_score_set = needs_score_set or spec.needs_score_set
 
-    Args:
-        clinvar_data_by_ns, annotations_by_ns: per-row data for the parameterized namespaces, keyed by
-            requested namespace. A namespace with no entry renders as *na_rep*.
-    """
-    row: dict[str, Any] = {}
+            if spec.parameter is not None:
+                parameter = spec.parameter(namespace)
+                if parameter is not None:
+                    parameters.setdefault(spec.source, {})[namespace] = parameter
+                prefix = namespace
+            elif namespace == CORE_NAMESPACE or not namespaced:
+                prefix = None
+            else:
+                prefix = spec.emit_under or namespace
 
-    # Built once per row, not per namespace: a 100k-variant export with ten namespaces would otherwise
-    # build this dict, and walk `variant.data` twice, a million times over.
-    row_sources: dict[RowSource, Any] = {
-        RowSource.VARIANT: variant,
-        RowSource.MAPPING: mapping,
-        RowSource.GNOMAD: gnomad_data,
-        RowSource.MATCH_TYPE: match_type,
-        RowSource.SCORE_DATA: (variant.data or {}).get("score_data"),
-        RowSource.COUNT_DATA: (variant.data or {}).get("count_data"),
-    }
+            for column_key in column_keys:
+                resolver = spec.resolver(column_key)
+                if resolver is None:
+                    raise ValueError(f"unrecognized {namespace} column: {column_key}")
+                if spec.parameter is not None:
+                    resolver = _for_namespace(namespace, resolver)
 
-    for namespace, column_keys in columns.items():
-        spec = namespace_spec(namespace)
-        if spec is None:
-            continue
+                header = f"{prefix}.{column_key}" if prefix else column_key
+                cells.append(CsvCell(header=header, source=spec.source, read=resolver))
 
-        source: Any
-        # Only the parameterized namespaces carry a distinct datum per namespace.
-        if spec.source is RowSource.CLINVAR_ENTRY:
-            source = (clinvar_data_by_ns or {}).get(namespace)
-        elif spec.source is RowSource.ANNOTATION:
-            source = (annotations_by_ns or {}).get(namespace)
-        else:
-            source = row_sources[spec.source]
-
-        for column_key in column_keys:
-            resolver = spec.resolver(column_key)
-            if resolver is None:
-                raise ValueError(f"unrecognized {namespace} column: {column_key}")
-
-            row[_format_column_key(namespace, column_key, namespaced=namespaced)] = _value_or_na(
-                resolver(source), na_rep
+        headers = [cell.header for cell in cells]
+        duplicates = sorted({header for header in headers if headers.count(header) > 1})
+        if duplicates:
+            raise ValueError(
+                f"CSV namespaces resolve to duplicate columns: {', '.join(duplicates)}."
+                f" Requested namespaces: {', '.join(columns)}."
             )
 
-    return row
+        return cls(cells=tuple(cells), parameters=parameters, needs_score_set=needs_score_set)
+
+    def without(self, headers: Iterable[str]) -> "CsvPlan":
+        """This plan less the columns headed *headers*."""
+        dropped = set(headers)
+        return CsvPlan(
+            cells=tuple(cell for cell in self.cells if cell.header not in dropped),
+            parameters=self.parameters,
+            needs_score_set=self.needs_score_set,
+        )
 
 
-def variants_to_csv_rows(
-    variants: Sequence[Variant],
-    columns: dict[str, list[str]],
-    mappings: Optional[Sequence[Optional[CsvMappedRow]]] = None,
-    gnomad_data: Optional[Sequence[Optional[GnomADVariant]]] = None,
-    clinvar_data_by_ns: Optional[Sequence[Optional[dict[str, Optional[ClinvarControl]]]]] = None,
-    annotations_by_ns: Optional[Sequence[Optional[dict[str, Optional[FlatAnnotation]]]]] = None,
-    match_types: Optional[Sequence[Optional[str]]] = None,
-    namespaced: bool = False,
-    na_rep=NA_VALUE,
-) -> Iterable[dict[str, Any]]:
-    """Format each variant into a dictionary row containing the keys specified in *columns*."""
-    n = len(variants)
-    _mappings: Sequence[Optional[CsvMappedRow]] = mappings if mappings is not None else [None] * n
-    _gnomad: Sequence[Optional[GnomADVariant]] = gnomad_data if gnomad_data is not None else [None] * n
-    _clinvar: Sequence[Optional[dict[str, Optional[ClinvarControl]]]] = (
-        clinvar_data_by_ns if clinvar_data_by_ns is not None else [None] * n
-    )
-    _annotations: Sequence[Optional[dict[str, Optional[FlatAnnotation]]]] = (
-        annotations_by_ns if annotations_by_ns is not None else [None] * n
-    )
-    _match_types: Sequence[Optional[str]] = match_types if match_types is not None else [None] * n
-    return map(
-        lambda t: variant_to_csv_row(
-            t[0],
-            columns,
-            mapping=t[1],
-            gnomad_data=t[2],
-            clinvar_data_by_ns=t[3],
-            annotations_by_ns=t[4],
-            match_type=t[5],
-            namespaced=namespaced,
-            na_rep=na_rep,
-        ),
-        zip(variants, _mappings, _gnomad, _clinvar, _annotations, _match_types),
-    )
+def _for_namespace(namespace: str, resolver: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """Read a parameterized cell from its own namespace's entry in the row's per-namespace datum."""
+    return lambda by_namespace: resolver(by_namespace.get(namespace) if by_namespace else None)
 
 
-def rows_to_csv(rows: Iterable[dict[str, Any]], columns: list[str]) -> str:
-    """Serialize *rows* to a CSV string headed by *columns*."""
-    stream = io.StringIO()
-    writer = csv.DictWriter(stream, fieldnames=columns, quoting=csv.QUOTE_MINIMAL)
-    writer.writeheader()
-    writer.writerows(rows)
-    return stream.getvalue()
+def csv_values(plan: CsvPlan, row: CsvRow, na_rep: str = NA_VALUE) -> list[str]:
+    """*row*'s cells, in header order, with absent values written as *na_rep*."""
+    return [_value_or_na(cell.read(row.get(cell.source)), na_rep) for cell in plan.cells]
 
 
-def drop_unused_hgvs_columns(
-    rows_data: Iterable[dict[str, Any]], columns: list[str]
-) -> tuple[list[dict[str, Any]], list[str]]:
-    """Omit the HGVS coordinate columns this score set does not use.
+def csv_records(plan: CsvPlan, rows: Iterable[CsvRow], na_rep: str = NA_VALUE) -> Iterator[dict[str, str]]:
+    """Each of *rows* as a header -> value dict, for callers that build a dataframe rather than a file."""
+    headers = plan.headers
+    return (dict(zip(headers, csv_values(plan, row, na_rep))) for row in rows)
 
-    A protein-only score set never has ``hgvs_nt``; that is a property of the score set, not sparse data.
-    Limited to the three core HGVS columns on purpose — dropping data-dependent columns elsewhere would
-    make a download's shape vary with its contents.
 
-    Assumes the "core" namespace is present, which ``plan_csv_columns`` guarantees.
+def render_csv(plan: CsvPlan, batches: Iterable[Sequence[CsvRow]], na_rep: str = NA_VALUE) -> Iterator[str]:
+    """CSV text for *batches* of rows, one chunk per batch, with the header leading the first.
+
+    An export with no rows is the header alone.
     """
-    rows_data = list(rows_data)
-    columns_to_remove = []
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(plan.headers)
 
-    for col in hgvs_columns:
-        if all(_is_output_null(row[col]) for row in rows_data):
-            columns_to_remove.append(col)
-            for row in rows_data:
-                row.pop(col, None)
+    for rows in batches:
+        writer.writerows(csv_values(plan, row, na_rep) for row in rows)
+        yield buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate()
 
-    columns = [col for col in columns if col not in columns_to_remove]
-    return rows_data, columns
+    if buffer.tell():
+        yield buffer.getvalue()

@@ -46,7 +46,7 @@ from mavedb.lib.clinical_controls import get_clinical_control_options, get_clini
 from mavedb.lib.collections import readable_official_collections
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.csv.build_limiter import csv_build_slot, rows_to_build
-from mavedb.lib.csv.columns import variants_to_csv_rows
+from mavedb.lib.csv.columns import CsvPlan, csv_records
 from mavedb.lib.csv.deprecated_params import (
     DROP_NA_COLUMNS_DESCRIPTION,
     INCLUDE_CUSTOM_COLUMNS_DESCRIPTION,
@@ -55,6 +55,7 @@ from mavedb.lib.csv.deprecated_params import (
 )
 from mavedb.lib.csv.namespaces import CSV_NAMESPACES_PARAM_DESCRIPTION, CsvNamespaceStr
 from mavedb.lib.csv.score_set import available_score_set_csv_namespaces, get_score_set_variants_as_csv
+from mavedb.lib.csv.specs import RowSource
 from mavedb.lib.deprecation import MAPPED_VARIANT_SUNSET, deprecation_headers, record_deprecated_usage
 from mavedb.lib.exceptions import MixedTargetError, NCBITaxonomyNotFoundError, NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
@@ -145,6 +146,13 @@ _LEAN_VARIANTS = TypeAdapter(List[LeanVariant])
 SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS = 40
 
 
+def _existing_variant_dataframe(variants: Iterable[Variant], namespace: str, columns: list[str]) -> pd.DataFrame:
+    """A score set's existing variants as the dataframe an upload of *namespace*'s columns would have produced."""
+    plan = CsvPlan.from_columns({"core": ["hgvs_nt", "hgvs_splice", "hgvs_pro"], namespace: columns})
+    rows = csv_records(plan, ({RowSource.VARIANT: variant} for variant in variants))
+    return pd.DataFrame(rows).replace("NA", np.NaN)
+
+
 def enqueue_variant_creation(
     *,
     item: ScoreSet,
@@ -161,24 +169,12 @@ def enqueue_variant_creation(
     # create CSV from existing variants on the score set if no new dataframe provided
     existing_scores_df = None
     if new_scores_df is None and item.dataset_columns.get("score_columns"):
-        score_columns = {
-            "core": ["hgvs_nt", "hgvs_splice", "hgvs_pro"],
-            "scores": item.dataset_columns["score_columns"],
-        }
-        existing_scores_df = pd.DataFrame(
-            variants_to_csv_rows(item.variants, columns=score_columns, namespaced=False)
-        ).replace("NA", np.NaN)
+        existing_scores_df = _existing_variant_dataframe(item.variants, "scores", item.dataset_columns["score_columns"])
 
     # create CSV from existing variants on the score set if no new dataframe provided
     existing_counts_df = None
     if new_counts_df is None and item.dataset_columns.get("count_columns"):
-        count_columns = {
-            "core": ["hgvs_nt", "hgvs_splice", "hgvs_pro"],
-            "counts": item.dataset_columns["count_columns"],
-        }
-        existing_counts_df = pd.DataFrame(
-            variants_to_csv_rows(item.variants, columns=count_columns, namespaced=False)
-        ).replace("NA", np.NaN)
+        existing_counts_df = _existing_variant_dataframe(item.variants, "counts", item.dataset_columns["count_columns"])
 
     scores_file_to_upload = existing_scores_df if new_scores_df is None else new_scores_df
     counts_file_to_upload = existing_counts_df if new_counts_df is None else new_counts_df

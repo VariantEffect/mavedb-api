@@ -1,11 +1,18 @@
-"""What each CSV namespace is: the columns it produces and how each is read off a row."""
+"""What each CSV namespace is: the columns it produces, how each is read off a row, and how a picker labels it."""
 
 from dataclasses import dataclass
 from enum import StrEnum
 from operator import attrgetter
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
-from mavedb.lib.csv.namespaces import CALIBRATION_NS_PATTERN, CLINVAR_NS_PATTERN, CsvNamespace
+from mavedb.lib.csv.namespaces import (
+    CALIBRATION_NS_PATTERN,
+    CLINVAR_NS_PATTERN,
+    CsvNamespace,
+    CsvNamespaceGroup,
+    parse_calibration_namespace,
+    parse_clinvar_namespace,
+)
 from mavedb.lib.mave.constants import REQUIRED_SCORE_COLUMN
 from mavedb.lib.validation.constants.general import hgvs_nt_column, hgvs_pro_column, hgvs_splice_column
 from mavedb.models.variant import Variant
@@ -14,9 +21,7 @@ from mavedb.models.variant import Variant
 @dataclass(frozen=True)
 class CsvMappedRow:
     """The mapping-derived CSV fields for one variant, resolved from its live mapping record's
-    authoritative allele (post-mapped HGVS per level, assay-level HGVS, VRS digest, VEP consequence,
-    ClinGen id). The per-level HGVS strings are the measured projection group's — no raw VRS payload to
-    fall back on parsing here, unlike the pre-allele-graph ``MappedVariant`` substrate."""
+    authoritative allele. The per-level HGVS strings are the measured projection group's."""
 
     hgvs_g: Optional[str]
     hgvs_c: Optional[str]
@@ -25,10 +30,8 @@ class CsvMappedRow:
     vrs_digest: Optional[str]
     vep_functional_consequence: Optional[str]
     clingen_allele_id: Optional[str]
-
-
-# One entry per namespace, so adding one is a single edit. This previously took three unrelated changes
-# — column plan, row builder, fetch-layer eager loading — with nothing to catch a partial addition.
+    allele_id: Optional[int] = None
+    """The authoritative allele's id. Not a column: the annotation sources join on it."""
 
 
 CORE_NAMESPACE = "core"
@@ -53,19 +56,24 @@ class DatasetColumnSelection(StrEnum):
 
 
 class RowSource(StrEnum):
-    """Which per-row datum a namespace's resolvers are called with."""
+    """A per-row datum a namespace's resolvers are called with.
+
+    ``VARIANT`` and ``MATCH_TYPE`` come from the export's scope, which decides what the rows are. Every other
+    source is filled in by its loader in ``sources``, and only when a requested namespace reads it.
+    """
 
     VARIANT = "variant"
+    MATCH_TYPE = "match_type"
     MAPPING = "mapping"
     GNOMAD = "gnomad"
-    MATCH_TYPE = "match_type"
-    SCORE_DATA = "score_data"
-    COUNT_DATA = "count_data"
 
-    # Parameterized namespaces are keyed by the namespace string, since one row carries a separate datum
-    # for every requested release or calibration.
+    # A row carries one datum per requested release or calibration, keyed by namespace.
     CLINVAR_ENTRY = "clinvar_entry"
     ANNOTATION = "annotation"
+
+
+CsvRow = dict[RowSource, Any]
+"""One row of an export: each source's datum for that row."""
 
 
 @dataclass(frozen=True)
@@ -77,11 +85,15 @@ class CsvNamespaceSpec:
 
     resolvers: Optional[dict[str, Callable]] = None
     """Column key -> how to read it off *source*. None means the columns are not known ahead of time and
-    are read by key, which is how a score set's own score and count columns work."""
+    are read by key out of the variant's ``data``, which is how a score set's own score and count columns
+    work."""
 
     dataset_columns_key: Optional[str] = None
     """The ``dataset_columns`` entry listing this namespace's columns, for namespaces whose columns come
     from the score set rather than from this module."""
+
+    data_key: Optional[str] = None
+    """The ``Variant.data`` entry those columns are read out of."""
 
     dataset_columns: DatasetColumnSelection = DatasetColumnSelection.ALL
     """Which of that entry's columns this namespace claims."""
@@ -93,12 +105,18 @@ class CsvNamespaceSpec:
     while its columns stay ``scores.*``. None means emit under this namespace's own name.
     """
 
-    needs_mappings: bool = False
-    """Whether the fetch layer has to load the row's mapping for this namespace to work."""
-    needs_gnomad: bool = False
-    """Whether the fetch layer has to load the row's gnomAD data for this namespace to work."""
+    parameter: Optional[Callable[[str], Optional[str]]] = None
+    """Parses a parameterized namespace into the release or URN it names. A parameterized namespace's
+    columns are always prefixed with it, since that prefix is what tells several requested ones apart."""
+
     needs_score_set: bool = False
-    """Whether the fetch layer has to load the row's score set for this namespace to work."""
+    """Whether the variant query has to eager-load each row's score set for this namespace to work."""
+
+    label: Optional[str] = None
+    """What a picker calls this namespace. The parameterized families are labeled from their parameter."""
+
+    group: Optional[CsvNamespaceGroup] = None
+    """Where a picker sections this namespace."""
 
     def columns(self, dataset_columns: dict) -> list[str]:
         """The column keys this namespace produces for a given score set."""
@@ -117,12 +135,12 @@ class CsvNamespaceSpec:
         return available
 
     def resolver(self, column_key: str) -> Optional[Callable]:
-        """How to read *column_key* off a row, or None if it is read by key rather than by resolver."""
+        """How to read *column_key* off a row's *source*, or None if this namespace has no such column."""
         if self.resolvers is not None:
             return self.resolvers.get(column_key)
 
-        # Dynamic columns are read straight out of the variant's score or count data by name.
-        return _optional(lambda data: data.get(column_key))
+        data_key = self.data_key
+        return lambda variant: ((variant.data or {}).get(data_key) or {}).get(column_key)
 
 
 def _target_genes(variant: Variant) -> Optional[str]:
@@ -148,17 +166,29 @@ _NAMESPACE_SPECS: dict[str, CsvNamespaceSpec] = {
         },
     ),
     CsvNamespace.SCORES: CsvNamespaceSpec(
-        source=RowSource.SCORE_DATA,
+        source=RowSource.VARIANT,
         dataset_columns_key="score_columns",
+        data_key="score_data",
         dataset_columns=DatasetColumnSelection.REQUIRED_SCORE_ONLY,
+        label="Score",
+        group=CsvNamespaceGroup.DATA,
     ),
     CsvNamespace.SCORES_CUSTOM: CsvNamespaceSpec(
-        source=RowSource.SCORE_DATA,
+        source=RowSource.VARIANT,
         dataset_columns_key="score_columns",
+        data_key="score_data",
         dataset_columns=DatasetColumnSelection.EXCEPT_REQUIRED_SCORE,
         emit_under=CsvNamespace.SCORES,
+        label="Investigator-provided score columns",
+        group=CsvNamespaceGroup.DATA,
     ),
-    CsvNamespace.COUNTS: CsvNamespaceSpec(source=RowSource.COUNT_DATA, dataset_columns_key="count_columns"),
+    CsvNamespace.COUNTS: CsvNamespaceSpec(
+        source=RowSource.VARIANT,
+        dataset_columns_key="count_columns",
+        data_key="count_data",
+        label="Counts",
+        group=CsvNamespaceGroup.DATA,
+    ),
     CsvNamespace.REFERENCE_HGVS: CsvNamespaceSpec(
         source=RowSource.MAPPING,
         resolvers={
@@ -168,12 +198,14 @@ _NAMESPACE_SPECS: dict[str, CsvNamespaceSpec] = {
             "post_mapped_hgvs_at_assay_level": _optional(attrgetter("hgvs_assay_level")),
             "post_mapped_vrs_id": _optional(attrgetter("vrs_digest")),
         },
-        needs_mappings=True,
+        label="Reference-frame HGVS",
+        group=CsvNamespaceGroup.ANNOTATION,
     ),
     CsvNamespace.VEP: CsvNamespaceSpec(
         source=RowSource.MAPPING,
-        resolvers={"vep_functional_consequence": _optional(lambda mapping: mapping.vep_functional_consequence)},
-        needs_mappings=True,
+        resolvers={"vep_functional_consequence": _optional(attrgetter("vep_functional_consequence"))},
+        label="VEP consequence",
+        group=CsvNamespaceGroup.ANNOTATION,
     ),
     CsvNamespace.GNOMAD: CsvNamespaceSpec(
         source=RowSource.GNOMAD,
@@ -186,13 +218,14 @@ _NAMESPACE_SPECS: dict[str, CsvNamespaceSpec] = {
             "gnomad_id": _optional(attrgetter("db_identifier")),
             "gnomad_version": _optional(attrgetter("db_version")),
         },
-        needs_mappings=True,
-        needs_gnomad=True,
+        label="gnomAD population frequency",
+        group=CsvNamespaceGroup.ANNOTATION,
     ),
     CsvNamespace.CLINGEN: CsvNamespaceSpec(
         source=RowSource.MAPPING,
-        resolvers={"clingen_allele_id": _optional(lambda mapping: mapping.clingen_allele_id)},
-        needs_mappings=True,
+        resolvers={"clingen_allele_id": _optional(attrgetter("clingen_allele_id"))},
+        label="ClinGen allele ID",
+        group=CsvNamespaceGroup.ANNOTATION,
     ),
     CsvNamespace.SCORE_SET: CsvNamespaceSpec(
         source=RowSource.VARIANT,
@@ -201,6 +234,8 @@ _NAMESPACE_SPECS: dict[str, CsvNamespaceSpec] = {
             "target_gene": _target_genes,
         },
         needs_score_set=True,
+        label="Score set and target gene",
+        group=CsvNamespaceGroup.PROVENANCE,
     ),
     # TODO(#989): once the variant CSV emits sibling rows, report the shared `projection_group` here
     # alongside `match_type`, so a consumer can tell a projected sibling from an independent equivalent.
@@ -208,6 +243,8 @@ _NAMESPACE_SPECS: dict[str, CsvNamespaceSpec] = {
         source=RowSource.MATCH_TYPE,
         # Caller-supplied: only an export that widens beyond one record knows how a row relates to it.
         resolvers={"match_type": lambda match_type: match_type},
+        label="Relationship to the requested variant",
+        group=CsvNamespaceGroup.PROVENANCE,
     ),
 }
 
@@ -218,7 +255,7 @@ _CLINVAR_SPEC = CsvNamespaceSpec(
         "clinical_significance": _optional(attrgetter("clinical_significance")),
         "clinical_review_status": _optional(attrgetter("clinical_review_status")),
     },
-    needs_mappings=True,
+    parameter=parse_clinvar_namespace,
 )
 
 _CALIBRATION_SPEC = CsvNamespaceSpec(
@@ -234,7 +271,7 @@ _CALIBRATION_SPEC = CsvNamespaceSpec(
         "acmg_evidence_outcome_code": _optional(attrgetter("acmg_evidence_outcome_code")),
         "pathogenicity_classification": _optional(attrgetter("pathogenicity_classification")),
     },
-    needs_mappings=True,
+    parameter=parse_calibration_namespace,
     needs_score_set=True,
 )
 

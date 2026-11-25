@@ -6,15 +6,9 @@ from typing import List, Optional
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, selectinload
 
-from mavedb.lib.csv.annotations import annotations_for_rows
-from mavedb.lib.csv.columns import (
-    assemble_csv_headers,
-    drop_unused_hgvs_columns,
-    plan_csv_columns,
-    rows_to_csv,
-    variants_to_csv_rows,
-)
+from mavedb.lib.csv.columns import CsvPlan, render_csv
 from mavedb.lib.csv.entries import (
+    MAPPING_DERIVED_NAMESPACES,
     AvailableCsvNamespaceEntry,
     calibration_namespace_entries,
     calibration_viewer,
@@ -23,7 +17,7 @@ from mavedb.lib.csv.entries import (
     score_sets_have_current_mappings,
     static_namespace_entry,
 )
-from mavedb.lib.csv.fetch import fetch_variant_csv_data
+from mavedb.lib.csv.fetch import ScoreSetScope, iter_csv_rows, unused_hgvs_columns
 from mavedb.lib.csv.namespaces import CsvNamespace
 from mavedb.lib.mave.constants import REQUIRED_SCORE_COLUMN
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
@@ -46,35 +40,14 @@ def get_score_set_variants_as_csv(
     # `dataset_columns` is NOT NULL with a `{}` default, so only a transient score set reaches this unset.
     # Treating it as empty if it is unset yields the core columns alone rather than failing  deeper in
     # column planning.
-    plan = plan_csv_columns(score_set.dataset_columns or {}, namespaces)
+    plan = CsvPlan.build(score_set.dataset_columns or {}, namespaces, namespaced=namespaced)
 
-    fetched = fetch_variant_csv_data(
-        db,
-        plan.namespaced_columns,
-        plan.clinvar_namespaces,
-        score_set=score_set,
-        start=start,
-        limit=limit,
-        as_of=as_of,
-    )
-
-    mappings = fetched.mappings or [None] * len(fetched.variants)
-    rows_data = variants_to_csv_rows(
-        fetched.variants,
-        columns=plan.namespaced_columns,
-        namespaced=namespaced,
-        mappings=fetched.mappings,
-        gnomad_data=fetched.gnomad_data,
-        clinvar_data_by_ns=fetched.clinvar_per_variant,
-        annotations_by_ns=annotations_for_rows(db, fetched.variants, mappings, plan.calibration_namespaces, viewer),
-    )
-
-    rows_columns = assemble_csv_headers(plan.namespaced_columns, namespaced=namespaced)
-
+    # TODO(#372): non-null id fields
+    scope = ScoreSetScope(score_set_id=score_set.id, start=start, limit=limit)  # type: ignore[arg-type]
     if drop_unused_hgvs_columns_flag:
-        rows_data, rows_columns = drop_unused_hgvs_columns(rows_data, rows_columns)
+        plan = plan.without(unused_hgvs_columns(db, scope))
 
-    return rows_to_csv(rows_data, rows_columns)
+    return "".join(render_csv(plan, iter_csv_rows(db, plan, scope, as_of=as_of, viewer=viewer)))
 
 
 def available_score_set_csv_namespaces(
@@ -112,10 +85,7 @@ def available_score_set_csv_namespaces(
     entries.append(static_namespace_entry(CsvNamespace.SCORE_SET))  # always its own provenance
 
     if score_sets_have_current_mappings(db, score_set_ids, as_of=as_of):
-        entries.extend(
-            static_namespace_entry(ns)
-            for ns in (CsvNamespace.REFERENCE_HGVS, CsvNamespace.VEP, CsvNamespace.GNOMAD, CsvNamespace.CLINGEN)
-        )
+        entries.extend(static_namespace_entry(ns) for ns in MAPPING_DERIVED_NAMESPACES)
         entries.extend(clinvar_namespace_entries(clinvar_release_namespaces(db, score_set_ids, as_of=as_of)))
 
     # Every calibration the score set defines is offered, rangeless ones included.
