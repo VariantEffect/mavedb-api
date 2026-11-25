@@ -6,7 +6,6 @@ import io
 import json
 import re
 import threading
-import time
 from copy import deepcopy
 from datetime import date, datetime, timezone
 from io import StringIO
@@ -6703,25 +6702,33 @@ def test_get_score_set_scores_csv_multi_batch_score_set_reads_every_row_before_s
     assert len(rows) == count
 
 
-def test_get_score_set_scores_csv_slow_client_receives_the_whole_file(app_, client, session, setup_router_db):
+def test_get_score_set_scores_csv_holds_no_transaction_while_sending(app_, client, session, setup_router_db):
     score_set, count = _seed_past_one_lean_batch(client, session)
-    # Stands in for the 60-second idle-in-transaction limit, scaled down.
-    session.execute(text("SET idle_in_transaction_session_timeout = '200ms'"))
-    session.commit()
 
+    # Backends left idle inside a transaction while each chunk was sent: the state that
+    # idle_in_transaction_session_timeout ends, however slowly the client reads.
+    idle_in_transaction_while_sending = []
     sent = []
 
     def on_body(body):
         sent.append(body)
-        # The client takes longer than the idle limit to read each chunk.
-        time.sleep(0.5)
+        with session.get_bind().connect() as other:
+            idle_in_transaction_while_sending.append(
+                other.execute(
+                    text(
+                        "SELECT count(*) FROM pg_stat_activity"
+                        " WHERE datname = current_database() AND pid <> pg_backend_pid()"
+                        " AND state = 'idle in transaction'"
+                    )
+                ).scalar_one()
+            )
 
-    with patch("mavedb.lib.middleware.errors.send_slack_error") as slack_error:
-        _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/scores", on_body)
+    _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/scores", on_body)
 
+    assert idle_in_transaction_while_sending
+    assert not any(idle_in_transaction_while_sending)
     rows = list(csv.DictReader(io.StringIO(b"".join(sent).decode())))
     assert [row["accession"] for row in rows] == [f"{score_set['urn']}#{n}" for n in range(1, count + 1)]
-    slack_error.assert_not_called()
 
 
 def test_get_score_set_scores_csv_releases_the_build_slot_before_sending(
