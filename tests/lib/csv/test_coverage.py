@@ -22,7 +22,7 @@ pytest.importorskip("psycopg2")
 
 import mavedb
 from mavedb.lib.csv.namespaces import CsvNamespace
-from mavedb.lib.csv.score_set import get_score_set_variants_as_csv
+from mavedb.lib.csv.score_set import get_score_set_variants_as_csv, stream_score_set_variants_as_csv
 from mavedb.lib.csv.sources import SOURCE_LOADERS
 from mavedb.lib.csv.specs import RowSource, namespace_spec
 from mavedb.lib.csv.variant import get_variant_csv
@@ -134,16 +134,25 @@ def test_every_csv_export_is_covered():
 # Every parameter that changes an export's output is exercised
 # ---------------------------------------------------------------------------
 
+_SCORE_SET_PARAMETERS: dict[str, Coverage] = {
+    "namespaced": BySnapshot("score_set-scores-namespaced-all_hgvs-whole"),
+    "start": BySnapshot("score_set-scores-bare-all_hgvs-page"),
+    "limit": BySnapshot("score_set-scores-bare-all_hgvs-page"),
+    "drop_unused_hgvs_columns_flag": BySnapshot("score_set-scores-bare-drop_unused_hgvs-whole"),
+    "as_of": BySnapshot("score_set-wide-namespaced-all_hgvs-whole-as_of"),
+    "viewer": ByTest(
+        "tests/lib/csv/test_variant.py::TestPrivateCalibrationsAreNotDisclosed::"
+        "test_a_permitted_caller_receives_it_in_the_score_set_csv"
+    ),
+}
+
 _EXPORT_PARAMETERS: dict[Callable, dict[str, Coverage]] = {
-    get_score_set_variants_as_csv: {
-        "namespaced": BySnapshot("score_set-scores-namespaced-all_hgvs-whole"),
-        "start": BySnapshot("score_set-scores-bare-all_hgvs-page"),
-        "limit": BySnapshot("score_set-scores-bare-all_hgvs-page"),
-        "drop_unused_hgvs_columns_flag": BySnapshot("score_set-scores-bare-drop_unused_hgvs-whole"),
-        "as_of": BySnapshot("score_set-wide-namespaced-all_hgvs-whole-as_of"),
-        "viewer": ByTest(
-            "tests/lib/csv/test_variant.py::TestPrivateCalibrationsAreNotDisclosed::"
-            "test_a_permitted_caller_receives_it_in_the_score_set_csv"
+    get_score_set_variants_as_csv: _SCORE_SET_PARAMETERS,
+    # The get_ export is this stream joined, so whatever sets a parameter on one sets it on both.
+    stream_score_set_variants_as_csv: {
+        **_SCORE_SET_PARAMETERS,
+        "batch_size": ByTest(
+            "tests/lib/csv/test_score_set.py::test_stream_score_set_variants_as_csv_batching_does_not_change_the_bytes"
         ),
     },
     get_variant_csv: {

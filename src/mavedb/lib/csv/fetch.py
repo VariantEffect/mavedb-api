@@ -20,6 +20,10 @@ from mavedb.models.variant import Variant
 # CSV rows come out in variant-number order (the integer after '#'); id breaks ties stably.
 _VARIANT_NUMBER_ORDER = (Variant.variant_number, Variant.id)
 
+CSV_BATCH_SIZE = 5000
+"""Rows a streamed score set CSV reads, renders and sends at a time. Large enough for efficient fetching, small
+enough that a batch's rows and rendered text stay a few megabytes."""
+
 _NULL_TOKENS = sorted({value.lower() for value in NULL_VALUES})
 """``NULL_VALUES`` lowercased for matching in SQL: the tokens ``columns._is_output_null`` writes as NA."""
 
@@ -57,8 +61,14 @@ def iter_csv_rows(
     *,
     as_of: Optional[datetime] = None,
     viewer: Optional[ScoreCalibrationViewer] = None,
+    batch_size: int = CSV_BATCH_SIZE,
 ) -> Iterator[list[CsvRow]]:
-    """The rows of *scope*, each carrying every source *plan* reads, in batches. Today the scope is one batch.
+    """The rows of *scope*, each carrying every source *plan* reads, in batches of up to *batch_size*.
+
+    A score set's variants come from a server-side cursor, and each batch's sources are loaded for that batch
+    alone, so memory doesn't grow with the score set. The query runs when the first batch is requested, and the
+    cursor holds ``db``'s transaction open until the last batch is read or the generator is closed. An explicit
+    variant set is one batch.
 
     Args:
         as_of: reconstruct the mapping-derived sources as they stood at this instant, over the variants'
@@ -68,14 +78,13 @@ def iter_csv_rows(
     fill = source_filler(CsvContext(db, as_of=as_of, viewer=viewer), plan)
     match_type = scope.match_type if isinstance(scope, VariantScope) else None
 
-    rows: list[CsvRow] = [
-        {RowSource.VARIANT: variant, RowSource.MATCH_TYPE: match_type} for variant in _variants(db, plan, scope)
-    ]
-    fill(rows)
-    yield rows
+    for variants in _variant_batches(db, plan, scope, batch_size):
+        rows: list[CsvRow] = [{RowSource.VARIANT: variant, RowSource.MATCH_TYPE: match_type} for variant in variants]
+        fill(rows)
+        yield rows
 
 
-def _variants(db: Session, plan: CsvPlan, scope: CsvScope) -> Sequence[Variant]:
+def _variant_batches(db: Session, plan: CsvPlan, scope: CsvScope, batch_size: int) -> Iterator[Sequence[Variant]]:
     query = select(Variant)
     if plan.needs_score_set:
         query = query.options(
@@ -87,18 +96,20 @@ def _variants(db: Session, plan: CsvPlan, scope: CsvScope) -> Sequence[Variant]:
         variants = db.scalars(query.where(Variant.id.in_(scope.variant_ids))).all()
         # Postgres does not preserve IN-list order.
         position = {variant_id: index for index, variant_id in enumerate(scope.variant_ids)}
-        return sorted(variants, key=lambda variant: position[variant.id])
+        yield sorted(variants, key=lambda variant: position[variant.id])
+        return
 
     if scope.start is None and scope.limit is None:
-        return db.scalars(
-            query.where(Variant.score_set_id == scope.score_set_id).order_by(*_VARIANT_NUMBER_ORDER)
-        ).all()
+        query = query.where(Variant.score_set_id == scope.score_set_id)
+    else:
+        # Joining to the page's ids, with no score set filter of its own, leaves the outer query nothing to do
+        # but fetch those rows. Filtered by score set, the planner could serve its ORDER BY by walking the whole
+        # score set in index order and reading every row, skipped ones included (#901).
+        page = _page_variant_ids(scope.score_set_id, scope.start, scope.limit).subquery("page")
+        query = query.join(page, page.c.id == Variant.id)
 
-    # Joining to the page's ids, with no score set filter of its own, leaves the outer query nothing to do
-    # but fetch those rows. Filtered by score set, the planner could serve its ORDER BY by walking the whole
-    # score set in index order and reading every row, skipped ones included (#901).
-    page = _page_variant_ids(scope.score_set_id, scope.start, scope.limit).subquery("page")
-    return db.scalars(query.join(page, page.c.id == Variant.id).order_by(*_VARIANT_NUMBER_ORDER)).all()
+    query = query.order_by(*_VARIANT_NUMBER_ORDER)
+    yield from db.scalars(query, execution_options={"yield_per": batch_size}).partitions()
 
 
 def _page_variant_ids(score_set_id: int, start: Optional[int], limit: Optional[int]) -> Select[Any]:
