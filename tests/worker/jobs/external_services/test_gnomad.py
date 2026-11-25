@@ -9,9 +9,10 @@ from unittest.mock import patch
 from sqlalchemy import select
 
 from mavedb.lib import gnomad as gnomad_lib
+from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.gnomad import GNOMAD_DATA_VERSION
 from mavedb.lib.types.workflow import JobExecutionOutcome
-from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.annotation_status import AnnotationStatus
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
@@ -107,7 +108,7 @@ class TestLinkGnomadVariantsUnit:
 
         # Allele-keyed not-applicable event: gnomAD is nucleotide-level, so a protein allele is a
         # structural gap, not a statement about the source.
-        event = session.scalars(select(AnnotationEvent)).one()
+        event = session.scalars(select(AnnotationStatus)).one()
         assert event.annotation_type == AnnotationType.GNOMAD_ALLELE_FREQUENCY
         assert event.disposition == Disposition.NOT_APPLICABLE
         assert event.reason == EventReason.PROTEIN_LEVEL_ALLELE
@@ -197,7 +198,7 @@ class TestLinkGnomadVariantsIntegration:
         assert len(session.scalars(select(GnomadAlleleLink)).all()) == 0
 
         # Verify no annotations were rendered (since there were no alleles with CAIDs)
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 0
 
         # Verify job status updates
@@ -231,7 +232,7 @@ class TestLinkGnomadVariantsIntegration:
         assert len(session.scalars(select(GnomadAlleleLink)).all()) == 0
 
         # Verify an absent event was rendered: the allele's CAID was queried but gnomAD had no record.
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 1
         assert events[0].disposition == "absent"
         assert events[0].reason == "no_record"
@@ -273,7 +274,7 @@ class TestLinkGnomadVariantsIntegration:
         assert len(live_links) == 1
 
         # Verify annotation status was rendered
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 1
         assert events[0].disposition == "present"
         assert events[0].reason == "created"
@@ -328,7 +329,7 @@ class TestLinkGnomadVariantsIntegration:
         # One allele-keyed event per allele (never per-variant): the linked RT allele is present,
         # the unmatched authoritative allele is absent. The variant resolves its derived allele's
         # status through the live links — no variant_id on the events.
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert all(e.annotation_type == "gnomad_allele_frequency" for e in events)
         assert all(e.variant_id is None for e in events)
         by_allele = {e.allele_id: e for e in events}
@@ -376,10 +377,51 @@ class TestLinkGnomadVariantsIntegration:
         assert links[0].valid_to is None
 
         # Event is PRESENT, marked preexisting (the link was already current; not created this run).
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 1
         assert events[0].disposition == "present"
         assert events[0].reason == "preexisting"
+
+    @pytest.mark.parametrize(
+        "prior_version, queried", [(GNOMAD_DATA_VERSION, False), ("v2.1.1", True)], ids=["this-version", "older"]
+    )
+    async def test_link_gnomad_variants_skips_allele_known_absent_at_this_version(
+        self,
+        session,
+        with_populated_domain_data,
+        with_gnomad_linking_job,
+        mock_worker_ctx,
+        sample_link_gnomad_variants_run,
+        setup_sample_alleles_with_caid,
+        athena_engine,
+        prior_version,
+        queried,
+    ):
+        """An allele a prior run found absent at this gnomAD version isn't queried again, and its status doesn't
+        change. One found absent at an older version is queried."""
+        _, allele = setup_sample_alleles_with_caid
+        prior = AnnotationStatusManager(session)
+        prior.report(
+            AnnotationType.GNOMAD_ALLELE_FREQUENCY,
+            allele_id=allele.id,
+            disposition=Disposition.ABSENT,
+            reason=EventReason.NO_RECORD,
+            source_version=prior_version,
+        )
+        prior.flush()
+        session.commit()
+
+        with (
+            patch("mavedb.worker.jobs.external_services.gnomad.athena.engine", athena_engine),
+            patch(
+                "mavedb.worker.jobs.external_services.gnomad.gnomad_variant_data_for_caids", return_value=[]
+            ) as fetch_spy,
+        ):
+            await link_gnomad_variants(mock_worker_ctx, sample_link_gnomad_variants_run.id)
+
+        assert fetch_spy.called is queried
+        statuses = session.scalars(select(AnnotationStatus)).all()
+        assert len(statuses) == (2 if queried else 1)
 
     async def test_link_gnomad_variants_force_refetches_without_churn(
         self,
@@ -452,7 +494,7 @@ class TestLinkGnomadVariantsIntegration:
         assert len(session.scalars(select(GnomadAlleleLink).where(GnomadAlleleLink.current)).all()) > 0
 
         # Verify annotation status was rendered
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 1
         assert events[0].disposition == "present"
         assert events[0].reason == "created"
@@ -532,7 +574,7 @@ class TestLinkGnomadVariantsArqContext:
         assert len(session.scalars(select(GnomadAlleleLink).where(GnomadAlleleLink.current)).all()) > 0
 
         # Verify annotation status was rendered
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 1
         assert events[0].disposition == "present"
         assert events[0].reason == "created"
@@ -567,7 +609,7 @@ class TestLinkGnomadVariantsArqContext:
         assert len(session.scalars(select(GnomadAlleleLink).where(GnomadAlleleLink.current)).all()) > 0
 
         # Verify annotation status was rendered
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 1
         assert events[0].disposition == "present"
         assert events[0].reason == "created"
@@ -612,7 +654,7 @@ class TestLinkGnomadVariantsArqContext:
         assert len(session.scalars(select(GnomadAlleleLink)).all()) == 0
 
         # Verify no annotations were rendered
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 0
 
         # Verify that the job errored
@@ -649,7 +691,7 @@ class TestLinkGnomadVariantsArqContext:
         assert len(session.scalars(select(GnomadAlleleLink)).all()) == 0
 
         # Verify no annotations were rendered
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 0
 
         # Verify that the job errored

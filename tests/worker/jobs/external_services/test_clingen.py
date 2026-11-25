@@ -9,12 +9,16 @@ from unittest.mock import MagicMock, patch
 
 from sqlalchemy import select
 
+from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.allele import Allele
-from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.annotation_status import AnnotationStatus
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
+from mavedb.models.enums.annotation_type import AnnotationType
+from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
@@ -168,7 +172,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
 
         # 4 variants dedup to 1 allele → one allele-keyed event, failed (no CAR response).
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 1
         for event in events:
@@ -236,7 +240,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
 
         # 1 allele, rejected by CAR → one failed event (reason=service_rejected).
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 1
         for event in events:
@@ -319,7 +323,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
 
         # One event per allele (2 alleles → 2 events), each keyed on its allele, not fanned per-variant.
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 2
         assert all(e.variant_id is None for e in events)
@@ -386,7 +390,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         # No CAID written — neither of the returned values is trusted.
         assert len(session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()) == 0
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 1
         for event in events:
@@ -443,7 +447,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         # No CAID assigned; the one allele's event is failed (reason=malformed_response).
         assert len(session.scalars(select(Allele).where(Allele.clingen_allele_id.isnot(None))).all()) == 0
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 1
         for event in events:
@@ -509,7 +513,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
 
         # 1 allele → one present event.
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 1
         for event in events:
@@ -578,9 +582,9 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
 
         # All 4 variant annotations succeeded
         present_events = session.scalars(
-            select(AnnotationEvent).where(
-                AnnotationEvent.annotation_type == "clingen_allele_id",
-                AnnotationEvent.disposition == "present",
+            select(AnnotationStatus).where(
+                AnnotationStatus.annotation_type == "clingen_allele_id",
+                AnnotationStatus.disposition == "present",
             )
         ).all()
         assert len(present_events) == 1
@@ -630,7 +634,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
 
         # Verify annotation statuses were rendered as failed — 4 variants, all failed
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 1
         for event in events:
@@ -740,7 +744,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
 
         # 4 per-variant annotations — all success
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 1
         for event in events:
@@ -796,13 +800,13 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert result.data["submitted_allele_count"] == 0
 
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 1
         for event in events:
             assert event.disposition == "present"
             assert event.reason == "preexisting"
-            assert event.event_metadata["clingen_allele_id"] == "CA_PRIOR"
+            assert event.status_metadata["clingen_allele_id"] == "CA_PRIOR"
 
     async def test_submit_score_set_mappings_to_car_force_reregister_same_caid(
         self,
@@ -865,7 +869,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert result.data["submitted_allele_count"] == 1
 
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 1
         for event in events:
@@ -923,6 +927,12 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             ]
         )
         session.flush()
+        prior = AnnotationStatusManager(session)
+        for annotation_type in (AnnotationType.GNOMAD_ALLELE_FREQUENCY, AnnotationType.CLINVAR_ALLELE_ID):
+            prior.report(
+                annotation_type, allele_id=allele.id, disposition=Disposition.PRESENT, reason=EventReason.CREATED
+            )
+        prior.flush()
 
         submit_score_set_mappings_to_car_sample_job_run.job_params = {
             **submit_score_set_mappings_to_car_sample_job_run.job_params,
@@ -957,15 +967,24 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert live_gnomad == [] and live_clinvar == []
 
         corrected = session.scalars(
-            select(AnnotationEvent).where(
-                AnnotationEvent.annotation_type == "clingen_allele_id", AnnotationEvent.reason == "corrected"
+            select(AnnotationStatus).where(
+                AnnotationStatus.annotation_type == "clingen_allele_id", AnnotationStatus.reason == "corrected"
             )
         ).one()
         assert corrected.disposition == "present"
-        assert corrected.event_metadata["replaced_caid"] == "CA_BACKFILLED"
-        assert corrected.event_metadata["clingen_allele_id"] == "CA_FROM_CAR"
-        assert corrected.event_metadata["retired_gnomad_links"] == 1
-        assert corrected.event_metadata["retired_clinvar_links"] == 1
+        assert corrected.status_metadata["replaced_caid"] == "CA_BACKFILLED"
+        assert corrected.status_metadata["clingen_allele_id"] == "CA_FROM_CAR"
+        assert corrected.status_metadata["retired_gnomad_links"] == 1
+        assert corrected.status_metadata["retired_clinvar_links"] == 1
+
+        # Results matched through the old CAID are withdrawn, so the next gnomAD and ClinVar runs check it again.
+        assert not session.scalars(
+            select(AnnotationStatus).where(
+                AnnotationStatus.allele_id == allele.id,
+                AnnotationStatus.annotation_type.in_(["gnomad_allele_frequency", "clinvar_allele_id"]),
+                AnnotationStatus.current,
+            )
+        ).all()
 
     async def test_submit_score_set_mappings_to_car_links_a_caid_whose_response_does_not_list_the_submitted_hgvs(
         self,
@@ -1019,11 +1038,11 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert allele.clingen_allele_id == "CA_NORMALIZED"
 
         event = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).one()
         assert (event.disposition, event.reason) == ("present", "created")
-        assert event.event_metadata["submitted_hgvs_unlisted"] is True
-        assert event.event_metadata["submitted_hgvs"] == submitted_hgvs
+        assert event.status_metadata["submitted_hgvs_unlisted"] is True
+        assert event.status_metadata["submitted_hgvs"] == submitted_hgvs
 
     async def test_submit_score_set_mappings_to_car_force_reregister_reconfirms_a_caid_whose_response_does_not_list_the_submitted_hgvs(
         self,
@@ -1073,10 +1092,10 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
 
         assert result.status == JobStatus.SUCCEEDED
         event = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).one()
         assert (event.disposition, event.reason) == ("present", "reconfirmed")
-        assert event.event_metadata["submitted_hgvs_unlisted"] is True
+        assert event.status_metadata["submitted_hgvs_unlisted"] is True
 
     async def _add_derived_alleles_with_distinct_hgvs(self, session, count):
         """Attach ``count`` extra alleles to the score set, each carrying a distinct HGVS so the CAR
@@ -1173,7 +1192,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
             assert allele.clingen_allele_id is not None
 
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 4
         assert all(event.disposition == "present" for event in events)
@@ -1240,7 +1259,7 @@ class TestClingenSubmitScoreSetMappingsToCarUnit:
         assert len(registered) == 2
 
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 4
         assert sum(event.disposition == "present" for event in events) == 2
@@ -1310,7 +1329,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
 
         # 4 per-variant annotations — all success
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 1
         for event in events:
@@ -1377,7 +1396,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
 
         # 4 per-variant annotations — all success
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 1
         for event in events:
@@ -1420,7 +1439,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         assert len(alleles) == 0
 
         # Verify no annotation statuses were created
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 0
 
         # Verify the job status is updated in the database
@@ -1459,7 +1478,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         assert len(alleles) == 0
 
         # Verify no annotation statuses were created
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 0
 
         # Verify the job status is updated in the database
@@ -1490,7 +1509,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
         assert len(alleles) == 0
 
         # Verify no annotation statuses were created
-        events = session.scalars(select(AnnotationEvent)).all()
+        events = session.scalars(select(AnnotationStatus)).all()
         assert len(events) == 0
 
         # Verify the job status is updated in the database
@@ -1545,7 +1564,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
 
         # Verify annotation statuses were rendered as failed — 4 variants, all failed
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 1
 
@@ -1605,7 +1624,7 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
 
         # Verify annotation statuses were rendered as failed — 4 variants, all failed
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 1
 
@@ -1675,9 +1694,9 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
 
         # All 4 variant annotations succeeded
         present_events = session.scalars(
-            select(AnnotationEvent).where(
-                AnnotationEvent.annotation_type == "clingen_allele_id",
-                AnnotationEvent.disposition == "present",
+            select(AnnotationStatus).where(
+                AnnotationStatus.annotation_type == "clingen_allele_id",
+                AnnotationStatus.disposition == "present",
             )
         ).all()
         assert len(present_events) == 1
@@ -1741,17 +1760,17 @@ class TestClingenSubmitScoreSetMappingsToCarIntegration:
 
         # The 1 shared allele was rejected by ClinGen → one failed event (reason service_rejected).
         rejected_events = session.scalars(
-            select(AnnotationEvent).where(
-                AnnotationEvent.annotation_type == "clingen_allele_id",
-                AnnotationEvent.reason == "service_rejected",
+            select(AnnotationStatus).where(
+                AnnotationStatus.annotation_type == "clingen_allele_id",
+                AnnotationStatus.reason == "service_rejected",
             )
         ).all()
         assert len(rejected_events) == 1
         for event in rejected_events:
             assert event.disposition == "failed"
-            assert event.event_metadata["submitted_hgvs"] == allele_hgvs
-            assert event.event_metadata["car_error_type"] == "InvalidHGVS"
-            assert event.event_metadata["car_error_message"] == "The HGVS string is invalid."
+            assert event.status_metadata["submitted_hgvs"] == allele_hgvs
+            assert event.status_metadata["car_error_type"] == "InvalidHGVS"
+            assert event.status_metadata["car_error_message"] == "The HGVS string is invalid."
 
     async def test_submit_score_set_mappings_to_car_propagates_exception_to_decorator(
         self,
@@ -1868,7 +1887,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
 
         # 4 per-variant annotations — all success
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 1
         for event in events:
@@ -1940,7 +1959,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
 
         # 4 per-variant annotations — all success
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 1
         for event in events:
@@ -2000,7 +2019,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
 
         # Verify no annotation statuses were created
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 0
 
@@ -2063,7 +2082,7 @@ class TestClingenSubmitScoreSetMappingsToCarArqContext:
 
         # Verify no annotation statuses were created
         events = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "clingen_allele_id")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "clingen_allele_id")
         ).all()
         assert len(events) == 0
 
@@ -2415,7 +2434,7 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
 
         # Verify annotation statuses were created
         annotation_statuses = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "ldh_submission")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "ldh_submission")
         ).all()
         assert len(annotation_statuses) == 4
         for ann in annotation_statuses:
@@ -2486,7 +2505,7 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
 
         # Verify annotation statuses were created
         annotation_statuses = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "ldh_submission")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "ldh_submission")
         ).all()
         assert len(annotation_statuses) == 4
         for ann in annotation_statuses:
@@ -2593,7 +2612,7 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
 
         # Verify annotation statuses were created with failures
         annotation_statuses = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "ldh_submission")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "ldh_submission")
         ).all()
         assert len(annotation_statuses) == 4
         for ann in annotation_statuses:
@@ -2641,7 +2660,7 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
 
         # Verify no annotation statuses were created
         annotation_statuses = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "ldh_submission")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "ldh_submission")
         ).all()
         assert len(annotation_statuses) == 0
 
@@ -2696,7 +2715,7 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
 
         # Verify annotation statuses were created with failures
         annotation_statuses = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "ldh_submission")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "ldh_submission")
         ).all()
         assert len(annotation_statuses) == 4
         for ann in annotation_statuses:
@@ -2765,7 +2784,7 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
 
         # Verify annotation statuses were created
         annotation_statuses = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "ldh_submission")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "ldh_submission")
         ).all()
         assert len(annotation_statuses) == 4
         success_count = 0
@@ -2843,7 +2862,7 @@ class TestClingenSubmitScoreSetMappingsToLdhIntegration:
 
         # Verify annotation statuses were created
         annotation_statuses = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "ldh_submission")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "ldh_submission")
         ).all()
         assert len(annotation_statuses) == 4
         for ann in annotation_statuses:
@@ -2920,7 +2939,7 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
 
         # Verify annotation statuses were created
         annotation_statuses = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "ldh_submission")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "ldh_submission")
         ).all()
         assert len(annotation_statuses) == 4
         for ann in annotation_statuses:
@@ -2992,7 +3011,7 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
 
         # Verify annotation statuses were created
         annotation_statuses = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "ldh_submission")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "ldh_submission")
         ).all()
         assert len(annotation_statuses) == 4
         for ann in annotation_statuses:
@@ -3051,7 +3070,7 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
         mock_send_slack_job_error.assert_called_once()
         # Verify no annotation statuses were created
         annotation_statuses = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "ldh_submission")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "ldh_submission")
         ).all()
         assert len(annotation_statuses) == 0
 
@@ -3106,7 +3125,7 @@ class TestClingenSubmitScoreSetMappingsToLdhArqIntegration:
         mock_send_slack_job_error.assert_called_once()
         # Verify no annotation statuses were created
         annotation_statuses = session.scalars(
-            select(AnnotationEvent).where(AnnotationEvent.annotation_type == "ldh_submission")
+            select(AnnotationStatus).where(AnnotationStatus.annotation_type == "ldh_submission")
         ).all()
         assert len(annotation_statuses) == 0
 

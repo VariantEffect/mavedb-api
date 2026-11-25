@@ -140,7 +140,7 @@ from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.lib.vrs_utils import CANONICAL_ACCESSION_PREFIXES, canonical_variation_document, location_refgets
 from mavedb.models import *  # noqa: F401,F403  pylint: disable=wildcard-import  — register all mappers for configure_mappers()
 from mavedb.models.allele import Allele
-from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.annotation_status import AnnotationStatus
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
@@ -864,8 +864,8 @@ def _migrate_variant(
     """Reconstruct as much of a variant's record history as its data supports, returning the ids of
     every allele this variant authoritatively touched.
 
-    Also records one ``VRS_MAPPING`` event per version created (variant-subject) and one
-    ``CLINGEN_ALLELE_ID`` / ``MAPPED_HGVS`` event per allele-touch (allele-subject), all reason
+    Also reports one ``VRS_MAPPING`` status per version created (variant-subject) and one
+    ``CLINGEN_ALLELE_ID`` status per allele-touch (allele-subject), all reason
     :data:`EventReason.MIGRATED` — see :func:`do_migration`'s docstring for why this is scoped to the
     mapping/identity side only, not gnomAD/ClinVar/VEP.
 
@@ -918,12 +918,9 @@ def _migrate_variant(
         stats["variants_live_precedes_history"] += 1
         skipped["live_precedes_history"].append(variant_id)
 
-    # (mv, record, allele-or-None, hgvs_assay_level, valid_from, valid_to) per window actually created
-    # this pass — resolved to real ids by one flush below, then walked again to emit events and collect
-    # touched allele ids.
-    pending: list[
-        tuple[MappedVariant, MappingRecord, Optional[Allele], Optional[str], datetime, Optional[datetime]]
-    ] = []
+    # (mv, allele-or-None) per window actually created this pass — resolved to real ids by one flush below,
+    # then walked again to report statuses and collect touched allele ids.
+    pending: list[tuple[MappedVariant, Optional[Allele]]] = []
 
     for mv, valid_from, valid_to in result.windows:
         if (variant_id, mv.mapped_date) in existing_records:
@@ -995,7 +992,7 @@ def _migrate_variant(
             )
             stats["record_alleles"] += 1
 
-        pending.append((mv, record, allele, hgvs_assay_level, valid_from, valid_to))
+        pending.append((mv, allele))
 
     if not pending:
         return set()
@@ -1004,7 +1001,7 @@ def _migrate_variant(
     stats["variants"] += 1
 
     touched_allele_ids: set[int] = set()
-    for mv, record, allele, hgvs_assay_level, valid_from, valid_to in pending:
+    for mv, allele in pending:
         # VRS_MAPPING: variant-subject, written for every version regardless of allele — mirrors the
         # live job (mapping.py), whose FAILED/ABSENT outcomes get a record but no allele too.
         if mv.error_message:
@@ -1013,42 +1010,32 @@ def _migrate_variant(
             mapping_disposition = Disposition.PRESENT
         else:
             mapping_disposition = Disposition.ABSENT
-        annotation_manager.record_event(
+        annotation_manager.report(
             AnnotationType.VRS_MAPPING,
             variant_id=variant_id,
             disposition=mapping_disposition,
             reason=EventReason.MIGRATED.value,
             source_version=mv.mapping_api_version,
         )
-        stats["annotation_events_written"] += 1
+        stats["annotation_status_reports"] += 1
 
         if allele is not None:
-            # CLINGEN_ALLELE_ID / MAPPED_HGVS: allele-subject, only meaningful once an allele exists.
+            # CLINGEN_ALLELE_ID: allele-subject, only meaningful once an allele exists.
             # allele.id is real now — this loop runs after the single flush above.
-            annotation_manager.record_event(
+            annotation_manager.report(
                 AnnotationType.CLINGEN_ALLELE_ID,
                 allele_id=allele.id,
                 disposition=Disposition.PRESENT if mv.clingen_allele_id else Disposition.ABSENT,
                 reason=EventReason.MIGRATED.value,
                 source_version=mv.mapping_api_version,
             )
-            annotation_manager.record_event(
-                AnnotationType.MAPPED_HGVS,
-                allele_id=allele.id,
-                disposition=Disposition.PRESENT if hgvs_assay_level else Disposition.ABSENT,
-                reason=EventReason.MIGRATED.value,
-                source_version=mv.mapping_api_version,
-            )
-            stats["annotation_events_written"] += 2
+            stats["annotation_status_reports"] += 1
 
             touched_allele_ids.add(allele.id)
 
-    # Flushed once for the whole variant (not per event) — still inside this variant's own SAVEPOINT
-    # (the caller's `with db.begin_nested():` wraps this entire call), so a buffered event never
-    # outlives the rollback of the record/allele it references. See do_migration's except-block for the
-    # backstop: if something *between* here and there still raised, pending events for this variant are
-    # explicitly discarded rather than leaking into a later, unrelated flush.
-    annotation_manager.flush()
+    # Statuses flush once per batch, right before its commit: a flush holds the status lock until the commit, so
+    # flushing per variant would hold it for the whole batch. do_migration's except-block discards a failed
+    # variant's reports.
     return touched_allele_ids
 
 
@@ -1123,13 +1110,10 @@ def do_migration(
     ClinVar link that would otherwise land live — see :func:`_write_allele_timeline`. Exposed as a
     parameter mainly for deterministic tests; a real run just wants "now".
 
-    Also backfills the ``annotation_event`` audit log — but only for the mapping/identity side
-    (``VRS_MAPPING``, ``CLINGEN_ALLELE_ID``, ``MAPPED_HGVS``), not gnomAD/ClinVar/VEP. That scope split
-    is deliberate: the mapping side is a genuine, non-lossy reconstruction (one real historical event
-    per ``mapped_variants`` version, the same data already trusted enough to build ``MappingRecord``/
-    ``Allele`` from), whereas gnomAD/ClinVar/VEP would need to guess at a created/reconfirmed/skipped
-    cadence legacy data never recorded — and those sources get real, fresh events again once each score
-    set is re-annotated, so the audit gap there is temporary, not permanent. See
+    Also reports ``annotation_status`` for the mapping/identity side (``VRS_MAPPING``, ``CLINGEN_ALLELE_ID``),
+    not gnomAD/ClinVar/VEP. The mapping side is a faithful reconstruction from the same
+    ``mapped_variants`` data trusted to build ``MappingRecord``/``Allele``, whereas gnomAD/ClinVar/VEP statuses
+    would be guesses; those sources get real statuses once each score set is re-annotated. See
     :data:`EventReason.MIGRATED`.
     """
     print("Backfilling the Allele substrate from mapped_variants...")
@@ -1199,7 +1183,7 @@ def do_migration(
             # A per-variant SAVEPOINT so one bad variant rolls back only its own inserts (not the
             # whole batch), and its touched allele ids are simply never added rather than referencing
             # rolled-back rows.
-            pending_events_before = len(annotation_manager._pending)
+            pending_events_before = len(annotation_manager._pending_reports)
             try:
                 with db.begin_nested():
                     variant_touched_allele_ids = _migrate_variant(
@@ -1215,12 +1199,9 @@ def do_migration(
                         sequence_guard,
                     )
             except Exception as exc:  # noqa: BLE001 — one bad variant must not abort the batch
-                # Discard any events this variant buffered but never got to flush before raising — they
-                # would otherwise linger in the manager's queue and get inserted by a later, unrelated
-                # flush, still referencing this variant/allele's now-rolled-back id (an FK violation far
-                # from its actual cause). _migrate_variant flushes its own events before returning
-                # normally, so this is a no-op on the success path.
-                del annotation_manager._pending[pending_events_before:]
+                # Discard the reports this variant buffered: they reference its now-rolled-back rows, and the
+                # batch's flush would otherwise write them (an FK violation far from its cause).
+                del annotation_manager._pending_reports[pending_events_before:]
                 stats["variants_errored"] += 1
                 logger.exception("Failed to migrate variant %s: %s", variant_id, exc)
                 continue
@@ -1230,8 +1211,10 @@ def do_migration(
         mark = perf_counter()
         if dry_run:
             db.rollback()
+            annotation_manager._pending_reports.clear()
             touched_allele_ids.clear()  # nothing persisted this batch; these ids are now invalid
         else:
+            annotation_manager.flush()
             db.commit()
         phase_seconds["commit"] += perf_counter() - mark
 
@@ -1257,7 +1240,7 @@ def do_migration(
         "alleles_off_sequence",
         "hgvs_recovered_from_level_column",
         "hgvs_recovered_from_vrs_expression",
-        "annotation_events_written",
+        "annotation_status_reports",
         "gnomad_links",
         "protein_gnomad_links_closed",
         "clinvar_links",
@@ -1353,8 +1336,8 @@ def verify_migration(db: Session, *, score_set_urn: Optional[str] = None) -> Non
     gnomad_links = db.scalar(sa.select(sa.func.count(GnomadAlleleLink.id)))
     clinvar_links = db.scalar(sa.select(sa.func.count(ClinvarAlleleLink.id)))
     vep_consequences = db.scalar(sa.select(sa.func.count(VepAlleleConsequence.id)))
-    migrated_events = db.scalar(
-        sa.select(sa.func.count(AnnotationEvent.id)).where(AnnotationEvent.reason == EventReason.MIGRATED.value)
+    migrated_statuses = db.scalar(
+        sa.select(sa.func.count(AnnotationStatus.id)).where(AnnotationStatus.reason == EventReason.MIGRATED.value)
     )
 
     print(f"  Variants with mapped_variants:      {total_mapped_variant_variants}")
@@ -1363,7 +1346,7 @@ def verify_migration(db: Session, *, score_set_urn: Optional[str] = None) -> Non
     print(f"  Alleles (deduped):                  {total_alleles}")
     print(f"  Live authoritative links:           {live_auth_links}")
     print(f"  gnomAD / ClinVar / VEP annotations: {gnomad_links} / {clinvar_links} / {vep_consequences}")
-    print(f"  MIGRATED annotation_event rows:      {migrated_events}")
+    print(f"  MIGRATED annotation_status rows:    {migrated_statuses}")
     if remaining == 0:
         print("  ✓ Every legacy variant has a MappingRecord.")
     else:
@@ -1379,10 +1362,8 @@ def rollback_migration(db: Session) -> None:
     -addressed and harmless if orphaned (a re-run reuses them), and annotation
     links re-existence-check. Delete those manually if a full teardown is needed.
 
-    ``AnnotationEvent`` rows (reason ``MIGRATED``) are left in place too, on purpose: it is an
-    append-only audit log, and deleting them on rollback would erase the very audit trail it exists to
-    keep — a re-run after rollback just appends a fresh set (matching how ``MappingRecord`` itself gets
-    deleted and recreated), not a duplicate-avoidance concern the way the ValidTime domain tables are.
+    ``annotation_status`` rows (reason ``MIGRATED``) are left in place too: they record what the legacy data
+    said, which a rollback doesn't change, and a re-run reports the same statuses, which writes nothing.
     """
     print("Rolling back backfilled MappingRecords (scoped to variants with mapped_variants)...")
     legacy_variant_ids = sa.select(sa.distinct(MappedVariant.variant_id))
@@ -1393,8 +1374,8 @@ def rollback_migration(db: Session) -> None:
     db.execute(sa.delete(MappingRecord).where(MappingRecord.variant_id.in_(legacy_variant_ids)))
     db.commit()
     print(f"Deleted {count} MappingRecords (and their allele links via cascade).")
-    print("Note: deduped Alleles, annotation links, and MIGRATED annotation_event rows were left in place")
-    print("(re-runnable / harmless orphans; the event log is append-only by design).")
+    print("Note: deduped Alleles, annotation links, and MIGRATED annotation_status rows were left in place")
+    print("(a re-run reuses them).")
 
 
 def _parse_args() -> argparse.Namespace:

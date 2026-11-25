@@ -17,19 +17,15 @@ from mavedb.models.collection import Collection
 from mavedb.models.collection_score_set_association import CollectionScoreSetAssociation
 from mavedb.models.score_set import ScoreSet
 
-# A score set every one of whose variants has an RT event on or after :since. RT writes an event for every
-# variant it processes, not_applicable and failed included, so a variant RT has not reached since then keeps
-# the score set out.
+# A score set with an RT job that finished processing it on or after :since. A run processes every variant, and
+# fails only when every variant's translation failed, so both count. Annotation statuses can't answer this: they
+# record changes, so a run that changed nothing leaves no trace there.
 TRANSLATED_SINCE_SQL = """
-    SELECT score_set_id
-    FROM (
-        SELECT e.score_set_id, e.variant_id, max(e.created_at) AS translated_at
-        FROM annotation_event e
-        WHERE e.annotation_type = 'cross_level_translation'
-        GROUP BY 1, 2
-    ) latest
-    GROUP BY score_set_id
-    HAVING min(translated_at) >= :since
+    SELECT DISTINCT (j.job_params->>'score_set_id')::int AS score_set_id
+    FROM job_runs j
+    WHERE j.job_function = 'reverse_translate_variants_for_score_set'
+      AND j.status IN ('succeeded', 'failed')
+      AND j.finished_at >= :since
 """
 
 
@@ -39,7 +35,7 @@ def scope_options(command: Callable) -> Callable:
         "--translated-since",
         type=click.DateTime(formats=["%Y-%m-%d"]),
         default=None,
-        help="Only score sets whose every variant was reverse translated on or after this date (UTC).",
+        help="Only score sets a reverse translation job finished processing on or after this date (UTC).",
     )(command)
     command = click.option("--collection", default=None, help="Only score sets in this collection (URN).")(command)
     command = click.option("--score-set", "urns", multiple=True, help="Only this score set (URN). Repeatable.")(command)

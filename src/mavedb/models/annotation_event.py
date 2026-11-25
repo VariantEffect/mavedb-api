@@ -16,42 +16,43 @@ the audit point. "Current" is derived (``DISTINCT ON (subject, annotation_type)
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, func, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    SmallInteger,
+    String,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mavedb.db.base import Base
+from mavedb.models.annotation_status import sql_in_list
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
+
+# The log's own subject lists, as its table was created: they include types annotation_status no longer has.
+EVENT_VARIANT_SUBJECT_TYPES = ("vrs_mapping", "cross_level_translation", "variant_translation", "ldh_submission")
+EVENT_ALLELE_SUBJECT_TYPES = (
+    "clingen_allele_id",
+    "gnomad_allele_frequency",
+    "vep_functional_consequence",
+    "clinvar_control",
+    "mapped_hgvs",
+)
 
 if TYPE_CHECKING:
     from mavedb.models.allele import Allele
     from mavedb.models.job_run import JobRun
     from mavedb.models.score_set import ScoreSet
     from mavedb.models.variant import Variant
-
-VARIANT_SUBJECT_TYPES = (
-    AnnotationType.VRS_MAPPING.value,
-    AnnotationType.CROSS_LEVEL_TRANSLATION.value,
-    AnnotationType.VARIANT_TRANSLATION.value,
-    AnnotationType.LDH_SUBMISSION.value,
-)
-"""annotation_type values whose subject is the variant (variant_id set, allele_id null)"""
-
-ALLELE_SUBJECT_TYPES = (
-    AnnotationType.CLINGEN_ALLELE_ID.value,
-    AnnotationType.GNOMAD_ALLELE_FREQUENCY.value,
-    AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE.value,
-    AnnotationType.CLINVAR_CONTROL.value,
-    AnnotationType.MAPPED_HGVS.value,
-)
-"""annotation_type values whose subject is the allele (allele_id set, variant_id null)"""
-
-
-def _sql_in_list(values: tuple[str, ...]) -> str:
-    return ", ".join(f"'{v}'" for v in values)
 
 
 class AnnotationEvent(Base):
@@ -114,9 +115,9 @@ class AnnotationEvent(Base):
     __table_args__ = (
         # Polymorphic subject: the type picks exactly one subject column.
         CheckConstraint(
-            f"(annotation_type IN ({_sql_in_list(VARIANT_SUBJECT_TYPES)}) "
+            f"(annotation_type IN ({sql_in_list(EVENT_VARIANT_SUBJECT_TYPES)}) "
             "AND variant_id IS NOT NULL AND allele_id IS NULL) "
-            f"OR (annotation_type IN ({_sql_in_list(ALLELE_SUBJECT_TYPES)}) "
+            f"OR (annotation_type IN ({sql_in_list(EVENT_ALLELE_SUBJECT_TYPES)}) "
             "AND allele_id IS NOT NULL AND variant_id IS NULL)",
             name="ck_annotation_event_subject",
         ),
@@ -138,3 +139,15 @@ class AnnotationEvent(Base):
             f"disposition='{self.disposition}', reason='{self.reason}', "
             f"source_version={self.source_version!r}, created_at={self.created_at})>"
         )
+
+
+class AnnotationEventBackfill(Base):
+    """How far ``scripts/backfill_annotation_status.py`` has replayed ``annotation_event``: every event with an id
+    up to ``through_event_id`` is in ``annotation_status``. One row; the cutover drops it with the log."""
+
+    __tablename__ = "annotation_event_backfill"
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, default=1)
+    through_event_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    __table_args__ = (CheckConstraint("id = 1", name="ck_annotation_event_backfill_single_row"),)
