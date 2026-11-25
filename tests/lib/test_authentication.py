@@ -2,7 +2,7 @@
 
 import importlib.util
 import secrets
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -65,6 +65,72 @@ def test_get_current_user_data_from_key_nonetype_token(session, setup_lib_db):
     create_api_key_for_user(session, TEST_USER["username"])
     user_data = get_current_user_data_from_api_key(session, None)
     assert user_data is None
+
+
+@pytest.mark.parametrize(
+    "username,key_role,revoke_roles,expected_roles",
+    [
+        (TEST_USER["username"], None, False, []),
+        (ADMIN_USER["username"], UserRole.admin, False, [UserRole.admin]),
+        (ADMIN_USER["username"], UserRole.admin, True, []),
+        (TEST_USER["username"], UserRole.admin, False, []),
+    ],
+    ids=["no_role", "role_held", "role_revoked", "role_never_held"],
+)
+def test_get_current_user_data_from_key_role_held_by_owner_is_only_active_role(
+    session, setup_lib_db, username, key_role, revoke_roles, expected_roles
+):
+    access_key = create_api_key_for_user(session, username, role=key_role)
+    if revoke_roles:
+        user = session.query(User).filter(User.username == username).one()
+        user.set_roles(session, [])
+        session.commit()
+
+    user_data = get_current_user_data_from_api_key(session, access_key)
+
+    assert user_data.user.username == username
+    assert user_data.active_roles == expected_roles
+
+
+def test_get_current_user_data_from_key_user_is_inactive_returns_none(session, setup_lib_db):
+    access_key = create_api_key_for_user(session, TEST_USER["username"])
+    mark_user_inactive(session, TEST_USER["username"])
+
+    user_data = get_current_user_data_from_api_key(session, access_key)
+
+    assert user_data is None
+
+
+@pytest.mark.parametrize(
+    "expiration_date,authenticates",
+    [
+        (date.today() - timedelta(days=1), False),
+        (date.today(), True),
+        (date.today() + timedelta(days=1), True),
+        (None, True),
+    ],
+    ids=["expired", "expires_today", "expires_later", "no_expiration"],
+)
+def test_get_current_user_data_from_key_expiration_date_past_returns_none(
+    session, setup_lib_db, expiration_date, authenticates
+):
+    access_key = create_api_key_for_user(session, TEST_USER["username"], expiration_date=expiration_date)
+
+    user_data = get_current_user_data_from_api_key(session, access_key)
+
+    assert (user_data is not None) == authenticates
+
+
+def test_get_current_user_revoked_key_role_authenticates_without_role(session, setup_lib_db):
+    access_key = create_api_key_for_user(session, ADMIN_USER["username"], role=UserRole.admin)
+    admin = session.query(User).filter(User.username == ADMIN_USER["username"]).one()
+    admin.set_roles(session, [])
+    session.commit()
+
+    user_data = get_current_user(get_current_user_data_from_api_key(session, access_key), None, session, None)
+
+    assert user_data.user.username == ADMIN_USER["username"]
+    assert user_data.active_roles == []
 
 
 def test_get_current_user_via_api_key(session, setup_lib_db):
