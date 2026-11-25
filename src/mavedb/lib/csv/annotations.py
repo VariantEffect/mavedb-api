@@ -1,23 +1,17 @@
-"""Resolving each row's calibration interpretations for a CSV export.
-
-Shared by both exports, and kept out of ``columns`` because filling these cells needs the database.
-"""
+"""The database reads behind a CSV export's calibration interpretations, which ``sources`` turns into cells."""
 
 from typing import Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from mavedb.lib.annotation.flatten import FlatAnnotation, flatten_annotation
 from mavedb.lib.csv.entries import calibration_viewer
-from mavedb.lib.csv.specs import CsvMappedRow
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.models.score_calibration import ScoreCalibration
 from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_calibration_functional_classification_variant_association import (
     score_calibration_functional_classification_variants_association_table,
 )
-from mavedb.models.variant import Variant
 
 
 def calibrations_for_namespaces(
@@ -70,41 +64,3 @@ def containing_classification_ids(db: Session, variant_ids: Sequence[int]) -> di
         membership[variant_id].add(classification_id)
 
     return membership
-
-
-def annotations_for_rows(
-    db: Session,
-    variants: Sequence[Variant],
-    mappings: Sequence[Optional[CsvMappedRow]],
-    calibration_namespaces: dict[str, str],
-    viewer: Optional[ScoreCalibrationViewer] = None,
-) -> Optional[list[dict[str, Optional[FlatAnnotation]]]]:
-    """Flatten every row's interpretation under each requested calibration namespace.
-
-    A calibration from a different score set than the row leaves that namespace empty: a score from one
-    assay carries no meaning under another's thresholds. So does one the caller may not read.
-
-    Returns:
-        None when no calibration namespace was requested, so the caller can skip the work entirely.
-    """
-    if not calibration_namespaces:
-        return None
-
-    calibrations_by_ns = calibrations_for_namespaces(db, calibration_namespaces, viewer)
-    # TODO(#372): non-null id fields
-    membership = containing_classification_ids(db, [variant.id for variant in variants])  # type: ignore
-
-    rows: list[dict[str, Optional[FlatAnnotation]]] = []
-    for variant, mapping in zip(variants, mappings):
-        # TODO(#372): non-null id fields
-        contained = membership.get(variant.id, set())  # type: ignore
-        annotations: dict[str, Optional[FlatAnnotation]] = {}
-        for namespace in calibration_namespaces:
-            calibration = calibrations_by_ns.get(namespace)
-            if mapping is None or calibration is None or calibration.score_set_id != variant.score_set_id:
-                annotations[namespace] = None
-            else:
-                annotations[namespace] = flatten_annotation(variant, calibration, contained)
-        rows.append(annotations)
-
-    return rows

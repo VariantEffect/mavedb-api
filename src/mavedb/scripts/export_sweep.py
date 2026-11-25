@@ -253,7 +253,7 @@ def sweep_csv_surface(
     """Compose the score set's whole variant CSV and check it reads back.
 
     Unlike the annotation surfaces this is one unit of work per score set, because the composer builds the
-    file in a single call. It still covers every variant: the same ``variant_to_csv_row`` runs for each
+    file in a single call. It still covers every variant: the same cell resolvers run for each
     one, which is where the payload-dependent resolvers live.
 
     Two checks. The composition must not raise — a resolver raising from inside one cell takes the whole

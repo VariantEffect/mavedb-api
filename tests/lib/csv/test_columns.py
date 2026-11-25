@@ -4,16 +4,10 @@ from io import StringIO
 import pytest
 
 from mavedb.lib.annotation.flatten import FlatAnnotation
-from mavedb.lib.csv.columns import (
-    _OUTPUT_NULL_STRINGS,
-    _is_output_null,
-    assemble_csv_headers,
-    drop_unused_hgvs_columns,
-    plan_csv_columns,
-    rows_to_csv,
-    variant_to_csv_row,
-)
+from mavedb.lib.csv.columns import _OUTPUT_NULL_STRINGS, CsvPlan, _is_output_null, csv_records, render_csv
 from mavedb.lib.csv.namespaces import CsvNamespace
+from mavedb.lib.csv.specs import RowSource
+from mavedb.lib.mave.utils import NA_VALUE
 from tests.helpers.constants import VALID_CALIBRATION_URN
 from tests.helpers.mocks.factories import create_mock_mapped_variant
 from tests.helpers.variant_shapes import VARIANT_SHAPES, shape_ids, to_csv_mapped_row
@@ -24,7 +18,7 @@ from tests.helpers.variant_shapes import VARIANT_SHAPES, shape_ids, to_csv_mappe
 
 
 class MockVariant:
-    """Lightweight mock for Variant used in variant_to_csv_row tests."""
+    """Lightweight mock for Variant used in row tests."""
 
     def __init__(self, urn="urn:mavedb:00000001-a-1#1", hgvs_nt=None, hgvs_splice=None, hgvs_pro=None, data=None):
         self.urn = urn
@@ -32,6 +26,12 @@ class MockVariant:
         self.hgvs_splice = hgvs_splice
         self.hgvs_pro = hgvs_pro
         self.data = data
+
+
+def _row(variant, columns, *, namespaced=False, na_rep=NA_VALUE, sources=None):
+    """One row planned from exactly *columns*, read off *variant* and any other *sources*."""
+    plan = CsvPlan.from_columns(columns, namespaced=namespaced)
+    return next(csv_records(plan, [{RowSource.VARIANT: variant, **(sources or {})}], na_rep=na_rep))
 
 
 # ---------------------------------------------------------------------------
@@ -43,12 +43,12 @@ class TestVariantToCsvRowNullHandling:
     """How a row reports absent data.
 
     The value -> NA rule itself is specified by ``test_is_output_null``; every namespace reaches it through
-    the single ``_value_or_na`` call in ``variant_to_csv_row``, so it is not re-asserted per namespace here.
-    What these cover is the layer above it: building the per-row source a resolver is handed, which is
-    where "no data" has several distinct shapes.
+    the single ``_value_or_na`` call in ``csv_values``, so it is not re-asserted per namespace here.
+    What these cover is the layer above it: the per-row datum a resolver is handed, which is where "no data"
+    has several distinct shapes.
     """
 
-    # The score and count namespaces are one mechanism selected by RowSource, so they are covered together.
+    # The score and count namespaces are one mechanism selected by their data key, so they are covered together.
     DATA_NAMESPACES = [("scores", "score_data", "score"), ("counts", "count_data", "count1")]
 
     @pytest.mark.parametrize("namespace, data_key, column", DATA_NAMESPACES)
@@ -61,7 +61,7 @@ class TestVariantToCsvRowNullHandling:
         """``variant.data`` may be missing, lack this namespace's entry, or lack the column within it."""
         variant = MockVariant(data=build_data(data_key))
 
-        row = variant_to_csv_row(variant, {namespace: [column]})
+        row = _row(variant, {namespace: [column]})
 
         assert row[column] == "NA"
 
@@ -70,14 +70,14 @@ class TestVariantToCsvRowNullHandling:
         """The non-null half of ``_value_or_na``, which nothing else asserts directly."""
         variant = MockVariant(data={data_key: {column: 1.5}})
 
-        row = variant_to_csv_row(variant, {namespace: [column]})
+        row = _row(variant, {namespace: [column]})
 
         assert row[column] == "1.5"
 
     def test_na_rep_is_configurable(self):
         variant = MockVariant(data={"score_data": {"score": None}})
 
-        row = variant_to_csv_row(variant, {"scores": ["score"]}, na_rep="N/A")
+        row = _row(variant, {"scores": ["score"]}, na_rep="N/A")
 
         assert row["score"] == "N/A"
 
@@ -90,7 +90,7 @@ class TestVariantToCsvRowNullHandling:
         )
         columns = {"core": ["hgvs_nt", "hgvs_pro"], "scores": ["score", "se"], "counts": ["count1", "count2"]}
 
-        row = variant_to_csv_row(variant, columns)
+        row = _row(variant, columns)
 
         assert row == {
             "hgvs_nt": "g.1A>G",
@@ -123,9 +123,9 @@ class TestVariantToCsvRowNullHandling:
     ],
 )
 def test_unrecognized_column_key_raises(namespace, columns):
-    variant = MockVariant()
+    """At planning, before any row is read."""
     with pytest.raises(ValueError, match="unrecognized .* column: bogus_col"):
-        variant_to_csv_row(variant, columns)
+        CsvPlan.from_columns(columns)
 
 
 # ---------------------------------------------------------------------------
@@ -176,10 +176,10 @@ class TestCalibrationNamespace:
             calibration_title="Clinical Calibration",
         )
 
-        row = variant_to_csv_row(
+        row = _row(
             MockVariant(),
             {CALIBRATION_NS: CALIBRATION_COLUMNS},
-            annotations_by_ns={CALIBRATION_NS: annotation},
+            sources={RowSource.ANNOTATION: {CALIBRATION_NS: annotation}},
         )
 
         assert row[f"{CALIBRATION_NS}.title"] == "Clinical Calibration"
@@ -193,27 +193,27 @@ class TestCalibrationNamespace:
         """The URN in the header is what disambiguates, so it is kept even for un-namespaced output."""
         annotation = FlatAnnotation(acmg_criterion="PS3")
 
-        row = variant_to_csv_row(
+        row = _row(
             MockVariant(),
             {CALIBRATION_NS: ["acmg_criterion"]},
-            annotations_by_ns={CALIBRATION_NS: annotation},
+            sources={RowSource.ANNOTATION: {CALIBRATION_NS: annotation}},
             namespaced=False,
         )
 
         assert row == {f"{CALIBRATION_NS}.acmg_criterion": "PS3"}
 
     def test_no_annotation_uses_na_rep(self):
-        row = variant_to_csv_row(MockVariant(), {CALIBRATION_NS: CALIBRATION_COLUMNS})
+        row = _row(MockVariant(), {CALIBRATION_NS: CALIBRATION_COLUMNS})
 
         assert all(row[f"{CALIBRATION_NS}.{column}"] == "NA" for column in CALIBRATION_COLUMNS)
 
     def test_annotation_absent_for_this_namespace_uses_na_rep(self):
         other_ns = "calibration.urn:mavedb:calibration-00000000-0000-0000-0000-000000000000"
 
-        row = variant_to_csv_row(
+        row = _row(
             MockVariant(),
             {CALIBRATION_NS: ["acmg_criterion"]},
-            annotations_by_ns={other_ns: FlatAnnotation(acmg_criterion="PS3")},
+            sources={RowSource.ANNOTATION: {other_ns: FlatAnnotation(acmg_criterion="PS3")}},
         )
 
         assert row[f"{CALIBRATION_NS}.acmg_criterion"] == "NA"
@@ -222,12 +222,14 @@ class TestCalibrationNamespace:
         first_ns = CALIBRATION_NS
         second_ns = "calibration.urn:mavedb:calibration-00000000-0000-0000-0000-000000000000"
 
-        row = variant_to_csv_row(
+        row = _row(
             MockVariant(),
             {first_ns: ["acmg_criterion"], second_ns: ["acmg_criterion"]},
-            annotations_by_ns={
-                first_ns: FlatAnnotation(acmg_criterion="PS3"),
-                second_ns: FlatAnnotation(acmg_criterion="BS3"),
+            sources={
+                RowSource.ANNOTATION: {
+                    first_ns: FlatAnnotation(acmg_criterion="PS3"),
+                    second_ns: FlatAnnotation(acmg_criterion="BS3"),
+                }
             },
         )
 
@@ -242,7 +244,7 @@ class TestScoreSetNamespace:
         variant = MockVariantWithScoreSet(score_set=MockScoreSetForContext(target_gene_names=["BRCA1", "BRCA2"]))
         columns = {"score_set": ["score_set_urn", "target_gene"]}
 
-        row = variant_to_csv_row(variant, columns)
+        row = _row(variant, columns)
 
         assert row["score_set_urn"] == "urn:mavedb:00000001-a-1"
         assert row["target_gene"] == "BRCA1; BRCA2"
@@ -250,48 +252,61 @@ class TestScoreSetNamespace:
     def test_empty_collections_use_na_rep(self):
         variant = MockVariantWithScoreSet(score_set=MockScoreSetForContext())
 
-        row = variant_to_csv_row(variant, {"score_set": ["target_gene"]})
+        row = _row(variant, {"score_set": ["target_gene"]})
 
         assert row["target_gene"] == "NA"
 
     def test_publication_identifiers_is_not_a_column(self):
         """Dropped: it repeats on every row of a score set and score_set_urn already resolves to it."""
-        variant = MockVariantWithScoreSet(score_set=MockScoreSetForContext())
-
         with pytest.raises(ValueError, match="unrecognized score_set column: publication_identifiers"):
-            variant_to_csv_row(variant, {"score_set": ["publication_identifiers"]})
+            CsvPlan.from_columns({"score_set": ["publication_identifiers"]})
 
 
 class TestRelationshipNamespace:
     """Tests that the relationship namespace reports the caller-supplied match type."""
 
     def test_populated_match_type(self):
-        row = variant_to_csv_row(MockVariant(), {"relationship": ["match_type"]}, match_type="exact")
+        row = _row(MockVariant(), {"relationship": ["match_type"]}, sources={RowSource.MATCH_TYPE: "exact"})
 
         assert row["match_type"] == "exact"
 
     def test_missing_match_type_uses_na_rep(self):
-        row = variant_to_csv_row(MockVariant(), {"relationship": ["match_type"]})
+        row = _row(MockVariant(), {"relationship": ["match_type"]})
 
         assert row["match_type"] == "NA"
 
 
 # ---------------------------------------------------------------------------
-# TestRowsToCsv
+# TestRenderCsv
 # ---------------------------------------------------------------------------
 
 
-class TestRowsToCsv:
+class TestRenderCsv:
+    PLAN = CsvPlan.from_columns({"core": ["accession", "hgvs_nt"]})
+
+    @staticmethod
+    def _rows(*variants):
+        return [{RowSource.VARIANT: variant} for variant in variants]
+
     def test_header_only_when_no_rows(self):
-        assert rows_to_csv([], ["a", "b"]).splitlines() == ["a,b"]
+        assert "".join(render_csv(self.PLAN, [])).splitlines() == ["accession,hgvs_nt"]
 
     def test_writes_rows_in_column_order(self):
-        rows = [{"b": "2", "a": "1"}, {"a": "3", "b": "4"}]
+        rows = self._rows(MockVariant(urn="u1", hgvs_nt="c.1A>G"), MockVariant(urn="u2", hgvs_nt="c.2A>G"))
 
-        assert rows_to_csv(rows, ["a", "b"]).splitlines() == ["a,b", "1,2", "3,4"]
+        assert "".join(render_csv(self.PLAN, [rows])).splitlines() == ["accession,hgvs_nt", "u1,c.1A>G", "u2,c.2A>G"]
 
     def test_quotes_values_containing_commas(self):
-        assert rows_to_csv([{"a": "x,y"}], ["a"]).splitlines()[1] == '"x,y"'
+        rows = self._rows(MockVariant(urn="u1", hgvs_nt="x,y"))
+
+        assert "".join(render_csv(self.PLAN, [rows])).splitlines()[1] == 'u1,"x,y"'
+
+    def test_one_chunk_per_batch_with_the_header_leading_the_first(self):
+        batches = [self._rows(MockVariant(urn="u1")), self._rows(MockVariant(urn="u2"))]
+
+        chunks = list(render_csv(self.PLAN, batches))
+
+        assert chunks == ["accession,hgvs_nt\r\nu1,NA\r\n", "u2,NA\r\n"]
 
 
 # ---------------------------------------------------------------------------
@@ -305,86 +320,69 @@ SAMPLE_DATASET_COLUMNS = {
 }
 
 
+CORE_HEADERS = ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"]
+GNOMAD_HEADERS = [
+    "gnomad.gnomad_af",
+    "gnomad.gnomad_ac",
+    "gnomad.gnomad_an",
+    "gnomad.gnomad_faf95_max",
+    "gnomad.gnomad_faf95_max_ancestry",
+    "gnomad.gnomad_id",
+    "gnomad.gnomad_version",
+]
+REFERENCE_HGVS_HEADERS = [
+    "mavedb.post_mapped_hgvs_g",
+    "mavedb.post_mapped_hgvs_p",
+    "mavedb.post_mapped_hgvs_c",
+    "mavedb.post_mapped_hgvs_at_assay_level",
+    "mavedb.post_mapped_vrs_id",
+]
+
+
+def _clinvar_headers(namespace):
+    return [f"{namespace}.clinical_significance", f"{namespace}.clinical_review_status"]
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "namespaces, expected_ns_keys, expected_columns, expected_clinvar",
+    "namespaces, expected_headers, expected_parameters",
     [
         # `scores` is the one column dataframe validation mandates, nothing more.
-        (["scores"], {"core", "scores"}, {"scores": ["score"]}, {}),
+        (["scores"], ["scores.score"], {}),
         # The investigator's remaining score columns are their own request token.
-        (["scores_custom"], {"core", "scores_custom"}, {"scores_custom": ["se", "epsilon"]}, {}),
+        (["scores_custom"], ["scores.se", "scores.epsilon"], {}),
         # Asking for both reproduces the whole score group, `score` first.
-        (
-            ["scores", "scores_custom"],
-            {"core", "scores", "scores_custom"},
-            {"scores": ["score"], "scores_custom": ["se", "epsilon"]},
-            {},
-        ),
+        (["scores", "scores_custom"], ["scores.score", "scores.se", "scores.epsilon"], {}),
         # Counts have no required column, so they are always taken in full.
-        (["counts"], {"core", "counts"}, {"counts": ["count1", "count2"]}, {}),
+        (["counts"], ["counts.count1", "counts.count2"], {}),
+        (["scores", "counts"], ["scores.score", "counts.count1", "counts.count2"], {}),
+        (["vep"], ["vep.vep_functional_consequence"], {}),
+        (["gnomad"], GNOMAD_HEADERS, {}),
+        (["clingen"], ["clingen.clingen_allele_id"], {}),
+        (["scores", "mavedb"], ["scores.score", *REFERENCE_HGVS_HEADERS], {}),
         (
-            ["scores", "counts"],
-            {"core", "scores", "counts"},
-            {"scores": ["score"], "counts": ["count1", "count2"]},
-            {},
+            ["clinvar.2024_01"],
+            _clinvar_headers("clinvar.2024_01"),
+            {RowSource.CLINVAR_ENTRY: {"clinvar.2024_01": "01_2024"}},
         ),
-        (["vep"], {"core", "vep"}, {"vep": ["vep_functional_consequence"]}, {}),
-        (
-            ["gnomad"],
-            {"core", "gnomad"},
-            {
-                "gnomad": [
-                    "gnomad_af",
-                    "gnomad_ac",
-                    "gnomad_an",
-                    "gnomad_faf95_max",
-                    "gnomad_faf95_max_ancestry",
-                    "gnomad_id",
-                    "gnomad_version",
-                ]
-            },
-            {},
-        ),
-        (["clingen"], {"core", "clingen"}, {"clingen": ["clingen_allele_id"]}, {}),
-        (["scores", "mavedb"], {"core", "scores", "mavedb"}, {"scores": ["score"]}, {}),
-        (["clinvar.2024_01"], {"core", "clinvar.2024_01"}, {}, {"clinvar.2024_01": "01_2024"}),
         (
             ["clinvar.2024_01", "clinvar.2025_06"],
-            {"core", "clinvar.2024_01", "clinvar.2025_06"},
-            {},
-            {"clinvar.2024_01": "01_2024", "clinvar.2025_06": "06_2025"},
+            [*_clinvar_headers("clinvar.2024_01"), *_clinvar_headers("clinvar.2025_06")],
+            {RowSource.CLINVAR_ENTRY: {"clinvar.2024_01": "01_2024", "clinvar.2025_06": "06_2025"}},
         ),
         # A namespace requested twice is planned once, or it would emit its columns twice.
-        (["scores", "scores"], {"core", "scores"}, {"scores": ["score"]}, {}),
+        (["scores", "scores"], ["scores.score"], {}),
     ],
 )
-def test_plan_csv_columns(namespaces, expected_ns_keys, expected_columns, expected_clinvar):
-    plan = plan_csv_columns(SAMPLE_DATASET_COLUMNS, namespaces)
+def test_csv_plan_build(namespaces, expected_headers, expected_parameters):
+    plan = CsvPlan.build(SAMPLE_DATASET_COLUMNS, namespaces, namespaced=True)
 
-    assert set(plan.namespaced_columns.keys()) == expected_ns_keys
-    assert plan.clinvar_namespaces == expected_clinvar
-    for namespace, columns in expected_columns.items():
-        assert plan.namespaced_columns[namespace] == columns
-
-    assert plan.namespaced_columns["core"] == ["accession", "hgvs_nt", "hgvs_splice", "hgvs_pro"]
-
-    for ns in expected_clinvar:
-        assert plan.namespaced_columns[ns] == ["clinical_significance", "clinical_review_status"]
-
-
-def test_plan_csv_columns_reference_hgvs_namespace_populates_columns():
-    plan = plan_csv_columns(SAMPLE_DATASET_COLUMNS, ["scores", "mavedb"])
-    assert plan.namespaced_columns["mavedb"] == [
-        "post_mapped_hgvs_g",
-        "post_mapped_hgvs_p",
-        "post_mapped_hgvs_c",
-        "post_mapped_hgvs_at_assay_level",
-        "post_mapped_vrs_id",
-    ]
+    assert plan.headers == [*CORE_HEADERS, *expected_headers]
+    assert plan.parameters == expected_parameters
 
 
 # ---------------------------------------------------------------------------
-# TestAssembleCsvHeaders
+# TestCsvPlanHeaders
 # ---------------------------------------------------------------------------
 
 
@@ -435,68 +433,27 @@ def test_plan_csv_columns_reference_hgvs_namespace_populates_columns():
         ),
     ],
 )
-def test_assemble_csv_headers(namespaced_columns, namespaced, expected):
-    assert assemble_csv_headers(namespaced_columns, namespaced) == expected
+def test_csv_plan_from_columns_headers(namespaced_columns, namespaced, expected):
+    assert CsvPlan.from_columns(namespaced_columns, namespaced=namespaced).headers == expected
 
 
 # ---------------------------------------------------------------------------
-# TestDropUnusedHgvsColumns
+# TestCsvPlanWithout
 # ---------------------------------------------------------------------------
 
 
-class TestDropUnusedHgvsColumns:
-    def test_removes_all_na_hgvs_column(self):
-        rows = [
-            {"hgvs_nt": "g.1A>G", "hgvs_splice": "NA", "hgvs_pro": "p.Met1Val"},
-            {"hgvs_nt": "g.2C>T", "hgvs_splice": "NA", "hgvs_pro": "p.Ala2Gly"},
-        ]
-        columns = ["hgvs_nt", "hgvs_splice", "hgvs_pro"]
+def test_csv_plan_without_drops_only_the_named_columns():
+    plan = CsvPlan.build(SAMPLE_DATASET_COLUMNS, ["scores"])
 
-        new_rows, new_cols = drop_unused_hgvs_columns(rows, columns)
-
-        assert "hgvs_splice" not in new_cols
-        assert "hgvs_nt" in new_cols
-        assert "hgvs_pro" in new_cols
-        for row in new_rows:
-            assert "hgvs_splice" not in row
-
-    def test_keeps_column_with_some_values(self):
-        rows = [
-            {"hgvs_nt": "g.1A>G", "hgvs_splice": "NA", "hgvs_pro": "p.Met1Val"},
-            {"hgvs_nt": "g.2C>T", "hgvs_splice": "c.1A>G", "hgvs_pro": "p.Ala2Gly"},
-        ]
-        columns = ["hgvs_nt", "hgvs_splice", "hgvs_pro"]
-
-        new_rows, new_cols = drop_unused_hgvs_columns(rows, columns)
-
-        assert new_cols == ["hgvs_nt", "hgvs_splice", "hgvs_pro"]
-
-    def test_does_not_touch_non_hgvs_columns(self):
-        rows = [
-            {"hgvs_nt": "g.1A>G", "hgvs_splice": "NA", "hgvs_pro": "NA", "score": "NA"},
-        ]
-        columns = ["hgvs_nt", "hgvs_splice", "hgvs_pro", "score"]
-
-        new_rows, new_cols = drop_unused_hgvs_columns(rows, columns)
-
-        assert "score" in new_cols
-        assert "hgvs_splice" not in new_cols
-
-    def test_empty_rows_does_not_crash(self):
-        rows = []
-        columns = ["hgvs_nt", "hgvs_splice", "hgvs_pro"]
-
-        new_rows, new_cols = drop_unused_hgvs_columns(rows, columns)
-
-        assert new_rows == []
-        assert new_cols == []
+    assert plan.without(["hgvs_splice", "not_a_header"]).headers == ["accession", "hgvs_nt", "hgvs_pro", "score"]
 
 
-def test_plan_csv_columns_omits_reference_hgvs_when_not_requested():
+def test_csv_plan_build_reads_no_mapping_when_none_is_requested():
     """It used to be a boolean flag, so the key was always present even when empty."""
-    plan = plan_csv_columns(SAMPLE_DATASET_COLUMNS, ["scores"])
+    plan = CsvPlan.build(SAMPLE_DATASET_COLUMNS, ["scores"])
 
-    assert "mavedb" not in plan.namespaced_columns
+    assert not any(header.startswith("post_mapped") for header in plan.headers)
+    assert RowSource.MAPPING not in plan.sources
 
 
 # ---------------------------------------------------------------------------
@@ -545,7 +502,7 @@ def test_the_output_null_vocabulary_is_closed():
 
 
 @pytest.mark.unit
-class TestAssembleCsvHeadersRejectsCollisions:
+class TestCsvPlanRejectsCollisions:
     """Un-namespaced output strips the prefix that keeps two namespaces' columns apart.
 
     The endpoints that ask for un-namespaced output request one namespace each; this holds them to it
@@ -554,29 +511,29 @@ class TestAssembleCsvHeadersRejectsCollisions:
 
     def test_un_namespaced_collision_raises(self):
         with pytest.raises(ValueError, match="duplicate columns"):
-            assemble_csv_headers({"scores": ["score"], "counts": ["score"]}, namespaced=False)
+            CsvPlan.from_columns({"scores": ["score"], "counts": ["score"]}, namespaced=False)
 
     def test_the_error_names_the_offending_column_and_namespaces(self):
         with pytest.raises(ValueError) as excinfo:
-            assemble_csv_headers({"scores": ["shared"], "counts": ["shared"]}, namespaced=False)
+            CsvPlan.from_columns({"scores": ["shared"], "counts": ["shared"]}, namespaced=False)
 
         assert "shared" in str(excinfo.value)
         assert "scores" in str(excinfo.value) and "counts" in str(excinfo.value)
 
     def test_namespacing_resolves_what_would_otherwise_collide(self):
-        headers = assemble_csv_headers({"scores": ["shared"], "counts": ["shared"]}, namespaced=True)
+        headers = CsvPlan.from_columns({"scores": ["shared"], "counts": ["shared"]}, namespaced=True).headers
 
         assert headers == ["scores.shared", "counts.shared"]
 
     def test_scores_and_custom_scores_share_a_prefix_without_colliding(self):
         """They emit under one prefix by design, so the guard must not fire on disjoint column sets."""
-        headers = assemble_csv_headers({"scores": ["score"], "scores_custom": ["se"]}, namespaced=True)
+        headers = CsvPlan.from_columns({"scores": ["score"], "scores_custom": ["se"]}, namespaced=True).headers
 
         assert headers == ["scores.score", "scores.se"]
 
     def test_a_namespace_sharing_a_prefix_still_collides_on_a_repeated_column(self):
         with pytest.raises(ValueError, match="duplicate columns"):
-            assemble_csv_headers({"scores": ["score"], "scores_custom": ["score"]}, namespaced=True)
+            CsvPlan.from_columns({"scores": ["score"], "scores_custom": ["score"]}, namespaced=True)
 
 
 # ---------------------------------------------------------------------------
@@ -610,18 +567,20 @@ class TestCsvRowAcrossVariantShapes:
     DATASET_COLUMNS = {"score_columns": ["score"], "count_columns": []}
 
     def _plan(self):
-        return plan_csv_columns(self.DATASET_COLUMNS, [str(ns) for ns in self.SHAPE_SENSITIVE_NAMESPACES])
+        return CsvPlan.build(self.DATASET_COLUMNS, [str(ns) for ns in self.SHAPE_SENSITIVE_NAMESPACES])
+
+    @staticmethod
+    def _source_row(mapped_variant):
+        return {RowSource.VARIANT: mapped_variant.variant, RowSource.MAPPING: to_csv_mapped_row(mapped_variant)}
 
     @pytest.mark.parametrize("shape", VARIANT_SHAPES, ids=shape_ids())
     def test_a_row_composes_and_carries_every_planned_column(self, shape):
         mapped_variant = shape.build(create_mock_mapped_variant)
         plan = self._plan()
 
-        row = variant_to_csv_row(
-            mapped_variant.variant, plan.namespaced_columns, mapping=to_csv_mapped_row(mapped_variant)
-        )
+        row = next(csv_records(plan, [self._source_row(mapped_variant)]))
 
-        assert set(row) == set(assemble_csv_headers(plan.namespaced_columns))
+        assert set(row) == set(plan.headers)
 
     @pytest.mark.parametrize("shape", VARIANT_SHAPES, ids=shape_ids())
     def test_no_cell_leaks_a_mock(self, shape):
@@ -636,9 +595,7 @@ class TestCsvRowAcrossVariantShapes:
         mapped_variant = shape.build(create_mock_mapped_variant)
         plan = self._plan()
 
-        row = variant_to_csv_row(
-            mapped_variant.variant, plan.namespaced_columns, mapping=to_csv_mapped_row(mapped_variant)
-        )
+        row = next(csv_records(plan, [self._source_row(mapped_variant)]))
 
         leaked = {column: value for column, value in row.items() if "Mock" in str(value)}
         assert not leaked, f"{shape.name} leaked mock reprs into the row: {leaked}"
@@ -649,9 +606,7 @@ class TestCsvRowAcrossVariantShapes:
         mapped_variant = shape.build(create_mock_mapped_variant)
         plan = self._plan()
 
-        row = variant_to_csv_row(
-            mapped_variant.variant, plan.namespaced_columns, mapping=to_csv_mapped_row(mapped_variant)
-        )
+        row = next(csv_records(plan, [self._source_row(mapped_variant)]))
 
         assert row["post_mapped_hgvs_c"] == "NA"
         assert row["post_mapped_hgvs_at_assay_level"] == "NA"
@@ -662,11 +617,7 @@ class TestCsvRowAcrossVariantShapes:
         """The row is only useful if it survives the writer; a stray newline would split the record."""
         mapped_variant = shape.build(create_mock_mapped_variant)
         plan = self._plan()
-        columns = assemble_csv_headers(plan.namespaced_columns)
 
-        row = variant_to_csv_row(
-            mapped_variant.variant, plan.namespaced_columns, mapping=to_csv_mapped_row(mapped_variant)
-        )
-        rendered = rows_to_csv([row], columns)
+        rendered = "".join(render_csv(plan, [[self._source_row(mapped_variant)]]))
 
         assert len(list(csv.reader(StringIO(rendered)))) == 2

@@ -204,7 +204,7 @@ def test_static_namespaces_are_the_enum_values():
 
 
 def test_enum_members_are_usable_as_plain_strings():
-    """`plan_csv_columns` keys its column dict by these, so they must behave as their values."""
+    """`CsvPlan.build` looks their specs up by these, so they must behave as their values."""
     assert CsvNamespace.SCORE_SET == "score_set"
     assert f"{CsvNamespace.SCORE_SET}" == "score_set"
     assert {"score_set": 1}[CsvNamespace.SCORE_SET] == 1

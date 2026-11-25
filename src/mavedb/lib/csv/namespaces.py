@@ -57,23 +57,6 @@ class CsvNamespace(StrEnum):
 STATIC_CSV_NAMESPACES: tuple[str, ...] = tuple(ns.value for ns in CsvNamespace)
 """The static namespace values, in declaration order, for iteration and documentation."""
 
-STATIC_CSV_NAMESPACE_LABELS: dict[str, tuple[str, CsvNamespaceGroup]] = {
-    CsvNamespace.SCORES: ("Score", CsvNamespaceGroup.DATA),
-    CsvNamespace.SCORES_CUSTOM: ("Investigator-provided score columns", CsvNamespaceGroup.DATA),
-    CsvNamespace.COUNTS: ("Counts", CsvNamespaceGroup.DATA),
-    CsvNamespace.CLINGEN: ("ClinGen allele ID", CsvNamespaceGroup.ANNOTATION),
-    CsvNamespace.REFERENCE_HGVS: ("Reference-frame HGVS", CsvNamespaceGroup.ANNOTATION),
-    CsvNamespace.VEP: ("VEP consequence", CsvNamespaceGroup.ANNOTATION),
-    CsvNamespace.GNOMAD: ("gnomAD population frequency", CsvNamespaceGroup.ANNOTATION),
-    CsvNamespace.SCORE_SET: ("Score set and target gene", CsvNamespaceGroup.PROVENANCE),
-    CsvNamespace.RELATIONSHIP: ("Relationship to the requested variant", CsvNamespaceGroup.PROVENANCE),
-}
-"""Label and group for each static namespace, so a client need not maintain its own mapping.
-
-The parameterized families are labeled from their parameter instead; see ``clinvar_namespace_label``.
-"""
-
-
 _CLINVAR_MONTH_NAMES = (
     "January",
     "February",

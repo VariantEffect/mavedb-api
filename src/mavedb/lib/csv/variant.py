@@ -10,19 +10,14 @@ default calibration and ClinVar namespaces.
 
 import logging
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, selectinload
 
-from mavedb.lib.csv.annotations import annotations_for_rows
-from mavedb.lib.csv.columns import (
-    assemble_csv_headers,
-    plan_csv_columns,
-    rows_to_csv,
-    variants_to_csv_rows,
-)
+from mavedb.lib.csv.columns import CsvPlan, render_csv
 from mavedb.lib.csv.entries import (
+    MAPPING_DERIVED_NAMESPACES,
     AvailableCsvNamespaceEntry,
     calibration_can_annotate,
     calibration_namespace_entries,
@@ -32,12 +27,13 @@ from mavedb.lib.csv.entries import (
     score_sets_have_current_mappings,
     static_namespace_entry,
 )
-from mavedb.lib.csv.fetch import fetch_variant_csv_data
+from mavedb.lib.csv.fetch import VariantScope, iter_csv_rows
 from mavedb.lib.csv.namespaces import (
     CsvNamespace,
     calibration_namespace_for_urn,
     clinvar_namespace_sort_key,
 )
+from mavedb.lib.csv.specs import RowSource
 from mavedb.lib.mave.utils import NA_VALUE
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.lib.urns import score_set_urn_sort_key, variant_urn_sort_key
@@ -58,18 +54,6 @@ ALWAYS_AVAILABLE_NAMESPACES: list[str] = [
     CsvNamespace.RELATIONSHIP,
 ]
 """Namespaces every measurement can fill: its score, its score set, and its relation to the request."""
-
-MAPPING_DERIVED_NAMESPACES: list[str] = [
-    CsvNamespace.REFERENCE_HGVS,
-    CsvNamespace.VEP,
-    CsvNamespace.GNOMAD,
-    CsvNamespace.CLINGEN,
-]
-"""Namespaces read from a mapped variant, offered whenever the score set has any mapping.
-
-Scoped to the score set, not the measurement: omitting a column would say "never looked" where the truth
-is "looked, found nothing".
-"""
 
 BASE_VARIANT_CSV_NAMESPACES: list[str] = ALWAYS_AVAILABLE_NAMESPACES + MAPPING_DERIVED_NAMESPACES
 """The fixed namespaces a mapped variant's CSV includes.
@@ -331,32 +315,9 @@ def get_variant_csv(
         resolved_namespaces = list(namespaces)
 
     # Only the required score column is taken, so the score set's own dataset columns are irrelevant.
-    plan = plan_csv_columns(dataset_columns={}, namespaces=resolved_namespaces)
-    columns = plan.namespaced_columns
-
-    fetched = fetch_variant_csv_data(
-        db,
-        columns,
-        plan.clinvar_namespaces,
-        variant_ids=variant_ids,
-        as_of=as_of,
-    )
-
-    mappings = fetched.mappings or [None] * len(fetched.variants)
-
-    rows = variants_to_csv_rows(
-        fetched.variants,
-        columns,
-        mappings=fetched.mappings,
-        gnomad_data=fetched.gnomad_data,
-        clinvar_data_by_ns=fetched.clinvar_per_variant,
-        annotations_by_ns=annotations_for_rows(db, fetched.variants, mappings, plan.calibration_namespaces, viewer),
-        match_types=[EXACT_MATCH_TYPE] * len(fetched.variants),
-        na_rep=na_rep,
-        namespaced=True,
-    )
-
-    return rows_to_csv(rows, assemble_csv_headers(columns, namespaced=True))
+    plan = CsvPlan.build({}, resolved_namespaces, namespaced=True)
+    rows = iter_csv_rows(db, plan, VariantScope(variant_ids, match_type=EXACT_MATCH_TYPE), as_of=as_of, viewer=viewer)
+    return "".join(render_csv(plan, rows, na_rep=na_rep))
 
 
 def _unmapped_variant_csv(
@@ -369,8 +330,8 @@ def _unmapped_variant_csv(
 ) -> str:
     """Build the single-row CSV for a variant that exists but has no mapping live as of *as_of*.
 
-    Without a mapping there are no coordinates, no external annotations, no allele to find equivalents by,
-    and nothing for the annotation layer to flatten. Identity, score, and provenance still resolve, so the
+    Without a mapping there are no coordinates, no external annotations and no allele to find equivalents by,
+    so no source is loaded and those columns are NA. Identity, score and provenance still resolve, so the
     download succeeds rather than 404ing on a variant that genuinely exists.
     """
     variant = db.scalars(
@@ -384,24 +345,15 @@ def _unmapped_variant_csv(
     if variant is None:
         raise ValueError(f"variant with URN '{variant_urn}' not found")
 
-    plan = plan_csv_columns(
-        dataset_columns={},
-        namespaces=(
+    plan = CsvPlan.build(
+        {},
+        (
             # TODO(#372): non-null id fields
             list(namespaces)
             if namespaces is not None
             else _unmapped_variant_namespaces(db, int(variant.score_set_id), as_of=as_of)  # type: ignore
         ),
+        namespaced=True,
     )
-    columns = plan.namespaced_columns
-
-    rows: list[dict[str, Any]] = list(
-        variants_to_csv_rows(
-            [variant],
-            columns,
-            match_types=[EXACT_MATCH_TYPE],
-            na_rep=na_rep,
-            namespaced=True,
-        )
-    )
-    return rows_to_csv(rows, assemble_csv_headers(columns, namespaced=True))
+    row = {RowSource.VARIANT: variant, RowSource.MATCH_TYPE: EXACT_MATCH_TYPE}
+    return "".join(render_csv(plan, [[row]], na_rep=na_rep))
