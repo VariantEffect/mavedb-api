@@ -6,6 +6,7 @@ import io
 import json
 import re
 import threading
+import time
 from copy import deepcopy
 from datetime import date, datetime, timezone
 from io import StringIO
@@ -51,8 +52,8 @@ from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.routers.score_sets import (
     _LEAN_VARIANTS,
     _annotation_stream_record,
+    _csv_file_response,
     _existing_variant_dataframe,
-    _stream_csv_build,
     _stream_lean_variants,
 )
 from mavedb.view_models.lean_variant import LeanVariant
@@ -6663,11 +6664,12 @@ _CSV_ROUTE_NAMESPACES = {
 
 
 @pytest.mark.parametrize("path", list(_CSV_ROUTE_NAMESPACES))
-def test_csv_routes_multi_batch_score_set_streams_every_row_as_the_whole_export(client, session, setup_router_db, path):
+def test_csv_routes_multi_batch_score_set_sends_every_row_as_the_whole_export(client, session, setup_router_db, path):
     score_set, count = _seed_past_one_lean_batch(client, session)
     assert count > CSV_BATCH_SIZE
 
-    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/{path}")
+    # Uncompressed: GZipMiddleware sends a multi-chunk body chunked, without a length.
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/{path}", headers={"Accept-Encoding": "identity"})
 
     score_set_db = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])).one()
     namespaces, namespaced = _CSV_ROUTE_NAMESPACES[path]
@@ -6675,57 +6677,54 @@ def test_csv_routes_multi_batch_score_set_streams_every_row_as_the_whole_export(
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
     assert response.text == expected
+    assert int(response.headers["content-length"]) == len(response.content)
     accessions = [row["accession"] for row in csv.DictReader(io.StringIO(response.text))]
     assert accessions == [f"{score_set['urn']}#{n}" for n in range(1, count + 1)]
 
 
-def test_get_score_set_scores_csv_sends_rows_before_the_last_row_is_read(app_, client, session, setup_router_db):
+def test_get_score_set_scores_csv_multi_batch_score_set_reads_every_row_before_sending(
+    app_, client, session, setup_router_db
+):
     score_set, count = _seed_past_one_lean_batch(client, session)
 
-    # Each chunk, with whether the query's cursor still had rows to read when the chunk was sent.
-    chunks = []
+    # Whether the query's cursor still had rows to read when each chunk was sent.
+    cursor_open_while_sending = []
+    sent = []
 
     def on_body(body):
-        open_cursors = session.execute(text("SELECT count(*) FROM pg_cursors")).scalar_one()
-        chunks.append((body, open_cursors > 0))
+        sent.append(body)
+        cursor_open_while_sending.append(session.execute(text("SELECT count(*) FROM pg_cursors")).scalar_one() > 0)
 
     _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/scores", on_body)
 
-    first_rows, cursor_open = chunks[0]
-    assert first_rows.startswith(b"accession,")
-    assert f"{score_set['urn']}#{CSV_BATCH_SIZE},".encode() in first_rows
-    assert f"{score_set['urn']}#{count},".encode() not in first_rows
-    assert cursor_open
-    rows = list(csv.DictReader(io.StringIO(b"".join(body for body, _ in chunks).decode())))
+    assert cursor_open_while_sending
+    assert not any(cursor_open_while_sending)
+    rows = list(csv.DictReader(io.StringIO(b"".join(sent).decode())))
     assert len(rows) == count
 
 
-def test_get_score_set_scores_csv_failure_mid_stream_drops_the_response(app_, client, session, setup_router_db):
+def test_get_score_set_scores_csv_slow_client_receives_the_whole_file(app_, client, session, setup_router_db):
     score_set, count = _seed_past_one_lean_batch(client, session)
+    # Stands in for the 60-second idle-in-transaction limit, scaled down.
+    session.execute(text("SET idle_in_transaction_session_timeout = '200ms'"))
+    session.commit()
 
     sent = []
 
     def on_body(body):
         sent.append(body)
-        if len(sent) == 1:
-            # The stream's database connection drops once the first batch is on the wire.
-            stream_pid = session.connection().connection.dbapi_connection.get_backend_pid()
-            with session.get_bind().connect() as other:
-                other.execute(text("SELECT pg_terminate_backend(:pid)"), {"pid": stream_pid})
+        # The client takes longer than the idle limit to read each chunk.
+        time.sleep(0.5)
 
-    # ConnectionDropped has a handler, so once the response has started Starlette re-raises it as a RuntimeError.
-    with (
-        patch("mavedb.lib.middleware.errors.send_slack_error") as slack_error,
-        pytest.raises(RuntimeError, match="response already started") as raised,
-    ):
+    with patch("mavedb.lib.middleware.errors.send_slack_error") as slack_error:
         _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/scores", on_body)
 
-    assert isinstance(raised.value.__cause__, ConnectionDropped)
-    assert isinstance(slack_error.call_args.kwargs["err"], ConnectionDropped)
-    assert f"{score_set['urn']}#{count},".encode() not in b"".join(sent)
+    rows = list(csv.DictReader(io.StringIO(b"".join(sent).decode())))
+    assert [row["accession"] for row in rows] == [f"{score_set['urn']}#{n}" for n in range(1, count + 1)]
+    slack_error.assert_not_called()
 
 
-def test_get_score_set_scores_csv_holds_a_build_slot_until_the_stream_ends(
+def test_get_score_set_scores_csv_releases_the_build_slot_before_sending(
     app_, client, session, setup_router_db, monkeypatch
 ):
     score_set, _ = _seed_past_one_lean_batch(client, session)
@@ -6744,16 +6743,23 @@ def test_get_score_set_scores_csv_holds_a_build_slot_until_the_stream_ends(
 
     _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/scores", on_body)
 
-    assert len(slot_free_while_sending) > 1
-    assert not any(slot_free_while_sending)
+    assert slot_free_while_sending
+    assert all(slot_free_while_sending)
+
+
+def test_csv_file_response_build_failure_raises_before_responding_and_frees_the_slot(session, monkeypatch):
+    slots = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(build_limiter, "_slots", slots)
+    monkeypatch.setattr(build_limiter, "CSV_BUILD_MIN_ROWS", 1)
+
+    def failing_chunks():
+        yield "accession,score\r\n"
+        raise RuntimeError("the build failed partway")
+
+    with pytest.raises(RuntimeError, match="the build failed partway"):
+        _csv_file_response(session, 2, failing_chunks(), headers={})
+
     assert slots.acquire(blocking=False)
-
-
-def test_stream_csv_build_logs_its_duration():
-    with logging_context_scope() as context:
-        assert "".join(_stream_csv_build(0, iter(["a,b\r\n"]))) == "a,b\r\n"
-
-    assert context["stream_duration_ns"] >= 0
 
 
 @pytest.mark.parametrize(
