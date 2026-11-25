@@ -7,6 +7,7 @@ pytest.importorskip("arq")
 from unittest.mock import Mock
 
 from arq.constants import default_queue_name
+from sqlalchemy.exc import DBAPIError
 
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import DependencyType, FailureCategory, JobStatus
@@ -14,6 +15,7 @@ from mavedb.models.job_run import JobRun
 from mavedb.worker.lib.managers.constants import (
     ACTIVE_JOB_STATUSES,
     COMPLETED_JOB_STATUSES,
+    RETRYABLE_FAILURE_CATEGORIES,
     RETRYABLE_JOB_STATUSES,
     STARTABLE_JOB_STATUSES,
     TERMINAL_JOB_STATUSES,
@@ -156,6 +158,22 @@ class TestClassifyException:
 
     def test_generic_exception_returns_unknown(self):
         assert classify_exception(Exception("generic")) == FailureCategory.UNKNOWN
+
+    @pytest.mark.parametrize(
+        "form",
+        ["row_security", "on_conflict", "missing_grant", "missing_sequence_grant"],
+        ids=["row_security", "on_conflict", "missing_grant", "missing_sequence_grant"],
+    )
+    def test_classify_exception_insufficient_privilege_returns_non_retryable_configuration_error(
+        self, raise_insufficient_privilege, form
+    ):
+        with pytest.raises(DBAPIError) as excinfo:
+            raise_insufficient_privilege(form)
+
+        category = classify_exception(excinfo.value)
+
+        assert category == FailureCategory.CONFIGURATION_ERROR
+        assert category not in RETRYABLE_FAILURE_CATEGORIES
 
 
 @pytest.mark.unit

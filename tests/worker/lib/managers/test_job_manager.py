@@ -16,6 +16,7 @@ from unittest.mock import Mock, PropertyMock, patch
 
 from arq import ArqRedis
 from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from mavedb.lib.logging.context import format_raised_exception_info_as_dict
@@ -36,6 +37,7 @@ from mavedb.worker.lib.managers.exceptions import (
     JobTransitionError,
 )
 from mavedb.worker.lib.managers.job_manager import JobManager
+from tests.conftest import ROW_VALUE_THAT_MUST_NOT_LEAK
 from tests.helpers.transaction_spy import TransactionSpy
 
 HANDLED_EXCEPTIONS_DURING_OBJECT_MANIPULATION = (
@@ -653,6 +655,25 @@ class TestJobFailureIntegration:
         assert job.error_message == "Test error"
         assert job.error_traceback is None
         assert job.failure_category == FailureCategory.UNKNOWN
+
+    @pytest.mark.parametrize("form", ["row_security", "missing_grant"], ids=["row_security", "missing_grant"])
+    def test_error_job_insufficient_privilege_stores_configuration_error_without_row_values(
+        self, session, arq_redis, with_populated_job_data, sample_job_run, raise_insufficient_privilege, form
+    ):
+        manager = JobManager(session, arq_redis, sample_job_run.id)
+        with pytest.raises(DBAPIError) as excinfo:
+            raise_insufficient_privilege(form)
+
+        manager.error_job(result=JobExecutionOutcome.errored(exception=excinfo.value))
+        session.flush()
+
+        job = session.execute(select(JobRun).where(JobRun.id == sample_job_run.id)).scalar_one()
+        assert job.status == JobStatus.ERRORED
+        assert job.failure_category == FailureCategory.CONFIGURATION_ERROR
+        assert not manager.should_retry()
+        assert "InsufficientPrivilege" in job.error_message
+        for stored in (job.error_message, job.error_traceback, str(job.metadata_)):
+            assert ROW_VALUE_THAT_MUST_NOT_LEAK not in stored
 
 
 @pytest.mark.unit

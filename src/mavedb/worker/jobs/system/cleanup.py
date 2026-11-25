@@ -23,7 +23,7 @@ from arq.jobs import JobStatus as ArqJobStatus
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from mavedb.lib.slack import send_slack_error, send_slack_job_failure
+from mavedb.lib.slack import send_slack_error, send_slack_job_failure, send_slack_message
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import FailureCategory, JobStatus
 from mavedb.models.job_run import JobRun
@@ -423,7 +423,7 @@ async def cleanup_stalled_jobs(ctx: dict, job_id: int, job_manager: JobManager) 
                 f"RUNNING job {job.urn} has no started_at timestamp, cannot evaluate for stalling",
                 extra=manager.logging_context(),
             )
-            send_slack_error(
+            send_slack_message(
                 f"Error in cleanup_stalled_jobs: RUNNING job {job.urn} has no started_at timestamp, cannot evaluate for stalling"
             )
             continue

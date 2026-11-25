@@ -7,6 +7,8 @@ from typing import Any
 
 from slack_sdk.webhook import WebhookClient
 
+from mavedb.lib.logging.context import correlation_id_for_context, logging_context
+
 logger = logging.getLogger(__name__)
 
 _BLOCK_TEXT_MAX = 2000
@@ -40,15 +42,23 @@ def send_slack_message(text: str):
 
 
 def send_slack_error(err, request=None):
+    """Alert Slack to an exception without its message, which can quote row data. The correlation id finds the full log."""
     try:
-        text = {"type": err.__class__.__name__, "exception": str(err), "location": find_traceback_locations()}
-
+        text = {
+            "type": err.__class__.__name__,
+            "location": find_traceback_locations(),
+            "correlation_id": correlation_id_for_context(),
+        }
         if request:
-            text["client"] = str(request.client.host)
-            text["request"] = f"{request.method} {request.url}"
+            # The route template, since the URL's path and query can carry identifiers and search terms.
+            route = request.scope.get("route")
+            text["route"] = f"{request.method} {getattr(route, 'path', request.url.path)}"
+        else:
+            # Worker logs carry no correlation id until #1008, so name the job and pipeline that logged it.
+            context = logging_context()
+            text.update({key: context[key] for key in ("job_run_id", "pipeline_id") if context.get(key)})
 
-        text = json.dumps(text)
-        send_slack_message(text)
+        send_slack_message(json.dumps(text))
     except Exception:
         logger.critical("Failed to send Slack error notification", exc_info=True)
 
@@ -113,7 +123,7 @@ def send_slack_job_error(
     max_retries: int = 0,
     will_retry: bool = False,
 ) -> None:
-    """Send a structured Slack alert for an unhandled job exception (ERRORED outcome)."""
+    """Send a structured Slack alert for an unhandled job exception (ERRORED outcome), without its message."""
     try:
         locations = find_traceback_locations()
         location_lines = [f"`{fn}:{lineno}` in `{name}`" for fn, lineno, name in locations]
@@ -131,14 +141,6 @@ def send_slack_job_error(
                     {"type": "mrkdwn", "text": f"*Retry*\n{retry_text}"},
                 ],
             },
-            {"type": "divider"},
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*Message*\n```{str(err)}```"[:_BLOCK_TEXT_MAX],
-                },
-            },
         ]
         if location_lines:
             blocks.append(
@@ -151,7 +153,7 @@ def send_slack_job_error(
                 }
             )
 
-        fallback = f"Job Errored: {job_urn} ({job_function}) — {err.__class__.__name__}: {err} [{retry_text}]"
+        fallback = f"Job Errored: {job_urn} ({job_function}) — {err.__class__.__name__} [{retry_text}]"
         _send_slack_blocks(fallback, blocks)
     except Exception:
         logger.critical("Failed to send Slack job error notification", exc_info=True)

@@ -19,6 +19,7 @@ from sqlalchemy.pool import NullPool
 os.environ.setdefault("CLINGEN_CACHE_BACKEND", "memory")
 
 from mavedb.db.base import Base
+from mavedb.db.errors import translate_database_errors
 from mavedb.lib.logging.context import set_strict_collisions
 from mavedb.models import *  # noqa: F403
 from mavedb.models.experiment import Experiment
@@ -145,7 +146,9 @@ def session(postgresql):
     # The database is a fresh clone of the schema template and is dropped after the test, so there's
     # no create_all or drop_all here. A pooled engine reuses one connection across commits instead of
     # reconnecting after each; under xdist, reconnecting overwhelms Docker's port forwarding.
-    engine = create_engine(connection, echo=False)
+    # hide_parameters matches the production engine, so tests see the same exception text it produces.
+    engine = create_engine(connection, echo=False, hide_parameters=True)
+    translate_database_errors(engine)
     session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
 
     try:
@@ -452,3 +455,53 @@ def set_mavedb_test_mode_flag(request):
         os.environ["MAVEDB_TEST_MODE"] = "1"
     else:
         os.environ.pop("MAVEDB_TEST_MODE", None)
+
+
+ROW_VALUE_THAT_MUST_NOT_LEAK = "row-value-that-must-not-leak"
+"""Written by every statement ``raise_insufficient_privilege`` runs, so a test can check no payload quotes it."""
+
+INSUFFICIENT_PRIVILEGE_FORMS = {
+    "missing_grant": "SELECT * FROM scoresets WHERE title = :value",
+    "missing_sequence_grant": "SELECT nextval('rls_probe_seq'), :value",
+    "row_security": "INSERT INTO rls_probe (id, note) VALUES (200, :value)",
+    "named_policy": "INSERT INTO rls_probe (id, note) VALUES (50, :value)",
+    "on_conflict": "INSERT INTO rls_probe (id, note) VALUES (1, :value) ON CONFLICT (id) DO UPDATE SET note = :value",
+}
+"""Statements raising each form of SQLSTATE 42501, keyed by the name ``raise_insufficient_privilege`` takes.
+
+``missing_sequence_grant`` uses a sequence the role has no grant on. ``row_security`` fails a permissive policy's WITH CHECK, ``named_policy`` a restrictive one's (Postgres
+names those), and ``on_conflict`` the UPDATE policy's USING expression on the row it would update.
+"""
+
+
+@pytest.fixture
+def raise_insufficient_privilege(session):
+    """Return a function that runs one of ``INSUFFICIENT_PRIVILEGE_FORMS`` as a role with no privileges.
+
+    The test suite connects as a superuser, which RLS ignores, so this switches to a fresh role and writes to
+    a scratch table with RLS enabled. Everything is created in the test's transaction and rolled back with
+    it. The role name is unique because roles are shared by every database on the server.
+    """
+    role = f"rls_probe_{os.urandom(4).hex()}"
+    session.execute(text(f"CREATE ROLE {role} NOLOGIN"))
+    session.execute(text("CREATE TABLE rls_probe (id integer PRIMARY KEY, note text)"))
+    session.execute(text("CREATE SEQUENCE rls_probe_seq"))
+    session.execute(text("INSERT INTO rls_probe (id, note) VALUES (1, 'existing')"))
+    session.execute(text("ALTER TABLE rls_probe ENABLE ROW LEVEL SECURITY"))
+    session.execute(text("CREATE POLICY probe_select ON rls_probe FOR SELECT USING (true)"))
+    session.execute(text("CREATE POLICY probe_insert ON rls_probe FOR INSERT WITH CHECK (id < 100)"))
+    session.execute(text("CREATE POLICY probe_restrict ON rls_probe AS RESTRICTIVE FOR INSERT WITH CHECK (id <> 50)"))
+    session.execute(text("CREATE POLICY probe_update ON rls_probe FOR UPDATE USING (id <> 1)"))
+    session.execute(text(f"GRANT SELECT, INSERT, UPDATE ON rls_probe TO {role}"))
+
+    def raise_error(form: str) -> None:
+        savepoint = session.begin_nested()
+        try:
+            session.execute(text(f"SET LOCAL ROLE {role}"))
+            session.execute(text(INSUFFICIENT_PRIVILEGE_FORMS[form]), {"value": ROW_VALUE_THAT_MUST_NOT_LEAK})
+        finally:
+            # Rolling back to the savepoint also undoes the SET LOCAL ROLE.
+            savepoint.rollback()
+        raise AssertionError(f"{form} statement did not raise")
+
+    return raise_error
