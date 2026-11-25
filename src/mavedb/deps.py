@@ -29,6 +29,8 @@ def _close(db: Session) -> None:
     transaction back itself, and the rollback in ``close()`` fails on the dead connection after the client
     already has its response. Recorded in the request's canonical log as ``db_session_ended_by_server``.
     """
+    # TODO(#1036): Once sessions end when the route returns, only routes that read while streaming can reach this.
+    # Drop it if none of them holds a transaction across a slow send.
     try:
         db.close()
     except DBAPIError as exc:
