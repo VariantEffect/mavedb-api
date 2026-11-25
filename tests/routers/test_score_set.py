@@ -16,12 +16,12 @@ import pandas as pd
 import pytest
 from humps import camelize
 from sqlalchemy import insert, select, text
-from sqlalchemy.exc import OperationalError
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
+from mavedb.db.errors import ConnectionDropped
 from mavedb.lib.annotation.annotate import variant_study_result
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.csv import build_limiter
@@ -6629,8 +6629,15 @@ def test_get_lean_variants_failure_mid_stream_never_closes_the_array(app_, clien
             with session.get_bind().connect() as other:
                 other.execute(text("SELECT pg_terminate_backend(:pid)"), {"pid": stream_pid})
 
-    with pytest.raises(OperationalError):
+    # ConnectionDropped has a handler, so once the response has started Starlette re-raises it as a RuntimeError.
+    with (
+        patch("mavedb.lib.middleware.errors.send_slack_error") as slack_error,
+        pytest.raises(RuntimeError, match="response already started") as raised,
+    ):
         _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/variants", on_body)
+
+    assert isinstance(raised.value.__cause__, ConnectionDropped)
+    assert isinstance(slack_error.call_args.kwargs["err"], ConnectionDropped)
 
     body = b"".join(sent)
     assert body.startswith(b"[")
