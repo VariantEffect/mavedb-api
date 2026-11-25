@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mavedb.models.allele import Allele
+from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.mapping_record import MappingRecord
@@ -169,3 +170,29 @@ def seed_mapping_record(
 
     session.commit()
     return record
+
+
+def add_clinvar_control(db, mapped_variant, significance, review_status, db_version):
+    """Link a control to the variant's authoritative allele, which is where the CSV layer reads it."""
+    control = ClinvarControl(
+        db_identifier="183058",
+        gene_symbol="PTEN",
+        clinical_significance=significance,
+        clinical_review_status=review_status,
+        db_name="ClinVar",
+        db_version=db_version,
+    )
+    db.add(control)
+    db.commit()
+
+    allele = db.scalars(
+        select(Allele)
+        .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
+        .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
+        .where(MappingRecord.variant_id == mapped_variant.variant_id)
+        .where(MappingRecordAllele.is_authoritative.is_(True))
+    ).first()
+    assert allele is not None, "no authoritative allele to link a ClinVar control to"
+
+    db.add(ClinvarAlleleLink(allele_id=allele.id, clinvar_control_id=control.id))
+    db.commit()

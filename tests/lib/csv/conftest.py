@@ -2,8 +2,10 @@
 
 import pytest
 
+from mavedb.models.score_set import ScoreSet
 from tests.helpers.constants import TEST_MAPPED_VARIANT_WITH_HGVS_G_EXPRESSION
 from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
+from tests.helpers.util.csv_export import CsvExportScoreSet, seed_csv_export_score_set
 
 
 @pytest.fixture
@@ -40,3 +42,14 @@ def setup_lib_db_with_mapped_variant(session, setup_lib_db_with_variant, setup_l
     )
     session.refresh(setup_lib_db_with_mapped_variant)
     return setup_lib_db_with_mapped_variant
+
+
+@pytest.fixture
+def csv_export(session, setup_lib_db_with_mapped_variant) -> CsvExportScoreSet:
+    """A score set carrying every source the CSV exports read; see ``seed_csv_export_score_set``."""
+    return seed_csv_export_score_set(session, setup_lib_db_with_mapped_variant)
+
+
+@pytest.fixture
+def csv_export_score_set(csv_export: CsvExportScoreSet) -> ScoreSet:
+    return csv_export.score_set
