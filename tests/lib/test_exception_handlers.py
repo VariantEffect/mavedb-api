@@ -23,7 +23,7 @@ import mavedb.db.errors
 import mavedb.lib.exception_handlers
 import mavedb.lib.exceptions
 import mavedb.lib.permissions.exceptions
-from mavedb.db.errors import DatabaseBusy, MissingGrant, RowSecurityViolation
+from mavedb.db.errors import ConnectionDropped, DatabaseBusy, MissingGrant, RowSecurityViolation
 from mavedb.lib.exception_handlers import (
     ERROR_RESPONSES,
     ErrorResponse,
@@ -69,6 +69,9 @@ EXAMPLES: dict[type[Exception], Callable[[], Exception]] = {
     StaleDataError: lambda: StaleDataError("matched 0 rows"),
     DatabaseBusy: lambda: DatabaseBusy("SELECT", {}, Exception("timeout")),
     PoolTimeoutError: lambda: PoolTimeoutError("QueuePool limit reached"),
+    ConnectionDropped: lambda: ConnectionDropped(
+        "SELECT", {}, Exception("server closed the connection unexpectedly"), connection_invalidated=True
+    ),
 }
 """An instance of each ``ERROR_RESPONSES`` key, for raising it from a test route."""
 
@@ -148,6 +151,8 @@ class TestMappedExceptions:
         assert response.status_code == entry.status_for(exc)
         assert response.headers.get("access-control-allow-origin") in ("*", TEST_ORIGIN)
         assert len(slack_messages()) == (1 if entry.alert else 0)
+        for name, value in (entry.headers or {}).items():
+            assert response.headers[name] == value
 
     def test_most_specific_class_wins(self):
         assert error_response_for(PublicationServiceTimeoutError("slow")).status_for(Exception()) == 504
@@ -177,8 +182,13 @@ class TestMappedExceptions:
 
     @pytest.mark.parametrize(
         "exc_type,status_code,alerted",
-        [(StaleDataError, 404, True), (DatabaseBusy, 503, False), (PoolTimeoutError, 503, False)],
-        ids=["stale_row", "database_busy", "pool_timeout"],
+        [
+            (StaleDataError, 404, True),
+            (DatabaseBusy, 503, False),
+            (PoolTimeoutError, 503, False),
+            (ConnectionDropped, 503, True),
+        ],
+        ids=["stale_row", "database_busy", "pool_timeout", "connection_dropped"],
     )
     def test_database_error_returns_attributable_body_and_alerts_as_mapped(
         self, raising_route, slack_messages, exc_type, status_code, alerted
@@ -193,8 +203,8 @@ class TestMappedExceptions:
         assert len(slack_messages()) == (1 if alerted else 0)
 
     def test_unmapped_parent_of_a_mapped_database_error_is_still_500(self, raising_route, slack_messages):
-        """``DatabaseBusy`` refines ``OperationalError``; any other ``OperationalError`` stays a 500 that alerts."""
-        raising_route["error"] = _raise(OperationalError("SELECT", {}, Exception("server closed the connection")))
+        """``DatabaseBusy`` and ``ConnectionDropped`` refine ``OperationalError``; any other stays a 500 that alerts."""
+        raising_route["error"] = _raise(OperationalError("SELECT", {}, Exception("could not serialize access")))
 
         with TestClient(app) as tc:
             response = tc.post(f"{BOOM_PATH}/example")

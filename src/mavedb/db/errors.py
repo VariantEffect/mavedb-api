@@ -24,6 +24,10 @@ class DatabaseBusy(OperationalError):
     """A statement ran past ``statement_timeout`` or waited past ``lock_timeout``."""
 
 
+class ConnectionDropped(OperationalError):
+    """The server closed the connection, as after ``idle_in_transaction_session_timeout``, a restart or a failover."""
+
+
 # Postgres raises both a row-level security rejection and a missing grant under this one SQLSTATE.
 _INSUFFICIENT_PRIVILEGE = "42501"
 """The SQLSTATE for a statement the connection's role isn't allowed to run."""
@@ -45,6 +49,9 @@ _MISSING_GRANT_MESSAGE = re.compile(r"^permission denied for ")
 
 
 def _translated_type(err: DBAPIError) -> Optional[type[DBAPIError]]:
+    # The server often ends the session with no SQLSTATE, so SQLAlchemy's disconnect check is what marks it.
+    if err.connection_invalidated:
+        return ConnectionDropped
     pgcode = getattr(err.orig, "pgcode", None)
     if pgcode in _BUSY_SQLSTATES:
         return DatabaseBusy

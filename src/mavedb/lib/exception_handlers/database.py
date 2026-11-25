@@ -3,7 +3,7 @@
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.orm.exc import StaleDataError
 
-from mavedb.db.errors import DatabaseBusy, MissingGrant, RowSecurityViolation
+from mavedb.db.errors import ConnectionDropped, DatabaseBusy, MissingGrant, RowSecurityViolation
 from mavedb.lib.exception_handlers.responses import ErrorResponse, ErrorResponses, attributable
 
 # Shared by the statement, lock and pool timeouts, which a caller can't tell apart or act on differently.
@@ -26,5 +26,13 @@ DATABASE_ERROR_RESPONSES: ErrorResponses = {
     # These arrive in bursts under load, and the request log counts them, so they don't alert.
     DatabaseBusy: ErrorResponse(status=503, body=attributable(_BUSY), alert=False),
     PoolTimeoutError: ErrorResponse(status=503, body=attributable(_BUSY), alert=False),
+    # SQLAlchemy discards the connection, so a retry gets a fresh one. Unlike the timeouts this alerts, since a
+    # dropped connection can also mean an outage.
+    ConnectionDropped: ErrorResponse(
+        status=503,
+        body=attributable("The database connection was lost. Please try again shortly."),
+        alert=True,
+        headers={"Retry-After": "5"},
+    ),
 }
 """How the api answers each database error it doesn't leave to the 500 path."""
