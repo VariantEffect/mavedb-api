@@ -85,7 +85,6 @@ from tests.helpers.constants import (
     VALID_CLINGEN_CA_ID,
     VALID_VARIANT_URN,
 )
-from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 from tests.helpers.util.collection import create_collection
 from tests.helpers.util.common import (
@@ -508,9 +507,7 @@ def test_cannot_lock_owner_out_of_superseding_their_own_score_set(
     assert response.json().get("supersedingScoreSet") is None
 
 
-def test_contributor_can_supersede_score_set(
-    session, data_provider, client, setup_router_db, data_files, extra_user_app_overrides
-):
+def test_contributor_can_supersede_score_set(client_for, session, data_provider, client, setup_router_db, data_files):
     """A contributor to a published score set may record its successor, as well as its owner."""
     experiment = create_experiment(client, {"contributors": [{"orcidId": EXTRA_USER["username"]}]})
     score_set = create_seq_score_set(
@@ -526,8 +523,8 @@ def test_contributor_can_supersede_score_set(
     score_set_post_payload["supersededScoreSetUrn"] = published["urn"]
 
     # The extra user contributes to the score set but does not own it.
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.post("/api/v1/score-sets/", json=score_set_post_payload)
 
     assert response.status_code == 200
     assert response.json()["supersededScoreSet"]["urn"] == published["urn"]
@@ -989,12 +986,11 @@ def test_cannot_get_other_user_private_score_set(session, client, setup_router_d
     assert f"score set with URN '{score_set['urn']}' not found" in response_data["detail"]
 
 
-def test_anonymous_user_cannot_get_user_private_score_set(session, client, setup_router_db, anonymous_app_overrides):
+def test_anonymous_user_cannot_get_user_private_score_set(anonymous_client, session, client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+    response = anonymous_client.get(f"/api/v1/score-sets/{score_set['urn']}")
 
     assert response.status_code == 404
     response_data = response.json()
@@ -1048,15 +1044,14 @@ def test_contributor_can_get_other_users_private_score_set(session, client, setu
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
-def test_admin_can_get_other_user_private_score_set(session, client, admin_app_overrides, setup_router_db):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
+def test_admin_can_get_other_user_private_score_set(owner_client, admin_client, session):
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
     expected_response = update_expected_response_for_created_resources(
         deepcopy(TEST_MINIMAL_SEQ_SCORESET_RESPONSE), experiment, score_set
     )
     expected_response["experiment"].update({"numScoreSets": 1})
-    with DependencyOverrider(admin_app_overrides):
-        response = client.get(f"/api/v1/score-sets/{score_set['urn']}")
+    response = admin_client.get(f"/api/v1/score-sets/{score_set['urn']}")
 
     assert response.status_code == 200
     response_data = response.json()
@@ -1121,19 +1116,20 @@ def test_get_score_sets_with_whitespace_around_urns_in_mixed_list_returns_404(cl
 
 
 def test_show_score_sets_anonymous_can_fetch_public_score_sets(
-    session, client, setup_router_db, anonymous_app_overrides, data_provider, data_files
+    owner_client, anonymous_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
-        published_score_set = publish_score_set(client, score_set["urn"])
+        published_score_set = publish_score_set(owner_client, score_set["urn"])
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(
-            "/api/v1/score-sets/",
-            params={"urns": published_score_set["urn"]},
-        )
+    response = anonymous_client.get(
+        "/api/v1/score-sets/",
+        params={"urns": published_score_set["urn"]},
+    )
 
     assert response.status_code == 200
     response_data = response.json()
@@ -1141,19 +1137,16 @@ def test_show_score_sets_anonymous_can_fetch_public_score_sets(
     assert response_data[0]["urn"] == published_score_set["urn"]
 
 
-def test_show_score_sets_anonymous_cannot_fetch_private_score_sets(
-    session, client, setup_router_db, anonymous_app_overrides
-):
+def test_show_score_sets_anonymous_cannot_fetch_private_score_sets(anonymous_client, session, client, setup_router_db):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     # Score set is private (not published); change ownership so it belongs to another user
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(
-            "/api/v1/score-sets/",
-            params={"urns": score_set["urn"]},
-        )
+    response = anonymous_client.get(
+        "/api/v1/score-sets/",
+        params={"urns": score_set["urn"]},
+    )
 
     assert response.status_code == 404
     assert f"score set with URN '{score_set['urn']}' not found" in response.json()["detail"]
@@ -1191,7 +1184,7 @@ def test_show_score_sets_authenticated_user_cannot_fetch_other_users_private_sco
 
 
 def test_show_score_sets_mixed_public_and_private_returns_404(
-    session, client, setup_router_db, anonymous_app_overrides, data_provider, data_files
+    anonymous_client, session, client, setup_router_db, data_provider, data_files
 ):
     experiment = create_experiment(client)
     public_score_set = create_seq_score_set(client, experiment["urn"])
@@ -1204,11 +1197,10 @@ def test_show_score_sets_mixed_public_and_private_returns_404(
     # Make private_score_set belong to a different user to make it inaccessible anonymously
     change_ownership(session, private_score_set["urn"], ScoreSetDbModel)
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(
-            "/api/v1/score-sets/",
-            params={"urns": f"{published_score_set['urn']},{private_score_set['urn']}"},
-        )
+    response = anonymous_client.get(
+        "/api/v1/score-sets/",
+        params={"urns": f"{published_score_set['urn']},{private_score_set['urn']}"},
+    )
 
     assert response.status_code == 404
     assert f"score set with URN '{private_score_set['urn']}' not found" in response.json()["detail"]
@@ -1260,27 +1252,28 @@ def test_can_add_contributor_in_both_experiment_and_score_set(session, client, s
     indirect=["mock_publication_fetch"],
 )
 def test_extra_user_can_only_view_published_score_calibrations_in_score_set(
-    client, setup_router_db, extra_user_app_overrides, mock_publication_fetch, session, data_provider, data_files
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, score_set["urn"])
+        published_score_set = publish_score_set(owner_client, score_set["urn"])
         worker_queue.assert_called_once()
 
     create_test_score_calibration_in_score_set_via_client(
-        client, published_score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, published_score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     public_calibration = create_publish_and_promote_score_calibration(
-        client,
+        owner_client,
         published_score_set["urn"],
         deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/score-sets/{published_score_set['urn']}")
+    response = outsider_client.get(f"/api/v1/score-sets/{published_score_set['urn']}")
 
     assert response.status_code == 200
     response_data = response.json()
@@ -1593,15 +1586,15 @@ def test_cannot_add_scores_to_other_user_score_set(session, client, setup_router
 # to add scores and counts. So long as this test passes (a user cannot add scores to another users' score set),
 # they necessarily will not be able to add scores and counts-- so omit the test for adding scores + counts.
 def test_anonymous_cannot_add_scores_to_other_user_score_set(
-    session, client, setup_router_db, data_files, anonymous_app_overrides
+    anonymous_client, session, client, setup_router_db, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
     scores_csv_path = data_files / "scores.csv"
 
-    with open(scores_csv_path, "rb") as scores_file, DependencyOverrider(anonymous_app_overrides):
-        response = client.post(
+    with open(scores_csv_path, "rb") as scores_file:
+        response = anonymous_client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
             files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
         )
@@ -1730,20 +1723,17 @@ def test_contributor_can_add_scores_and_counts_to_other_user_score_set(
     assert score_set == response_data
 
 
-def test_admin_can_add_scores_to_other_user_score_set(
-    session, client, setup_router_db, data_files, mock_s3_client, admin_app_overrides
-):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
+def test_admin_can_add_scores_to_other_user_score_set(owner_client, admin_client, session, data_files, mock_s3_client):
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
     scores_csv_path = data_files / "scores.csv"
 
     with (
         open(scores_csv_path, "rb") as scores_file,
-        DependencyOverrider(admin_app_overrides),
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
         patch.object(mock_s3_client, "upload_fileobj", return_value=None),
     ):
-        response = client.post(
+        response = admin_client.post(
             f"/api/v1/score-sets/{score_set['urn']}/variants/data",
             files={"scores_file": (scores_csv_path.name, scores_file, "text/csv")},
         )
@@ -2181,7 +2171,7 @@ def test_recently_published_returns_published_score_sets(session, data_provider,
     indirect=["mock_publication_fetch"],
 )
 def test_recently_published_withholds_private_calibrations_from_anonymous_users(
-    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides, mock_publication_fetch
+    owner_client, anonymous_client, session, data_provider, data_files, mock_publication_fetch
 ):
     """A published score set can carry an unpublished calibration.
 
@@ -2189,25 +2179,24 @@ def test_recently_published_withholds_private_calibrations_from_anonymous_users(
     rule is stricter than its score set's, so it needs its own filter. Without it the listing served every
     private calibration's thresholds to anyone.
     """
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+        owner_client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
-        published = publish_score_set(client, score_set["urn"])
+        published = publish_score_set(owner_client, score_set["urn"])
 
     # The owner sees their own private calibration.
-    owner_response = client.get("/api/v1/score-sets/recently-published")
+    owner_response = owner_client.get("/api/v1/score-sets/recently-published")
     assert owner_response.status_code == 200
     owner_entry = next(ss for ss in owner_response.json() if ss["urn"] == published["urn"])
     assert len(owner_entry.get("scoreCalibrations") or []) == 1
 
-    with DependencyOverrider(anonymous_app_overrides):
-        anonymous_response = client.get("/api/v1/score-sets/recently-published")
+    anonymous_response = anonymous_client.get("/api/v1/score-sets/recently-published")
 
     assert anonymous_response.status_code == 200
     anonymous_entry = next(ss for ss in anonymous_response.json() if ss["urn"] == published["urn"])
@@ -2256,17 +2245,18 @@ def test_recently_published_rejects_limit_of_zero(client, setup_router_db):
 
 
 def test_recently_published_accessible_to_anonymous_user(
-    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
-        published = publish_score_set(client, score_set["urn"])
+        published = publish_score_set(owner_client, score_set["urn"])
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get("/api/v1/score-sets/recently-published")
+    response = anonymous_client.get("/api/v1/score-sets/recently-published")
 
     assert response.status_code == 200
     returned_urns = [ss["urn"] for ss in response.json()]
@@ -2290,17 +2280,18 @@ def test_cannot_publish_other_user_private_score_set(session, data_provider, cli
 
 
 def test_anonymous_cannot_publish_user_private_score_set(
-    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
 
     with (
-        DependencyOverrider(anonymous_app_overrides),
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
     ):
-        response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+        response = anonymous_client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
         assert response.status_code == 401
         queue.assert_not_called()
         response_data = response.json()
@@ -2331,18 +2322,17 @@ def test_contributor_cannot_publish_other_users_score_set(session, data_provider
     assert f"insufficient permissions on score set with URN '{score_set['urn']}'" in response_data["detail"]
 
 
-def test_admin_can_publish_other_user_private_score_set(
-    session, data_provider, client, admin_app_overrides, setup_router_db, data_files
-):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+def test_admin_can_publish_other_user_private_score_set(owner_client, admin_client, session, data_provider, data_files):
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
 
     with (
-        DependencyOverrider(admin_app_overrides),
         patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as queue,
     ):
-        response = client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
+        response = admin_client.post(f"/api/v1/score-sets/{score_set['urn']}/publish")
         assert response.status_code == 200
         queue.assert_called_once()
 
@@ -2666,23 +2656,24 @@ def test_cannot_add_score_set_to_meta_analysis_experiment(session, data_provider
 
 
 def test_create_score_set_in_others_private_meta_analysis_experiment_reported_as_missing(
-    session, data_provider, client, setup_router_db, data_files, extra_user_app_overrides
+    owner_client, outsider_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
-        published_score_set = publish_score_set(client, score_set["urn"])
+        published_score_set = publish_score_set(owner_client, score_set["urn"])
 
     private_meta_score_set = create_seq_score_set(
-        client, None, update={"metaAnalyzesScoreSetUrns": [published_score_set["urn"]]}
+        owner_client, None, update={"metaAnalyzesScoreSetUrns": [published_score_set["urn"]]}
     )
     payload = {**deepcopy(TEST_MINIMAL_SEQ_SCORESET), "experimentUrn": private_meta_score_set["experiment"]["urn"]}
     missing_payload = {**payload, "experimentUrn": "urn:mavedb:00099999-a"}
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post("/api/v1/score-sets/", json=payload)
-        missing_response = client.post("/api/v1/score-sets/", json=missing_payload)
+    response = outsider_client.post("/api/v1/score-sets/", json=payload)
+    missing_response = outsider_client.post("/api/v1/score-sets/", json=missing_payload)
 
     for sent, received in ((payload, response), (missing_payload, missing_response)):
         assert received.status_code == 404
@@ -2807,18 +2798,20 @@ def test_multiple_score_set_meta_analysis_multiple_experiment_sets_with_differen
 
 
 def test_meta_analysis_single_experiment_set_conflicts_with_other_users_private_meta_analysis(
-    session, data_provider, client, setup_router_db, data_files, extra_user_app_overrides
+    owner_client, outsider_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, score_set["urn"])
+        published_score_set = publish_score_set(owner_client, score_set["urn"])
         worker_queue.assert_called_once()
 
     private_meta_score_set = create_seq_score_set(
-        client,
+        owner_client,
         None,
         update={
             "title": "Private Meta Analysis Title",
@@ -2833,8 +2826,7 @@ def test_meta_analysis_single_experiment_set_conflicts_with_other_users_private_
     score_set_post_payload.update(
         {"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [published_score_set["urn"]]}
     )
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post("/api/v1/score-sets/", json=score_set_post_payload)
+    response = outsider_client.post("/api/v1/score-sets/", json=score_set_post_payload)
 
     assert response.status_code == 409
     assert response.json()["detail"] == "A meta-analysis of these score sets is in progress by another user."
@@ -2854,23 +2846,27 @@ def test_meta_analysis_single_experiment_set_conflicts_with_other_users_private_
 
 
 def test_meta_analysis_multiple_experiment_sets_does_not_reuse_other_users_private_meta_analysis(
-    session, data_provider, client, setup_router_db, data_files, extra_user_app_overrides
+    owner_client, outsider_client, session, data_provider, data_files
 ):
-    experiment_1 = create_experiment(client, {"title": "Experiment 1"})
-    experiment_2 = create_experiment(client, {"title": "Experiment 2"})
-    score_set_1 = create_seq_score_set(client, experiment_1["urn"], update={"title": "Score Set 1"})
-    score_set_1 = mock_worker_variant_insertion(client, session, data_provider, score_set_1, data_files / "scores.csv")
-    score_set_2 = create_seq_score_set(client, experiment_2["urn"], update={"title": "Score Set 2"})
-    score_set_2 = mock_worker_variant_insertion(client, session, data_provider, score_set_2, data_files / "scores.csv")
+    experiment_1 = create_experiment(owner_client, {"title": "Experiment 1"})
+    experiment_2 = create_experiment(owner_client, {"title": "Experiment 2"})
+    score_set_1 = create_seq_score_set(owner_client, experiment_1["urn"], update={"title": "Score Set 1"})
+    score_set_1 = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set_1, data_files / "scores.csv"
+    )
+    score_set_2 = create_seq_score_set(owner_client, experiment_2["urn"], update={"title": "Score Set 2"})
+    score_set_2 = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set_2, data_files / "scores.csv"
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set_1 = publish_score_set(client, score_set_1["urn"])
-        published_score_set_2 = publish_score_set(client, score_set_2["urn"])
+        published_score_set_1 = publish_score_set(owner_client, score_set_1["urn"])
+        published_score_set_2 = publish_score_set(owner_client, score_set_2["urn"])
         worker_queue.assert_called()
 
     meta_analyzes_score_set_urns = [published_score_set_1["urn"], published_score_set_2["urn"]]
     private_meta_score_set = create_seq_score_set(
-        client,
+        owner_client,
         None,
         update={
             "title": "Private Meta Analysis Title",
@@ -2881,19 +2877,18 @@ def test_meta_analysis_multiple_experiment_sets_does_not_reuse_other_users_priva
     )
     private_experiment = private_meta_score_set["experiment"]
 
-    with DependencyOverrider(extra_user_app_overrides):
-        meta_score_set = create_seq_score_set(
-            client,
-            None,
-            update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": meta_analyzes_score_set_urns},
-        )
-        meta_score_set = mock_worker_variant_insertion(
-            client, session, data_provider, meta_score_set, data_files / "scores.csv"
-        )
+    meta_score_set = create_seq_score_set(
+        outsider_client,
+        None,
+        update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": meta_analyzes_score_set_urns},
+    )
+    meta_score_set = mock_worker_variant_insertion(
+        outsider_client, session, data_provider, meta_score_set, data_files / "scores.csv"
+    )
 
-        with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-            published_meta_score_set = publish_score_set(client, meta_score_set["urn"])
-            worker_queue.assert_called_once()
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_meta_score_set = publish_score_set(outsider_client, meta_score_set["urn"])
+        worker_queue.assert_called_once()
 
     assert meta_score_set["experiment"]["urn"] != private_experiment["urn"]
     assert meta_score_set["experiment"]["experimentSetUrn"] != private_experiment["experimentSetUrn"]
@@ -2918,44 +2913,45 @@ def test_meta_analysis_multiple_experiment_sets_does_not_reuse_other_users_priva
 
 
 def test_meta_analysis_joins_other_users_published_meta_analysis_experiment(
-    session, data_provider, client, setup_router_db, data_files, extra_user_app_overrides
+    owner_client, outsider_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, score_set["urn"])
+        published_score_set = publish_score_set(owner_client, score_set["urn"])
         worker_queue.assert_called_once()
 
     other_meta_score_set = create_seq_score_set(
-        client,
+        owner_client,
         None,
         update={"title": "Other Meta Analysis", "metaAnalyzesScoreSetUrns": [published_score_set["urn"]]},
     )
     other_meta_score_set = mock_worker_variant_insertion(
-        client, session, data_provider, other_meta_score_set, data_files / "scores.csv"
+        owner_client, session, data_provider, other_meta_score_set, data_files / "scores.csv"
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_other_meta_score_set = publish_score_set(client, other_meta_score_set["urn"])
+        published_other_meta_score_set = publish_score_set(owner_client, other_meta_score_set["urn"])
         worker_queue.assert_called_once()
 
     assert published_other_meta_score_set["experiment"]["urn"] == "urn:mavedb:00000001-0"
 
-    with DependencyOverrider(extra_user_app_overrides):
-        meta_score_set = create_seq_score_set(
-            client,
-            None,
-            update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [published_score_set["urn"]]},
-        )
-        meta_score_set = mock_worker_variant_insertion(
-            client, session, data_provider, meta_score_set, data_files / "scores.csv"
-        )
+    meta_score_set = create_seq_score_set(
+        outsider_client,
+        None,
+        update={"title": "Test Meta Analysis", "metaAnalyzesScoreSetUrns": [published_score_set["urn"]]},
+    )
+    meta_score_set = mock_worker_variant_insertion(
+        outsider_client, session, data_provider, meta_score_set, data_files / "scores.csv"
+    )
 
-        with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-            published_meta_score_set = publish_score_set(client, meta_score_set["urn"])
-            worker_queue.assert_called_once()
+    with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
+        published_meta_score_set = publish_score_set(outsider_client, meta_score_set["urn"])
+        worker_queue.assert_called_once()
 
     assert meta_score_set["experiment"]["urn"] == published_other_meta_score_set["experiment"]["urn"]
     assert published_meta_score_set["urn"] == "urn:mavedb:00000001-0-2"
@@ -3098,7 +3094,7 @@ def test_search_public_score_sets_no_match(session, data_provider, client, setup
 
 
 def test_search_public_score_sets_does_not_disclose_private_sibling_urns(
-    session, data_provider, client, anonymous_app_overrides, setup_router_db, data_files
+    owner_client, anonymous_client, session, data_provider, data_files
 ):
     """A search result's experiment lists only the score set URNs the caller may read.
 
@@ -3107,20 +3103,22 @@ def test_search_public_score_sets_does_not_disclose_private_sibling_urns(
     set on the experiment. The field is gone, and an unknown field is ignored rather than rejected, so the
     old request shape must now be filtered too.
     """
-    experiment = create_experiment(client, {"title": "Experiment 1"})
-    published = create_seq_score_set(client, experiment["urn"], update={"title": "Test Fnord Score Set"})
-    published = mock_worker_variant_insertion(client, session, data_provider, published, data_files / "scores.csv")
+    experiment = create_experiment(owner_client, {"title": "Experiment 1"})
+    published = create_seq_score_set(owner_client, experiment["urn"], update={"title": "Test Fnord Score Set"})
+    published = mock_worker_variant_insertion(
+        owner_client, session, data_provider, published, data_files / "scores.csv"
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
-        published = publish_score_set(client, published["urn"])
+        published = publish_score_set(owner_client, published["urn"])
 
     # Unpublished, and inside the now-public experiment. This is the URN that leaked.
     private = create_seq_score_set(
-        client, published["experiment"]["urn"], update={"title": "Unpublished Fnord Score Set"}
+        owner_client, published["experiment"]["urn"], update={"title": "Unpublished Fnord Score Set"}
     )
 
     # The owner may read both, so the enrichment is permission-scoped rather than a blanket strip.
-    response = client.post("/api/v1/score-sets/search", json={"text": "fnord"})
+    response = owner_client.post("/api/v1/score-sets/search", json={"text": "fnord"})
     assert response.status_code == 200
     assert set(response.json()["scoreSets"][0]["experiment"]["scoreSetUrns"]) == {published["urn"], private["urn"]}
 
@@ -3128,8 +3126,7 @@ def test_search_public_score_sets_does_not_disclose_private_sibling_urns(
         {"text": "fnord"},
         {"text": "fnord", "includeExperimentScoreSetUrnsAndCount": False},
     ):
-        with DependencyOverrider(anonymous_app_overrides):
-            response = client.post("/api/v1/score-sets/search", json=search_payload)
+        response = anonymous_client.post("/api/v1/score-sets/search", json=search_payload)
 
         assert response.status_code == 200
         assert len(response.json()["scoreSets"]) == 1
@@ -3592,7 +3589,7 @@ def test_cannot_create_multiple_superseding_versions(session, data_provider, cli
 
 
 def test_create_superseding_score_set_conflict_withholds_unreadable_superseding_urn(
-    session, data_provider, client, setup_router_db, data_files, extra_user_app_overrides
+    client_for, session, data_provider, client, setup_router_db, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -3612,14 +3609,14 @@ def test_create_superseding_score_set_conflict_withholds_unreadable_superseding_
         client, create_experiment(client)["urn"], update={"supersededScoreSetUrn": published["urn"]}
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        experiment2 = create_experiment(client)
-        payload = {
-            **deepcopy(TEST_MINIMAL_SEQ_SCORESET),
-            "experimentUrn": experiment2["urn"],
-            "supersededScoreSetUrn": published["urn"],
-        }
-        response = client.post("/api/v1/score-sets/", json=payload)
+    extra_user_client = client_for(EXTRA_USER)
+    experiment2 = create_experiment(extra_user_client)
+    payload = {
+        **deepcopy(TEST_MINIMAL_SEQ_SCORESET),
+        "experimentUrn": experiment2["urn"],
+        "supersededScoreSetUrn": published["urn"],
+    }
+    response = extra_user_client.post("/api/v1/score-sets/", json=payload)
 
     assert response.status_code == 409
     assert response.json()["detail"] == "This score set has already been superseded."
@@ -3666,32 +3663,34 @@ def test_search_score_sets_not_affected_by_an_unpublishing_superseding_versions(
 
 
 def test_anonymous_cannot_delete_other_users_private_scoreset(
-    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
+    response = anonymous_client.delete(f"/api/v1/score-sets/{score_set['urn']}")
 
     assert response.status_code == 401
     assert "Could not validate credentials" in response.json()["detail"]
 
 
 def test_anonymous_cannot_delete_other_users_published_scoreset(
-    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, score_set["urn"])
+        published_score_set = publish_score_set(owner_client, score_set["urn"])
         worker_queue.assert_called_once()
 
-    with DependencyOverrider(anonymous_app_overrides):
-        del_response = client.delete(f"/api/v1/score-sets/{published_score_set['urn']}")
+    del_response = anonymous_client.delete(f"/api/v1/score-sets/{published_score_set['urn']}")
 
     assert del_response.status_code == 401
     del_response_data = del_response.json()
@@ -3759,7 +3758,7 @@ def test_cannot_delete_own_published_scoreset(session, data_provider, client, se
 
 
 def test_contributor_can_delete_other_users_private_scoreset(
-    session, data_provider, client, setup_router_db, data_files, admin_app_overrides
+    session, data_provider, client, setup_router_db, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set(client, experiment["urn"])
@@ -3781,33 +3780,33 @@ def test_contributor_can_delete_other_users_private_scoreset(
     assert f"insufficient permissions on score set with URN '{score_set['urn']}'" in response_data["detail"]
 
 
-def test_admin_can_delete_other_users_private_scoreset(
-    session, data_provider, client, setup_router_db, data_files, admin_app_overrides
-):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+def test_admin_can_delete_other_users_private_scoreset(owner_client, admin_client, session, data_provider, data_files):
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.delete(f"/api/v1/score-sets/{score_set['urn']}")
+    response = admin_client.delete(f"/api/v1/score-sets/{score_set['urn']}")
 
     assert response.status_code == 200
 
 
 def test_admin_can_delete_other_users_published_scoreset(
-    session, data_provider, client, setup_router_db, data_files, admin_app_overrides
+    owner_client, admin_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, score_set["urn"])
+        published_score_set = publish_score_set(owner_client, score_set["urn"])
         worker_queue.assert_called_once()
 
-    with DependencyOverrider(admin_app_overrides):
-        del_response = client.delete(f"/api/v1/score-sets/{published_score_set['urn']}")
-        assert del_response.status_code == 200
+    del_response = admin_client.delete(f"/api/v1/score-sets/{published_score_set['urn']}")
+    assert del_response.status_code == 200
 
 
 ########################################################################################################################
@@ -5561,7 +5560,7 @@ def test_annotated_variants_honor_as_of(client, session, data_provider, data_fil
     indirect=["mock_publication_fetch"],
 )
 def test_get_annotated_pathogenicity_evidence_lines_for_score_set(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -5660,7 +5659,7 @@ def test_nonetype_annotated_pathogenicity_evidence_lines_for_score_set_when_cali
     indirect=["mock_publication_fetch"],
 )
 def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_variants_were_not_mapped(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -5704,7 +5703,7 @@ def test_get_annotated_pathogenicity_evidence_lines_for_score_set_when_some_vari
     indirect=["mock_publication_fetch"],
 )
 def test_get_annotated_functional_impact_statement_for_score_set(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -5738,7 +5737,7 @@ def test_get_annotated_functional_impact_statement_for_score_set(
     indirect=["mock_publication_fetch"],
 )
 def test_nonetype_annotated_functional_impact_statement_for_score_set_when_calibrations_not_present(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -5804,7 +5803,7 @@ def test_nonetype_annotated_functional_impact_statement_for_score_set_when_thres
     indirect=["mock_publication_fetch"],
 )
 def test_get_annotated_functional_impact_statement_for_score_set_when_some_variants_were_not_mapped(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -5842,7 +5841,7 @@ def test_get_annotated_functional_impact_statement_for_score_set_when_some_varia
     indirect=["mock_publication_fetch"],
 )
 def test_get_annotated_functional_study_result_for_score_set(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -5904,7 +5903,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
     indirect=["mock_publication_fetch"],
 )
 def test_annotated_functional_study_result_exists_for_score_set_when_ranges_not_present(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -5961,7 +5960,7 @@ def test_annotated_functional_study_result_exists_for_score_set_when_thresholds_
     indirect=["mock_publication_fetch"],
 )
 def test_annotated_functional_study_result_exists_for_score_set_when_some_variants_were_not_mapped(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides, mock_publication_fetch
+    client, session, data_provider, data_files, setup_router_db, mock_publication_fetch
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -6443,7 +6442,7 @@ def test_get_lean_variants_other_user_cannot_read_private(client, session, data_
 
 
 def test_get_lean_variants_anonymous_cannot_read_private(
-    client, session, data_provider, data_files, setup_router_db, anonymous_app_overrides
+    anonymous_client, client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -6451,31 +6450,29 @@ def test_get_lean_variants_anonymous_cannot_read_private(
     )
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants")
+    response = anonymous_client.get(f"/api/v1/score-sets/{score_set['urn']}/variants")
 
     assert response.status_code == 404
 
 
 def test_get_lean_variants_anonymous_can_read_published(
-    client, session, data_provider, data_files, setup_router_db, anonymous_app_overrides
+    owner_client, anonymous_client, session, data_provider, data_files
 ):
     """A published score set is world-readable, so an anonymous caller gets the full lean set."""
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_variants(
-        client, session, data_provider, experiment["urn"], data_files / "scores.csv"
+        owner_client, session, data_provider, experiment["urn"], data_files / "scores.csv"
     )
-    published = publish_score_set(client, score_set["urn"])
+    published = publish_score_set(owner_client, score_set["urn"])
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/score-sets/{published['urn']}/variants")
+    response = anonymous_client.get(f"/api/v1/score-sets/{published['urn']}/variants")
 
     assert response.status_code == 200
     assert len(response.json()) == 3
 
 
 def test_get_lean_variants_admin_can_read_private(
-    client, session, data_provider, data_files, setup_router_db, admin_app_overrides
+    admin_client, client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -6483,8 +6480,7 @@ def test_get_lean_variants_admin_can_read_private(
     )
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.get(f"/api/v1/score-sets/{score_set['urn']}/variants")
+    response = admin_client.get(f"/api/v1/score-sets/{score_set['urn']}/variants")
 
     assert response.status_code == 200
     assert len(response.json()) == 3
@@ -6550,11 +6546,13 @@ def test_get_lean_variants_empty_score_set_streams_an_empty_array(client, sessio
     assert response.content == b"[]"
 
 
-def _get_streamed(app, path, on_body):
-    """Run a GET through the ASGI app, calling ``on_body`` with each body chunk as it's sent.
+def _get_streamed(client, path, on_body):
+    """Run a GET through ``client``'s ASGI app with its credentials, calling ``on_body`` with each body chunk as
+    it's sent.
 
     TestClient collects the whole body before returning, which hides whether a response streams.
     """
+    app = client.app
     scope = {
         "type": "http",
         "asgi": {"version": "3.0"},
@@ -6565,7 +6563,10 @@ def _get_streamed(app, path, on_body):
         "raw_path": path.encode(),
         "root_path": "",
         "query_string": b"",
-        "headers": [(b"host", b"testserver")],
+        "headers": [
+            (b"host", b"testserver"),
+            *((name.lower().encode(), value.encode()) for name, value in client.auth_headers.items()),
+        ],
         "client": ("testclient", 50000),
         "server": ("testserver", 80),
     }
@@ -6587,7 +6588,7 @@ def _get_streamed(app, path, on_body):
     asyncio.run(app(scope, receive, send))
 
 
-def test_get_lean_variants_sends_rows_before_the_last_row_is_read(app_, client, session, setup_router_db):
+def test_get_lean_variants_sends_rows_before_the_last_row_is_read(client, session, setup_router_db):
     score_set, count = _seed_past_one_lean_batch(client, session)
 
     # Each chunk, with whether the query's cursor still had rows to read when the chunk was sent.
@@ -6597,7 +6598,7 @@ def test_get_lean_variants_sends_rows_before_the_last_row_is_read(app_, client, 
         open_cursors = session.execute(text("SELECT count(*) FROM pg_cursors")).scalar_one()
         chunks.append((body, open_cursors > 0))
 
-    _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/variants", on_body)
+    _get_streamed(client, f"/api/v1/score-sets/{score_set['urn']}/variants", on_body)
 
     first_rows, cursor_open = next((body, open_) for body, open_ in chunks if b"variantUrn" in body)
     # The first batch went out while the last row was still unread in the database.
@@ -6615,7 +6616,7 @@ def test_stream_lean_variants_stream_sent_logs_its_duration():
     assert context["stream_duration_ns"] >= 0
 
 
-def test_get_lean_variants_failure_mid_stream_never_closes_the_array(app_, client, session, setup_router_db):
+def test_get_lean_variants_failure_mid_stream_never_closes_the_array(client, session, setup_router_db):
     score_set, _ = _seed_past_one_lean_batch(client, session)
 
     sent = []
@@ -6629,7 +6630,7 @@ def test_get_lean_variants_failure_mid_stream_never_closes_the_array(app_, clien
                 other.execute(text("SELECT pg_terminate_backend(:pid)"), {"pid": stream_pid})
 
     with pytest.raises(OperationalError):
-        _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/variants", on_body)
+        _get_streamed(client, f"/api/v1/score-sets/{score_set['urn']}/variants", on_body)
 
     body = b"".join(sent)
     assert body.startswith(b"[")
@@ -6715,55 +6716,59 @@ def test_patch_with_invalid_data_on_unreadable_score_set_is_404(session, client,
 
 
 def test_meta_analyses_are_listed_only_to_callers_who_may_read_them(
-    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides, extra_user_app_overrides
+    owner_client, outsider_client, anonymous_client, session, data_provider, data_files
 ):
     """Anyone may start a meta-analysis of a published score set, so the score set must not name a private
     one to callers who can't read it."""
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
-        published = publish_score_set(client, score_set["urn"])
+        published = publish_score_set(owner_client, score_set["urn"])
 
-    with DependencyOverrider(extra_user_app_overrides):
-        meta_analysis = create_seq_score_set(
-            client, None, update={"title": "Private meta-analysis", "metaAnalyzesScoreSetUrns": [published["urn"]]}
-        )
-        assert client.get(f"/api/v1/score-sets/{published['urn']}").json()["metaAnalyzedByScoreSetUrns"] == [
-            meta_analysis["urn"]
-        ]
+    meta_analysis = create_seq_score_set(
+        outsider_client, None, update={"title": "Private meta-analysis", "metaAnalyzesScoreSetUrns": [published["urn"]]}
+    )
+    assert outsider_client.get(f"/api/v1/score-sets/{published['urn']}").json()["metaAnalyzedByScoreSetUrns"] == [
+        meta_analysis["urn"]
+    ]
 
-    assert client.get(f"/api/v1/score-sets/{published['urn']}").json()["metaAnalyzedByScoreSetUrns"] == []
-    with DependencyOverrider(anonymous_app_overrides):
-        assert client.get(f"/api/v1/score-sets/{published['urn']}").json()["metaAnalyzedByScoreSetUrns"] == []
-        experiment_score_sets = client.get(f"/api/v1/experiments/{published['experiment']['urn']}/score-sets").json()
-        assert [ss["metaAnalyzedByScoreSetUrns"] for ss in experiment_score_sets] == [[]]
+    assert owner_client.get(f"/api/v1/score-sets/{published['urn']}").json()["metaAnalyzedByScoreSetUrns"] == []
+    assert anonymous_client.get(f"/api/v1/score-sets/{published['urn']}").json()["metaAnalyzedByScoreSetUrns"] == []
+    experiment_score_sets = anonymous_client.get(
+        f"/api/v1/experiments/{published['experiment']['urn']}/score-sets"
+    ).json()
+    assert [ss["metaAnalyzedByScoreSetUrns"] for ss in experiment_score_sets] == [[]]
 
 
 def test_official_collections_list_only_readable_collections_and_members(
-    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, session, data_provider, data_files
 ):
     """An official collection badges every member, so a public record's response must not reveal the private
     members it shares a badge with, or a private badge collection at all."""
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
-        published = publish_score_set(client, score_set["urn"])
+        published = publish_score_set(owner_client, score_set["urn"])
     published_experiment_urn = published["experiment"]["urn"]
-    private_score_set = create_seq_score_set(client, published_experiment_urn)
-    private_experiment = create_experiment(client)
+    private_score_set = create_seq_score_set(owner_client, published_experiment_urn)
+    private_experiment = create_experiment(owner_client)
 
-    public_badge = create_collection(client)
-    private_badge = create_collection(client)
+    public_badge = create_collection(owner_client)
+    private_badge = create_collection(owner_client)
     for collection, private in ((public_badge, False), (private_badge, True)):
         for member in (published, private_score_set):
-            response = client.post(
+            response = owner_client.post(
                 f"/api/v1/collections/{collection['urn']}/score-sets", json={"score_set_urn": member["urn"]}
             )
             assert response.status_code == 200, response.text
         for experiment_urn in (published_experiment_urn, private_experiment["urn"]):
-            response = client.post(
+            response = owner_client.post(
                 f"/api/v1/collections/{collection['urn']}/experiments", json={"experiment_urn": experiment_urn}
             )
             assert response.status_code == 200, response.text
@@ -6779,16 +6784,15 @@ def test_official_collections_list_only_readable_collections_and_members(
         sorted([published["urn"], private_score_set["urn"]]),
         sorted([published_experiment_urn, private_experiment["urn"]]),
     )
-    owner_view = client.get(f"/api/v1/score-sets/{published['urn']}").json()
+    owner_view = owner_client.get(f"/api/v1/score-sets/{published['urn']}").json()
     assert members(owner_view["officialCollections"]) == {
         public_badge["urn"]: everything,
         private_badge["urn"]: everything,
     }
 
-    with DependencyOverrider(anonymous_app_overrides):
-        anonymous_view = client.get(f"/api/v1/score-sets/{published['urn']}").json()
-        experiment_view = client.get(f"/api/v1/experiments/{published_experiment_urn}").json()
-        experiment_list = client.get("/api/v1/experiments/").json()
+    anonymous_view = anonymous_client.get(f"/api/v1/score-sets/{published['urn']}").json()
+    experiment_view = anonymous_client.get(f"/api/v1/experiments/{published_experiment_urn}").json()
+    experiment_list = anonymous_client.get("/api/v1/experiments/").json()
 
     expected = {public_badge["urn"]: ([published["urn"]], [published_experiment_urn])}
     assert members(anonymous_view["officialCollections"]) == expected

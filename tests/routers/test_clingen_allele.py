@@ -29,7 +29,6 @@ from mavedb.models.user import User
 from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.view_models.allele_measurement import AlleleMeasurement
 from tests.helpers.constants import TEST_USER
-from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import create_seq_score_set_with_variants
 from tests.helpers.util.user import change_ownership
@@ -315,7 +314,7 @@ def test_measurements_tiebreak_on_urn(client, session, data_provider, data_files
 
 
 def test_anonymous_cannot_see_private_measurement(
-    client, session, data_provider, data_files, setup_router_db, anonymous_app_overrides
+    anonymous_client, client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -324,8 +323,7 @@ def test_anonymous_cannot_see_private_measurement(
     _seed_cdna_measurement(session, f"{score_set['urn']}#1")
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get("/api/v1/clingen-alleles/CA123/measurements")
+    response = anonymous_client.get("/api/v1/clingen-alleles/CA123/measurements")
 
     # A content-addressed ClinGen id is public, but a private score set's measurement is filtered out.
     assert response.status_code == 200

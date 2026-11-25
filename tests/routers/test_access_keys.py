@@ -9,14 +9,11 @@ fastapi = pytest.importorskip("fastapi")
 from mavedb.lib.authentication import get_current_user_data_from_api_key, hash_access_key
 from mavedb.models.access_key import AccessKey
 from mavedb.models.enums.user_role import UserRole
-from mavedb.models.user import User
-from tests.helpers.constants import EXTRA_USER, TEST_USER
-from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.access_key import create_admin_key_for_current_user, create_api_key_for_current_user
 
 
-def test_create_my_access_key_stores_hash_and_hint_not_key(client, setup_router_db, session):
-    created = create_api_key_for_current_user(client)
+def test_create_my_access_key_stores_hash_and_hint_not_key(owner_client, session):
+    created = create_api_key_for_current_user(owner_client)
     key = created["keyId"]
 
     saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == hash_access_key(key)).one_or_none()
@@ -30,21 +27,21 @@ def test_create_my_access_key_stores_hash_and_hint_not_key(client, setup_router_
     session.commit()
 
 
-def test_create_my_access_key_returns_key_that_authenticates(client, setup_router_db, session):
-    key = create_api_key_for_current_user(client)["keyId"]
+def test_create_my_access_key_returns_key_that_authenticates(owner_client, session):
+    key = create_api_key_for_current_user(owner_client)["keyId"]
 
     user_data = get_current_user_data_from_api_key(session, key)
     assert user_data is not None
-    assert user_data.user.username == TEST_USER["username"]
+    assert user_data.user.username == owner_client.username
 
     # Some lingering db transaction holds this test open unless it is explicitly closed.
     session.commit()
 
 
-def test_list_my_access_keys_shows_hint_never_key_or_hash(client, setup_router_db, session):
-    created = create_api_key_for_current_user(client)
+def test_list_my_access_keys_shows_hint_never_key_or_hash(owner_client, session):
+    created = create_api_key_for_current_user(owner_client)
 
-    response = client.get("api/v1/users/me/access-keys")
+    response = owner_client.get("api/v1/users/me/access-keys")
     assert response.status_code == 200
     listed = response.json()
     assert [k["id"] for k in listed] == [created["id"]]
@@ -60,9 +57,8 @@ def test_list_my_access_keys_shows_hint_never_key_or_hash(client, setup_router_d
     session.commit()
 
 
-def test_anonymous_user_cannot_create_access_key(client, setup_router_db, session, anonymous_app_overrides):
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.post("api/v1/users/me/access-keys")
+def test_anonymous_user_cannot_create_access_key(anonymous_client, setup_router_db, session):
+    response = anonymous_client.post("api/v1/users/me/access-keys")
 
     assert response.status_code == 401
     response_value = response.json()
@@ -72,8 +68,8 @@ def test_anonymous_user_cannot_create_access_key(client, setup_router_db, sessio
     session.commit()
 
 
-def test_user_cannot_create_access_key_for_role_they_dont_have(client, setup_router_db, session):
-    response = client.post("api/v1/users/me/access-keys/admin")
+def test_user_cannot_create_access_key_for_role_they_dont_have(owner_client, session):
+    response = owner_client.post("api/v1/users/me/access-keys/admin")
     assert response.status_code == 403
     response_value = response.json()
     assert response_value["detail"] in "User cannot create an API key for a role they do not have."
@@ -82,9 +78,8 @@ def test_user_cannot_create_access_key_for_role_they_dont_have(client, setup_rou
     session.commit()
 
 
-def test_admin_can_create_admin_key(client, setup_router_db, session, admin_app_overrides):
-    with DependencyOverrider(admin_app_overrides):
-        key = create_admin_key_for_current_user(client)["keyId"]
+def test_admin_can_create_admin_key(admin_client, session):
+    key = create_admin_key_for_current_user(admin_client)["keyId"]
 
     saved_access_key = session.query(AccessKey).filter(AccessKey.key_id == hash_access_key(key)).one_or_none()
     assert saved_access_key is not None
@@ -94,12 +89,12 @@ def test_admin_can_create_admin_key(client, setup_router_db, session, admin_app_
     session.commit()
 
 
-def test_user_can_delete_access_key(client, setup_router_db, session):
-    access_key_id = create_api_key_for_current_user(client)["id"]
+def test_user_can_delete_access_key(owner_client, session):
+    access_key_id = create_api_key_for_current_user(owner_client)["id"]
     saved_access_key = session.get(AccessKey, access_key_id)
     assert saved_access_key is not None
 
-    del_response = client.delete(f"api/v1/users/me/access-keys/{access_key_id}")
+    del_response = owner_client.delete(f"api/v1/users/me/access-keys/{access_key_id}")
     assert del_response.status_code == 200
     session.expire_all()
     assert session.get(AccessKey, access_key_id) is None
@@ -108,13 +103,12 @@ def test_user_can_delete_access_key(client, setup_router_db, session):
     session.commit()
 
 
-def test_anonymous_user_cannot_delete_access_key(client, setup_router_db, session, anonymous_app_overrides):
-    access_key_id = create_api_key_for_current_user(client)["id"]
+def test_anonymous_user_cannot_delete_access_key(owner_client, anonymous_client, session):
+    access_key_id = create_api_key_for_current_user(owner_client)["id"]
     saved_access_key = session.get(AccessKey, access_key_id)
     assert saved_access_key is not None
 
-    with DependencyOverrider(anonymous_app_overrides):
-        del_response = client.delete(f"api/v1/users/me/access-keys/{access_key_id}")
+    del_response = anonymous_client.delete(f"api/v1/users/me/access-keys/{access_key_id}")
 
     assert del_response.status_code == 401
     response_value = del_response.json()
@@ -124,18 +118,10 @@ def test_anonymous_user_cannot_delete_access_key(client, setup_router_db, sessio
     session.commit()
 
 
-def test_user_cannot_delete_other_users_access_key(client, setup_router_db, session):
-    access_key_id = create_api_key_for_current_user(client)["id"]
-    saved_access_key = session.get(AccessKey, access_key_id)
-    assert saved_access_key is not None
+def test_user_cannot_delete_other_users_access_key(owner_client, outsider_client, session):
+    access_key_id = create_api_key_for_current_user(outsider_client)["id"]
 
-    extra_user = session.query(User).filter(User.username == EXTRA_USER["username"]).one_or_none()
-    assert extra_user is not None
-    saved_access_key.user = extra_user
-    session.add(saved_access_key)
-    session.commit()
-
-    del_response = client.delete(f"api/v1/users/me/access-keys/{access_key_id}")
+    del_response = owner_client.delete(f"api/v1/users/me/access-keys/{access_key_id}")
     assert del_response.status_code == 404
     session.expire_all()
     assert session.get(AccessKey, access_key_id) is not None

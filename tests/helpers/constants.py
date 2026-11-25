@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from enum import Enum
 
 from humps import camelize
 
@@ -458,6 +459,30 @@ ADMIN_USER = {
     "is_first_login": True,
 }
 
+OUTSIDER_USER = {
+    "username": "6666-6666-6666-6666",
+    "first_name": "Outsider",
+    "last_name": "User",
+    "email": "outsider_user@test.com",
+    "is_active": True,
+    "is_staff": False,
+    "is_superuser": False,
+    "is_first_login": True,
+}
+"""Signed in, with no relation to any record a test creates."""
+
+CONTRIBUTOR_USER = {
+    "username": "7777-7777-7777-7777",
+    "first_name": "Contributor",
+    "last_name": "User",
+    "email": "contributor_user@test.com",
+    "is_active": True,
+    "is_staff": False,
+    "is_superuser": False,
+    "is_first_login": True,
+}
+"""Contributes to whichever records a test adds them to, and to nothing else."""
+
 TEST_DESCRIPTION = "description"
 
 ADMIN_USER_DECODED_JWT = {
@@ -465,6 +490,14 @@ ADMIN_USER_DECODED_JWT = {
     "given_name": ADMIN_USER["first_name"],
     "family_name": ADMIN_USER["last_name"],
 }
+
+
+class Anonymous(Enum):
+    ANONYMOUS = "anonymous"
+
+
+ANONYMOUS = Anonymous.ANONYMOUS
+"""The persona of a caller who sends no credentials, as in ``client_for(ANONYMOUS)``."""
 
 TEST_EXPERIMENT = {
     "title": "Test Title",

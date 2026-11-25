@@ -16,7 +16,6 @@ from mavedb.models.raw_read_identifier import ExperimentRawReadIdentifier
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene_external_identifier import TargetGeneExternalIdentifier
 from tests.helpers.constants import TEST_MINIMAL_EXPERIMENT, TEST_MINIMAL_SEQ_SCORESET
-from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import create_seq_score_set
 
@@ -192,23 +191,13 @@ SEARCHES_ON_PRIVATE_RECORDS = [
 
 @pytest.mark.parametrize("route, text, identifier, make_record, record_model", SEARCHES_ON_PRIVATE_RECORDS)
 def test_search_identifiers_on_private_record_visible_only_to_those_who_can_read_it(
-    client,
-    setup_router_db,
-    anonymous_app_overrides,
-    extra_user_app_overrides,
-    route,
-    text,
-    identifier,
-    make_record,
-    record_model,
+    owner_client, outsider_client, anonymous_client, route, text, identifier, make_record, record_model
 ):
-    make_record(client)
+    make_record(owner_client)
 
-    owner_response = client.post(route, json={"text": text})
-    with DependencyOverrider(anonymous_app_overrides):
-        anonymous_response = client.post(route, json={"text": text})
-    with DependencyOverrider(extra_user_app_overrides):
-        other_user_response = client.post(route, json={"text": text})
+    owner_response = owner_client.post(route, json={"text": text})
+    anonymous_response = anonymous_client.post(route, json={"text": text})
+    other_user_response = outsider_client.post(route, json={"text": text})
 
     assert owner_response.status_code == 200
     assert [result["identifier"] for result in owner_response.json()] == [identifier]
@@ -218,25 +207,14 @@ def test_search_identifiers_on_private_record_visible_only_to_those_who_can_read
 
 @pytest.mark.parametrize("route, text, identifier, make_record, record_model", SEARCHES_ON_PRIVATE_RECORDS)
 def test_search_identifiers_on_published_record_visible_to_everyone(
-    session,
-    client,
-    setup_router_db,
-    anonymous_app_overrides,
-    extra_user_app_overrides,
-    route,
-    text,
-    identifier,
-    make_record,
-    record_model,
+    owner_client, outsider_client, anonymous_client, session, route, text, identifier, make_record, record_model
 ):
-    record = make_record(client)
+    record = make_record(owner_client)
     session.execute(update(record_model).where(record_model.urn == record["urn"]).values(private=False))
     session.commit()
 
-    with DependencyOverrider(anonymous_app_overrides):
-        anonymous_response = client.post(route, json={"text": text})
-    with DependencyOverrider(extra_user_app_overrides):
-        other_user_response = client.post(route, json={"text": text})
+    anonymous_response = anonymous_client.post(route, json={"text": text})
+    other_user_response = outsider_client.post(route, json={"text": text})
 
     assert [result["identifier"] for result in anonymous_response.json()] == [identifier]
     assert [result["identifier"] for result in other_user_response.json()] == [identifier]
