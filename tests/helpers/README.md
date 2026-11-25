@@ -7,7 +7,7 @@ This directory contains shared test helper code used across the MaveDB test suit
 Use this area for reusable testing support that should not live inside a single test module, including:
 
 - Shared constants and test data
-- Reusable setup/override utilities
+- Reusable setup utilities
 - Domain-specific helper functions
 - Mock infrastructure and factories
 
@@ -15,7 +15,7 @@ Use this area for reusable testing support that should not live inside a single 
 
 - `constants.py`: shared constants used by tests
 - `data/`: fixture and sample data files
-- `dependency_overrider.py`: dependency override helpers
+- `authentication.py`: real credentials and the persona client tests sign requests in with
 - `util/`: helper modules organized by domain/resource
 - `mocks/`: reusable mock utilities and mock factories
 
