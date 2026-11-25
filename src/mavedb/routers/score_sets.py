@@ -1,12 +1,13 @@
 import io
 import json
 import logging
+import tempfile
 import time
 from collections.abc import Iterable, Iterator, Mapping
 from datetime import date, datetime
 from functools import partial
 from itertools import chain
-from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
+from typing import IO, Any, List, Literal, Optional, Sequence, TypedDict, Union
 
 import numpy as np
 import pandas as pd
@@ -138,6 +139,9 @@ from mavedb.view_models.variant_detail import VariantDetail
 
 TAG_NAME = "Score Sets"
 logger = logging.getLogger(__name__)
+
+_SPOOL_READ_BYTES = 1024 * 1024
+"""Bytes a spooled CSV download reads from its file per chunk sent."""
 
 SCORE_SET_SEARCH_MAX_LIMIT = 100
 
@@ -1284,7 +1288,8 @@ def get_score_set_variants_csv(
     )
     # Both: the deprecation notice (when a legacy parameter was used) and the resolved content-time,
     # so a CSV's as-of instant is a visible fact rather than something the caller has to remember.
-    return _csv_streaming_response(
+    return _csv_file_response(
+        db,
         rows_to_build(score_set.num_variants, start, limit),
         chunks,
         headers={
@@ -1368,8 +1373,8 @@ def get_score_set_scores_csv(
         limit=limit,
         drop_unused_hgvs_columns_flag=drop_unused_hgvs_columns,
     )
-    return _csv_streaming_response(
-        rows_to_build(score_set.num_variants, start, limit), chunks, headers=deprecated.response_headers
+    return _csv_file_response(
+        db, rows_to_build(score_set.num_variants, start, limit), chunks, headers=deprecated.response_headers
     )
 
 
@@ -1439,37 +1444,44 @@ def get_score_set_counts_csv(
     chunks = stream_score_set_variants_as_csv(
         db, score_set, ["counts"], start=start, limit=limit, drop_unused_hgvs_columns_flag=drop_unused_hgvs_columns
     )
-    return _csv_streaming_response(
-        rows_to_build(score_set.num_variants, start, limit), chunks, headers=deprecated.response_headers
+    return _csv_file_response(
+        db, rows_to_build(score_set.num_variants, start, limit), chunks, headers=deprecated.response_headers
     )
 
 
-def _csv_streaming_response(rows: int, chunks: Iterator[str], headers: Mapping[str, str]) -> StreamingResponse:
-    """Stream a score set CSV built from ``chunks``, under one of this process's CSV build slots.
+def _csv_file_response(db: Session, rows: int, chunks: Iterator[str], headers: Mapping[str, str]) -> StreamingResponse:
+    """Build a score set CSV from ``chunks`` into a temporary file under one of this process's CSV build slots,
+    then send the file with its ``Content-Length``.
 
-    The first chunk is built before this returns, so a refused build slot or a query that fails at once is still
-    an error status. A failure after that is past the 200, so it propagates and the server drops the connection
-    without ending the chunked body, which clients report as an incomplete download rather than a short file.
+    The build finishes before this returns, so a failure is an error status rather than a body cut short. The
+    transaction ends with the build and the slot is released before the send, so a slow client holds neither.
+    A client that asks for gzip gets the body chunked without a length, since GZipMiddleware compresses it in
+    pieces; a dropped connection still leaves the chunked body unterminated. Memory stays flat because
+    ``chunks`` arrive a batch at a time; the file is unlinked on creation, so its space comes back when it
+    closes.
     """
-    body = _stream_csv_build(rows, chunks)
-    first = next(body)
-    return StreamingResponse(chain([first], body), media_type="text/csv", headers=headers)
+    spool = tempfile.TemporaryFile()
+    try:
+        with csv_build_slot(rows):
+            for chunk in chunks:
+                spool.write(chunk.encode())
+        # TODO(#1036): Drop once get_db's session ends when the route returns.
+        db.commit()
+    except BaseException:
+        spool.close()
+        raise
+
+    size = spool.tell()
+    spool.seek(0)
+    return StreamingResponse(
+        _send_spooled(spool), media_type="text/csv", headers={**headers, "Content-Length": str(size)}
+    )
 
 
-def _stream_csv_build(rows: int, chunks: Iterator[str]) -> Iterator[str]:
-    """Yield ``chunks`` while holding a build slot for a ``rows``-row CSV, and log how long building and sending
-    them took.
-
-    The slot is released when the last chunk is sent, or when the response is dropped and this generator closed,
-    since the build happens as the response is sent.
-    """
-    with csv_build_slot(rows):
-        # The request log's duration ends when the route returns, after only the first chunk is built.
-        start = time.monotonic_ns()
-        try:
-            yield from chunks
-        finally:
-            save_to_logging_context({"stream_duration_ns": time.monotonic_ns() - start})
+def _send_spooled(spool: IO[bytes]) -> Iterator[bytes]:
+    with spool:
+        while block := spool.read(_SPOOL_READ_BYTES):
+            yield block
 
 
 def _annotation_stream_record(
