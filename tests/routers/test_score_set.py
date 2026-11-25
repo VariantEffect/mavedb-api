@@ -6713,9 +6713,15 @@ def test_get_score_set_scores_csv_failure_mid_stream_drops_the_response(app_, cl
             with session.get_bind().connect() as other:
                 other.execute(text("SELECT pg_terminate_backend(:pid)"), {"pid": stream_pid})
 
-    with pytest.raises(OperationalError):
+    # ConnectionDropped has a handler, so once the response has started Starlette re-raises it as a RuntimeError.
+    with (
+        patch("mavedb.lib.middleware.errors.send_slack_error") as slack_error,
+        pytest.raises(RuntimeError, match="response already started") as raised,
+    ):
         _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/scores", on_body)
 
+    assert isinstance(raised.value.__cause__, ConnectionDropped)
+    assert isinstance(slack_error.call_args.kwargs["err"], ConnectionDropped)
     assert f"{score_set['urn']}#{count},".encode() not in b"".join(sent)
 
 
