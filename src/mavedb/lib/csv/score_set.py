@@ -1,5 +1,6 @@
 """The score-set CSV export: every variant in one score set, and the columns it can offer."""
 
+from collections.abc import Iterator
 from datetime import datetime
 from typing import List, Optional
 
@@ -17,7 +18,7 @@ from mavedb.lib.csv.entries import (
     score_sets_have_current_mappings,
     static_namespace_entry,
 )
-from mavedb.lib.csv.fetch import ScoreSetScope, iter_csv_rows, unused_hgvs_columns
+from mavedb.lib.csv.fetch import CSV_BATCH_SIZE, ScoreSetScope, iter_csv_rows, unused_hgvs_columns
 from mavedb.lib.csv.namespaces import CsvNamespace
 from mavedb.lib.mave.constants import REQUIRED_SCORE_COLUMN
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
@@ -36,7 +37,44 @@ def get_score_set_variants_as_csv(
     as_of: Optional[datetime] = None,
     viewer: Optional[ScoreCalibrationViewer] = None,
 ) -> str:
-    """Get the variant data from a score set as a CSV string."""
+    """Get the variant data from a score set as a CSV string.
+
+    The whole of :func:`stream_score_set_variants_as_csv`, for callers that need the file in one piece.
+    """
+    return "".join(
+        stream_score_set_variants_as_csv(
+            db,
+            score_set,
+            namespaces,
+            namespaced=namespaced,
+            start=start,
+            limit=limit,
+            drop_unused_hgvs_columns_flag=drop_unused_hgvs_columns_flag,
+            as_of=as_of,
+            viewer=viewer,
+        )
+    )
+
+
+def stream_score_set_variants_as_csv(
+    db: Session,
+    score_set: ScoreSet,
+    namespaces: List[str],
+    *,
+    namespaced: bool = False,
+    start: Optional[int] = None,
+    limit: Optional[int] = None,
+    drop_unused_hgvs_columns_flag: Optional[bool] = None,
+    as_of: Optional[datetime] = None,
+    viewer: Optional[ScoreCalibrationViewer] = None,
+    batch_size: int = CSV_BATCH_SIZE,
+) -> Iterator[str]:
+    """Get the variant data from a score set as CSV text, one chunk per batch of ``batch_size`` rows.
+
+    The first chunk starts with the header, and an export with no rows is the header alone. Nothing is read
+    until the first chunk is requested, and the rows come from a server-side cursor that holds ``db``'s
+    transaction open until the last chunk is read or the generator is closed.
+    """
     # `dataset_columns` is NOT NULL with a `{}` default, so only a transient score set reaches this unset.
     # Treating it as empty if it is unset yields the core columns alone rather than failing  deeper in
     # column planning.
@@ -47,7 +85,8 @@ def get_score_set_variants_as_csv(
     if drop_unused_hgvs_columns_flag:
         plan = plan.without(unused_hgvs_columns(db, scope))
 
-    return "".join(render_csv(plan, iter_csv_rows(db, plan, scope, as_of=as_of, viewer=viewer)))
+    rows = iter_csv_rows(db, plan, scope, as_of=as_of, viewer=viewer, batch_size=batch_size)
+    yield from render_csv(plan, rows)
 
 
 def available_score_set_csv_namespaces(

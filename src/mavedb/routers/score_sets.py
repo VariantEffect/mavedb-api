@@ -2,7 +2,7 @@ import io
 import json
 import logging
 import time
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from datetime import date, datetime
 from functools import partial
 from itertools import chain
@@ -54,7 +54,7 @@ from mavedb.lib.csv.deprecated_params import (
     resolve_deprecated_csv_params,
 )
 from mavedb.lib.csv.namespaces import CSV_NAMESPACES_PARAM_DESCRIPTION, CsvNamespaceStr
-from mavedb.lib.csv.score_set import available_score_set_csv_namespaces, get_score_set_variants_as_csv
+from mavedb.lib.csv.score_set import available_score_set_csv_namespaces, stream_score_set_variants_as_csv
 from mavedb.lib.csv.specs import RowSource
 from mavedb.lib.deprecation import MAPPED_VARIANT_SUNSET, deprecation_headers, record_deprecated_usage
 from mavedb.lib.exceptions import MixedTargetError, NCBITaxonomyNotFoundError, NonexistentOrcidUserError
@@ -1269,25 +1269,24 @@ def get_score_set_variants_csv(
     # Full-table CSV builds legitimately outrun the API's default statement timeout.
     allow_long_statements(db)
 
-    with csv_build_slot(rows_to_build(score_set.num_variants, start, limit)):
-        csv_str = get_score_set_variants_as_csv(
-            db,
-            score_set,
-            namespaces,
-            namespaced=True,
-            start=start,
-            limit=limit,
-            drop_unused_hgvs_columns_flag=drop_unused_hgvs_columns,
-            as_of=as_of,
-            # Asked separately from the score set: a private calibration is readable only by its owner,
-            # investigator contributors, or an admin, whoever can read the score set.
-            viewer=principal.viewer_for(ScoreCalibrationViewer),
-        )
+    chunks = stream_score_set_variants_as_csv(
+        db,
+        score_set,
+        namespaces,
+        namespaced=True,
+        start=start,
+        limit=limit,
+        drop_unused_hgvs_columns_flag=drop_unused_hgvs_columns,
+        as_of=as_of,
+        # Asked separately from the score set: a private calibration is readable only by its owner,
+        # investigator contributors, or an admin, whoever can read the score set.
+        viewer=principal.viewer_for(ScoreCalibrationViewer),
+    )
     # Both: the deprecation notice (when a legacy parameter was used) and the resolved content-time,
     # so a CSV's as-of instant is a visible fact rather than something the caller has to remember.
-    return StreamingResponse(
-        iter([csv_str]),
-        media_type="text/csv",
+    return _csv_streaming_response(
+        rows_to_build(score_set.num_variants, start, limit),
+        chunks,
         headers={
             **deprecated.response_headers,
             "X-As-Of": as_of.isoformat() if as_of is not None else "current",
@@ -1361,11 +1360,17 @@ def get_score_set_scores_csv(
 
     # Both score namespaces: this endpoint has always returned every score column the investigator
     # uploaded, and `scores` alone is now just the required one.
-    with csv_build_slot(rows_to_build(score_set.num_variants, start, limit)):
-        csv_str = get_score_set_variants_as_csv(
-            db, score_set, ["scores", "scores_custom"], False, start, limit, drop_unused_hgvs_columns
-        )
-    return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
+    chunks = stream_score_set_variants_as_csv(
+        db,
+        score_set,
+        ["scores", "scores_custom"],
+        start=start,
+        limit=limit,
+        drop_unused_hgvs_columns_flag=drop_unused_hgvs_columns,
+    )
+    return _csv_streaming_response(
+        rows_to_build(score_set.num_variants, start, limit), chunks, headers=deprecated.response_headers
+    )
 
 
 @router.get(
@@ -1431,11 +1436,40 @@ def get_score_set_counts_csv(
     # Full-table CSV builds legitimately outrun the API's default statement timeout.
     allow_long_statements(db)
 
-    with csv_build_slot(rows_to_build(score_set.num_variants, start, limit)):
-        csv_str = get_score_set_variants_as_csv(
-            db, score_set, ["counts"], False, start, limit, drop_unused_hgvs_columns
-        )
-    return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
+    chunks = stream_score_set_variants_as_csv(
+        db, score_set, ["counts"], start=start, limit=limit, drop_unused_hgvs_columns_flag=drop_unused_hgvs_columns
+    )
+    return _csv_streaming_response(
+        rows_to_build(score_set.num_variants, start, limit), chunks, headers=deprecated.response_headers
+    )
+
+
+def _csv_streaming_response(rows: int, chunks: Iterator[str], headers: Mapping[str, str]) -> StreamingResponse:
+    """Stream a score set CSV built from ``chunks``, under one of this process's CSV build slots.
+
+    The first chunk is built before this returns, so a refused build slot or a query that fails at once is still
+    an error status. A failure after that is past the 200, so it propagates and the server drops the connection
+    without ending the chunked body, which clients report as an incomplete download rather than a short file.
+    """
+    body = _stream_csv_build(rows, chunks)
+    first = next(body)
+    return StreamingResponse(chain([first], body), media_type="text/csv", headers=headers)
+
+
+def _stream_csv_build(rows: int, chunks: Iterator[str]) -> Iterator[str]:
+    """Yield ``chunks`` while holding a build slot for a ``rows``-row CSV, and log how long building and sending
+    them took.
+
+    The slot is released when the last chunk is sent, or when the response is dropped and this generator closed,
+    since the build happens as the response is sent.
+    """
+    with csv_build_slot(rows):
+        # The request log's duration ends when the route returns, after only the first chunk is built.
+        start = time.monotonic_ns()
+        try:
+            yield from chunks
+        finally:
+            save_to_logging_context({"stream_duration_ns": time.monotonic_ns() - start})
 
 
 def _annotation_stream_record(

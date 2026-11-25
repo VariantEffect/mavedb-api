@@ -2,6 +2,7 @@
 
 import asyncio
 import csv
+import io
 import json
 import re
 import threading
@@ -25,6 +26,8 @@ from mavedb.db.errors import ConnectionDropped
 from mavedb.lib.annotation.annotate import variant_study_result
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.csv import build_limiter
+from mavedb.lib.csv.fetch import CSV_BATCH_SIZE
+from mavedb.lib.csv.score_set import get_score_set_variants_as_csv
 from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.logging.context import logging_context_scope
 from mavedb.lib.score_distribution import summarize_scores
@@ -49,6 +52,7 @@ from mavedb.routers.score_sets import (
     _LEAN_VARIANTS,
     _annotation_stream_record,
     _existing_variant_dataframe,
+    _stream_csv_build,
     _stream_lean_variants,
 )
 from mavedb.view_models.lean_variant import LeanVariant
@@ -6649,6 +6653,101 @@ def test_get_lean_variants_failure_mid_stream_never_closes_the_array(app_, clien
     assert not body.endswith(b"]")
     with pytest.raises(json.JSONDecodeError):
         json.loads(body)
+
+
+_CSV_ROUTE_NAMESPACES = {
+    "scores": (["scores", "scores_custom"], False),
+    "counts": (["counts"], False),
+    "variants/data": (["scores"], True),
+}
+
+
+@pytest.mark.parametrize("path", list(_CSV_ROUTE_NAMESPACES))
+def test_csv_routes_multi_batch_score_set_streams_every_row_as_the_whole_export(client, session, setup_router_db, path):
+    score_set, count = _seed_past_one_lean_batch(client, session)
+    assert count > CSV_BATCH_SIZE
+
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/{path}")
+
+    score_set_db = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    namespaces, namespaced = _CSV_ROUTE_NAMESPACES[path]
+    expected = get_score_set_variants_as_csv(session, score_set_db, namespaces, namespaced)
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.text == expected
+    accessions = [row["accession"] for row in csv.DictReader(io.StringIO(response.text))]
+    assert accessions == [f"{score_set['urn']}#{n}" for n in range(1, count + 1)]
+
+
+def test_get_score_set_scores_csv_sends_rows_before_the_last_row_is_read(app_, client, session, setup_router_db):
+    score_set, count = _seed_past_one_lean_batch(client, session)
+
+    # Each chunk, with whether the query's cursor still had rows to read when the chunk was sent.
+    chunks = []
+
+    def on_body(body):
+        open_cursors = session.execute(text("SELECT count(*) FROM pg_cursors")).scalar_one()
+        chunks.append((body, open_cursors > 0))
+
+    _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/scores", on_body)
+
+    first_rows, cursor_open = chunks[0]
+    assert first_rows.startswith(b"accession,")
+    assert f"{score_set['urn']}#{CSV_BATCH_SIZE},".encode() in first_rows
+    assert f"{score_set['urn']}#{count},".encode() not in first_rows
+    assert cursor_open
+    rows = list(csv.DictReader(io.StringIO(b"".join(body for body, _ in chunks).decode())))
+    assert len(rows) == count
+
+
+def test_get_score_set_scores_csv_failure_mid_stream_drops_the_response(app_, client, session, setup_router_db):
+    score_set, count = _seed_past_one_lean_batch(client, session)
+
+    sent = []
+
+    def on_body(body):
+        sent.append(body)
+        if len(sent) == 1:
+            # The stream's database connection drops once the first batch is on the wire.
+            stream_pid = session.connection().connection.dbapi_connection.get_backend_pid()
+            with session.get_bind().connect() as other:
+                other.execute(text("SELECT pg_terminate_backend(:pid)"), {"pid": stream_pid})
+
+    with pytest.raises(OperationalError):
+        _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/scores", on_body)
+
+    assert f"{score_set['urn']}#{count},".encode() not in b"".join(sent)
+
+
+def test_get_score_set_scores_csv_holds_a_build_slot_until_the_stream_ends(
+    app_, client, session, setup_router_db, monkeypatch
+):
+    score_set, _ = _seed_past_one_lean_batch(client, session)
+    slots = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(build_limiter, "_slots", slots)
+    monkeypatch.setattr(build_limiter, "CSV_BUILD_MIN_ROWS", 1)
+
+    # Whether another build could have taken the slot while each chunk was sent.
+    slot_free_while_sending = []
+
+    def on_body(body):
+        free = slots.acquire(blocking=False)
+        if free:
+            slots.release()
+        slot_free_while_sending.append(free)
+
+    _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/scores", on_body)
+
+    assert len(slot_free_while_sending) > 1
+    assert not any(slot_free_while_sending)
+    assert slots.acquire(blocking=False)
+
+
+def test_stream_csv_build_logs_its_duration():
+    with logging_context_scope() as context:
+        assert "".join(_stream_csv_build(0, iter(["a,b\r\n"]))) == "a,b\r\n"
+
+    assert context["stream_duration_ns"] >= 0
 
 
 @pytest.mark.parametrize(
