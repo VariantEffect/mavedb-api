@@ -11,4 +11,5 @@ paths:
 - `session.refresh()` before asserting on a modified ORM object. Include negative assertions where they matter (the record that must not exist).
 - Name tests `test_<function>_<condition>_<expected_outcome>` when you write or modify them; don't rename untouched tests.
 - Use `@pytest.mark.parametrize` with `ids` instead of near-identical copies.
+- In a permission test, make the request under test through a client named for the actor's relation to the data: a persona fixture such as `owner_client`, `outsider_client` or `anonymous_client`, the client returned by the fixture that creates the relation (such as `make_contributor`), or `client_for(...)`. Do this even when the actor is `TEST_USER` (`owner_client`). Setup can use `client`.
 - Put a fixture in the most specific `conftest.py` that needs it, and lift it to the nearest common one when it's shared.
