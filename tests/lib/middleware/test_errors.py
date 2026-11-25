@@ -8,7 +8,6 @@ being guarded against is an ordering mistake, which only a test against the real
 
 import json
 import logging
-import time
 from typing import Callable
 from unittest.mock import patch
 
@@ -19,13 +18,9 @@ pytest.importorskip("fastapi")
 
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
-from sqlalchemy import text
-from sqlalchemy.exc import DataError, OperationalError, ProgrammingError
-from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
 from mavedb.db.errors import DatabaseBusy, RowSecurityViolation
-from mavedb.lib.middleware.errors import CONNECTION_LOST_RETRY_AFTER_SECONDS
 from mavedb.server_main import app
 
 BOOM_PATH = "/__test_boom_!__"
@@ -86,46 +81,6 @@ def mid_stream_raising_route():
     route = app.router.routes[-1]
     try:
         yield raised
-    finally:
-        app.router.routes.remove(route)
-
-
-@pytest.fixture
-def raising_error_route():
-    """Register a route that raises whichever exception the test sets, before the response starts."""
-    raised: dict[str, Callable[[], Exception]] = {}
-
-    @app.get(BOOM_PATH)
-    def boom():
-        raise raised["error"]()
-
-    route = app.router.routes[-1]
-    try:
-        yield raised
-    finally:
-        app.router.routes.remove(route)
-
-
-def _drop_idle_connection(session: Session) -> None:
-    """Leave the transaction idle past ``idle_in_transaction_session_timeout``, so the server ends the session."""
-    session.execute(text("SET idle_in_transaction_session_timeout = '50ms'"))
-    session.execute(text("SELECT 1"))
-    time.sleep(0.5)
-    session.execute(text("SELECT 1"))
-
-
-@pytest.fixture
-def database_route(session):
-    """Register a route that runs the test's statements against the test database, before the response starts."""
-    statements: dict[str, Callable[[Session], None]] = {}
-
-    @app.get(BOOM_PATH)
-    def boom():
-        statements["run"](session)
-
-    route = app.router.routes[-1]
-    try:
-        yield statements
     finally:
         app.router.routes.remove(route)
 
@@ -194,59 +149,6 @@ class TestCatchAllErrorMiddleware:
         assert response.status_code == 200
         assert response.headers.get("access-control-allow-origin") in ("*", TEST_ORIGIN)
         slack_error.assert_not_called()
-
-
-@pytest.mark.integration
-class TestDroppedDatabaseConnection:
-    """A connection the server closed is answered with a 503 the client can retry; other database errors stay 500s."""
-
-    def test_route_whose_connection_the_server_closed_returns_503_with_retry_after(self, database_route, slack_error):
-        database_route["run"] = _drop_idle_connection
-
-        with TestClient(app) as tc:
-            response = tc.get(BOOM_PATH, headers={"Origin": TEST_ORIGIN})
-
-        assert response.status_code == 503
-        assert response.headers["Retry-After"] == str(CONNECTION_LOST_RETRY_AFTER_SECONDS)
-        assert response.headers.get("access-control-allow-origin") in ("*", TEST_ORIGIN)
-        assert response.json()["correlation_id"] == response.headers["X-Correlation-ID"]
-
-    def test_route_whose_connection_the_server_closed_still_alerts_slack(self, database_route, slack_messages):
-        database_route["run"] = _drop_idle_connection
-
-        with TestClient(app) as tc:
-            response = tc.get(BOOM_PATH)
-
-        (message,) = slack_messages()
-        payload = json.loads(message)
-        assert payload["type"] == "OperationalError"
-        assert payload["correlation_id"] == response.headers["X-Correlation-ID"]
-
-    @pytest.mark.parametrize(
-        "statement",
-        ["SELECT * FROM no_such_table", "SELECT 1 / 0"],
-        ids=["programming_error", "data_error"],
-    )
-    def test_route_with_other_database_error_returns_500_and_alerts(self, database_route, slack_error, statement):
-        database_route["run"] = lambda session: session.execute(text(statement))
-
-        with TestClient(app) as tc:
-            response = tc.get(BOOM_PATH)
-
-        assert response.status_code == 500
-        assert "Retry-After" not in response.headers
-        slack_error.assert_called_once()
-        assert isinstance(slack_error.call_args.kwargs["err"], (ProgrammingError, DataError))
-
-    def test_operational_error_on_a_live_connection_returns_500(self, raising_error_route, slack_error):
-        raising_error_route["error"] = lambda: OperationalError("SELECT 1", {}, Exception("could not serialize"))
-
-        with TestClient(app) as tc:
-            response = tc.get(BOOM_PATH)
-
-        assert response.status_code == 500
-        assert "Retry-After" not in response.headers
-        slack_error.assert_called_once()
 
 
 @pytest.mark.unit

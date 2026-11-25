@@ -1,7 +1,7 @@
 """The shape of an error response, and the body builders the domain tables share."""
 
 from dataclasses import dataclass
-from typing import Any, Callable, Union
+from typing import Any, Callable, Mapping, Optional, Union
 
 from mavedb.lib.logging.context import correlation_id_for_context
 
@@ -14,6 +14,8 @@ class ErrorResponse:
     body: Callable[[Any], dict[str, Any]]
     alert: bool
     """Whether the exception is logged as an error and sent to Slack."""
+    headers: Optional[Mapping[str, str]] = None
+    """Headers sent with the response, such as ``Retry-After``."""
 
     def __post_init__(self) -> None:
         if isinstance(self.status, int) and not 400 <= self.status <= 599:

@@ -66,7 +66,9 @@ def alerts(exc: BaseException) -> bool:
 def handle_mapped_exception(request: Request, exc: Exception) -> JSONResponse:
     entry = error_response_for(exc)
     record_exception(exc)
-    response = JSONResponse(status_code=entry.status_for(exc), content=jsonable_encoder(entry.body(exc)))
+    response = JSONResponse(
+        status_code=entry.status_for(exc), content=jsonable_encoder(entry.body(exc)), headers=entry.headers
+    )
 
     try:
         if entry.alert:

@@ -3,7 +3,6 @@
 import logging
 import time
 
-from sqlalchemy.exc import DBAPIError
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -19,31 +18,9 @@ from mavedb.lib.slack import send_slack_error
 
 logger = logging.getLogger(__name__)
 
-CONNECTION_LOST_RETRY_AFTER_SECONDS = 5
-"""The ``Retry-After`` on a 503 for a request whose database connection the server dropped."""
-
-_CONNECTION_LOST = "The database connection was lost. Please try again shortly."
-"""The detail of a 503 for a request whose database connection the server dropped."""
-
-
-def _uncaught_response(err: Exception) -> JSONResponse:
-    """A 503 a client can retry when the server dropped the connection, and a 500 for anything else."""
-    correlation_id = correlation_id_for_context()
-    # A restart, failover or the idle-in-transaction limit ends the session, often with no SQLSTATE, so the flag marks it.
-    if isinstance(err, DBAPIError) and err.connection_invalidated:
-        return JSONResponse(
-            status_code=503,
-            content={"detail": _CONNECTION_LOST, "correlation_id": correlation_id},
-            headers={"Retry-After": str(CONNECTION_LOST_RETRY_AFTER_SECONDS)},
-        )
-    return JSONResponse(status_code=500, content={"detail": "Internal server error", "correlation_id": correlation_id})
-
 
 class CatchAllErrorMiddleware:
     """Turn an exception no handler in ``ERROR_RESPONSES`` answers into a 500 the browser is allowed to read.
-
-    A database connection the server dropped becomes a 503 with ``Retry-After`` instead, since a retry gets a
-    fresh connection.
 
     Starlette dispatches ``@app.exception_handler(Exception)`` from ``ServerErrorMiddleware``, which sits
     outside the user middleware stack. Its response therefore never passes through ``CORSMiddleware`` and
@@ -101,9 +78,11 @@ class CatchAllErrorMiddleware:
 
             record_exception(err)
             request = Request(scope, receive)
-            response = _uncaught_response(err)
+            response = JSONResponse(
+                status_code=500,
+                content={"detail": "Internal server error", "correlation_id": correlation_id_for_context()},
+            )
 
-            # A dropped connection still alerts, unlike the database timeouts: it can also mean an outage.
             try:
                 logger.error(msg="Uncaught exception.", extra=logging_context(), exc_info=err)
                 send_slack_error(err=err, request=request)
