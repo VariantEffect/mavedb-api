@@ -3,6 +3,7 @@ from enum import Enum
 
 from humps import camelize
 
+from mavedb.models.enums.contribution_role import ContributionRole
 from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassificationOptions
 from mavedb.models.enums.processing_state import ProcessingState
 
@@ -482,6 +483,37 @@ CONTRIBUTOR_USER = {
     "is_first_login": True,
 }
 """Contributes to whichever records a test adds them to, and to nothing else."""
+
+MAPPER_USER = {
+    "username": "8888-8888-8888-8888",
+    "first_name": "Mapper",
+    "last_name": "User",
+    "email": "mapper_user@test.com",
+    "is_active": True,
+    "is_staff": False,
+    "is_superuser": False,
+    "is_first_login": True,
+}
+"""Holds the mapper role; ``mapper_client`` signs in as them."""
+
+COLLECTION_MEMBER_USERS = {
+    role: {
+        "username": username,
+        "first_name": "Collection",
+        "last_name": role.value.capitalize(),
+        "email": f"collection_{role.value}_user@test.com",
+        "is_active": True,
+        "is_staff": False,
+        "is_superuser": False,
+        "is_first_login": True,
+    }
+    for role, username in (
+        (ContributionRole.viewer, "2020-2020-2020-2020"),
+        (ContributionRole.editor, "3030-3030-3030-3030"),
+        (ContributionRole.admin, "4040-4040-4040-4040"),
+    )
+}
+"""The user holding each collection role, signed in by ``make_collection_member``."""
 
 TEST_DESCRIPTION = "description"
 
