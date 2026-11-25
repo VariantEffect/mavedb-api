@@ -1625,14 +1625,14 @@ standard-no-fastapi-cloud-cli = ["email-validator (>=2.0.0)", "fastapi-cli[stand
 
 [[package]]
 name = "filelock"
-version = "3.29.0"
+version = "4.3.1"
 description = "A platform independent file lock."
 optional = false
-python-versions = ">=3.10"
+python-versions = ">=3.11"
 groups = ["main", "dev"]
 files = [
-    {file = "filelock-3.29.0-py3-none-any.whl", hash = "sha256:96f5f6344709aa1572bbf631c640e4ebeeb519e08da902c39a001882f30ac258"},
-    {file = "filelock-3.29.0.tar.gz", hash = "sha256:69974355e960702e789734cb4871f884ea6fe50bd8404051a3530bc07809cf90"},
+    {file = "filelock-4.3.1-py3-none-any.whl", hash = "sha256:79e43df8e9fe509cd83a3899a7c186c8077cbbe4d200a1ed3705c2f3bb6bc487"},
+    {file = "filelock-4.3.1.tar.gz", hash = "sha256:4c5ee627c401f1863ac6a0de9a14a28d3bb5f8c730b45e2fd6e5dbc79cf34b9e"},
 ]
 
 [[package]]
@@ -5286,4 +5286,4 @@ server = ["aiocache", "alembic", "alembic-utils", "arq", "bbi-variant-annotation
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11.5"
-content-hash = "3afe913ffafd6f16dcc448665c4822d3e691073872ca75c78227109b26aa6165"
+content-hash = "123d2472407b403cab3a1206947dbc50c130e1fcbc59c4989aa62ca4b064638e"
