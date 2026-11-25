@@ -13,6 +13,7 @@ score set's variants carry alleles and annotations the way the mapping/annotatio
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional, Sequence, Union
@@ -28,6 +29,16 @@ from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.projection_group import ProjectionGroup
 from mavedb.models.variant import Variant
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
+
+_BASE64URL = re.compile(r"[A-Za-z0-9_-]{1,32}")
+"""A tag ``vrs_id`` can pad into a digest: one to 32 base64url characters."""
+
+
+def vrs_id(tag: str) -> str:
+    """A valid GA4GH allele id: ``ga4gh:VA.`` plus ``tag`` padded to 32 base64url characters."""
+    if not _BASE64URL.fullmatch(tag):
+        raise ValueError(f"tag must be 1-32 base64url characters, got {tag!r}")
+    return f"ga4gh:VA.{tag.ljust(32, '0')}"
 
 
 @dataclass(eq=False)

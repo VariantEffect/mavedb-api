@@ -23,6 +23,11 @@ from mavedb.deps import get_db, get_seqrepo, get_worker, hgvs_data_provider
 from mavedb.lib import authentication
 from mavedb.lib.gnomad import gnomad_table_name
 from mavedb.lib.types.workflow import JobExecutionOutcome
+from mavedb.models.collection import Collection
+from mavedb.models.collection_user_association import CollectionUserAssociation
+from mavedb.models.enums.contribution_role import ContributionRole
+from mavedb.models.enums.user_role import UserRole
+from mavedb.models.role import Role
 from mavedb.models.user import User
 from mavedb.server_main import app
 from mavedb.worker.jobs import BACKGROUND_CRONJOBS, BACKGROUND_FUNCTIONS
@@ -38,7 +43,9 @@ from tests.helpers.authentication import (
 from tests.helpers.constants import (
     ADMIN_USER,
     ANONYMOUS,
+    COLLECTION_MEMBER_USERS,
     CONTRIBUTOR_USER,
+    MAPPER_USER,
     OUTSIDER_USER,
     TEST_SEQREPO_INITIAL_STATE,
     TEST_USER,
@@ -376,6 +383,15 @@ def admin_client(client_for, setup_router_db):
 
 
 @pytest.fixture
+def mapper_client(client_for, session):
+    """Signed in as ``MAPPER_USER``, who holds the mapper role, acting with it."""
+    role = session.scalar(select(Role).where(Role.name == UserRole.mapper)) or Role(name=UserRole.mapper)
+    session.add(User(**MAPPER_USER, role_objs=[role]))
+    session.commit()
+    return client_for(MAPPER_USER)
+
+
+@pytest.fixture
 def anonymous_client(client_for):
     """Sends no credentials."""
     return client_for(ANONYMOUS)
@@ -401,6 +417,28 @@ def make_contributor(client_for, session):
             CONTRIBUTOR_USER["last_name"],
         )
         return contributor_client
+
+    return make
+
+
+@pytest.fixture
+def make_collection_member(client_for, session):
+    """Gives a user ``role`` on a collection, and returns a client signed in as them. Each role is a different
+    user, from ``COLLECTION_MEMBER_USERS``.
+
+    ```
+    viewer_client = make_collection_member(collection["urn"], ContributionRole.viewer)
+    ```
+    """
+
+    def make(urn: str, role: ContributionRole) -> AuthenticatingClient:
+        member = COLLECTION_MEMBER_USERS[role]
+        member_client = client_for(member)
+        collection = session.scalars(select(Collection).where(Collection.urn == urn)).one()
+        user = session.scalars(select(User).where(User.username == member["username"])).one()
+        session.add(CollectionUserAssociation(collection=collection, user=user, contribution_role=role))
+        session.commit()
+        return member_client
 
     return make
 
