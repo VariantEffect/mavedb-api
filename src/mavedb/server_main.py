@@ -72,6 +72,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Browsers hide response headers that aren't CORS-safelisted from cross-origin scripts, so the ui can't honor
+    # a 503's Retry-After without this.
+    expose_headers=["Retry-After"],
 )
 app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=5)
 app.include_router(access_keys.router)

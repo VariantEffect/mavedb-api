@@ -16,6 +16,7 @@ import pytest
 pytest.importorskip("psycopg2")
 pytest.importorskip("fastapi")
 
+from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from sqlalchemy.orm.exc import StaleDataError
@@ -86,6 +87,21 @@ def mid_stream_raising_route():
 
 
 @pytest.fixture
+def busy_route():
+    """Register a route that refuses with a 503 and ``Retry-After``, as the CSV build cap does."""
+
+    @app.get(BOOM_PATH)
+    def boom():
+        raise HTTPException(status_code=503, detail="busy", headers={"Retry-After": "5"})
+
+    route = app.router.routes[-1]
+    try:
+        yield
+    finally:
+        app.router.routes.remove(route)
+
+
+@pytest.fixture
 def slack_messages():
     """Capture the text of each Slack message at the webhook boundary, after the real payload is built."""
     with patch("mavedb.lib.slack.send_slack_message") as mocked:
@@ -149,6 +165,18 @@ class TestCatchAllErrorMiddleware:
         assert response.status_code == 200
         assert response.headers.get("access-control-allow-origin") in ("*", TEST_ORIGIN)
         slack_error.assert_not_called()
+
+
+@pytest.mark.unit
+class TestCrossOriginHeaders:
+    def test_retry_after_on_a_503_is_exposed_to_cross_origin_scripts(self, busy_route):
+        with TestClient(app) as tc:
+            response = tc.get(BOOM_PATH, headers={"Origin": TEST_ORIGIN})
+
+        assert response.status_code == 503
+        assert response.headers["Retry-After"] == "5"
+        exposed = [h.strip().lower() for h in response.headers["access-control-expose-headers"].split(",")]
+        assert "retry-after" in exposed
 
 
 @pytest.mark.unit
