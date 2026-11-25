@@ -60,10 +60,15 @@ def slow_streaming_route(test_session_local):
         return StreamingResponse(chunks())
 
     route = app.router.routes[-1]
+    # TODO(#183): The old suite's `app_` fixture leaves its `get_db` override on the shared app, so set it aside.
+    # Drop this once the test builds its own app with `create_app`.
+    leftover_override = app.dependency_overrides.pop(get_db, None)
     try:
         yield
     finally:
         app.router.routes.remove(route)
+        if leftover_override is not None:
+            app.dependency_overrides[get_db] = leftover_override
 
 
 @pytest.mark.integration
