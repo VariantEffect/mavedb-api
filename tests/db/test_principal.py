@@ -2,7 +2,6 @@
 
 from types import SimpleNamespace
 from typing import Optional
-from unittest import mock
 
 import pytest
 
@@ -187,9 +186,9 @@ class TestRequestPrincipal:
             yield client
 
     @pytest.fixture
-    def jwt_for(self):
-        def _jwt_for(username: str):
-            return mock.patch("mavedb.lib.authentication.decode_jwt", lambda _: {"sub": username})
+    def jwt_for(self, trusted_signing_key):
+        def _jwt_for(username: str) -> dict[str, str]:
+            return {"Authorization": f"Bearer {trusted_signing_key.token_for(username)}"}
 
         return _jwt_for
 
@@ -199,8 +198,7 @@ class TestRequestPrincipal:
     ):
         user_id = _user_id(session, TEST_USER["username"])
         if auth_method == "jwt":
-            with jwt_for(TEST_USER["username"]):
-                response = client.get("/probe", headers={"Authorization": "Bearer test"})
+            response = client.get("/probe", headers=jwt_for(TEST_USER["username"]))
         else:
             api_key = create_api_key_for_user(session, TEST_USER["username"])
             response = client.get("/probe", headers={"X-API-key": api_key})
@@ -218,12 +216,11 @@ class TestRequestPrincipal:
     def test_request_principal_for_elevated_caller_carries_only_active_roles(
         self, client, session, jwt_for, active_roles_header, expected_roles
     ):
-        headers = {"Authorization": "Bearer test"}
+        headers = jwt_for(ADMIN_USER["username"])
         if active_roles_header is not None:
             headers["X-Active-Roles"] = active_roles_header
 
-        with jwt_for(ADMIN_USER["username"]):
-            response = client.get("/probe", headers=headers)
+        response = client.get("/probe", headers=headers)
 
         assert response.status_code == 200
         user_id = _user_id(session, ADMIN_USER["username"])
@@ -232,8 +229,7 @@ class TestRequestPrincipal:
             assert (principal["user_id"], principal["roles"]) == (str(user_id), expected_roles)
 
     def test_request_principal_for_unheld_role_is_refused_before_the_route_runs(self, client, jwt_for):
-        with jwt_for(TEST_USER["username"]):
-            response = client.get("/probe", headers={"Authorization": "Bearer test", "X-Active-Roles": "admin"})
+        response = client.get("/probe", headers={**jwt_for(TEST_USER["username"]), "X-Active-Roles": "admin"})
 
         assert response.status_code == 403
         assert response.json() == {"detail": "This user is not a member of the requested acting role."}
@@ -254,8 +250,7 @@ class TestRequestPrincipal:
     def test_request_principal_does_not_leak_to_the_next_request_on_a_pooled_connection(
         self, client, session, jwt_for, second_request
     ):
-        with jwt_for(TEST_USER["username"]):
-            first = client.get("/probe", headers={"Authorization": "Bearer test"}).json()["after"]
+        first = client.get("/probe", headers=jwt_for(TEST_USER["username"])).json()["after"]
         second = client.get(second_request).json()
         second = second.get("before", second)
 

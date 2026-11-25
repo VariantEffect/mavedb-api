@@ -23,7 +23,6 @@ from tests.helpers.constants import (
     TEST_COLLECTION_RESPONSE,
     TEST_USER,
 )
-from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.collection import create_collection
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import create_seq_score_set, publish_score_set
@@ -103,12 +102,12 @@ def test_creator_can_read_private_collection(session, client, setup_router_db):
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
-def test_admin_can_read_private_collection(session, client, setup_router_db, extra_user_app_overrides):
+def test_admin_can_read_private_collection(client_for, session, client, setup_router_db):
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/admins", json={"orcid_id": EXTRA_USER["username"]})
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/collections/{collection['urn']}")
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.get(f"/api/v1/collections/{collection['urn']}")
 
     assert response.status_code == 200
     response_data = response.json()
@@ -137,12 +136,12 @@ def test_admin_can_read_private_collection(session, client, setup_router_db, ext
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
-def test_editor_can_read_private_collection(session, client, setup_router_db, extra_user_app_overrides):
+def test_editor_can_read_private_collection(client_for, session, client, setup_router_db):
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/editors", json={"orcid_id": EXTRA_USER["username"]})
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/collections/{collection['urn']}")
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.get(f"/api/v1/collections/{collection['urn']}")
 
     assert response.status_code == 200
     response_data = response.json()
@@ -159,12 +158,12 @@ def test_editor_can_read_private_collection(session, client, setup_router_db, ex
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
-def test_viewer_can_read_private_collection(session, client, setup_router_db, extra_user_app_overrides):
+def test_viewer_can_read_private_collection(client_for, session, client, setup_router_db):
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/viewers", json={"orcid_id": EXTRA_USER["username"]})
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/collections/{collection['urn']}")
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.get(f"/api/v1/collections/{collection['urn']}")
 
     assert response.status_code == 200
     response_data = response.json()
@@ -181,31 +180,28 @@ def test_viewer_can_read_private_collection(session, client, setup_router_db, ex
         assert (key, expected_response[key]) == (key, response_data[key])
 
 
-def test_unauthorized_user_cannot_read_private_collection(session, client, setup_router_db, extra_user_app_overrides):
-    collection = create_collection(client)
+def test_unauthorized_user_cannot_read_private_collection(owner_client, outsider_client, session):
+    collection = create_collection(owner_client)
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/collections/{collection['urn']}")
-
-    assert response.status_code == 404
-    assert f"collection with URN '{collection['urn']}'" in response.json()["detail"]
-
-
-def test_anonymous_cannot_read_private_collection(session, client, setup_router_db, anonymous_app_overrides):
-    collection = create_collection(client)
-
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/collections/{collection['urn']}")
+    response = outsider_client.get(f"/api/v1/collections/{collection['urn']}")
 
     assert response.status_code == 404
     assert f"collection with URN '{collection['urn']}'" in response.json()["detail"]
 
 
-def test_anonymous_can_read_public_collection(session, client, setup_router_db, anonymous_app_overrides):
-    collection = create_collection(client, {"private": False})
+def test_anonymous_cannot_read_private_collection(owner_client, anonymous_client, session):
+    collection = create_collection(owner_client)
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/collections/{collection['urn']}")
+    response = anonymous_client.get(f"/api/v1/collections/{collection['urn']}")
+
+    assert response.status_code == 404
+    assert f"collection with URN '{collection['urn']}'" in response.json()["detail"]
+
+
+def test_anonymous_can_read_public_collection(owner_client, anonymous_client, session):
+    collection = create_collection(owner_client, {"private": False})
+
+    response = anonymous_client.get(f"/api/v1/collections/{collection['urn']}")
 
     assert response.status_code == 200
     response_data = response.json()
@@ -217,7 +213,7 @@ def test_anonymous_can_read_public_collection(session, client, setup_router_db, 
 
 
 def test_admin_can_add_experiment_to_collection(
-    session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
+    client_for, session, client, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     unpublished_score_set = create_seq_score_set(client, experiment["urn"])
@@ -232,11 +228,11 @@ def test_admin_can_add_experiment_to_collection(
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/admins", json={"orcid_id": EXTRA_USER["username"]})
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            f"/api/v1/collections/{collection['urn']}/experiments",
-            json={"experiment_urn": score_set["experiment"]["urn"]},
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.post(
+        f"/api/v1/collections/{collection['urn']}/experiments",
+        json={"experiment_urn": score_set["experiment"]["urn"]},
+    )
 
     assert response.status_code == 200
     response_data = response.json()
@@ -275,7 +271,7 @@ def test_admin_can_add_experiment_to_collection(
 
 
 def test_editor_can_add_experiment_to_collection(
-    session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
+    client_for, session, client, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     unpublished_score_set = create_seq_score_set(client, experiment["urn"])
@@ -290,11 +286,11 @@ def test_editor_can_add_experiment_to_collection(
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/editors", json={"orcid_id": EXTRA_USER["username"]})
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            f"/api/v1/collections/{collection['urn']}/experiments",
-            json={"experiment_urn": score_set["experiment"]["urn"]},
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.post(
+        f"/api/v1/collections/{collection['urn']}/experiments",
+        json={"experiment_urn": score_set["experiment"]["urn"]},
+    )
 
     assert response.status_code == 200
     response_data = response.json()
@@ -321,7 +317,7 @@ def test_editor_can_add_experiment_to_collection(
 
 
 def test_viewer_cannot_add_experiment_to_collection(
-    session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
+    client_for, session, client, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     unpublished_score_set = create_seq_score_set(client, experiment["urn"])
@@ -336,11 +332,11 @@ def test_viewer_cannot_add_experiment_to_collection(
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/viewers", json={"orcid_id": EXTRA_USER["username"]})
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            f"/api/v1/collections/{collection['urn']}/experiments",
-            json={"experiment_urn": score_set["experiment"]["urn"]},
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.post(
+        f"/api/v1/collections/{collection['urn']}/experiments",
+        json={"experiment_urn": score_set["experiment"]["urn"]},
+    )
 
     assert response.status_code == 403
     response_data = response.json()
@@ -348,58 +344,54 @@ def test_viewer_cannot_add_experiment_to_collection(
 
 
 def test_unauthorized_user_cannot_add_experiment_to_collection(
-    session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
+    owner_client, outsider_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    experiment = create_experiment(owner_client)
+    unpublished_score_set = create_seq_score_set(owner_client, experiment["urn"])
     unpublished_score_set = mock_worker_variant_insertion(
-        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
+        owner_client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        score_set = publish_score_set(owner_client, unpublished_score_set["urn"])
         worker_queue.assert_called_once()
 
-    collection = create_collection(client)
+    collection = create_collection(owner_client)
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            f"/api/v1/collections/{collection['urn']}/experiments",
-            json={"experiment_urn": score_set["experiment"]["urn"]},
-        )
+    response = outsider_client.post(
+        f"/api/v1/collections/{collection['urn']}/experiments",
+        json={"experiment_urn": score_set["experiment"]["urn"]},
+    )
 
     assert response.status_code == 404
     assert f"collection with URN '{collection['urn']}' not found" in response.json()["detail"]
 
 
 def test_anonymous_cannot_add_experiment_to_collection(
-    session, client, data_provider, data_files, setup_router_db, anonymous_app_overrides
+    owner_client, anonymous_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    experiment = create_experiment(owner_client)
+    unpublished_score_set = create_seq_score_set(owner_client, experiment["urn"])
     unpublished_score_set = mock_worker_variant_insertion(
-        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
+        owner_client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        score_set = publish_score_set(owner_client, unpublished_score_set["urn"])
         worker_queue.assert_called_once()
 
-    collection = create_collection(client)
+    collection = create_collection(owner_client)
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.post(
-            f"/api/v1/collections/{collection['urn']}/experiments",
-            json={"experiment_urn": score_set["experiment"]["urn"]},
-        )
+    response = anonymous_client.post(
+        f"/api/v1/collections/{collection['urn']}/experiments",
+        json={"experiment_urn": score_set["experiment"]["urn"]},
+    )
 
     assert response.status_code == 401
     assert "Could not validate credentials" in response.json()["detail"]
 
 
-def test_admin_can_add_score_set_to_collection(
-    session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
-):
+def test_admin_can_add_score_set_to_collection(client_for, session, client, data_provider, data_files, setup_router_db):
     experiment = create_experiment(client)
     unpublished_score_set = create_seq_score_set(client, experiment["urn"])
     unpublished_score_set = mock_worker_variant_insertion(
@@ -413,10 +405,10 @@ def test_admin_can_add_score_set_to_collection(
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/admins", json={"orcid_id": EXTRA_USER["username"]})
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            f"/api/v1/collections/{collection['urn']}/score-sets", json={"score_set_urn": score_set["urn"]}
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.post(
+        f"/api/v1/collections/{collection['urn']}/score-sets", json={"score_set_urn": score_set["urn"]}
+    )
 
     assert response.status_code == 200
     response_data = response.json()
@@ -455,7 +447,7 @@ def test_admin_can_add_score_set_to_collection(
 
 
 def test_editor_can_add_score_set_to_collection(
-    session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
+    client_for, session, client, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     unpublished_score_set = create_seq_score_set(client, experiment["urn"])
@@ -470,10 +462,10 @@ def test_editor_can_add_score_set_to_collection(
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/editors", json={"orcid_id": EXTRA_USER["username"]})
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            f"/api/v1/collections/{collection['urn']}/score-sets", json={"score_set_urn": score_set["urn"]}
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.post(
+        f"/api/v1/collections/{collection['urn']}/score-sets", json={"score_set_urn": score_set["urn"]}
+    )
 
     assert response.status_code == 200
     response_data = response.json()
@@ -500,7 +492,7 @@ def test_editor_can_add_score_set_to_collection(
 
 
 def test_viewer_cannot_add_score_set_to_collection(
-    session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
+    client_for, session, client, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     unpublished_score_set = create_seq_score_set(client, experiment["urn"])
@@ -515,10 +507,10 @@ def test_viewer_cannot_add_score_set_to_collection(
     collection = create_collection(client)
     client.post(f"/api/v1/collections/{collection['urn']}/viewers", json={"orcid_id": EXTRA_USER["username"]})
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            f"/api/v1/collections/{collection['urn']}/score-sets", json={"score_set_urn": score_set["urn"]}
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.post(
+        f"/api/v1/collections/{collection['urn']}/score-sets", json={"score_set_urn": score_set["urn"]}
+    )
 
     assert response.status_code == 403
     response_data = response.json()
@@ -526,48 +518,46 @@ def test_viewer_cannot_add_score_set_to_collection(
 
 
 def test_unauthorized_user_cannot_add_score_set_to_collection(
-    session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
+    owner_client, outsider_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    experiment = create_experiment(owner_client)
+    unpublished_score_set = create_seq_score_set(owner_client, experiment["urn"])
     unpublished_score_set = mock_worker_variant_insertion(
-        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
+        owner_client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        score_set = publish_score_set(owner_client, unpublished_score_set["urn"])
         worker_queue.assert_called_once()
 
-    collection = create_collection(client)
+    collection = create_collection(owner_client)
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            f"/api/v1/collections/{collection['urn']}/score-sets", json={"score_set_urn": score_set["urn"]}
-        )
+    response = outsider_client.post(
+        f"/api/v1/collections/{collection['urn']}/score-sets", json={"score_set_urn": score_set["urn"]}
+    )
 
     assert response.status_code == 404
     assert f"collection with URN '{collection['urn']}' not found" in response.json()["detail"]
 
 
 def test_anonymous_cannot_add_score_set_to_collection(
-    session, client, data_provider, data_files, setup_router_db, anonymous_app_overrides
+    owner_client, anonymous_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    experiment = create_experiment(owner_client)
+    unpublished_score_set = create_seq_score_set(owner_client, experiment["urn"])
     unpublished_score_set = mock_worker_variant_insertion(
-        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
+        owner_client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        score_set = publish_score_set(owner_client, unpublished_score_set["urn"])
         worker_queue.assert_called_once()
 
-    collection = create_collection(client)
+    collection = create_collection(owner_client)
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.post(
-            f"/api/v1/collections/{collection['urn']}/score-sets", json={"score_set_urn": score_set["urn"]}
-        )
+    response = anonymous_client.post(
+        f"/api/v1/collections/{collection['urn']}/score-sets", json={"score_set_urn": score_set["urn"]}
+    )
 
     assert response.status_code == 401
     assert "Could not validate credentials" in response.json()["detail"]
@@ -901,9 +891,7 @@ def test_patch_with_nonexistent_urn_returns_404(client, setup_router_db):
     assert "No score set found with the given URN" in response.json()["detail"]
 
 
-def test_viewer_cannot_reorder_collection(
-    session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
-):
+def test_viewer_cannot_reorder_collection(client_for, session, client, data_provider, data_files, setup_router_db):
     """Test that viewers get 403 when trying to reorder via PATCH."""
     experiment = create_experiment(client)
     experiment_urn = experiment["urn"]
@@ -926,15 +914,15 @@ def test_viewer_cannot_reorder_collection(
     client.post(f"/api/v1/collections/{collection['urn']}/viewers", json={"orcid_id": EXTRA_USER["username"]})
 
     # Try to reorder as viewer (reverse order)
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.patch(f"/api/v1/collections/{collection['urn']}", json={"score_set_urns": [urns[1], urns[0]]})
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.patch(
+        f"/api/v1/collections/{collection['urn']}", json={"score_set_urns": [urns[1], urns[0]]}
+    )
 
     assert response.status_code == 403
 
 
-def test_viewer_cannot_add_via_patch(
-    session, client, data_provider, data_files, setup_router_db, extra_user_app_overrides
-):
+def test_viewer_cannot_add_via_patch(client_for, session, client, data_provider, data_files, setup_router_db):
     """Test that viewers get 403 when PATCH implies adding a score set."""
     experiment = create_experiment(client)
     experiment_urn = experiment["urn"]
@@ -957,11 +945,11 @@ def test_viewer_cannot_add_via_patch(
     client.post(f"/api/v1/collections/{collection['urn']}/viewers", json={"orcid_id": EXTRA_USER["username"]})
 
     # Try to add second score set as viewer (membership change)
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.patch(
-            f"/api/v1/collections/{collection['urn']}",
-            json={"score_set_urns": [score_sets[0]["urn"], score_sets[1]["urn"]]},
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.patch(
+        f"/api/v1/collections/{collection['urn']}",
+        json={"score_set_urns": [score_sets[0]["urn"], score_sets[1]["urn"]]},
+    )
 
     assert response.status_code == 403
 
@@ -974,40 +962,34 @@ def test_viewer_cannot_add_via_patch(
 # implemented.
 
 
-def test_public_collection_does_not_leak_private_member_score_set(
-    session, client, setup_router_db, anonymous_app_overrides
-):
-    experiment = create_experiment(client)
-    private_score_set = create_seq_score_set(client, experiment["urn"])
-    collection = create_collection(client, update={"private": False})
+def test_public_collection_does_not_leak_private_member_score_set(owner_client, anonymous_client, session):
+    experiment = create_experiment(owner_client)
+    private_score_set = create_seq_score_set(owner_client, experiment["urn"])
+    collection = create_collection(owner_client, update={"private": False})
 
-    response = client.post(
+    response = owner_client.post(
         f"/api/v1/collections/{collection['urn']}/score-sets",
         json={"score_set_urn": private_score_set["urn"]},
     )
     assert response.status_code == 200
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/collections/{collection['urn']}")
+    response = anonymous_client.get(f"/api/v1/collections/{collection['urn']}")
 
     assert response.status_code == 200
     assert private_score_set["urn"] not in response.text
 
 
-def test_public_collection_does_not_leak_private_member_experiment(
-    session, client, setup_router_db, anonymous_app_overrides
-):
-    private_experiment = create_experiment(client)
-    collection = create_collection(client, update={"private": False})
+def test_public_collection_does_not_leak_private_member_experiment(owner_client, anonymous_client, session):
+    private_experiment = create_experiment(owner_client)
+    collection = create_collection(owner_client, update={"private": False})
 
-    response = client.post(
+    response = owner_client.post(
         f"/api/v1/collections/{collection['urn']}/experiments",
         json={"experiment_urn": private_experiment["urn"]},
     )
     assert response.status_code == 200
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/collections/{collection['urn']}")
+    response = anonymous_client.get(f"/api/v1/collections/{collection['urn']}")
 
     assert response.status_code == 200
     assert private_experiment["urn"] not in response.text
@@ -1029,20 +1011,17 @@ def test_collection_owner_still_sees_own_private_member_score_set(session, clien
     assert private_score_set["urn"] in response.json()["scoreSetUrns"]
 
 
-def test_non_member_does_not_see_collection_viewers_or_editors(
-    session, client, setup_router_db, anonymous_app_overrides
-):
-    collection = create_collection(client, update={"private": False})
+def test_non_member_does_not_see_collection_viewers_or_editors(owner_client, anonymous_client, session):
+    collection = create_collection(owner_client, update={"private": False})
     assert (
-        client.post(
+        owner_client.post(
             f"/api/v1/collections/{collection['urn']}/viewers",
             json={"orcid_id": EXTRA_USER["username"]},
         ).status_code
         == 200
     )
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/collections/{collection['urn']}")
+    response = anonymous_client.get(f"/api/v1/collections/{collection['urn']}")
 
     assert response.status_code == 200
     body = response.json()
@@ -1052,17 +1031,17 @@ def test_non_member_does_not_see_collection_viewers_or_editors(
     assert [admin["orcidId"] for admin in body["admins"]] == [TEST_USER["username"]]
 
 
-def test_narrowing_associations_does_not_delete_them(session, client, setup_router_db, anonymous_app_overrides):
+def test_narrowing_associations_does_not_delete_them(owner_client, anonymous_client, session):
     """The router assigns filtered lists to `delete-orphan` collections.
 
     Nothing commits after that assignment today, so the staged orphan deletes are never
     persisted. This pins that invariant: a non-member read must not destroy the very
     association rows it declines to show.
     """
-    experiment = create_experiment(client)
-    private_score_set = create_seq_score_set(client, experiment["urn"])
-    collection = create_collection(client, update={"private": False})
-    client.post(
+    experiment = create_experiment(owner_client)
+    private_score_set = create_seq_score_set(owner_client, experiment["urn"])
+    collection = create_collection(owner_client, update={"private": False})
+    owner_client.post(
         f"/api/v1/collections/{collection['urn']}/score-sets",
         json={"score_set_urn": private_score_set["urn"]},
     )
@@ -1071,8 +1050,7 @@ def test_narrowing_associations_does_not_delete_them(session, client, setup_rout
     experiment_assocs_before = session.query(CollectionExperimentAssociation).count()
     assert score_set_assocs_before == 1
 
-    with DependencyOverrider(anonymous_app_overrides):
-        assert client.get(f"/api/v1/collections/{collection['urn']}").status_code == 200
+    assert anonymous_client.get(f"/api/v1/collections/{collection['urn']}").status_code == 200
 
     session.expire_all()
     assert session.query(CollectionScoreSetAssociation).count() == score_set_assocs_before
@@ -1080,9 +1058,7 @@ def test_narrowing_associations_does_not_delete_them(session, client, setup_rout
 
 
 @pytest.mark.parametrize("role", ContributionRole._member_names_)
-def test_only_users_who_can_add_users_see_the_full_roster(
-    role, session, client, setup_router_db, extra_user_app_overrides
-):
+def test_only_users_who_can_add_users_see_the_full_roster(client_for, role, session, client, setup_router_db):
     """Whoever may add a user to a collection may see who is in it; everyone else sees admins only.
 
     The counterpart to `test_non_member_does_not_see_collection_viewers_or_editors`, which covers
@@ -1102,8 +1078,8 @@ def test_only_users_who_can_add_users_see_the_full_roster(
             == 200
         )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/collections/{collection['urn']}")
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.get(f"/api/v1/collections/{collection['urn']}")
 
     assert response.status_code == 200
     body = response.json()
@@ -1119,30 +1095,27 @@ def test_only_users_who_can_add_users_see_the_full_roster(
 
 
 @pytest.mark.parametrize("route", ["add", "create", "update"])
-def test_cannot_add_unreadable_score_set_to_own_collection(
-    session, client, setup_router_db, extra_user_app_overrides, route
-):
+def test_cannot_add_unreadable_score_set_to_own_collection(owner_client, outsider_client, session, route):
     """Adding another user's private score set to your own collection reports it as missing, so membership
     can neither probe for private records nor attach them."""
-    experiment = create_experiment(client)
-    private_score_set = create_seq_score_set(client, experiment["urn"])
+    experiment = create_experiment(owner_client)
+    private_score_set = create_seq_score_set(owner_client, experiment["urn"])
 
-    with DependencyOverrider(extra_user_app_overrides):
-        if route == "create":
-            response = client.post(
-                "/api/v1/collections/", json={**TEST_COLLECTION, "score_set_urns": [private_score_set["urn"]]}
+    if route == "create":
+        response = outsider_client.post(
+            "/api/v1/collections/", json={**TEST_COLLECTION, "score_set_urns": [private_score_set["urn"]]}
+        )
+    else:
+        collection = create_collection(outsider_client)
+        if route == "add":
+            response = outsider_client.post(
+                f"/api/v1/collections/{collection['urn']}/score-sets",
+                json={"score_set_urn": private_score_set["urn"]},
             )
         else:
-            collection = create_collection(client)
-            if route == "add":
-                response = client.post(
-                    f"/api/v1/collections/{collection['urn']}/score-sets",
-                    json={"score_set_urn": private_score_set["urn"]},
-                )
-            else:
-                response = client.patch(
-                    f"/api/v1/collections/{collection['urn']}", json={"score_set_urns": [private_score_set["urn"]]}
-                )
+            response = outsider_client.patch(
+                f"/api/v1/collections/{collection['urn']}", json={"score_set_urns": [private_score_set["urn"]]}
+            )
 
     assert response.status_code == 404
     assert session.query(CollectionScoreSetAssociation).count() == 0
@@ -1164,18 +1137,17 @@ def _create_private_member(client, member):
 @pytest.mark.parametrize("method", ["post", "delete"])
 @pytest.mark.parametrize("member", list(MEMBER_ROUTES))
 def test_collection_member_routes_unreadable_collection_reported_as_missing(
-    session, client, setup_router_db, extra_user_app_overrides, member, method
+    owner_client, outsider_client, session, member, method
 ):
     path, body_key, missing_member_urn = MEMBER_ROUTES[member]
-    collection = create_collection(client)
+    collection = create_collection(owner_client)
 
-    with DependencyOverrider(extra_user_app_overrides):
-        if method == "post":
-            response = client.post(
-                f"/api/v1/collections/{collection['urn']}/{path}", json={body_key: missing_member_urn}
-            )
-        else:
-            response = client.delete(f"/api/v1/collections/{collection['urn']}/{path}/{missing_member_urn}")
+    if method == "post":
+        response = outsider_client.post(
+            f"/api/v1/collections/{collection['urn']}/{path}", json={body_key: missing_member_urn}
+        )
+    else:
+        response = outsider_client.delete(f"/api/v1/collections/{collection['urn']}/{path}/{missing_member_urn}")
 
     assert response.status_code == 404
     assert response.json()["detail"] == f"collection with URN '{collection['urn']}' not found"
@@ -1183,20 +1155,19 @@ def test_collection_member_routes_unreadable_collection_reported_as_missing(
 
 @pytest.mark.parametrize("member", list(MEMBER_ROUTES))
 def test_delete_member_from_collection_unreadable_member_reported_as_missing_whether_linked(
-    session, client, setup_router_db, extra_user_app_overrides, member
+    owner_client, outsider_client, session, member
 ):
     path, body_key, _ = MEMBER_ROUTES[member]
-    linked_urn = _create_private_member(client, member)
-    unlinked_urn = _create_private_member(client, member)
-    collection = create_collection(client, update={"private": False})
-    response = client.post(f"/api/v1/collections/{collection['urn']}/{path}", json={body_key: linked_urn})
+    linked_urn = _create_private_member(owner_client, member)
+    unlinked_urn = _create_private_member(owner_client, member)
+    collection = create_collection(owner_client, update={"private": False})
+    response = owner_client.post(f"/api/v1/collections/{collection['urn']}/{path}", json={body_key: linked_urn})
     assert response.status_code == 200
 
-    with DependencyOverrider(extra_user_app_overrides):
-        responses = {
-            urn: client.delete(f"/api/v1/collections/{collection['urn']}/{path}/{urn}")
-            for urn in (linked_urn, unlinked_urn)
-        }
+    responses = {
+        urn: outsider_client.delete(f"/api/v1/collections/{collection['urn']}/{path}/{urn}")
+        for urn in (linked_urn, unlinked_urn)
+    }
 
     for urn, response in responses.items():
         assert response.status_code == 404

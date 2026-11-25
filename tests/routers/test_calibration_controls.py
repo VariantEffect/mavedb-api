@@ -28,7 +28,6 @@ from tests.helpers.constants import (
     TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED,
     TEST_PUBMED_IDENTIFIER,
 )
-from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.common import deepcamelize
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_calibration import (
@@ -492,21 +491,20 @@ def test_create_calibration_ignores_client_supplied_private_field(
 
 @pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
 def test_cannot_add_controls_to_published_calibration_without_phi_affirmation_as_admin(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    score_set, variant_urns = _score_set_with_variant_urns(client, session, data_provider, data_files)
+    score_set, variant_urns = _score_set_with_variant_urns(owner_client, session, data_provider, data_files)
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json=_calibration_payload(
-                score_set["urn"], controls=[{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}]
-            ),
-        )
+    response = admin_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json=_calibration_payload(
+            score_set["urn"], controls=[{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}]
+        ),
+    )
 
     assert response.status_code == 422
     assert "protected health information" in str(response.json()["detail"]).lower()
@@ -518,23 +516,22 @@ def test_cannot_add_controls_to_published_calibration_without_phi_affirmation_as
 
 @pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
 def test_can_add_controls_to_published_calibration_with_phi_affirmation_as_admin(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    score_set, variant_urns = _score_set_with_variant_urns(client, session, data_provider, data_files)
+    score_set, variant_urns = _score_set_with_variant_urns(owner_client, session, data_provider, data_files)
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json=_calibration_payload(
-                score_set["urn"],
-                controls=[{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}],
-                controlsNotPhi=True,
-            ),
-        )
+    response = admin_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json=_calibration_payload(
+            score_set["urn"],
+            controls=[{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}],
+            controlsNotPhi=True,
+        ),
+    )
 
     assert response.status_code == 200, response.text
     assert response.json()["controlsNotPhi"] is True
@@ -543,25 +540,24 @@ def test_can_add_controls_to_published_calibration_with_phi_affirmation_as_admin
 
 @pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
 def test_cannot_replace_controls_on_published_calibration_without_reaffirming_as_admin(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    score_set, variant_urns = _score_set_with_variant_urns(client, session, data_provider, data_files)
+    score_set, variant_urns = _score_set_with_variant_urns(owner_client, session, data_provider, data_files)
     calibration = _create_with_controls(
-        client,
+        owner_client,
         score_set["urn"],
         [{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}],
         controlsNotPhi=True,
     )
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
     # The invariant holds for published calibrations and for admins alike.
-    with DependencyOverrider(admin_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json=_calibration_payload(
-                score_set["urn"], controls=[{"variantUrn": variant_urns[1], "clinicalStatus": "benign"}]
-            ),
-        )
+    response = admin_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json=_calibration_payload(
+            score_set["urn"], controls=[{"variantUrn": variant_urns[1], "clinicalStatus": "benign"}]
+        ),
+    )
 
     assert response.status_code == 422
     assert "protected health information" in str(response.json()["detail"]).lower()
@@ -574,19 +570,18 @@ def test_cannot_replace_controls_on_published_calibration_without_reaffirming_as
 
 @pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
 def test_withdrawing_phi_affirmation_on_published_calibration_deletes_controls_as_admin(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    score_set, variant_urns = _score_set_with_variant_urns(client, session, data_provider, data_files)
+    score_set, variant_urns = _score_set_with_variant_urns(owner_client, session, data_provider, data_files)
     calibration = _create_with_controls(
-        client, score_set["urn"], [{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}]
+        owner_client, score_set["urn"], [{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}]
     )
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json=_calibration_payload(score_set["urn"], controlsNotPhi=False),
-        )
+    response = admin_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json=_calibration_payload(score_set["urn"], controlsNotPhi=False),
+    )
 
     assert response.status_code == 200, response.text
     assert response.json()["private"] is False
@@ -595,24 +590,23 @@ def test_withdrawing_phi_affirmation_on_published_calibration_deletes_controls_a
 
 @pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
 def test_can_update_published_calibration_leaving_affirmed_controls_untouched_as_admin(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    score_set, variant_urns = _score_set_with_variant_urns(client, session, data_provider, data_files)
+    score_set, variant_urns = _score_set_with_variant_urns(owner_client, session, data_provider, data_files)
     calibration = _create_with_controls(
-        client,
+        owner_client,
         score_set["urn"],
         [{"variantUrn": variant_urns[0], "clinicalStatus": "pathogenic"}],
         controlsNotPhi=True,
     )
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
     # An edit that neither submits controls nor touches controlsNotPhi must leave the standing
     # affirmation alone, so it should not trip the gate.
-    with DependencyOverrider(admin_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json=_calibration_payload(score_set["urn"], notes="Updated notes"),
-        )
+    response = admin_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json=_calibration_payload(score_set["urn"], notes="Updated notes"),
+    )
 
     assert response.status_code == 200, response.text
     assert response.json()["controlsNotPhi"] is True
@@ -747,21 +741,20 @@ def _calibration_with_one_control(client, session, data_provider, data_files):
 
 @pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
 def test_delete_score_calibration_controls_on_superseded_calibration_removes_only_controls(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    score_set, original = _calibration_with_one_control(client, session, data_provider, data_files)
-    original = publish_test_score_calibration_via_client(client, original["urn"])
-    replacement = client.post(
+    score_set, original = _calibration_with_one_control(owner_client, session, data_provider, data_files)
+    original = publish_test_score_calibration_via_client(owner_client, original["urn"])
+    replacement = owner_client.post(
         "/api/v1/score-calibrations/",
         json=_calibration_payload(score_set["urn"], supersededCalibrationUrn=original["urn"]),
     )
     assert replacement.status_code == 200, replacement.text
-    publish_test_score_calibration_via_client(client, replacement.json()["urn"])
+    publish_test_score_calibration_via_client(owner_client, replacement.json()["urn"])
     stored = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == original["urn"]))
     classification_ids = sorted(classification.id for classification in stored.functional_classifications)
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.delete(f"/api/v1/score-calibrations/{original['urn']}/controls")
+    response = admin_client.delete(f"/api/v1/score-calibrations/{original['urn']}/controls")
 
     assert response.status_code == 204
     session.expire_all()
@@ -774,16 +767,15 @@ def test_delete_score_calibration_controls_on_superseded_calibration_removes_onl
 
 @pytest.mark.parametrize("mock_publication_fetch", [CALIBRATION_PUBLICATIONS], indirect=["mock_publication_fetch"])
 def test_delete_score_calibration_controls_without_controls_changes_nothing(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    score_set, _ = _score_set_with_variant_urns(client, session, data_provider, data_files)
-    calibration = client.post("/api/v1/score-calibrations/", json=_calibration_payload(score_set["urn"]))
+    score_set, _ = _score_set_with_variant_urns(owner_client, session, data_provider, data_files)
+    calibration = owner_client.post("/api/v1/score-calibrations/", json=_calibration_payload(score_set["urn"]))
     assert calibration.status_code == 200, calibration.text
     stored = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == calibration.json()["urn"]))
     modified_by_id, controls_not_phi = stored.modified_by_id, stored.controls_not_phi
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.delete(f"/api/v1/score-calibrations/{calibration.json()['urn']}/controls")
+    response = admin_client.delete(f"/api/v1/score-calibrations/{calibration.json()['urn']}/controls")
 
     assert response.status_code == 204
     session.expire_all()
@@ -797,23 +789,21 @@ def test_delete_score_calibration_controls_without_controls_changes_nothing(
     "published, expected_status", [(True, 403), (False, 404)], ids=["owner_of_published", "other_user_on_private"]
 )
 def test_delete_score_calibration_controls_without_update_permission_rejected(
-    client,
-    setup_router_db,
+    owner_client,
+    outsider_client,
     mock_publication_fetch,
     session,
     data_provider,
     data_files,
-    extra_user_app_overrides,
     published,
     expected_status,
 ):
-    _, calibration = _calibration_with_one_control(client, session, data_provider, data_files)
+    _, calibration = _calibration_with_one_control(owner_client, session, data_provider, data_files)
     if published:
-        publish_test_score_calibration_via_client(client, calibration["urn"])
-        response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}/controls")
+        publish_test_score_calibration_via_client(owner_client, calibration["urn"])
+        response = owner_client.delete(f"/api/v1/score-calibrations/{calibration['urn']}/controls")
     else:
-        with DependencyOverrider(extra_user_app_overrides):
-            response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}/controls")
+        response = outsider_client.delete(f"/api/v1/score-calibrations/{calibration['urn']}/controls")
 
     assert response.status_code == expected_status
     assert len(session.scalars(select(CalibrationControl)).all()) == 1

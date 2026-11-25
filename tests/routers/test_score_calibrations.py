@@ -20,6 +20,8 @@ from mavedb.models.mondo_term import MondoTerm as MondoTermDbModel
 from mavedb.models.score_calibration import ScoreCalibration as CalibrationDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from tests.helpers.constants import (
+    ADMIN_USER,
+    ANONYMOUS,
     EXTRA_USER,
     TEST_BIORXIV_IDENTIFIER,
     TEST_BRNICH_SCORE_CALIBRATION_CLASS_BASED,
@@ -27,9 +29,9 @@ from tests.helpers.constants import (
     TEST_CROSSREF_IDENTIFIER,
     TEST_PATHOGENICITY_SCORE_CALIBRATION,
     TEST_PUBMED_IDENTIFIER,
+    TEST_USER,
     VALID_CALIBRATION_URN,
 )
-from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.common import deepcamelize
 from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.experiment import create_experiment
@@ -71,27 +73,26 @@ def versioned_calibration_context(client, setup_router_db, session, data_provide
 
 
 def test_create_score_calibration_replacement_preserves_history_and_hides_draft(
-    client, versioned_calibration_context, anonymous_app_overrides, session
+    owner_client, anonymous_client, versioned_calibration_context, session
 ):
     original, payload = versioned_calibration_context
-    promoted = client.post(f"/api/v1/score-calibrations/{original['urn']}/promote-to-primary")
+    promoted = owner_client.post(f"/api/v1/score-calibrations/{original['urn']}/promote-to-primary")
     assert promoted.status_code == 200
-    response = client.post("/api/v1/score-calibrations/", json=payload)
+    response = owner_client.post("/api/v1/score-calibrations/", json=payload)
     assert response.status_code == 200
     draft = response.json()
     assert draft["supersededCalibrationUrn"] == original["urn"]
     assert draft["private"] is True
     assert draft["primary"] is False
 
-    with DependencyOverrider(anonymous_app_overrides):
-        predecessor = client.get(f"/api/v1/score-calibrations/{original['urn']}").json()
-        assert predecessor["supersedingCalibrationUrn"] is None
-        assert predecessor["primary"] is True
-        assert client.get(f"/api/v1/score-calibrations/{draft['urn']}").status_code == 404
+    predecessor = anonymous_client.get(f"/api/v1/score-calibrations/{original['urn']}").json()
+    assert predecessor["supersedingCalibrationUrn"] is None
+    assert predecessor["primary"] is True
+    assert anonymous_client.get(f"/api/v1/score-calibrations/{draft['urn']}").status_code == 404
 
-    published = publish_test_score_calibration_via_client(client, draft["urn"])
+    published = publish_test_score_calibration_via_client(owner_client, draft["urn"])
     assert published["primary"] is True
-    predecessor = client.get(f"/api/v1/score-calibrations/{original['urn']}").json()
+    predecessor = owner_client.get(f"/api/v1/score-calibrations/{original['urn']}").json()
     assert predecessor["supersedingCalibrationUrn"] == published["urn"]
     assert predecessor["primary"] is False
     assert predecessor["title"] == original["title"]
@@ -113,14 +114,13 @@ def test_create_score_calibration_duplicate_replacement_conflicts_and_names_read
 
 
 def test_create_score_calibration_duplicate_replacement_conflicts_without_naming_unreadable_draft(
-    client, versioned_calibration_context, admin_app_overrides
+    owner_client, admin_client, versioned_calibration_context
 ):
     # An admin who isn't a contributor drafts a community replacement, which the predecessor's owner can't read.
     _, payload = versioned_calibration_context
-    with DependencyOverrider(admin_app_overrides):
-        draft = client.post("/api/v1/score-calibrations/", json=payload)
+    draft = admin_client.post("/api/v1/score-calibrations/", json=payload)
     assert draft.status_code == 200
-    response = client.post("/api/v1/score-calibrations/", json=payload)
+    response = owner_client.post("/api/v1/score-calibrations/", json=payload)
     assert response.status_code == 409
     assert draft.json()["urn"] not in response.text
 
@@ -166,16 +166,16 @@ def test_create_score_calibration_concurrent_replacement_conflicts(client, versi
     ids=["calibration", "score_set_list", "score_set"],
 )
 @pytest.mark.parametrize(
-    "drafted_by_admin,viewer_overrides,is_contributor,expect_named",
+    "drafted_by_admin,viewer,is_contributor,expect_named",
     [
-        (False, None, False, True),
-        (False, "anonymous_app_overrides", False, False),
-        (False, "extra_user_app_overrides", False, False),
+        (False, TEST_USER, False, True),
+        (False, ANONYMOUS, False, False),
+        (False, EXTRA_USER, False, False),
         # Drafted by the score set's owner, so investigator-provided: its contributors may read it.
-        (False, "extra_user_app_overrides", True, True),
+        (False, EXTRA_USER, True, True),
         # Drafted by an admin who isn't a contributor, so a community calibration: only its creator may read it.
-        (True, "extra_user_app_overrides", True, False),
-        (False, "admin_app_overrides", False, True),
+        (True, EXTRA_USER, True, False),
+        (False, ADMIN_USER, False, True),
     ],
     ids=[
         "creator",
@@ -187,21 +187,20 @@ def test_create_score_calibration_concurrent_replacement_conflicts(client, versi
     ],
 )
 def test_get_score_calibration_draft_replacement_named_only_to_its_readers(
+    admin_client,
+    client_for,
     client,
     session,
-    request,
     versioned_calibration_context,
-    admin_app_overrides,
     route,
     drafted_by_admin,
-    viewer_overrides,
+    viewer,
     is_contributor,
     expect_named,
 ):
     original, payload = versioned_calibration_context
     if drafted_by_admin:
-        with DependencyOverrider(admin_app_overrides):
-            draft = client.post("/api/v1/score-calibrations/", json=payload).json()
+        draft = admin_client.post("/api/v1/score-calibrations/", json=payload).json()
     else:
         draft = client.post("/api/v1/score-calibrations/", json=payload).json()
     assert draft["investigatorProvided"] is not drafted_by_admin
@@ -216,17 +215,11 @@ def test_get_score_calibration_draft_replacement_named_only_to_its_readers(
             EXTRA_USER["last_name"],
         )
 
-    def superseding_urn():
-        body = client.get(route.format(urn=original["urn"], score_set_urn=payload["scoreSetUrn"])).json()
-        calibrations = body.get("scoreCalibrations", [body]) if isinstance(body, dict) else body
-        # The score set route leaves out null fields.
-        return next(c for c in calibrations if c["urn"] == original["urn"]).get("supersedingCalibrationUrn")
-
-    if viewer_overrides is None:
-        named = superseding_urn()
-    else:
-        with DependencyOverrider(request.getfixturevalue(viewer_overrides)):
-            named = superseding_urn()
+    viewer_client = client_for(viewer)
+    body = viewer_client.get(route.format(urn=original["urn"], score_set_urn=payload["scoreSetUrn"])).json()
+    calibrations = body.get("scoreCalibrations", [body]) if isinstance(body, dict) else body
+    # The score set route leaves out null fields.
+    named = next(c for c in calibrations if c["urn"] == original["urn"]).get("supersedingCalibrationUrn")
 
     assert named == (draft["urn"] if expect_named else None)
 
@@ -289,13 +282,12 @@ def test_publish_score_calibration_records_publication_time(client, versioned_ca
 
 
 def test_create_score_calibration_other_user_cannot_replace(
-    client, versioned_calibration_context, extra_user_app_overrides
+    owner_client, outsider_client, versioned_calibration_context
 ):
     original, payload = versioned_calibration_context
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post("/api/v1/score-calibrations/", json=payload)
+    response = outsider_client.post("/api/v1/score-calibrations/", json=payload)
     assert response.status_code == 403
-    assert client.get(f"/api/v1/score-calibrations/{original['urn']}").json()["supersedingCalibrationUrn"] is None
+    assert owner_client.get(f"/api/v1/score-calibrations/{original['urn']}").json()["supersedingCalibrationUrn"] is None
 
 
 def test_delete_score_calibration_replacement_draft_allows_new_version(client, versioned_calibration_context):
@@ -313,24 +305,22 @@ def test_delete_score_calibration_replacement_draft_allows_new_version(client, v
     "predecessor_primary, expected_status", [(True, 403), (False, 200)], ids=["primary", "not_primary"]
 )
 def test_publish_score_calibration_community_replacement_needs_rank_permission_only_for_primary(
-    client, versioned_calibration_context, extra_user_app_overrides, session, predecessor_primary, expected_status
+    owner_client, outsider_client, versioned_calibration_context, session, predecessor_primary, expected_status
 ):
     _, payload = versioned_calibration_context
     community_payload = {key: value for key, value in payload.items() if key != "supersededCalibrationUrn"}
-    with DependencyOverrider(extra_user_app_overrides):
-        community = client.post("/api/v1/score-calibrations/", json=community_payload)
-        assert community.status_code == 200
-        community = publish_test_score_calibration_via_client(client, community.json()["urn"])
+    community = outsider_client.post("/api/v1/score-calibrations/", json=community_payload)
+    assert community.status_code == 200
+    community = publish_test_score_calibration_via_client(outsider_client, community.json()["urn"])
     if predecessor_primary:
-        promoted = client.post(f"/api/v1/score-calibrations/{community['urn']}/promote-to-primary")
+        promoted = owner_client.post(f"/api/v1/score-calibrations/{community['urn']}/promote-to-primary")
         assert promoted.status_code == 200
 
-    with DependencyOverrider(extra_user_app_overrides):
-        draft = client.post(
-            "/api/v1/score-calibrations/", json={**community_payload, "supersededCalibrationUrn": community["urn"]}
-        )
-        assert draft.status_code == 200
-        response = client.post(f"/api/v1/score-calibrations/{draft.json()['urn']}/publish")
+    draft = outsider_client.post(
+        "/api/v1/score-calibrations/", json={**community_payload, "supersededCalibrationUrn": community["urn"]}
+    )
+    assert draft.status_code == 200
+    response = outsider_client.post(f"/api/v1/score-calibrations/{draft.json()['urn']}/publish")
 
     assert response.status_code == expected_status
     predecessor = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == community["urn"]))
@@ -343,7 +333,7 @@ def test_publish_score_calibration_community_replacement_needs_rank_permission_o
 
 
 def test_create_score_calibration_contributor_replaces_investigator_calibration(
-    client, versioned_calibration_context, extra_user_app_overrides, session
+    client_for, client, versioned_calibration_context, session
 ):
     original, payload = versioned_calibration_context
     add_contributor(
@@ -354,15 +344,15 @@ def test_create_score_calibration_contributor_replaces_investigator_calibration(
         EXTRA_USER["first_name"],
         EXTRA_USER["last_name"],
     )
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post("/api/v1/score-calibrations/", json=payload)
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.post("/api/v1/score-calibrations/", json=payload)
     assert response.status_code == 200
     assert response.json()["supersededCalibrationUrn"] == original["urn"]
     assert response.json()["investigatorProvided"] is True
 
 
 def test_publish_score_calibration_replacement_refused_after_author_stops_contributing(
-    client, versioned_calibration_context, extra_user_app_overrides, session
+    client_for, client, versioned_calibration_context, session
 ):
     original, payload = versioned_calibration_context
     add_contributor(
@@ -373,16 +363,16 @@ def test_publish_score_calibration_replacement_refused_after_author_stops_contri
         EXTRA_USER["first_name"],
         EXTRA_USER["last_name"],
     )
-    with DependencyOverrider(extra_user_app_overrides):
-        draft = client.post("/api/v1/score-calibrations/", json=payload)
+    extra_user_client = client_for(EXTRA_USER)
+    draft = extra_user_client.post("/api/v1/score-calibrations/", json=payload)
     assert draft.status_code == 200
 
     score_set = session.scalar(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == payload["scoreSetUrn"]))
     score_set.contributors = [c for c in score_set.contributors if c.orcid_id != EXTRA_USER["username"]]
     session.commit()
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(f"/api/v1/score-calibrations/{draft.json()['urn']}/publish")
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.post(f"/api/v1/score-calibrations/{draft.json()['urn']}/publish")
 
     assert response.status_code == 403
     replacement = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == draft.json()["urn"]))
@@ -472,36 +462,34 @@ def test_promote_score_calibration_superseded_rejected(client, versioned_calibra
 
 @pytest.mark.parametrize("deleted", ["predecessor", "replacement"], ids=["predecessor", "replacement"])
 def test_delete_score_calibration_published_version_rejected_even_for_admins(
-    client, versioned_calibration_context, admin_app_overrides, deleted
+    owner_client, admin_client, versioned_calibration_context, deleted
 ):
     original, payload = versioned_calibration_context
-    draft = client.post("/api/v1/score-calibrations/", json=payload).json()
-    replacement = publish_test_score_calibration_via_client(client, draft["urn"])
+    draft = owner_client.post("/api/v1/score-calibrations/", json=payload).json()
+    replacement = publish_test_score_calibration_via_client(owner_client, draft["urn"])
     urn = original["urn"] if deleted == "predecessor" else replacement["urn"]
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.delete(f"/api/v1/score-calibrations/{urn}")
+    response = admin_client.delete(f"/api/v1/score-calibrations/{urn}")
 
     assert response.status_code == 400
-    assert client.get(f"/api/v1/score-calibrations/{original['urn']}").status_code == 200
-    assert client.get(f"/api/v1/score-calibrations/{replacement['urn']}").status_code == 200
+    assert owner_client.get(f"/api/v1/score-calibrations/{original['urn']}").status_code == 200
+    assert owner_client.get(f"/api/v1/score-calibrations/{replacement['urn']}").status_code == 200
 
 
 @pytest.mark.parametrize(
     "replacement_published, expected_status", [(True, 400), (False, 200)], ids=["superseded", "draft_replacement"]
 )
 def test_modify_score_calibration_by_admin_rejected_only_once_replacement_published(
-    client, versioned_calibration_context, admin_app_overrides, session, replacement_published, expected_status
+    owner_client, admin_client, versioned_calibration_context, session, replacement_published, expected_status
 ):
     original, payload = versioned_calibration_context
-    draft = client.post("/api/v1/score-calibrations/", json=payload).json()
+    draft = owner_client.post("/api/v1/score-calibrations/", json=payload).json()
     if replacement_published:
-        publish_test_score_calibration_via_client(client, draft["urn"])
+        publish_test_score_calibration_via_client(owner_client, draft["urn"])
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{original['urn']}", json={**payload, "title": "Rewritten history"}
-        )
+    response = admin_client.put(
+        f"/api/v1/score-calibrations/{original['urn']}", json={**payload, "title": "Rewritten history"}
+    )
 
     assert response.status_code == expected_status
     stored = session.scalar(select(CalibrationDbModel).where(CalibrationDbModel.urn == original["urn"]))
@@ -533,22 +521,21 @@ def test_cannot_get_score_calibration_when_not_exists(client, setup_router_db):
     indirect=["mock_publication_fetch"],
 )
 def test_anonymous_user_cannot_get_score_calibration_when_private(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
+    response = anonymous_client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     assert response.status_code == 404
     error = response.json()
@@ -566,22 +553,21 @@ def test_anonymous_user_cannot_get_score_calibration_when_private(
     indirect=["mock_publication_fetch"],
 )
 def test_other_user_cannot_get_score_calibration_when_private(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
+    response = outsider_client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     assert response.status_code == 404
     error = response.json()
@@ -853,7 +839,7 @@ def test_cannot_modify_score_calibration_without_score_set_urn(
     indirect=["mock_publication_fetch"],
 )
 def test_contributing_user_can_get_score_calibration_when_private_and_investigator_provided(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    client_for, client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -876,8 +862,8 @@ def test_contributing_user_can_get_score_calibration_when_private_and_investigat
         EXTRA_USER["last_name"],
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     assert response.status_code == 200
     calibration_response = response.json()
@@ -896,14 +882,14 @@ def test_contributing_user_can_get_score_calibration_when_private_and_investigat
     indirect=["mock_publication_fetch"],
 )
 def test_contributing_user_cannot_get_score_calibration_when_private_and_not_investigator_provided(
+    admin_client,
+    client_for,
     client,
     setup_router_db,
     mock_publication_fetch,
     session,
     data_provider,
     data_files,
-    extra_user_app_overrides,
-    admin_app_overrides,
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -914,10 +900,9 @@ def test_contributing_user_cannot_get_score_calibration_when_private_and_not_inv
         data_files / "scores.csv",
     )
 
-    with DependencyOverrider(admin_app_overrides):
-        calibration = create_test_score_calibration_in_score_set_via_client(
-            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
-        )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        admin_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     add_contributor(
         session,
@@ -928,8 +913,8 @@ def test_contributing_user_cannot_get_score_calibration_when_private_and_not_inv
         EXTRA_USER["last_name"],
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     assert response.status_code == 404
     error = response.json()
@@ -947,22 +932,21 @@ def test_contributing_user_cannot_get_score_calibration_when_private_and_not_inv
     indirect=["mock_publication_fetch"],
 )
 def test_admin_user_can_get_score_calibration_when_private(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
+    response = admin_client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     assert response.status_code == 200
     calibration_response = response.json()
@@ -981,25 +965,24 @@ def test_admin_user_can_get_score_calibration_when_private(
     indirect=["mock_publication_fetch"],
 )
 def test_anonymous_user_can_get_score_calibration_when_public(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
-    calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+    calibration = publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
+    response = anonymous_client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     assert response.status_code == 200
     calibration_response = response.json()
@@ -1018,25 +1001,24 @@ def test_anonymous_user_can_get_score_calibration_when_public(
     indirect=["mock_publication_fetch"],
 )
 def test_other_user_can_get_score_calibration_when_public(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
-    calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+    calibration = publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
+    response = outsider_client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     assert response.status_code == 200
     calibration_response = response.json()
@@ -1091,7 +1073,7 @@ def test_creating_user_can_get_score_calibration_when_public(
     indirect=["mock_publication_fetch"],
 )
 def test_contributing_user_can_get_score_calibration_when_public(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    client_for, client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -1117,8 +1099,8 @@ def test_contributing_user_can_get_score_calibration_when_public(
         EXTRA_USER["last_name"],
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     assert response.status_code == 200
     calibration_response = response.json()
@@ -1137,25 +1119,24 @@ def test_contributing_user_can_get_score_calibration_when_public(
     indirect=["mock_publication_fetch"],
 )
 def test_admin_user_can_get_score_calibration_when_public(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
-    calibration = publish_test_score_calibration_via_client(client, calibration["urn"])
+    calibration = publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
+    response = admin_client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     assert response.status_code == 200
     calibration_response = response.json()
@@ -1208,22 +1189,21 @@ def test_cannot_get_score_calibrations_for_score_set_when_none_exist(
     indirect=["mock_publication_fetch"],
 )
 def test_anonymous_user_cannot_get_score_calibrations_for_score_set_when_private(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+    response = anonymous_client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
 
     assert response.status_code == 404
     error = response.json()
@@ -1241,22 +1221,21 @@ def test_anonymous_user_cannot_get_score_calibrations_for_score_set_when_private
     indirect=["mock_publication_fetch"],
 )
 def test_other_user_cannot_get_score_calibrations_for_score_set_when_private(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+    response = outsider_client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
 
     assert response.status_code == 404
     error = response.json()
@@ -1274,25 +1253,24 @@ def test_other_user_cannot_get_score_calibrations_for_score_set_when_private(
     indirect=["mock_publication_fetch"],
 )
 def test_anonymous_user_cannot_get_score_calibrations_for_score_set_when_published_but_calibrations_private(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+    response = anonymous_client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
 
     assert response.status_code == 404
     error = response.json()
@@ -1310,25 +1288,24 @@ def test_anonymous_user_cannot_get_score_calibrations_for_score_set_when_publish
     indirect=["mock_publication_fetch"],
 )
 def test_other_user_cannot_get_score_calibrations_for_score_set_when_published_but_calibrations_private(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+    response = outsider_client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
 
     assert response.status_code == 404
     error = response.json()
@@ -1380,14 +1357,14 @@ def test_creating_user_can_get_score_calibrations_for_score_set_when_private(
     indirect=["mock_publication_fetch"],
 )
 def test_contributing_user_can_get_investigator_provided_score_calibrations_for_score_set_when_private(
+    admin_client,
+    client_for,
     client,
     setup_router_db,
     mock_publication_fetch,
     session,
     data_provider,
     data_files,
-    extra_user_app_overrides,
-    admin_app_overrides,
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -1398,10 +1375,9 @@ def test_contributing_user_can_get_investigator_provided_score_calibrations_for_
         data_files / "scores.csv",
     )
 
-    with DependencyOverrider(admin_app_overrides):
-        create_test_score_calibration_in_score_set_via_client(
-            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
-        )
+    create_test_score_calibration_in_score_set_via_client(
+        admin_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     investigator_calibration = create_test_score_calibration_in_score_set_via_client(
         client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
@@ -1416,8 +1392,8 @@ def test_contributing_user_can_get_investigator_provided_score_calibrations_for_
         EXTRA_USER["last_name"],
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
 
     assert response.status_code == 200
     calibrations_response = response.json()
@@ -1437,22 +1413,21 @@ def test_contributing_user_can_get_investigator_provided_score_calibrations_for_
     indirect=["mock_publication_fetch"],
 )
 def test_admin_user_can_get_score_calibrations_for_score_set_when_private(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+    response = admin_client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
 
     assert response.status_code == 200
     calibrations_response = response.json()
@@ -1472,32 +1447,31 @@ def test_admin_user_can_get_score_calibrations_for_score_set_when_private(
     indirect=["mock_publication_fetch"],
 )
 def test_anonymous_user_can_get_score_calibrations_for_score_set_when_public(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     # add another calibration that will remain private. The anonymous user should not see this one
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
 
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+    response = anonymous_client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
 
     assert response.status_code == 200
     calibrations_response = response.json()
@@ -1517,32 +1491,31 @@ def test_anonymous_user_can_get_score_calibrations_for_score_set_when_public(
     indirect=["mock_publication_fetch"],
 )
 def test_other_user_can_get_score_calibrations_for_score_set_when_public(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     # add another calibration that will remain private. The other user should not see this one
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
 
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+    response = outsider_client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
 
     assert response.status_code == 200
     calibrations_response = response.json()
@@ -1562,29 +1535,28 @@ def test_other_user_can_get_score_calibrations_for_score_set_when_public(
     indirect=["mock_publication_fetch"],
 )
 def test_anonymous_user_cannot_get_score_calibrations_for_score_set_when_calibrations_public_score_set_private(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     # add another calibration that will remain private. The anonymous user should not see this one
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     force_publish_test_score_calibration(session, calibration["urn"])
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+    response = anonymous_client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
 
     assert response.status_code == 404
     error = response.json()
@@ -1602,29 +1574,28 @@ def test_anonymous_user_cannot_get_score_calibrations_for_score_set_when_calibra
     indirect=["mock_publication_fetch"],
 )
 def test_other_user_cannot_get_score_calibrations_for_score_set_when_calibrations_public_score_set_private(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     # add another calibration that will remain private. The other user should not see this one
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     force_publish_test_score_calibration(session, calibration["urn"])
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+    response = outsider_client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
 
     assert response.status_code == 404
     error = response.json()
@@ -1684,7 +1655,7 @@ def test_creating_user_can_get_score_calibrations_for_score_set_when_public(
     indirect=["mock_publication_fetch"],
 )
 def test_contributing_user_can_get_score_calibrations_for_score_set_when_public(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    client_for, client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -1715,8 +1686,8 @@ def test_contributing_user_can_get_score_calibrations_for_score_set_when_public(
         EXTRA_USER["last_name"],
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
 
     assert response.status_code == 200
     calibrations_response = response.json()
@@ -1736,30 +1707,29 @@ def test_contributing_user_can_get_score_calibrations_for_score_set_when_public(
     indirect=["mock_publication_fetch"],
 )
 def test_admin_user_can_get_score_calibrations_for_score_set_when_public(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
     # add another calibration that is private. The admin user should see this one too
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
+    response = admin_client.get(f"/api/v1/score-calibrations/score-set/{score_set['urn']}")
 
     assert response.status_code == 200
     calibrations_response = response.json()
@@ -2096,25 +2066,24 @@ def test_cannot_create_score_calibration_when_validation_error_is_raised_from_sc
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_create_score_calibration_when_score_set_not_owned_by_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            "/api/v1/score-calibrations",
-            json={
-                "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
-            },
-        )
+    response = outsider_client.post(
+        "/api/v1/score-calibrations",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        },
+    )
 
     assert response.status_code == 404
     error = response.json()
@@ -2132,11 +2101,11 @@ def test_cannot_create_score_calibration_when_score_set_not_owned_by_user(
     indirect=["mock_publication_fetch"],
 )
 def test_can_create_score_calibration_in_public_score_set_as_non_contributor(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
@@ -2144,16 +2113,15 @@ def test_can_create_score_calibration_in_public_score_set_as_non_contributor(
     )
 
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            "/api/v1/score-calibrations",
-            json={
-                "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
-            },
-        )
+    response = outsider_client.post(
+        "/api/v1/score-calibrations",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        },
+    )
 
     assert response.status_code == 200
     calibration_response = response.json()
@@ -2251,25 +2219,24 @@ def test_cannot_create_range_based_score_calibration_with_classes_file(
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_create_score_calibration_as_anonymous_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.post(
-            "/api/v1/score-calibrations",
-            json={
-                "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
-            },
-        )
+    response = anonymous_client.post(
+        "/api/v1/score-calibrations",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        },
+    )
 
     assert response.status_code == 401
     error = response.json()
@@ -2360,7 +2327,7 @@ def test_can_create_score_calibration_as_score_set_owner_form(
     indirect=["mock_publication_fetch"],
 )
 def test_can_create_score_calibration_as_score_set_contributor(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    client_for, client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -2380,14 +2347,14 @@ def test_can_create_score_calibration_as_score_set_contributor(
         EXTRA_USER["last_name"],
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            "/api/v1/score-calibrations",
-            json={
-                "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
-            },
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.post(
+        "/api/v1/score-calibrations",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        },
+    )
 
     assert response.status_code == 200
     calibration_response = response.json()
@@ -2406,25 +2373,24 @@ def test_can_create_score_calibration_as_score_set_contributor(
     indirect=["mock_publication_fetch"],
 )
 def test_can_create_score_calibration_as_admin_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.post(
-            "/api/v1/score-calibrations",
-            json={
-                "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
-            },
-        )
+    response = admin_client.post(
+        "/api/v1/score-calibrations",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        },
+    )
 
     assert response.status_code == 200
     calibration_response = response.json()
@@ -2810,28 +2776,27 @@ def test_cannot_update_range_based_score_calibration_with_class_file(
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_update_score_calibration_as_anonymous_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json={
-                "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
-            },
-        )
+    response = anonymous_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
+        },
+    )
 
     assert response.status_code == 401
     error = response.json()
@@ -2849,28 +2814,27 @@ def test_cannot_update_score_calibration_as_anonymous_user(
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_update_score_calibration_when_score_set_not_owned_by_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json={
-                "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
-            },
-        )
+    response = outsider_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
+        },
+    )
 
     assert response.status_code == 404
     error = response.json()
@@ -2888,31 +2852,30 @@ def test_cannot_update_score_calibration_when_score_set_not_owned_by_user(
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_update_score_calibration_in_published_score_set_when_score_set_not_owned_by_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json={
-                "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
-            },
-        )
+    response = outsider_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
+        },
+    )
 
     # The calibration is private and investigator-provided, so the extra user cannot see it.
     # With published score sets open to any authenticated user, the denial comes from the
@@ -3054,7 +3017,7 @@ def test_cannot_update_published_score_calibration_as_score_set_owner(
     indirect=["mock_publication_fetch"],
 )
 def test_can_update_investigator_provided_score_calibration_as_score_set_contributor(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    client_for, client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -3077,14 +3040,14 @@ def test_can_update_investigator_provided_score_calibration_as_score_set_contrib
         EXTRA_USER["last_name"],
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json={
-                "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
-            },
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
+        },
+    )
 
     assert response.status_code == 200
     calibration_response = response.json()
@@ -3104,14 +3067,14 @@ def test_can_update_investigator_provided_score_calibration_as_score_set_contrib
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_update_non_investigator_score_calibration_as_score_set_contributor(
+    admin_client,
+    client_for,
     client,
     setup_router_db,
     mock_publication_fetch,
     session,
     data_provider,
     data_files,
-    extra_user_app_overrides,
-    admin_app_overrides,
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -3122,10 +3085,9 @@ def test_cannot_update_non_investigator_score_calibration_as_score_set_contribut
         data_files / "scores.csv",
     )
 
-    with DependencyOverrider(admin_app_overrides):
-        calibration = create_test_score_calibration_in_score_set_via_client(
-            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
-        )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        admin_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     add_contributor(
         session,
@@ -3136,14 +3098,14 @@ def test_cannot_update_non_investigator_score_calibration_as_score_set_contribut
         EXTRA_USER["last_name"],
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json={
-                "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
-            },
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
+        },
+    )
 
     assert response.status_code == 404
     calibration_response = response.json()
@@ -3161,28 +3123,27 @@ def test_cannot_update_non_investigator_score_calibration_as_score_set_contribut
     indirect=["mock_publication_fetch"],
 )
 def test_can_update_score_calibration_as_admin_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json={
-                "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
-            },
-        )
+    response = admin_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
+        },
+    )
 
     assert response.status_code == 200
     calibration_response = response.json()
@@ -3202,32 +3163,31 @@ def test_can_update_score_calibration_as_admin_user(
     indirect=["mock_publication_fetch"],
 )
 def test_can_update_published_score_calibration_as_admin_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json={
-                "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
-            },
-        )
+    response = admin_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
+        },
+    )
 
     assert response.status_code == 200
     calibration_response = response.json()
@@ -3247,35 +3207,34 @@ def test_can_update_published_score_calibration_as_admin_user(
     indirect=["mock_publication_fetch"],
 )
 def test_anonymous_user_may_not_move_calibration_to_another_score_set(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set1 = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     score_set2 = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set1["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set1["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json={
-                "scoreSetUrn": score_set2["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
-            },
-        )
+    response = anonymous_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json={
+            "scoreSetUrn": score_set2["urn"],
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        },
+    )
 
     assert response.status_code == 401
     error = response.json()
@@ -3293,7 +3252,7 @@ def test_anonymous_user_may_not_move_calibration_to_another_score_set(
     indirect=["mock_publication_fetch"],
 )
 def test_user_may_not_move_investigator_calibration_when_lacking_permissions_on_destination_score_set(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    client_for, client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
     score_set1 = create_seq_score_set_with_mapped_variants(
@@ -3324,14 +3283,14 @@ def test_user_may_not_move_investigator_calibration_when_lacking_permissions_on_
         EXTRA_USER["last_name"],
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json={
-                "scoreSetUrn": score_set2["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
-            },
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json={
+            "scoreSetUrn": score_set2["urn"],
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        },
+    )
 
     assert response.status_code == 404
     error = response.json()
@@ -3349,7 +3308,7 @@ def test_user_may_not_move_investigator_calibration_when_lacking_permissions_on_
     indirect=["mock_publication_fetch"],
 )
 def test_user_may_move_investigator_calibration_when_has_permissions_on_destination_score_set(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    client_for, client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
     score_set1 = create_seq_score_set_with_mapped_variants(
@@ -3392,14 +3351,14 @@ def test_user_may_move_investigator_calibration_when_has_permissions_on_destinat
         score_set1 = publish_score_set(client, score_set1["urn"])
         score_set2 = publish_score_set(client, score_set2["urn"])
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json={
-                "scoreSetUrn": score_set2["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
-            },
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json={
+            "scoreSetUrn": score_set2["urn"],
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        },
+    )
 
     assert response.status_code == 200
     calibration_response = response.json()
@@ -3418,35 +3377,34 @@ def test_user_may_move_investigator_calibration_when_has_permissions_on_destinat
     indirect=["mock_publication_fetch"],
 )
 def test_admin_user_may_move_calibration_to_another_score_set(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set1 = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     score_set2 = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set1["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set1["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json={
-                "scoreSetUrn": score_set2["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
-            },
-        )
+    response = admin_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json={
+            "scoreSetUrn": score_set2["urn"],
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        },
+    )
 
     assert response.status_code == 200
     calibration_response = response.json()
@@ -3530,22 +3488,21 @@ def test_cannot_delete_score_calibration_when_not_exists(client, setup_router_db
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_delete_score_calibration_as_anonymous_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
+    response = anonymous_client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     assert response.status_code == 401
     error = response.json()
@@ -3563,22 +3520,21 @@ def test_cannot_delete_score_calibration_as_anonymous_user(
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_delete_score_calibration_when_score_set_not_owned_by_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
+    response = outsider_client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     assert response.status_code == 404
     error = response.json()
@@ -3665,7 +3621,7 @@ def test_cannot_delete_published_score_calibration_as_owner(
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_delete_investigator_score_calibration_as_score_set_contributor(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    client_for, client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -3688,8 +3644,8 @@ def test_cannot_delete_investigator_score_calibration_as_score_set_contributor(
         EXTRA_USER["last_name"],
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     error = response.json()
     assert response.status_code == 403
@@ -3707,14 +3663,14 @@ def test_cannot_delete_investigator_score_calibration_as_score_set_contributor(
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_delete_non_investigator_calibration_as_score_set_contributor(
+    admin_client,
+    client_for,
     client,
     setup_router_db,
     mock_publication_fetch,
     session,
     data_provider,
     data_files,
-    extra_user_app_overrides,
-    admin_app_overrides,
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -3725,10 +3681,9 @@ def test_cannot_delete_non_investigator_calibration_as_score_set_contributor(
         data_files / "scores.csv",
     )
 
-    with DependencyOverrider(admin_app_overrides):
-        calibration = create_test_score_calibration_in_score_set_via_client(
-            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
-        )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        admin_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     add_contributor(
         session,
@@ -3739,8 +3694,8 @@ def test_cannot_delete_non_investigator_calibration_as_score_set_contributor(
         EXTRA_USER["last_name"],
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     assert response.status_code == 404
 
@@ -3756,27 +3711,26 @@ def test_cannot_delete_non_investigator_calibration_as_score_set_contributor(
     indirect=["mock_publication_fetch"],
 )
 def test_can_delete_score_calibration_as_admin_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
+    response = admin_client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     assert response.status_code == 204
 
     # verify it's deleted
-    get_response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
+    get_response = owner_client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
     assert get_response.status_code == 404
 
 
@@ -3791,30 +3745,29 @@ def test_can_delete_score_calibration_as_admin_user(
     indirect=["mock_publication_fetch"],
 )
 def test_can_delete_published_score_calibration_as_admin_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
+    response = admin_client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     assert response.status_code == 204
 
     # verify it's deleted
-    get_response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
+    get_response = owner_client.get(f"/api/v1/score-calibrations/{calibration['urn']}")
     assert get_response.status_code == 404
 
 
@@ -3863,28 +3816,27 @@ def test_cannot_delete_primary_score_calibration(
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_delete_primary_score_calibration_as_admin_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
     calibration = create_publish_and_promote_score_calibration(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
+    response = admin_client.delete(f"/api/v1/score-calibrations/{calibration['urn']}")
 
     assert response.status_code == 400
     assert "Demote it first" in response.json()["detail"]
-    assert client.get(f"/api/v1/score-calibrations/{calibration['urn']}").json()["primary"] is True
+    assert owner_client.get(f"/api/v1/score-calibrations/{calibration['urn']}").json()["primary"] is True
 
 
 ###########################################################
@@ -3914,25 +3866,24 @@ def test_cannot_promote_score_calibration_when_not_exists(client, setup_router_d
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_promote_score_calibration_as_anonymous_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.post(f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary")
+    response = anonymous_client.post(f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary")
 
     assert response.status_code == 401
     error = response.json()
@@ -3950,27 +3901,26 @@ def test_cannot_promote_score_calibration_as_anonymous_user(
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_promote_score_calibration_when_score_calibration_not_owned_by_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary",
-        )
+    response = outsider_client.post(
+        f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary",
+    )
 
     assert response.status_code == 403
     error = response.json()
@@ -4024,7 +3974,7 @@ def test_can_promote_score_calibration_as_score_set_owner(
     indirect=["mock_publication_fetch"],
 )
 def test_can_promote_score_calibration_as_score_set_contributor(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    client_for, client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -4050,8 +4000,8 @@ def test_can_promote_score_calibration_as_score_set_contributor(
         EXTRA_USER["last_name"],
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary")
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.post(f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary")
 
     assert response.status_code == 200
     promotion_response = response.json()
@@ -4071,25 +4021,24 @@ def test_can_promote_score_calibration_as_score_set_contributor(
     indirect=["mock_publication_fetch"],
 )
 def test_can_promote_score_calibration_as_admin_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.post(f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary")
+    response = admin_client.post(f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary")
 
     assert response.status_code == 200
     promotion_response = response.json()
@@ -4302,30 +4251,29 @@ def test_can_promote_to_primary_if_primary_exists_when_demote_existing_is_true(
     indirect=["mock_publication_fetch"],
 )
 def test_score_set_owner_can_promote_to_primary_with_demote_existing_flag_on_community_calibration(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
     """Score set owners can change rank of community calibrations, so they can promote
     their own calibration while demoting an admin-created community primary."""
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
-    with DependencyOverrider(admin_app_overrides):
-        primary_calibration = create_publish_and_promote_score_calibration(
-            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
-        )
-    secondary_calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION)
+        score_set = publish_score_set(owner_client, score_set["urn"])
+    primary_calibration = create_publish_and_promote_score_calibration(
+        admin_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
-    publish_test_score_calibration_via_client(client, secondary_calibration["urn"])
+    secondary_calibration = create_test_score_calibration_in_score_set_via_client(
+        owner_client, score_set["urn"], deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION)
+    )
+    publish_test_score_calibration_via_client(owner_client, secondary_calibration["urn"])
 
-    response = client.post(
+    response = owner_client.post(
         f"/api/v1/score-calibrations/{secondary_calibration['urn']}/promote-to-primary?demoteExistingPrimary=true",
     )
 
@@ -4334,7 +4282,7 @@ def test_score_set_owner_can_promote_to_primary_with_demote_existing_flag_on_com
     assert promoted["primary"] is True
 
     # verify the previous primary was demoted
-    get_response = client.get(f"/api/v1/score-calibrations/{primary_calibration['urn']}")
+    get_response = owner_client.get(f"/api/v1/score-calibrations/{primary_calibration['urn']}")
     assert get_response.status_code == 200
     previous_primary = get_response.json()
     assert previous_primary["primary"] is False
@@ -4366,26 +4314,25 @@ def test_cannot_demote_score_calibration_when_not_exists(client, setup_router_db
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_demote_score_calibration_as_anonymous_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
     calibration = create_publish_and_promote_score_calibration(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.post(
-            f"/api/v1/score-calibrations/{calibration['urn']}/demote-from-primary",
-        )
+    response = anonymous_client.post(
+        f"/api/v1/score-calibrations/{calibration['urn']}/demote-from-primary",
+    )
 
     assert response.status_code == 401
     error = response.json()
@@ -4403,26 +4350,25 @@ def test_cannot_demote_score_calibration_as_anonymous_user(
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_demote_score_calibration_when_score_calibration_not_owned_by_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
     calibration = create_publish_and_promote_score_calibration(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            f"/api/v1/score-calibrations/{calibration['urn']}/demote-from-primary",
-        )
+    response = outsider_client.post(
+        f"/api/v1/score-calibrations/{calibration['urn']}/demote-from-primary",
+    )
 
     assert response.status_code == 403
     error = response.json()
@@ -4440,7 +4386,7 @@ def test_cannot_demote_score_calibration_when_score_calibration_not_owned_by_use
     indirect=["mock_publication_fetch"],
 )
 def test_can_demote_score_calibration_as_score_set_contributor(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    client_for, client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -4465,10 +4411,10 @@ def test_can_demote_score_calibration_as_score_set_contributor(
         EXTRA_USER["last_name"],
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            f"/api/v1/score-calibrations/{calibration['urn']}/demote-from-primary",
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.post(
+        f"/api/v1/score-calibrations/{calibration['urn']}/demote-from-primary",
+    )
 
     assert response.status_code == 200
     demotion_response = response.json()
@@ -4526,26 +4472,25 @@ def test_can_demote_score_calibration_as_score_set_owner(
     indirect=["mock_publication_fetch"],
 )
 def test_can_demote_score_calibration_as_admin_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
     calibration = create_publish_and_promote_score_calibration(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.post(
-            f"/api/v1/score-calibrations/{calibration['urn']}/demote-from-primary",
-        )
+    response = admin_client.post(
+        f"/api/v1/score-calibrations/{calibration['urn']}/demote-from-primary",
+    )
 
     assert response.status_code == 200
     demotion_response = response.json()
@@ -4633,24 +4578,23 @@ def test_cannot_publish_score_calibration_when_not_exists(
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_publish_score_calibration_as_anonymous_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.post(
-            f"/api/v1/score-calibrations/{calibration['urn']}/publish",
-        )
+    response = anonymous_client.post(
+        f"/api/v1/score-calibrations/{calibration['urn']}/publish",
+    )
 
     assert response.status_code == 401
     error = response.json()
@@ -4668,24 +4612,23 @@ def test_cannot_publish_score_calibration_as_anonymous_user(
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_publish_score_calibration_when_score_calibration_not_owned_by_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            f"/api/v1/score-calibrations/{calibration['urn']}/publish",
-        )
+    response = outsider_client.post(
+        f"/api/v1/score-calibrations/{calibration['urn']}/publish",
+    )
 
     assert response.status_code == 404
     error = response.json()
@@ -4741,26 +4684,25 @@ def test_can_publish_score_calibration_as_score_set_owner(
     indirect=["mock_publication_fetch"],
 )
 def test_can_publish_score_calibration_as_admin_user(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.post(
-            f"/api/v1/score-calibrations/{calibration['urn']}/publish",
-        )
+    response = admin_client.post(
+        f"/api/v1/score-calibrations/{calibration['urn']}/publish",
+    )
 
     assert response.status_code == 200
     publish_response = response.json()
@@ -4961,11 +4903,11 @@ def test_get_functional_classification_variants_not_found_classification(
     indirect=["mock_publication_fetch"],
 )
 def test_anonymous_user_cannot_get_variants_for_private_calibration(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
@@ -4973,16 +4915,15 @@ def test_anonymous_user_cannot_get_variants_for_private_calibration(
     )
 
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client,
+        owner_client,
         score_set["urn"],
         {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
     )
 
     fc = calibration["functionalClassifications"][0]
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(
-            f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
-        )
+    response = anonymous_client.get(
+        f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
+    )
 
     assert response.status_code == 404
 
@@ -4998,11 +4939,11 @@ def test_anonymous_user_cannot_get_variants_for_private_calibration(
     indirect=["mock_publication_fetch"],
 )
 def test_user_without_read_permissions_cannot_get_variants_for_private_calibration(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
@@ -5010,16 +4951,15 @@ def test_user_without_read_permissions_cannot_get_variants_for_private_calibrati
     )
 
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client,
+        owner_client,
         score_set["urn"],
         {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
     )
 
     fc = calibration["functionalClassifications"][0]
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(
-            f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
-        )
+    response = outsider_client.get(
+        f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
+    )
 
     assert response.status_code == 404
 
@@ -5035,7 +4975,7 @@ def test_user_without_read_permissions_cannot_get_variants_for_private_calibrati
     indirect=["mock_publication_fetch"],
 )
 def test_user_with_read_permissions_can_get_variants_for_private_calibration(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    client_for, client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -5063,10 +5003,10 @@ def test_user_with_read_permissions_can_get_variants_for_private_calibration(
         EXTRA_USER["last_name"],
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(
-            f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.get(
+        f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
+    )
 
     assert response.status_code == 200
     result = response.json()
@@ -5086,11 +5026,11 @@ def test_user_with_read_permissions_can_get_variants_for_private_calibration(
     indirect=["mock_publication_fetch"],
 )
 def test_admin_user_can_get_variants_for_private_calibration(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
@@ -5098,17 +5038,16 @@ def test_admin_user_can_get_variants_for_private_calibration(
     )
 
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client,
+        owner_client,
         score_set["urn"],
         {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
     )
 
     fc = calibration["functionalClassifications"][0]
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.get(
-            f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
-        )
+    response = admin_client.get(
+        f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
+    )
 
     assert response.status_code == 200
     result = response.json()
@@ -5128,31 +5067,30 @@ def test_admin_user_can_get_variants_for_private_calibration(
     indirect=["mock_publication_fetch"],
 )
 def test_anonymous_user_can_get_variants_for_public_calibration(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
 
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client,
+        owner_client,
         score_set["urn"],
         {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
     )
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
     fc = calibration["functionalClassifications"][0]
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(
-            f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
-        )
+    response = anonymous_client.get(
+        f"/api/v1/score-calibrations/{calibration['urn']}/functional-classifications/{fc['id']}/variants",
+    )
 
     assert response.status_code == 200
     result = response.json()
@@ -5237,11 +5175,11 @@ def test_get_calibration_all_variants_not_found(
     indirect=["mock_publication_fetch"],
 )
 def test_anonymous_user_cannot_get_all_variants_for_private_calibration(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
@@ -5249,15 +5187,14 @@ def test_anonymous_user_cannot_get_all_variants_for_private_calibration(
     )
 
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client,
+        owner_client,
         score_set["urn"],
         {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
     )
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(
-            f"/api/v1/score-calibrations/{calibration['urn']}/variants",
-        )
+    response = anonymous_client.get(
+        f"/api/v1/score-calibrations/{calibration['urn']}/variants",
+    )
 
     assert response.status_code == 404
 
@@ -5273,11 +5210,11 @@ def test_anonymous_user_cannot_get_all_variants_for_private_calibration(
     indirect=["mock_publication_fetch"],
 )
 def test_user_without_read_permissions_cannot_get_all_variants_for_private_calibration(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
@@ -5285,15 +5222,14 @@ def test_user_without_read_permissions_cannot_get_all_variants_for_private_calib
     )
 
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client,
+        owner_client,
         score_set["urn"],
         {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(
-            f"/api/v1/score-calibrations/{calibration['urn']}/variants",
-        )
+    response = outsider_client.get(
+        f"/api/v1/score-calibrations/{calibration['urn']}/variants",
+    )
 
     assert response.status_code == 404
 
@@ -5309,7 +5245,7 @@ def test_user_without_read_permissions_cannot_get_all_variants_for_private_calib
     indirect=["mock_publication_fetch"],
 )
 def test_user_with_read_permissions_can_get_all_variants_for_private_calibration(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    client_for, client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -5335,10 +5271,10 @@ def test_user_with_read_permissions_can_get_all_variants_for_private_calibration
         EXTRA_USER["last_name"],
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get(
-            f"/api/v1/score-calibrations/{calibration['urn']}/variants",
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.get(
+        f"/api/v1/score-calibrations/{calibration['urn']}/variants",
+    )
 
     assert response.status_code == 200
     results = response.json()
@@ -5361,11 +5297,11 @@ def test_user_with_read_permissions_can_get_all_variants_for_private_calibration
     indirect=["mock_publication_fetch"],
 )
 def test_admin_user_can_get_all_variants_for_private_calibration(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, admin_app_overrides
+    owner_client, admin_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
@@ -5373,15 +5309,14 @@ def test_admin_user_can_get_all_variants_for_private_calibration(
     )
 
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client,
+        owner_client,
         score_set["urn"],
         {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
     )
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.get(
-            f"/api/v1/score-calibrations/{calibration['urn']}/variants",
-        )
+    response = admin_client.get(
+        f"/api/v1/score-calibrations/{calibration['urn']}/variants",
+    )
 
     assert response.status_code == 200
     results = response.json()
@@ -5404,30 +5339,29 @@ def test_admin_user_can_get_all_variants_for_private_calibration(
     indirect=["mock_publication_fetch"],
 )
 def test_anonymous_user_can_get_all_variants_for_public_calibration(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
 
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client,
+        owner_client,
         score_set["urn"],
         {**deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)},
     )
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(
-            f"/api/v1/score-calibrations/{calibration['urn']}/variants",
-        )
+    response = anonymous_client.get(
+        f"/api/v1/score-calibrations/{calibration['urn']}/variants",
+    )
 
     assert response.status_code == 200
     results = response.json()
@@ -5470,13 +5404,12 @@ def _create_published_calibration_on_private_score_set(client, session, data_pro
 )
 @pytest.mark.parametrize("route", ["", "/variants", "/functional-classifications/{fc_id}/variants"])
 def test_anonymous_user_cannot_read_published_calibration_on_private_score_set(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, anonymous_app_overrides, route
+    owner_client, anonymous_client, mock_publication_fetch, session, data_provider, data_files, route
 ):
-    calibration = _create_published_calibration_on_private_score_set(client, session, data_provider, data_files)
+    calibration = _create_published_calibration_on_private_score_set(owner_client, session, data_provider, data_files)
     fc_id = calibration["functionalClassifications"][0]["id"]
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/score-calibrations/{calibration['urn']}{route.format(fc_id=fc_id)}")
+    response = anonymous_client.get(f"/api/v1/score-calibrations/{calibration['urn']}{route.format(fc_id=fc_id)}")
 
     assert response.status_code == 404
     error = response.json()
@@ -5520,25 +5453,24 @@ def test_score_set_owner_can_read_published_calibration_on_private_score_set(
     indirect=["mock_publication_fetch"],
 )
 def test_cannot_create_score_calibration_in_private_score_set_as_non_contributor(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.post(
-            "/api/v1/score-calibrations",
-            json={
-                "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
-            },
-        )
+    response = outsider_client.post(
+        "/api/v1/score-calibrations",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED),
+        },
+    )
 
     assert response.status_code == 404
     error = response.json()
@@ -5668,11 +5600,11 @@ def test_can_create_baseline_only_calibration_without_publication_sources(
     indirect=["mock_publication_fetch"],
 )
 def test_community_calibration_owner_cannot_promote_to_primary(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
@@ -5680,22 +5612,21 @@ def test_community_calibration_owner_cannot_promote_to_primary(
     )
 
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
 
     # Create community calibration as extra user (non-contributor)
-    with DependencyOverrider(extra_user_app_overrides):
-        calibration = create_test_score_calibration_in_score_set_via_client(
-            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
-        )
-        assert calibration["investigatorProvided"] is False
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        outsider_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    assert calibration["investigatorProvided"] is False
 
-        # Publish it
-        publish_test_score_calibration_via_client(client, calibration["urn"])
+    # Publish it
+    publish_test_score_calibration_via_client(outsider_client, calibration["urn"])
 
-        # Try to promote as the community calibration owner — should be denied
-        response = client.post(
-            f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary",
-        )
+    # Try to promote as the community calibration owner — should be denied
+    response = outsider_client.post(
+        f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary",
+    )
 
     assert response.status_code == 403
 
@@ -5711,11 +5642,11 @@ def test_community_calibration_owner_cannot_promote_to_primary(
     indirect=["mock_publication_fetch"],
 )
 def test_score_set_owner_can_promote_community_calibration_to_primary(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
@@ -5723,18 +5654,17 @@ def test_score_set_owner_can_promote_community_calibration_to_primary(
     )
 
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
 
     # Create community calibration as extra user (non-contributor)
-    with DependencyOverrider(extra_user_app_overrides):
-        calibration = create_test_score_calibration_in_score_set_via_client(
-            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
-        )
-        assert calibration["investigatorProvided"] is False
-        publish_test_score_calibration_via_client(client, calibration["urn"])
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        outsider_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    assert calibration["investigatorProvided"] is False
+    publish_test_score_calibration_via_client(outsider_client, calibration["urn"])
 
     # Score set owner promotes the community calibration — should succeed
-    response = client.post(
+    response = owner_client.post(
         f"/api/v1/score-calibrations/{calibration['urn']}/promote-to-primary",
     )
 
@@ -5759,12 +5689,12 @@ def test_score_set_owner_can_promote_community_calibration_to_primary(
     indirect=["mock_publication_fetch"],
 )
 def test_non_contributor_can_update_own_community_calibration(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
     """A non-contributor who creates a community calibration on a published score set can update it."""
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
@@ -5772,22 +5702,21 @@ def test_non_contributor_can_update_own_community_calibration(
     )
 
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
 
-    with DependencyOverrider(extra_user_app_overrides):
-        calibration = create_test_score_calibration_in_score_set_via_client(
-            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
-        )
-        assert calibration["investigatorProvided"] is False
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        outsider_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
+    assert calibration["investigatorProvided"] is False
 
-        # Update the calibration as the same non-contributor user
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json={
-                "scoreSetUrn": score_set["urn"],
-                **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
-            },
-        )
+    # Update the calibration as the same non-contributor user
+    response = outsider_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json={
+            "scoreSetUrn": score_set["urn"],
+            **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
+        },
+    )
 
     assert response.status_code == 200
     updated = response.json()
@@ -5806,12 +5735,12 @@ def test_non_contributor_can_update_own_community_calibration(
     indirect=["mock_publication_fetch"],
 )
 def test_non_contributor_cannot_move_calibration_to_private_score_set(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
     """A non-contributor cannot move their community calibration to a private score set they don't own."""
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     published_score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
@@ -5819,31 +5748,30 @@ def test_non_contributor_cannot_move_calibration_to_private_score_set(
     )
 
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        published_score_set = publish_score_set(client, published_score_set["urn"])
+        published_score_set = publish_score_set(owner_client, published_score_set["urn"])
 
     # Create a second (private) score set on a new experiment
-    experiment_2 = create_experiment(client)
+    experiment_2 = create_experiment(owner_client)
     private_score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment_2["urn"],
         data_files / "scores.csv",
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        calibration = create_test_score_calibration_in_score_set_via_client(
-            client, published_score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
-        )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        outsider_client, published_score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
-        # Try to move the calibration to the private score set — should be denied
-        response = client.put(
-            f"/api/v1/score-calibrations/{calibration['urn']}",
-            json={
-                "scoreSetUrn": private_score_set["urn"],
-                **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
-            },
-        )
+    # Try to move the calibration to the private score set — should be denied
+    response = outsider_client.put(
+        f"/api/v1/score-calibrations/{calibration['urn']}",
+        json={
+            "scoreSetUrn": private_score_set["urn"],
+            **deepcamelize(TEST_PATHOGENICITY_SCORE_CALIBRATION),
+        },
+    )
 
     # Non-contributor can't see the private score set, so gets 404
     assert response.status_code == 404
@@ -5892,9 +5820,8 @@ def test_cannot_create_score_calibration_without_email(
 ###########################################################
 
 
-def test_anonymous_user_cannot_list_my_calibrations(client, setup_router_db, anonymous_app_overrides):
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get("/api/v1/score-calibrations/me")
+def test_anonymous_user_cannot_list_my_calibrations(anonymous_client, setup_router_db):
+    response = anonymous_client.get("/api/v1/score-calibrations/me")
 
     assert response.status_code == 401
 
@@ -5951,7 +5878,7 @@ def test_authenticated_user_sees_own_calibrations(
     indirect=["mock_publication_fetch"],
 )
 def test_user_does_not_see_own_calibrations_on_score_sets_they_can_no_longer_read(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    client_for, client, setup_router_db, mock_publication_fetch, session, data_provider, data_files
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_mapped_variants(
@@ -5969,10 +5896,10 @@ def test_user_does_not_see_own_calibrations_on_score_sets_they_can_no_longer_rea
         EXTRA_USER["first_name"],
         EXTRA_USER["last_name"],
     )
-    with DependencyOverrider(extra_user_app_overrides):
-        create_test_score_calibration_in_score_set_via_client(
-            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
-        )
+    extra_user_client = client_for(EXTRA_USER)
+    create_test_score_calibration_in_score_set_via_client(
+        extra_user_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
 
     score_set_item = session.execute(
         select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])
@@ -5981,8 +5908,8 @@ def test_user_does_not_see_own_calibrations_on_score_sets_they_can_no_longer_rea
     session.add(score_set_item)
     session.commit()
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get("/api/v1/score-calibrations/me")
+    extra_user_client = client_for(EXTRA_USER)
+    response = extra_user_client.get("/api/v1/score-calibrations/me")
 
     assert response.status_code == 200
     assert response.json() == []
@@ -5999,22 +5926,21 @@ def test_user_does_not_see_own_calibrations_on_score_sets_they_can_no_longer_rea
     indirect=["mock_publication_fetch"],
 )
 def test_user_does_not_see_other_users_calibrations(
-    client, setup_router_db, mock_publication_fetch, session, data_provider, data_files, extra_user_app_overrides
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
         data_files / "scores.csv",
     )
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
-    with DependencyOverrider(extra_user_app_overrides):
-        response = client.get("/api/v1/score-calibrations/me")
+    response = outsider_client.get("/api/v1/score-calibrations/me")
 
     assert response.status_code == 200
     assert response.json() == []
@@ -6077,20 +6003,13 @@ def test_user_sees_calibrations_across_multiple_score_sets(
 )
 @pytest.mark.parametrize("action", ["promote-to-primary", "demote-from-primary"])
 def test_score_set_owner_cannot_rank_or_see_private_community_calibration(
-    client,
-    setup_router_db,
-    mock_publication_fetch,
-    session,
-    data_provider,
-    data_files,
-    extra_user_app_overrides,
-    action,
+    owner_client, outsider_client, mock_publication_fetch, session, data_provider, data_files, action
 ):
     """CHANGE_RANK admits the score set owner to community calibrations, but a private one is not theirs to
     read, so the rank routes must not return or describe it."""
-    experiment = create_experiment(client)
+    experiment = create_experiment(owner_client)
     score_set = create_seq_score_set_with_mapped_variants(
-        client,
+        owner_client,
         session,
         data_provider,
         experiment["urn"],
@@ -6098,15 +6017,14 @@ def test_score_set_owner_cannot_rank_or_see_private_community_calibration(
     )
 
     with patch.object(ArqRedis, "enqueue_job", return_value=None):
-        score_set = publish_score_set(client, score_set["urn"])
+        score_set = publish_score_set(owner_client, score_set["urn"])
 
-    with DependencyOverrider(extra_user_app_overrides):
-        calibration = create_test_score_calibration_in_score_set_via_client(
-            client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
-        )
+    calibration = create_test_score_calibration_in_score_set_via_client(
+        outsider_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+    )
     assert calibration["investigatorProvided"] is False
 
-    response = client.post(f"/api/v1/score-calibrations/{calibration['urn']}/{action}")
+    response = owner_client.post(f"/api/v1/score-calibrations/{calibration['urn']}/{action}")
 
     assert response.status_code == 404
     assert "functionalClassifications" not in response.json()

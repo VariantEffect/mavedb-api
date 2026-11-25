@@ -10,7 +10,6 @@ fastapi = pytest.importorskip("fastapi")
 
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from tests.helpers.constants import TEST_MINIMAL_SEQ_SCORESET, TEST_USER
-from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import create_seq_score_set, publish_score_set
@@ -216,12 +215,11 @@ def test_list_target_gene_categories_excludes_unpublished(session, data_provider
 
 
 def test_anonymous_list_target_gene_names_excludes_unpublished(
-    session, data_provider, client, anonymous_app_overrides, setup_router_db, data_files
+    owner_client, anonymous_client, session, data_provider, data_files
 ):
-    _published_and_unpublished_targets(session, data_provider, client, data_files)
+    _published_and_unpublished_targets(session, data_provider, owner_client, data_files)
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get("/api/v1/target-genes/names")
+    response = anonymous_client.get("/api/v1/target-genes/names")
 
     assert response.status_code == 200
     assert "PUBLISHEDGENE" in response.json()

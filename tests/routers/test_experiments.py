@@ -43,7 +43,6 @@ from tests.helpers.constants import (
     TEST_USER,
     TEST_USER2,
 )
-from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.common import deepcamelize
 from tests.helpers.util.contributor import add_contributor
 from tests.helpers.util.experiment import create_experiment
@@ -854,28 +853,24 @@ def test_cannot_update_other_users_private_experiment_set(session, client, setup
     assert f"experiment set with URN '{experiment['experimentSetUrn']}' not found" in response_data["detail"]
 
 
-def test_anonymous_cannot_update_other_users_private_experiment_set(
-    session, client, anonymous_app_overrides, setup_router_db
-):
-    experiment = create_experiment(client)
+def test_anonymous_cannot_update_other_users_private_experiment_set(owner_client, anonymous_client, session):
+    experiment = create_experiment(owner_client)
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload.update({"experimentSetUrn": experiment["experimentSetUrn"]})
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.post("/api/v1/experiments/", json=experiment_post_payload)
+    response = anonymous_client.post("/api/v1/experiments/", json=experiment_post_payload)
 
     assert response.status_code == 401
     response_data = response.json()
     assert "Could not validate credentials" in response_data["detail"]
 
 
-def test_admin_can_update_other_users_private_experiment_set(session, client, admin_app_overrides, setup_router_db):
-    experiment = create_experiment(client)
+def test_admin_can_update_other_users_private_experiment_set(owner_client, admin_client, session):
+    experiment = create_experiment(owner_client)
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload.update({"experimentSetUrn": experiment["experimentSetUrn"], "title": "Second Experiment"})
 
-    with DependencyOverrider(admin_app_overrides):
-        response = client.post("/api/v1/experiments/", json=experiment_post_payload)
+    response = admin_client.post("/api/v1/experiments/", json=experiment_post_payload)
 
     assert response.status_code == 200
     assert response.json()["experimentSetUrn"] == experiment["experimentSetUrn"]
@@ -926,24 +921,23 @@ def test_cannot_update_other_users_public_experiment_set(session, data_provider,
 
 
 def test_anonymous_cannot_update_others_user_public_experiment_set(
-    session, data_provider, client, anonymous_app_overrides, setup_router_db, data_files
+    owner_client, anonymous_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    experiment = create_experiment(owner_client)
+    unpublished_score_set = create_seq_score_set(owner_client, experiment["urn"])
     unpublished_score_set = mock_worker_variant_insertion(
-        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
+        owner_client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, unpublished_score_set["urn"])
+        published_score_set = publish_score_set(owner_client, unpublished_score_set["urn"])
         worker_queue.assert_called_once()
 
     published_experiment_set_urn = published_score_set["experiment"]["experimentSetUrn"]
     experiment_post_payload = deepcopy(TEST_MINIMAL_EXPERIMENT)
     experiment_post_payload.update({"experimentSetUrn": published_experiment_set_urn, "title": "Second Experiment"})
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.post("/api/v1/experiments/", json=experiment_post_payload)
+    response = anonymous_client.post("/api/v1/experiments/", json=experiment_post_payload)
 
     assert response.status_code == 401
     response_data = response.json()
@@ -951,23 +945,22 @@ def test_anonymous_cannot_update_others_user_public_experiment_set(
 
 
 def test_admin_can_update_other_users_public_experiment_set(
-    session, data_provider, client, admin_app_overrides, setup_router_db, data_files
+    owner_client, admin_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    experiment = create_experiment(owner_client)
+    unpublished_score_set = create_seq_score_set(owner_client, experiment["urn"])
     unpublished_score_set = mock_worker_variant_insertion(
-        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
+        owner_client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        published_score_set = publish_score_set(client, unpublished_score_set["urn"])
+        published_score_set = publish_score_set(owner_client, unpublished_score_set["urn"])
         worker_queue.assert_called_once()
 
-    with DependencyOverrider(admin_app_overrides):
-        response_data = create_experiment(
-            client,
-            {"experimentSetUrn": published_score_set["experiment"]["experimentSetUrn"], "title": "Second Experiment"},
-        )
+    response_data = create_experiment(
+        admin_client,
+        {"experimentSetUrn": published_score_set["experiment"]["experimentSetUrn"], "title": "Second Experiment"},
+    )
     assert response_data["experimentSetUrn"] == published_score_set["experiment"]["experimentSetUrn"]
     assert response_data["title"] == "Second Experiment"
 
@@ -1070,15 +1063,14 @@ def test_cannot_edit_other_users_private_experiment(client, session, setup_route
     ],
 )
 def test_anonymous_cannot_update_other_users_private_experiment(
-    client, anonymous_app_overrides, session, setup_router_db, test_field, test_value
+    anonymous_client, client, session, setup_router_db, test_field, test_value
 ):
     experiment = create_experiment(client)
     experiment_post_payload = experiment.copy()
     experiment_post_payload.update({test_field: test_value, "urn": experiment["urn"]})
     change_ownership(session, experiment["urn"], ExperimentDbModel)
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
+    response = anonymous_client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
 
     assert response.status_code == 401
     response_data = response.json()
@@ -1125,14 +1117,11 @@ def test_contributor_can_update_other_users_private_experiment(
         ("methodText", "Edited Methods"),
     ],
 )
-def test_admin_can_update_other_users_private_experiment(
-    client, admin_app_overrides, setup_router_db, test_field, test_value
-):
-    experiment = create_experiment(client)
+def test_admin_can_update_other_users_private_experiment(owner_client, admin_client, test_field, test_value):
+    experiment = create_experiment(owner_client)
     experiment_post_payload = experiment.copy()
     experiment_post_payload.update({test_field: test_value, "urn": experiment["urn"]})
-    with DependencyOverrider(admin_app_overrides):
-        response = client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
+    response = admin_client.put(f"/api/v1/experiments/{experiment['urn']}", json=experiment_post_payload)
     assert response.status_code == 200
     response_data = response.json()
     jsonschema.validate(instance=response_data, schema=Experiment.model_json_schema())
@@ -1507,22 +1496,20 @@ def test_cannot_get_other_users_private_experiment(session, client, setup_router
     assert f"experiment with URN '{experiment['urn']}' not found" in response_data["detail"]
 
 
-def test_anonymous_cannot_get_users_private_experiment(session, client, anonymous_app_overrides, setup_router_db):
-    experiment = create_experiment(client)
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/experiments/{experiment['urn']}")
+def test_anonymous_cannot_get_users_private_experiment(owner_client, anonymous_client, session):
+    experiment = create_experiment(owner_client)
+    response = anonymous_client.get(f"/api/v1/experiments/{experiment['urn']}")
 
     assert response.status_code == 404
     response_data = response.json()
     assert f"experiment with URN '{experiment['urn']}' not found" in response_data["detail"]
 
 
-def test_admin_can_get_other_users_private_experiment(client, admin_app_overrides, setup_router_db):
-    experiment = create_experiment(client)
+def test_admin_can_get_other_users_private_experiment(owner_client, admin_client):
+    experiment = create_experiment(owner_client)
     expected_response = deepcopy(TEST_MINIMAL_EXPERIMENT_RESPONSE)
     expected_response.update({"urn": experiment["urn"], "experimentSetUrn": experiment["experimentSetUrn"]})
-    with DependencyOverrider(admin_app_overrides):
-        response = client.get(f"/api/v1/experiments/{experiment['urn']}")
+    response = admin_client.get(f"/api/v1/experiments/{experiment['urn']}")
 
     assert response.status_code == 200
     response_data = response.json()
@@ -1977,7 +1964,7 @@ def test_non_owner_searches_published_superseding_score_sets_for_experiments(
     indirect=["mock_publication_fetch"],
 )
 def test_experiment_score_sets_withhold_private_calibrations_from_anonymous_users(
-    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides, mock_publication_fetch
+    owner_client, anonymous_client, session, data_provider, data_files, mock_publication_fetch
 ):
     """A published score set can carry an unpublished calibration.
 
@@ -1985,26 +1972,27 @@ def test_experiment_score_sets_withhold_private_calibrations_from_anonymous_user
     stricter than its score set's, so it needs its own filter. Without it the listing served every private
     calibration's thresholds to anyone.
     """
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
     create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
-        published = publish_score_set(client, score_set["urn"])
+        published = publish_score_set(owner_client, score_set["urn"])
 
     experiment_urn = published["experiment"]["urn"]
 
     # The owner sees their own private calibration.
-    owner_response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+    owner_response = owner_client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
     assert owner_response.status_code == 200
     owner_entry = next(ss for ss in owner_response.json() if ss["urn"] == published["urn"])
     assert len(owner_entry.get("scoreCalibrations") or []) == 1
 
-    with DependencyOverrider(anonymous_app_overrides):
-        anonymous_response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+    anonymous_response = anonymous_client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
 
     assert anonymous_response.status_code == 200
     anonymous_entry = next(ss for ss in anonymous_response.json() if ss["urn"] == published["urn"])
@@ -2022,24 +2010,25 @@ def test_experiment_score_sets_withhold_private_calibrations_from_anonymous_user
     indirect=["mock_publication_fetch"],
 )
 def test_experiment_score_sets_serve_published_calibrations_to_anonymous_users(
-    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides, mock_publication_fetch
+    owner_client, anonymous_client, session, data_provider, data_files, mock_publication_fetch
 ):
     """The filter withholds only what a calibration's own READ rule withholds."""
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
     calibration = create_test_score_calibration_in_score_set_via_client(
-        client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
+        owner_client, score_set["urn"], deepcamelize(TEST_BRNICH_SCORE_CALIBRATION_RANGE_BASED)
     )
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
-        published = publish_score_set(client, score_set["urn"])
+        published = publish_score_set(owner_client, score_set["urn"])
 
-    publish_test_score_calibration_via_client(client, calibration["urn"])
+    publish_test_score_calibration_via_client(owner_client, calibration["urn"])
 
     experiment_urn = published["experiment"]["urn"]
 
-    with DependencyOverrider(anonymous_app_overrides):
-        anonymous_response = client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
+    anonymous_response = anonymous_client.get(f"/api/v1/experiments/{experiment_urn}/score-sets")
 
     assert anonymous_response.status_code == 200
     anonymous_entry = next(ss for ss in anonymous_response.json() if ss["urn"] == published["urn"])
@@ -2135,22 +2124,19 @@ def test_search_not_my_experiments(session, client, setup_router_db):
     assert len(response.json()) == 0
 
 
-def test_anonymous_search_experiments(
-    session, data_provider, client, anonymous_app_overrides, setup_router_db, data_files
-):
+def test_anonymous_search_experiments(owner_client, anonymous_client, session, data_provider, data_files):
     """An anonymous caller sees published experiments, and only those.
 
     Both experiments match the search text, so this fails whether the visibility filter is too permissive
     or too restrictive.
     """
     published = _publish_experiment(
-        session, data_provider, client, data_files, update={"title": "Published Experiment"}
+        session, data_provider, owner_client, data_files, update={"title": "Published Experiment"}
     )
-    unpublished = create_experiment(client, update={"title": "Unpublished Experiment"})
+    unpublished = create_experiment(owner_client, update={"title": "Unpublished Experiment"})
 
     search_payload = {"text": TEST_MINIMAL_EXPERIMENT["shortDescription"]}
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.post("/api/v1/experiments/search", json=search_payload)
+    response = anonymous_client.post("/api/v1/experiments/search", json=search_payload)
 
     assert response.status_code == 200
     returned_urns = [item["urn"] for item in response.json()]
@@ -2158,42 +2144,37 @@ def test_anonymous_search_experiments(
     assert unpublished["urn"] not in returned_urns
 
 
-def test_anonymous_cannot_search_my_experiments(session, client, anonymous_app_overrides, setup_router_db):
-    experiment = create_experiment(client)
+def test_anonymous_cannot_search_my_experiments(owner_client, anonymous_client, session):
+    experiment = create_experiment(owner_client)
     search_payload = {"text": experiment["shortDescription"]}
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.post("/api/v1/me/experiments/search", json=search_payload)
+    response = anonymous_client.post("/api/v1/me/experiments/search", json=search_payload)
     assert response.status_code == 401
     assert response.json()["detail"] in "Could not validate credentials"
 
 
-def test_anonymous_cannot_delete_other_users_private_experiment(
-    session, client, setup_router_db, anonymous_app_overrides
-):
-    experiment = create_experiment(client)
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+def test_anonymous_cannot_delete_other_users_private_experiment(owner_client, anonymous_client, session):
+    experiment = create_experiment(owner_client)
+    response = anonymous_client.delete(f"/api/v1/experiments/{experiment['urn']}")
 
     assert response.status_code == 401
     assert "Could not validate credentials" in response.json()["detail"]
 
 
 def test_anonymous_cannot_delete_other_users_published_experiment(
-    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    experiment = create_experiment(owner_client)
+    unpublished_score_set = create_seq_score_set(owner_client, experiment["urn"])
     unpublished_score_set = mock_worker_variant_insertion(
-        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
+        owner_client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        score_set = publish_score_set(owner_client, unpublished_score_set["urn"])
         worker_queue.assert_called_once()
 
     experiment_urn = score_set["experiment"]["urn"]
-    with DependencyOverrider(anonymous_app_overrides):
-        del_response = client.delete(f"/api/v1/experiments/{experiment_urn}")
+    del_response = anonymous_client.delete(f"/api/v1/experiments/{experiment_urn}")
 
     assert del_response.status_code == 401
     del_response_data = del_response.json()
@@ -2226,9 +2207,7 @@ def test_cannot_delete_own_published_experiment(session, data_provider, client, 
     assert f"insufficient permissions on experiment with URN '{experiment_urn}'" in del_response_data["detail"]
 
 
-def test_contributor_cannot_delete_other_users_private_experiment(
-    session, client, setup_router_db, admin_app_overrides
-):
+def test_contributor_cannot_delete_other_users_private_experiment(session, client, setup_router_db):
     experiment = create_experiment(client)
     change_ownership(session, experiment["urn"], ExperimentDbModel)
     add_contributor(
@@ -2245,10 +2224,9 @@ def test_contributor_cannot_delete_other_users_private_experiment(
     assert f"insufficient permissions on experiment with URN '{experiment['urn']}'" in response.json()["detail"]
 
 
-def test_admin_can_delete_other_users_private_experiment(session, client, setup_router_db, admin_app_overrides):
-    experiment = create_experiment(client)
-    with DependencyOverrider(admin_app_overrides):
-        response = client.delete(f"/api/v1/experiments/{experiment['urn']}")
+def test_admin_can_delete_other_users_private_experiment(owner_client, admin_client, session):
+    experiment = create_experiment(owner_client)
+    response = admin_client.delete(f"/api/v1/experiments/{experiment['urn']}")
 
     assert response.status_code == 200
 
@@ -2281,21 +2259,20 @@ def test_contributor_cannot_delete_other_users_published_experiment(
 
 
 def test_admin_can_delete_other_users_published_experiment(
-    session, data_provider, client, setup_router_db, data_files, admin_app_overrides
+    owner_client, admin_client, session, data_provider, data_files
 ):
-    experiment = create_experiment(client)
-    unpublished_score_set = create_seq_score_set(client, experiment["urn"])
+    experiment = create_experiment(owner_client)
+    unpublished_score_set = create_seq_score_set(owner_client, experiment["urn"])
     unpublished_score_set = mock_worker_variant_insertion(
-        client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
+        owner_client, session, data_provider, unpublished_score_set, data_files / "scores.csv"
     )
 
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None) as worker_queue:
-        score_set = publish_score_set(client, unpublished_score_set["urn"])
+        score_set = publish_score_set(owner_client, unpublished_score_set["urn"])
         worker_queue.assert_called_once()
 
     experiment_urn = score_set["experiment"]["urn"]
-    with DependencyOverrider(admin_app_overrides):
-        del_response = client.delete(f"/api/v1/experiments/{experiment_urn}")
+    del_response = admin_client.delete(f"/api/v1/experiments/{experiment_urn}")
 
     assert del_response.status_code == 200
 
@@ -2412,22 +2389,23 @@ def test_cannot_add_experiment_to_others_public_experiment_set(
 
 
 def test_experiment_list_omits_unreadable_score_sets(
-    session, data_provider, client, setup_router_db, data_files, anonymous_app_overrides
+    owner_client, anonymous_client, session, data_provider, data_files
 ):
     """A published experiment often holds a private score set, such as a new submission or an unpublished
     successor; listing experiments must not name it to callers who can't read it."""
-    experiment = create_experiment(client)
-    score_set = create_seq_score_set(client, experiment["urn"])
-    score_set = mock_worker_variant_insertion(client, session, data_provider, score_set, data_files / "scores.csv")
+    experiment = create_experiment(owner_client)
+    score_set = create_seq_score_set(owner_client, experiment["urn"])
+    score_set = mock_worker_variant_insertion(
+        owner_client, session, data_provider, score_set, data_files / "scores.csv"
+    )
     with patch.object(arq.ArqRedis, "enqueue_job", return_value=None):
-        published = publish_score_set(client, score_set["urn"])
-    private_score_set = create_seq_score_set(client, published["experiment"]["urn"])
+        published = publish_score_set(owner_client, score_set["urn"])
+    private_score_set = create_seq_score_set(owner_client, published["experiment"]["urn"])
 
-    owner_list = client.get("/api/v1/experiments/").json()
+    owner_list = owner_client.get("/api/v1/experiments/").json()
     assert [sorted(e["scoreSetUrns"]) for e in owner_list] == [sorted([published["urn"], private_score_set["urn"]])]
 
-    with DependencyOverrider(anonymous_app_overrides):
-        anonymous_list = client.get("/api/v1/experiments/").json()
+    anonymous_list = anonymous_client.get("/api/v1/experiments/").json()
 
     assert [e["scoreSetUrns"] for e in anonymous_list] == [[published["urn"]]]
     assert [e["numScoreSets"] for e in anonymous_list] == [1]

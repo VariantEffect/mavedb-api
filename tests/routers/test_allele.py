@@ -21,7 +21,6 @@ from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant
 from mavedb.view_models.allele_detail import AlleleDetail
-from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import create_seq_score_set_with_variants
@@ -200,7 +199,7 @@ def test_get_allele_detail_unknown_caid_is_404(client, setup_router_db):
 @pytest.mark.parametrize("identifier", [CDNA, "CA1", "PA1"])
 @pytest.mark.parametrize("anonymous", [True, False])
 def test_get_allele_detail_is_404_when_only_unreadable_score_sets_link_it(
-    client, session, data_provider, data_files, setup_router_db, anonymous_app_overrides, identifier, anonymous
+    anonymous_client, client, session, data_provider, data_files, setup_router_db, identifier, anonymous
 ):
     """An allele exists only because of a private score set the caller may not read, so it is not found."""
     experiment = create_experiment(client)
@@ -211,8 +210,7 @@ def test_get_allele_detail_is_404_when_only_unreadable_score_sets_link_it(
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
 
     if anonymous:
-        with DependencyOverrider(anonymous_app_overrides):
-            response = client.get(f"/api/v1/alleles/{identifier}")
+        response = anonymous_client.get(f"/api/v1/alleles/{identifier}")
     else:
         response = client.get(f"/api/v1/alleles/{identifier}")
 

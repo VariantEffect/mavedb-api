@@ -6,32 +6,23 @@ arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
-from tests.helpers.constants import TEST_LICENSE
-from tests.helpers.dependency_overrider import DependencyOverrider
+from tests.helpers.constants import ADMIN_USER, ANONYMOUS, TEST_LICENSE, TEST_USER
 
 
-@pytest.mark.parametrize("user_overrides", [None, "anonymous_app_overrides", "admin_app_overrides"])
-def test_can_list_licenses_as_any_user_class(setup_router_db, client, user_overrides, request):
-    if user_overrides is not None:
-        dep_overrides = request.getfixturevalue(user_overrides)
-        with DependencyOverrider(dep_overrides):
-            response = client.get("/api/v1/licenses/")
-    else:
-        response = client.get("/api/v1/licenses/")
+@pytest.mark.parametrize("user", [TEST_USER, ANONYMOUS, ADMIN_USER], ids=["user", "anonymous", "admin"])
+def test_can_list_licenses_as_any_user_class(client_for, setup_router_db, client, user):
+    user_client = client_for(user)
+    response = user_client.get("/api/v1/licenses/")
 
     assert response.status_code == 200
     response_value = response.json()
     assert len(response_value) == 3
 
 
-@pytest.mark.parametrize("user_overrides", [None, "anonymous_app_overrides", "admin_app_overrides"])
-def test_can_list_active_licenses_as_any_user_class(setup_router_db, client, user_overrides, request):
-    if user_overrides is not None:
-        dep_overrides = request.getfixturevalue(user_overrides)
-        with DependencyOverrider(dep_overrides):
-            response = client.get("/api/v1/licenses/active")
-    else:
-        response = client.get("/api/v1/licenses/active")
+@pytest.mark.parametrize("user", [TEST_USER, ANONYMOUS, ADMIN_USER], ids=["user", "anonymous", "admin"])
+def test_can_list_active_licenses_as_any_user_class(client_for, setup_router_db, client, user):
+    user_client = client_for(user)
+    response = user_client.get("/api/v1/licenses/active")
 
     assert response.status_code == 200
     response_value = response.json()

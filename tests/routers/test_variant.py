@@ -31,7 +31,6 @@ from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
 from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 from mavedb.view_models.variant_detail import VariantDetail
-from tests.helpers.dependency_overrider import DependencyOverrider
 from tests.helpers.util.experiment import create_experiment
 from tests.helpers.util.score_set import (
     create_seq_score_set_with_variants,
@@ -285,7 +284,7 @@ def test_superseded_variant_self_describes(client, session, data_provider, data_
 
 
 def test_get_variant_detail_anonymous_cannot_read_private(
-    client, session, data_provider, data_files, setup_router_db, anonymous_app_overrides
+    anonymous_client, client, session, data_provider, data_files, setup_router_db
 ):
     experiment = create_experiment(client)
     score_set = create_seq_score_set_with_variants(
@@ -293,8 +292,7 @@ def test_get_variant_detail_anonymous_cannot_read_private(
     )
     change_ownership(session, score_set["urn"], ScoreSetDbModel)
 
-    with DependencyOverrider(anonymous_app_overrides):
-        response = client.get(f"/api/v1/variants/{score_set['urn']}%231")
+    response = anonymous_client.get(f"/api/v1/variants/{score_set['urn']}%231")
 
     assert response.status_code == 404
 
@@ -431,7 +429,7 @@ class TestGetVariantCsv:
         assert "not found" in response.json()["detail"]
 
     def test_private_score_set_is_not_readable_by_other_users(
-        self, session, data_provider, client, setup_router_db, data_files, extra_user_app_overrides
+        self, outsider_client, session, data_provider, client, setup_router_db, data_files
     ):
         experiment = create_experiment(client)
         score_set = create_seq_score_set_with_variants(
@@ -439,8 +437,7 @@ class TestGetVariantCsv:
         )
         variant_urn = _first_variant_urn(session, score_set["urn"])
 
-        with DependencyOverrider(extra_user_app_overrides):
-            response = client.get(_csv_path(variant_urn))
+        response = outsider_client.get(_csv_path(variant_urn))
 
         assert response.status_code == 404
 
@@ -475,16 +472,15 @@ class TestPrivateCalibrationsAreNotServedOverHttp:
         return calibration.urn
 
     def test_another_user_naming_the_urn_gets_no_interpretation(
-        self, session, data_provider, client, setup_router_db, data_files, extra_user_app_overrides
+        self, outsider_client, session, data_provider, client, setup_router_db, data_files
     ):
         published = _published_score_set_with_mappings(client, session, data_provider, data_files)
         calibration_urn = self._private_calibration(session, published["urn"])
         namespace = f"calibration.{calibration_urn}"
 
-        with DependencyOverrider(extra_user_app_overrides):
-            response = client.get(
-                f"/api/v1/score-sets/{published['urn']}/variants/data?namespaces=scores&namespaces={quote(namespace)}"
-            )
+        response = outsider_client.get(
+            f"/api/v1/score-sets/{published['urn']}/variants/data?namespaces=scores&namespaces={quote(namespace)}"
+        )
 
         assert response.status_code == 200
         rows = list(csv.DictReader(StringIO(response.text)))
@@ -492,13 +488,12 @@ class TestPrivateCalibrationsAreNotServedOverHttp:
         assert all(row[f"{namespace}.title"] == "NA" for row in rows)
 
     def test_another_user_is_not_offered_it_by_discovery(
-        self, session, data_provider, client, setup_router_db, data_files, extra_user_app_overrides
+        self, outsider_client, session, data_provider, client, setup_router_db, data_files
     ):
         published = _published_score_set_with_mappings(client, session, data_provider, data_files)
         calibration_urn = self._private_calibration(session, published["urn"])
 
-        with DependencyOverrider(extra_user_app_overrides):
-            response = client.get(f"/api/v1/score-sets/{published['urn']}/csv-namespaces")
+        response = outsider_client.get(f"/api/v1/score-sets/{published['urn']}/csv-namespaces")
 
         assert response.status_code == 200
         assert f"calibration.{calibration_urn}" not in [entry["namespace"] for entry in response.json()]
