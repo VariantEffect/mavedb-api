@@ -393,6 +393,7 @@ class TestLinkGnomadVariantsIntegration:
         mock_worker_ctx,
         sample_link_gnomad_variants_run,
         setup_sample_alleles_with_caid,
+        athena_engine,
         prior_version,
         queried,
     ):
@@ -410,9 +411,12 @@ class TestLinkGnomadVariantsIntegration:
         prior.flush()
         session.commit()
 
-        with patch(
-            "mavedb.worker.jobs.external_services.gnomad.gnomad_variant_data_for_caids", return_value=[]
-        ) as fetch_spy:
+        with (
+            patch("mavedb.worker.jobs.external_services.gnomad.athena.engine", athena_engine),
+            patch(
+                "mavedb.worker.jobs.external_services.gnomad.gnomad_variant_data_for_caids", return_value=[]
+            ) as fetch_spy,
+        ):
             await link_gnomad_variants(mock_worker_ctx, sample_link_gnomad_variants_run.id)
 
         assert fetch_spy.called is queried
