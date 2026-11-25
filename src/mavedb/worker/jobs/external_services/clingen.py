@@ -15,10 +15,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from mavedb.lib.annotation_status_manager import AnnotationStatusManager
-from mavedb.lib.clingen.alleles import get_alleles_for_score_set
+from mavedb.lib.clingen.alleles import get_alleles_for_score_set, retire_caid_matches
 from mavedb.lib.clingen.constants import (
     CAR_SUBMISSION_ENDPOINT,
     CLIN_GEN_SUBMISSION_ENABLED,
@@ -37,12 +36,10 @@ from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.lib.utils import batched
 from mavedb.lib.variants import get_hgvs_from_post_mapped
 from mavedb.models.allele import Allele as AlleleModel
-from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.enums.job_pipeline import FailureCategory
-from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.score_set import ScoreSet
@@ -70,17 +67,6 @@ def _response_hgvs(response: ClinGenAllele) -> set[str]:
     return {hgvs for definition in definitions for hgvs in definition.get("hgvs", [])}
 
 
-def _retire_caid_keyed_links(db: Session, allele_id: int) -> tuple[int, int]:
-    """Retire an allele's live gnomAD and ClinVar links, which were matched through its CAID.
-
-    Both linkers skip an allele only while it holds a live link, so retiring them makes the next
-    gnomAD and ClinVar runs link the allele again under its corrected CAID.
-    """
-    gnomad = db.execute(GnomadAlleleLink.retire_live_where(GnomadAlleleLink.allele_id == allele_id))
-    clinvar = db.execute(ClinvarAlleleLink.retire_live_where(ClinvarAlleleLink.allele_id == allele_id))
-    return gnomad.rowcount, clinvar.rowcount  # type: ignore[attr-defined]
-
-
 def _annotate_caid(
     annotation_manager: AnnotationStatusManager,
     allele_id: int,
@@ -99,7 +85,7 @@ def _annotate_caid(
     if error_message is not None:
         meta["error_message"] = error_message
 
-    annotation_manager.record_event(
+    annotation_manager.report(
         AnnotationType.CLINGEN_ALLELE_ID,
         allele_id=allele_id,
         disposition=disposition,
@@ -202,9 +188,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
         if row.allele_id not in allele_data:
             allele_data[row.allele_id] = _AlleleEntry(post_mapped=row.post_mapped, existing_caid=row.clingen_allele_id)
 
-    annotation_manager = AnnotationStatusManager(
-        job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
-    )
+    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
 
     # Track outcomes by distinct allele_id. clingen_allele_id is an allele-level fact (the CAID
     # lives on the Allele) and CAR's operation is per-allele, so the reported counts are in allele
@@ -428,7 +412,7 @@ async def submit_score_set_mappings_to_car(ctx: dict, job_id: int, job_manager: 
                 if prior_caid and prior_caid != caid:
                     linked_allele_ids.add(allele_id)
                     alleles_by_id[allele_id].clingen_allele_id = caid
-                    retired_gnomad, retired_clinvar = _retire_caid_keyed_links(job_manager.db, allele_id)
+                    retired_gnomad, retired_clinvar = retire_caid_matches(job_manager.db, annotation_manager, allele_id)
                     logger.warning(
                         msg=(
                             f"Replaced CAID {prior_caid!r} with {caid!r} for allele {allele_id}; retired "
@@ -651,9 +635,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
     )
 
     # See https://reg.clinicalgenome.org/doc/AlleleRegistry_1.01.xx_api_v1.pdf
-    annotation_manager = AnnotationStatusManager(
-        job_manager.db, job_run_id=job_manager.job_id, score_set_id=score_set.id
-    )
+    annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job_manager.job_id)
     submitted_variant_urns = set()
     for success in submission_successes:
         logger.debug(
@@ -672,7 +654,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
             )
             continue
 
-        annotation_manager.record_event(
+        annotation_manager.report(
             AnnotationType.LDH_SUBMISSION,
             variant_id=submitted_variant.id,
             disposition=Disposition.PRESENT,
@@ -694,7 +676,7 @@ async def submit_score_set_mappings_to_ldh(ctx: dict, job_id: int, job_manager: 
 
         failed_variant = variant_for_urn[failure_urn]
 
-        annotation_manager.record_event(
+        annotation_manager.report(
             AnnotationType.LDH_SUBMISSION,
             variant_id=failed_variant.id,
             disposition=Disposition.FAILED,

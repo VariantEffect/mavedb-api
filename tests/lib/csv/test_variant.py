@@ -8,8 +8,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from tests.helpers.util.annotation import AlleleSpec, GroupSpec, seed_mapping_record
+from tests.helpers.util.annotation import AlleleSpec, GroupSpec, add_clinvar_control, seed_mapping_record
 from tests.helpers.util.query_plan import captured_statements
+from tests.helpers.util.score_calibration import add_pathogenicity_calibration
 
 pytest.importorskip("psycopg2")
 
@@ -24,12 +25,8 @@ from mavedb.lib.csv.variant import (
 from mavedb.lib.mondo import get_generic_disease_term
 from mavedb.lib.permissions.principal import Principal
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
-from mavedb.models.acmg_classification import ACMGClassification
 from mavedb.models.allele import Allele
 from mavedb.models.clinical_control import ClinvarControl
-from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
-from mavedb.models.enums.acmg_criterion import ACMGCriterion
-from mavedb.models.enums.functional_classification import FunctionalClassification as FunctionalClassificationOptions
 from mavedb.models.enums.user_role import UserRole
 from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.gnomad_variant import GnomADVariant
@@ -38,7 +35,6 @@ from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.projection_group import ProjectionGroup
 from mavedb.models.score_calibration import ScoreCalibration
-from mavedb.models.score_calibration_functional_classification import ScoreCalibrationFunctionalClassification
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.target_gene import TargetGene
 from mavedb.models.variant import Variant
@@ -56,68 +52,6 @@ from tests.helpers.constants import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _add_pathogenicity_calibration(db, score_set, variants_in_abnormal_range, urn, title, research_use_only=False):
-    """Attach a calibration with a normal (BS3) and abnormal (PS3) range to *score_set*.
-
-    Only *variants_in_abnormal_range* are associated with the abnormal range, which is what
-    ``functional_classification_of_variant`` consults to classify a variant.
-    """
-    # A public calibration is only readable when its score set is too.
-    score_set.private = False
-    db.add(score_set)
-
-    calibration = ScoreCalibration(
-        score_set_id=score_set.id,
-        urn=urn,
-        title=title,
-        baseline_score=0.0,
-        research_use_only=research_use_only,
-        primary=True,
-        private=False,
-        calibration_metadata={},
-        disease_term=get_generic_disease_term(db),
-        created_by_id=score_set.created_by_id,
-        modified_by_id=score_set.modified_by_id,
-    )
-    db.add(calibration)
-    db.commit()
-    db.refresh(calibration)
-
-    abnormal_acmg = db.query(ACMGClassification).filter(ACMGClassification.criterion == ACMGCriterion.PS3).first()
-    normal_acmg = db.query(ACMGClassification).filter(ACMGClassification.criterion == ACMGCriterion.BS3).first()
-
-    db.add(
-        ScoreCalibrationFunctionalClassification(
-            calibration_id=calibration.id,
-            label="test abnormal functional range",
-            description="An abnormal functional range",
-            functional_classification=FunctionalClassificationOptions.abnormal,
-            range=[-5.0, -1.0],
-            inclusive_lower_bound=True,
-            inclusive_upper_bound=False,
-            acmg_classification_id=abnormal_acmg.id,
-            variants=list(variants_in_abnormal_range),
-        )
-    )
-    db.add(
-        ScoreCalibrationFunctionalClassification(
-            calibration_id=calibration.id,
-            label="test normal functional range",
-            description="A normal functional range",
-            functional_classification=FunctionalClassificationOptions.normal,
-            range=[1.0, 5.0],
-            inclusive_lower_bound=True,
-            inclusive_upper_bound=False,
-            acmg_classification_id=normal_acmg.id,
-            variants=[],
-        )
-    )
-    db.commit()
-    db.refresh(calibration)
-
-    return calibration
 
 
 def _add_rangeless_calibration(db, score_set, urn, title):
@@ -198,32 +132,6 @@ def _add_second_score_set_with_equivalent_variant(db, first_score_set, clingen_a
     db.refresh(mapped_variant)
 
     return score_set, variant, mapped_variant
-
-
-def _add_clinvar_control(db, mapped_variant, significance, review_status, db_version):
-    """Link a control to the variant's authoritative allele, which is where the CSV layer reads it."""
-    control = ClinvarControl(
-        db_identifier="183058",
-        gene_symbol="PTEN",
-        clinical_significance=significance,
-        clinical_review_status=review_status,
-        db_name="ClinVar",
-        db_version=db_version,
-    )
-    db.add(control)
-    db.commit()
-
-    allele = db.scalars(
-        select(Allele)
-        .join(MappingRecordAllele, MappingRecordAllele.allele_id == Allele.id)
-        .join(MappingRecord, MappingRecord.id == MappingRecordAllele.mapping_record_id)
-        .where(MappingRecord.variant_id == mapped_variant.variant_id)
-        .where(MappingRecordAllele.is_authoritative.is_(True))
-    ).first()
-    assert allele is not None, "no authoritative allele to link a ClinVar control to"
-
-    db.add(ClinvarAlleleLink(allele_id=allele.id, clinvar_control_id=control.id))
-    db.commit()
 
 
 def _live_alleles_by_level(db, variant_id):
@@ -323,7 +231,7 @@ class TestGetVariantCsv:
 
     def test_calibration_namespace_is_included_by_default(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="Test Clinical Calibration"
         )
 
@@ -340,7 +248,7 @@ class TestGetVariantCsv:
 
     def test_variant_outside_calibration_ranges_is_uncertain(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session, variant.score_set, [], urn=CALIBRATION_URN_1, title="Test Clinical Calibration"
         )
 
@@ -353,10 +261,10 @@ class TestGetVariantCsv:
 
     def test_multiple_calibrations_appear_side_by_side(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="Contains The Variant"
         )
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session, variant.score_set, [], urn=CALIBRATION_URN_2, title="Does Not Contain The Variant"
         )
 
@@ -369,7 +277,7 @@ class TestGetVariantCsv:
     def test_research_use_only_calibration_is_offered_but_labelled(self, session, setup_lib_db_with_mapped_variant):
         """The score set page already shows these, so the export offers them — flagged, not hidden."""
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session,
             variant.score_set,
             [variant],
@@ -399,10 +307,10 @@ class TestGetVariantCsv:
     def test_superseded_calibration_is_offered_but_labelled(self, session, setup_lib_db_with_mapped_variant, discover):
         """Versions often share a title, so the picker is told which one a published version has replaced."""
         variant = setup_lib_db_with_mapped_variant.variant
-        original = _add_pathogenicity_calibration(
+        original = add_pathogenicity_calibration(
             session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="Calibration"
         )
-        replacement = _add_pathogenicity_calibration(
+        replacement = add_pathogenicity_calibration(
             session, variant.score_set, [variant], urn=CALIBRATION_URN_2, title="Calibration"
         )
         original.primary = False
@@ -421,7 +329,7 @@ class TestGetVariantCsv:
     ):
         """A clinically-framed default must not silently carry unvalidated thresholds."""
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session,
             variant.score_set,
             [variant],
@@ -435,7 +343,7 @@ class TestGetVariantCsv:
     def test_research_use_only_calibration_is_served_when_named(self, session, setup_lib_db_with_mapped_variant):
         """Naming the namespace is the opt-in, and the exported row declares its own standing."""
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session,
             variant.score_set,
             [variant],
@@ -451,7 +359,7 @@ class TestGetVariantCsv:
 
     def test_clinical_calibration_declares_it_is_not_research_use_only(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="Clinical Calibration"
         )
 
@@ -461,8 +369,8 @@ class TestGetVariantCsv:
 
     def test_explicit_namespaces_restrict_columns(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="Requested")
-        _add_pathogenicity_calibration(session, variant.score_set, [variant], urn=CALIBRATION_URN_2, title="Omitted")
+        add_pathogenicity_calibration(session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="Requested")
+        add_pathogenicity_calibration(session, variant.score_set, [variant], urn=CALIBRATION_URN_2, title="Omitted")
 
         csv_text = get_variant_csv(session, variant.urn, namespaces=["scores", CALIBRATION_NS_1])
         rows = _parse_csv(csv_text)
@@ -499,13 +407,13 @@ class TestGetVariantCsv:
         session.commit()
 
         variant = mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="First Score Set Calibration"
         )
         other_score_set, other_variant, _ = _add_second_score_set_with_equivalent_variant(
             session, variant.score_set, "CA123456"
         )
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session,
             other_score_set,
             [other_variant],
@@ -523,6 +431,31 @@ class TestGetVariantCsv:
         assert rows[0][f"{CALIBRATION_NS_OTHER}.pathogenicity_classification"] == "NA"
         assert rows[1][f"{CALIBRATION_NS_1}.pathogenicity_classification"] == "NA"
 
+    def test_equivalent_measurements_from_unreadable_score_sets_are_left_out(
+        self, session, setup_lib_db_with_mapped_variant
+    ):
+        """A variant the caller may read must not reveal another score set's measurement of the same allele."""
+        mapped_variant = setup_lib_db_with_mapped_variant
+        _authoritative_allele(session, mapped_variant.variant_id).clingen_allele_id = "CA123456"
+        session.commit()
+
+        variant = mapped_variant.variant
+        unreadable, _, _ = _add_second_score_set_with_equivalent_variant(session, variant.score_set, "CA123456")
+        add_pathogenicity_calibration(
+            session, unreadable, [], urn=CALIBRATION_URN_OTHER_SCORE_SET, title="Unreadable calibration"
+        )
+        # Without the filter the equivalent is emitted, so the absence below is the filter's doing.
+        assert len(_parse_csv(get_variant_csv(session, variant.urn))) == 2
+
+        csv_text = get_variant_csv(
+            session, variant.urn, may_read_score_set=lambda score_set: score_set.id != unreadable.id
+        )
+
+        assert [row["accession"] for row in _parse_csv(csv_text)] == [variant.urn]
+        # Its calibration isn't offered as a column either.
+        assert unreadable.urn not in csv_text
+        assert CALIBRATION_URN_OTHER_SCORE_SET not in csv_text
+
     def test_calibration_entries_report_their_score_set(self, session, setup_lib_db_with_mapped_variant):
         """A calibration means nothing against another score set's scores, so say which one owns it."""
         mapped_variant = setup_lib_db_with_mapped_variant
@@ -530,13 +463,13 @@ class TestGetVariantCsv:
         session.commit()
 
         variant = mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="First Assay Calibration"
         )
         other_score_set, other_variant, _ = _add_second_score_set_with_equivalent_variant(
             session, variant.score_set, "CA123456"
         )
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session,
             other_score_set,
             [other_variant],
@@ -708,8 +641,8 @@ class TestGetVariantCsv:
 
     def test_latest_clinvar_release_is_reported_and_labeled(self, session, setup_lib_db_with_mapped_variant):
         mapped_variant = setup_lib_db_with_mapped_variant
-        _add_clinvar_control(session, mapped_variant, "Likely benign", "single submitter", "11_2024")
-        _add_clinvar_control(session, mapped_variant, "Pathogenic", "reviewed by expert panel", "02_2025")
+        add_clinvar_control(session, mapped_variant, "Likely benign", "single submitter", "11_2024")
+        add_clinvar_control(session, mapped_variant, "Pathogenic", "reviewed by expert panel", "02_2025")
 
         csv_text = get_variant_csv(session, mapped_variant.variant.urn)
         rows = _parse_csv(csv_text)
@@ -838,8 +771,8 @@ class TestGetVariantCsv:
         export's runtime, so this pins the cheap path rather than trusting it to stay.
         """
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="First")
-        _add_pathogenicity_calibration(session, variant.score_set, [], urn=CALIBRATION_URN_2, title="Second")
+        add_pathogenicity_calibration(session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="First")
+        add_pathogenicity_calibration(session, variant.score_set, [], urn=CALIBRATION_URN_2, title="Second")
 
         with captured_statements(session) as captured:
             get_variant_csv(session, variant.urn)
@@ -863,7 +796,7 @@ class TestGetVariantCsv:
         filters on score_set_id directly.
         """
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="First")
+        add_pathogenicity_calibration(session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="First")
 
         with captured_statements(session) as captured:
             available_variant_csv_namespaces(session, variant.urn)
@@ -940,7 +873,7 @@ class TestComputeAvailableCsvNamespaces:
 
     def test_calibration_namespaces_are_offered(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="Clinical Calibration"
         )
 
@@ -950,7 +883,7 @@ class TestComputeAvailableCsvNamespaces:
 
     def test_research_use_only_calibration_is_offered_unchecked(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session,
             variant.score_set,
             [variant],
@@ -974,7 +907,7 @@ class TestComputeAvailableCsvNamespaces:
 
     def test_clinical_calibration_is_offered_checked(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="Clinical Calibration"
         )
 
@@ -1019,8 +952,8 @@ class TestComputeAvailableCsvNamespaces:
 
     def test_clinvar_namespaces_are_offered_per_release(self, session, setup_lib_db_with_mapped_variant):
         mapped_variant = setup_lib_db_with_mapped_variant
-        _add_clinvar_control(session, mapped_variant, "Likely benign", "single submitter", "11_2024")
-        _add_clinvar_control(session, mapped_variant, "Pathogenic", "expert panel", "02_2025")
+        add_clinvar_control(session, mapped_variant, "Likely benign", "single submitter", "11_2024")
+        add_clinvar_control(session, mapped_variant, "Pathogenic", "expert panel", "02_2025")
 
         namespaces = [
             entry.namespace for entry in available_score_set_csv_namespaces(session, mapped_variant.variant.score_set)
@@ -1033,7 +966,7 @@ class TestComputeAvailableCsvNamespaces:
         """MaveDB carries around ten releases; a picker opening with all of them checked is unusable."""
         mapped_variant = setup_lib_db_with_mapped_variant
         for db_version in ("11_2024", "02_2025", "06_2024"):
-            _add_clinvar_control(session, mapped_variant, "Pathogenic", "expert panel", db_version)
+            add_clinvar_control(session, mapped_variant, "Pathogenic", "expert panel", db_version)
 
         by_namespace = {
             entry.namespace: entry
@@ -1049,10 +982,10 @@ class TestComputeAvailableCsvNamespaces:
     def test_every_offered_namespace_is_valid(self, session, setup_lib_db_with_mapped_variant):
         """Discovery must only advertise namespaces the endpoints will actually accept."""
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="Clinical Calibration"
         )
-        _add_clinvar_control(session, setup_lib_db_with_mapped_variant, "Pathogenic", "expert panel", "02_2025")
+        add_clinvar_control(session, setup_lib_db_with_mapped_variant, "Pathogenic", "expert panel", "02_2025")
 
         entries = available_score_set_csv_namespaces(session, variant.score_set)
 
@@ -1064,10 +997,10 @@ class TestComputeAvailableCsvNamespaces:
 
     def test_entries_are_labeled_for_a_picker(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="Brnich et al. 2019"
         )
-        _add_clinvar_control(session, setup_lib_db_with_mapped_variant, "Pathogenic", "expert panel", "11_2024")
+        add_clinvar_control(session, setup_lib_db_with_mapped_variant, "Pathogenic", "expert panel", "11_2024")
 
         by_namespace = {
             entry.namespace: entry for entry in available_score_set_csv_namespaces(session, variant.score_set)
@@ -1273,7 +1206,7 @@ class TestScoreSetCsvCalibrationColumns:
 
     def test_calibration_columns_are_populated(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="Clinical Calibration"
         )
 
@@ -1290,7 +1223,7 @@ class TestScoreSetCsvCalibrationColumns:
 
     def test_variant_outside_the_range_is_uncertain_not_blank(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(session, variant.score_set, [], urn=CALIBRATION_URN_1, title="Clinical")
+        add_pathogenicity_calibration(session, variant.score_set, [], urn=CALIBRATION_URN_1, title="Clinical")
 
         rows = _parse_csv(
             get_score_set_variants_as_csv(session, variant.score_set, ["scores", CALIBRATION_NS_1], namespaced=True)
@@ -1324,7 +1257,7 @@ class TestScoreSetCsvCalibrationColumns:
     def test_everything_discovery_advertises_is_actually_populated(self, session, setup_lib_db_with_mapped_variant):
         """Discovery and the export must agree, or a dump ships documented but empty columns."""
         variant = setup_lib_db_with_mapped_variant.variant
-        _add_pathogenicity_calibration(
+        add_pathogenicity_calibration(
             session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="Clinical Calibration"
         )
 
@@ -1365,7 +1298,7 @@ class TestPrivateCalibrationsAreNotDisclosed:
     @pytest.fixture
     def private_calibration(self, session, setup_lib_db_with_mapped_variant):
         variant = setup_lib_db_with_mapped_variant.variant
-        calibration = _add_pathogenicity_calibration(
+        calibration = add_pathogenicity_calibration(
             session, variant.score_set, [variant], urn=CALIBRATION_URN_1, title="Unpublished Calibration"
         )
         calibration.private = True
@@ -1408,6 +1341,21 @@ class TestPrivateCalibrationsAreNotDisclosed:
         )
 
         assert all(row[f"{CALIBRATION_NS_1}.title"] == "NA" for row in rows)
+
+    def test_a_permitted_caller_receives_it_in_the_score_set_csv(self, session, private_calibration):
+        admin = Principal(Mock(user=Mock(id=1, username="admin"), active_roles=[UserRole.admin]))
+
+        rows = _parse_csv(
+            get_score_set_variants_as_csv(
+                session,
+                private_calibration.score_set,
+                ["scores", CALIBRATION_NS_1],
+                namespaced=True,
+                viewer=admin.viewer_for(ScoreCalibrationViewer),
+            )
+        )
+
+        assert rows[0][f"{CALIBRATION_NS_1}.title"] == "Unpublished Calibration"
 
     def test_a_permitted_caller_still_receives_it(self, session, setup_lib_db_with_mapped_variant, private_calibration):
         """Viewer-scoped emission: the viewer widens access, it is not a blanket ban on private calibrations.

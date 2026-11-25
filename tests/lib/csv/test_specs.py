@@ -2,8 +2,9 @@
 
 import pytest
 
-from mavedb.lib.csv.columns import variant_to_csv_row
+from mavedb.lib.csv.columns import CsvPlan, csv_records
 from mavedb.lib.csv.namespaces import CsvNamespace
+from mavedb.lib.csv.sources import SCOPE_SOURCES, SOURCE_LOADERS
 from mavedb.lib.csv.specs import CORE_NAMESPACE, RowSource, namespace_spec
 from tests.helpers.constants import VALID_CALIBRATION_URN
 
@@ -62,17 +63,15 @@ class TestNamespaceSpecs:
         for column_key in spec.columns(SAMPLE_DATASET_COLUMNS):
             assert spec.resolver(column_key) is not None, f"{namespace}.{column_key}"
 
-    def test_a_namespace_reading_through_a_relationship_declares_the_fetch_it_needs(self):
-        """Otherwise the fetch layer would not eager-load it and every row would pay a query."""
-        for namespace in (CsvNamespace.REFERENCE_HGVS, CsvNamespace.VEP, CsvNamespace.CLINGEN):
-            assert namespace_spec(namespace).needs_mappings, namespace
-
-        gnomad = namespace_spec(CsvNamespace.GNOMAD)
-        assert gnomad.needs_gnomad and gnomad.needs_mappings
-
+    def test_a_namespace_reading_through_a_relationship_declares_the_eager_load_it_needs(self):
+        """Otherwise the variant query would not eager-load it and every row would pay a query."""
         assert namespace_spec(CsvNamespace.SCORE_SET).needs_score_set
-        calibration = namespace_spec(CALIBRATION_NS)
-        assert calibration.needs_mappings and calibration.needs_score_set
+        assert namespace_spec(CALIBRATION_NS).needs_score_set
+
+    def test_every_static_namespace_is_labeled_for_a_picker(self):
+        for namespace in CsvNamespace:
+            spec = namespace_spec(namespace)
+            assert spec.label and spec.group, namespace
 
     def test_resolvers_report_missing_data_rather_than_raising(self):
         """Every source is optional on some row: an unmapped variant, a release with no record for it."""
@@ -87,10 +86,9 @@ class TestNamespaceSpecs:
 # ---------------------------------------------------------------------------
 # TestRowSourceDispatch
 #
-# A spec names its source; `variant_to_csv_row` is what turns that name into the datum the resolvers are
-# called with. That mapping is the one part of the descriptor contract the tests above cannot see, and a
-# source with no entry in it raises KeyError at row-assembly time — one row into a download, which is the
-# failure mode these descriptors exist to prevent.
+# A spec names its source; the scope or a registered loader is what puts that source on each row. A source
+# with neither would render NA in every row of every export, silently, which is the failure mode these
+# descriptors exist to prevent.
 # ---------------------------------------------------------------------------
 
 
@@ -101,13 +99,23 @@ class TestRowSourceDispatch:
 
         assert sources == set(RowSource)
 
+    def test_every_row_source_is_supplied_by_the_scope_or_a_loader(self):
+        assert SCOPE_SOURCES.isdisjoint(SOURCE_LOADERS)
+        assert SCOPE_SOURCES | set(SOURCE_LOADERS) == set(RowSource)
+
+    def test_every_loader_runs_after_the_sources_it_requires(self):
+        loaded = set(SCOPE_SOURCES)
+        for source, loader in SOURCE_LOADERS.items():
+            assert loader.requires <= loaded, source
+            loaded.add(source)
+
     @pytest.mark.parametrize("namespace", EVERY_NAMESPACE)
-    def test_every_declared_source_resolves_to_a_row_datum(self, namespace):
+    def test_every_planned_column_produces_a_cell(self, namespace):
         spec = namespace_spec(namespace)
-        columns = {namespace: spec.columns(SAMPLE_DATASET_COLUMNS)}
+        plan = CsvPlan.from_columns({namespace: spec.columns(SAMPLE_DATASET_COLUMNS)}, namespaced=True)
 
-        row = variant_to_csv_row(_Variant(), columns, namespaced=True)
+        row = next(csv_records(plan, [{RowSource.VARIANT: _Variant()}]))
 
-        # Every planned column produced a cell. The parameterized namespaces are passed no per-row datum,
-        # so theirs are NA — the point here is that the dispatch reached them at all.
-        assert len(row) == len(columns[namespace]), namespace
+        # Sources other than the variant are absent here, so theirs are NA; the point is that every planned
+        # column reached a cell.
+        assert len(row) == len(spec.columns(SAMPLE_DATASET_COLUMNS)), namespace

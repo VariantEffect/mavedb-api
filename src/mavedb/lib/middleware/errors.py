@@ -3,12 +3,11 @@
 import logging
 import time
 
-from sqlalchemy.exc import DBAPIError
-from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from mavedb.lib.exception_handlers.handlers import REPORTED_SCOPE_KEY, alerts, unwrap_started_response_error
 from mavedb.lib.logging.canonical import log_request
 from mavedb.lib.logging.context import (
     correlation_id_for_context,
@@ -19,25 +18,9 @@ from mavedb.lib.slack import send_slack_error
 
 logger = logging.getLogger(__name__)
 
-# SQLSTATEs Postgres raises when a query exceeds `statement_timeout` (query_canceled) or waits past
-# `lock_timeout` (lock_not_available).
-_DATABASE_TIMEOUT_SQLSTATES = frozenset({"57014", "55P03"})
-_BUSY_DETAIL = "The database is busy. Please try again shortly."
-
-
-def _is_database_busy(err: BaseException) -> bool:
-    """Whether ``err`` means the database is too busy right now, rather than that the server is broken.
-
-    Covers the server's statement and lock timeouts and a request that waited past ``pool_timeout`` for a
-    pooled connection.
-    """
-    if isinstance(err, PoolTimeoutError):
-        return True
-    return isinstance(err, DBAPIError) and getattr(err.orig, "pgcode", None) in _DATABASE_TIMEOUT_SQLSTATES
-
 
 class CatchAllErrorMiddleware:
-    """Turn an uncaught exception into a 500 (503 when the database is busy) that the browser is allowed to read.
+    """Turn an exception no handler in ``ERROR_RESPONSES`` answers into a 500 the browser is allowed to read.
 
     Starlette dispatches ``@app.exception_handler(Exception)`` from ``ServerErrorMiddleware``, which sits
     outside the user middleware stack. Its response therefore never passes through ``CORSMiddleware`` and
@@ -50,8 +33,8 @@ class CatchAllErrorMiddleware:
     and has a history of breaking ``StreamingResponse``, which the NDJSON export endpoints rely on. Only
     exceptions raised before the response starts are converted — once bytes are on the wire the status is
     already committed, so the exception is re-raised and each stream is responsible for its own
-    mid-flight error reporting. Its canonical request log is written here first, with the status already
-    sent: the app-level handler that sees the exception next runs outside the request's logging context.
+    mid-flight error reporting. It is still logged and alerted here, while the request's logging context
+    and correlation id are open: the app-level handler that sees the exception next runs outside them.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -77,28 +60,32 @@ class CatchAllErrorMiddleware:
         except Exception as err:
             # The status line is already committed; nothing can be salvaged into a 500 here.
             if response_started:
-                record_exception(err)
-                log_request(Request(scope, receive), Response(status_code=started_status), time.time_ns())
+                original = unwrap_started_response_error(err)
+                record_exception(original)
+                request = Request(scope, receive)
+                try:
+                    if alerts(original):
+                        logger.error(msg="Exception after the response started.", extra=logging_context(), exc_info=err)
+                        send_slack_error(err=original, request=request)
+                    else:
+                        logger.warning(
+                            msg="Exception after the response started.", extra=logging_context(), exc_info=err
+                        )
+                finally:
+                    log_request(request, Response(status_code=started_status), time.time_ns())
+                    scope[REPORTED_SCOPE_KEY] = True
                 raise
 
             record_exception(err)
             request = Request(scope, receive)
-            busy = _is_database_busy(err)
             response = JSONResponse(
-                status_code=503 if busy else 500,
-                content={
-                    "detail": _BUSY_DETAIL if busy else "Internal server error",
-                    "correlation_id": correlation_id_for_context(),
-                },
+                status_code=500,
+                content={"detail": "Internal server error", "correlation_id": correlation_id_for_context()},
             )
 
             try:
-                # No Slack alert: these arrive in bursts under load, and the request log counts them.
-                if busy:
-                    logger.warning(msg="Database busy.", extra=logging_context(), exc_info=err)
-                else:
-                    logger.error(msg="Uncaught exception.", extra=logging_context(), exc_info=err)
-                    send_slack_error(err=err, request=request)
+                logger.error(msg="Uncaught exception.", extra=logging_context(), exc_info=err)
+                send_slack_error(err=err, request=request)
             finally:
                 log_request(request, response, time.time_ns())
 

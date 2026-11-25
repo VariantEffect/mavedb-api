@@ -9,10 +9,11 @@ import pytest
 
 pytest.importorskip("psycopg2")
 
+from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.models.allele import Allele
-from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
+from mavedb.models.enums.event_reason import EventReason
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.variant import Variant
@@ -40,6 +41,13 @@ def _variant_mapped_to_allele(session, score_set, allele):
     return variant
 
 
+def _report(session, job_run, annotation_type, disposition, reason, **subject):
+    manager = AnnotationStatusManager(session, job_run_id=job_run.id)
+    manager.report(annotation_type, disposition=disposition, reason=reason, **subject)
+    manager.flush()
+    session.commit()
+
+
 def test_summary_counts_allele_status_from_another_score_sets_run(session, setup_lib_db_with_score_set, job_run):
     """An allele-subject status produced by a *different* score set's run (or none) still counts for a
     score set whose variant currently maps to that shared allele."""
@@ -51,18 +59,15 @@ def test_summary_counts_allele_status_from_another_score_sets_run(session, setup
     session.commit()
     _variant_mapped_to_allele(session, score_set, allele)
 
-    # Event written with no owning score set (e.g. a different score set's run touched the shared allele).
-    session.add(
-        AnnotationEvent(
-            annotation_type=AnnotationType.CLINGEN_ALLELE_ID,
-            allele_id=allele.id,
-            disposition=Disposition.PRESENT,
-            reason="created",
-            job_run_id=job_run.id,
-            score_set_id=None,
-        )
+    # Statuses carry no owning score set: a different score set's run may have written this one.
+    _report(
+        session,
+        job_run,
+        AnnotationType.CLINGEN_ALLELE_ID,
+        Disposition.PRESENT,
+        EventReason.CREATED,
+        allele_id=allele.id,
     )
-    session.commit()
 
     summary = current_annotation_summary(session, score_set)
     counts = {(r["annotation_type"], r["disposition"]): r["count"] for r in summary}
@@ -78,18 +83,27 @@ def test_summary_includes_variant_subject_status(session, setup_lib_db_with_scor
     session.commit()
     variant = _variant_mapped_to_allele(session, score_set, allele)
 
-    session.add(
-        AnnotationEvent(
-            annotation_type=AnnotationType.VRS_MAPPING,
-            variant_id=variant.id,
-            disposition=Disposition.PRESENT,
-            reason="mapped",
-            job_run_id=job_run.id,
-        )
-    )
-    session.commit()
+    _report(session, job_run, AnnotationType.VRS_MAPPING, Disposition.PRESENT, "mapped", variant_id=variant.id)
 
     summary = current_annotation_summary(session, score_set)
     counts = {(r["annotation_type"], r["disposition"]): r["count"] for r in summary}
 
     assert counts.get((AnnotationType.VRS_MAPPING.value, Disposition.PRESENT.value)) == 1
+
+
+def test_summary_counts_a_failing_status_as_failed(session, setup_lib_db_with_score_set, job_run):
+    """A key whose checks are failing counts as failed, though its earlier outcome is still held."""
+    score_set = setup_lib_db_with_score_set
+    allele = Allele(vrs_digest="summary-failing", level="genomic", post_mapped={"type": "Allele"})
+    session.add(allele)
+    session.commit()
+    _variant_mapped_to_allele(session, score_set, allele)
+
+    gnomad = AnnotationType.GNOMAD_ALLELE_FREQUENCY
+    _report(session, job_run, gnomad, Disposition.PRESENT, EventReason.CREATED, allele_id=allele.id)
+    _report(session, job_run, gnomad, Disposition.FAILED, EventReason.API_ERROR, allele_id=allele.id)
+
+    summary = current_annotation_summary(session, score_set)
+    counts = {(r["annotation_type"], r["disposition"]): r["count"] for r in summary}
+
+    assert counts == {(gnomad.value, Disposition.FAILED.value): 1}

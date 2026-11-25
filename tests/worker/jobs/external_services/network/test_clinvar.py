@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from mavedb.lib.clinvar.constants import CLINVAR_FIELDS_TO_KEEP
 from mavedb.lib.clinvar.utils import fetch_clinvar_variant_data
-from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.annotation_status import AnnotationStatus
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
@@ -76,9 +76,9 @@ class TestE2ERefreshClinvarControls:
         # event per ClinVar version; versions without the allele produce absent events, so filtering
         # for present gives a stable assertion. Events are allele-keyed (no variant_id).
         present_events = session.scalars(
-            select(AnnotationEvent).where(
-                AnnotationEvent.annotation_type == AnnotationType.CLINVAR_CONTROL,
-                AnnotationEvent.disposition == Disposition.PRESENT,
+            select(AnnotationStatus).where(
+                AnnotationStatus.annotation_type == AnnotationType.CLINVAR_CONTROL,
+                AnnotationStatus.disposition == Disposition.PRESENT,
             )
         ).all()
         assert len(present_events) >= 1

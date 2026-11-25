@@ -15,13 +15,14 @@ from sqlalchemy.orm import Session
 from mavedb.lib.annotation.calibration import score_calibration_may_be_used_for_annotation
 from mavedb.lib.csv.namespaces import (
     CLINVAR_DB_NAME,
-    STATIC_CSV_NAMESPACE_LABELS,
+    CsvNamespace,
     CsvNamespaceGroup,
     calibration_namespace_for_urn,
     clinvar_namespace_for_db_version,
     clinvar_namespace_label,
     clinvar_namespace_sort_key,
 )
+from mavedb.lib.csv.specs import namespace_spec
 from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
 from mavedb.models.clinical_control import ClinvarControl
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
@@ -67,10 +68,25 @@ class AvailableCsvNamespaceEntry:
     """
 
 
+MAPPING_DERIVED_NAMESPACES: list[str] = [
+    CsvNamespace.REFERENCE_HGVS,
+    CsvNamespace.VEP,
+    CsvNamespace.GNOMAD,
+    CsvNamespace.CLINGEN,
+]
+"""Namespaces read from a mapped variant, offered whenever the score set has any mapping.
+
+Scoped to the score set, not the measurement: omitting a column would say "never looked" where the truth
+is "looked, found nothing".
+"""
+
+
 def static_namespace_entry(namespace: str) -> AvailableCsvNamespaceEntry:
     """Build the labeled entry for a static namespace."""
-    label, group = STATIC_CSV_NAMESPACE_LABELS[namespace]
-    return AvailableCsvNamespaceEntry(namespace=namespace, label=label, group=group)
+    spec = namespace_spec(namespace)
+    if spec is None or spec.label is None or spec.group is None:
+        raise ValueError(f"{namespace} is not a static namespace a picker can offer")
+    return AvailableCsvNamespaceEntry(namespace=namespace, label=spec.label, group=spec.group)
 
 
 def clinvar_namespace_entries(namespaces: Iterable[str]) -> list[AvailableCsvNamespaceEntry]:

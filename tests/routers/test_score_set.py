@@ -2,6 +2,7 @@
 
 import asyncio
 import csv
+import io
 import json
 import re
 import threading
@@ -16,21 +17,23 @@ import pandas as pd
 import pytest
 from humps import camelize
 from sqlalchemy import insert, select, text
-from sqlalchemy.exc import OperationalError
 
 arq = pytest.importorskip("arq")
 cdot = pytest.importorskip("cdot")
 fastapi = pytest.importorskip("fastapi")
 
+from mavedb.db.errors import ConnectionDropped
 from mavedb.lib.annotation.annotate import variant_study_result
 from mavedb.lib.annotation.exceptions import MappingDataDoesntExistException
 from mavedb.lib.csv import build_limiter
+from mavedb.lib.csv.fetch import CSV_BATCH_SIZE
+from mavedb.lib.csv.score_set import get_score_set_variants_as_csv
 from mavedb.lib.exceptions import NonexistentOrcidUserError
 from mavedb.lib.logging.context import logging_context_scope
 from mavedb.lib.score_distribution import summarize_scores
 from mavedb.lib.score_set_variants import LEAN_VARIANT_BATCH_SIZE, get_lean_score_set_variants
 from mavedb.lib.validation.urn_re import MAVEDB_EXPERIMENT_URN_RE, MAVEDB_SCORE_SET_URN_RE, MAVEDB_TMP_URN_RE
-from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.annotation_status import AnnotationStatus
 from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
 from mavedb.models.collection import Collection as CollectionDbModel
 from mavedb.models.enums.annotation_type import AnnotationType
@@ -45,7 +48,13 @@ from mavedb.models.pipeline import Pipeline
 from mavedb.models.score_calibration import ScoreCalibration as ScoreCalibrationDbModel
 from mavedb.models.score_set import ScoreSet as ScoreSetDbModel
 from mavedb.models.variant import Variant as VariantDbModel
-from mavedb.routers.score_sets import _LEAN_VARIANTS, _annotation_stream_record, _stream_lean_variants
+from mavedb.routers.score_sets import (
+    _LEAN_VARIANTS,
+    _annotation_stream_record,
+    _csv_file_response,
+    _existing_variant_dataframe,
+    _stream_lean_variants,
+)
 from mavedb.view_models.lean_variant import LeanVariant
 from mavedb.view_models.orcid import OrcidUser
 from mavedb.view_models.score_set import ScoreSet, ScoreSetCreate
@@ -3724,8 +3733,9 @@ def test_can_delete_own_private_scoreset_with_mapped_variants(
         )
     )
     session.add(
-        AnnotationEvent(
+        AnnotationStatus(
             annotation_type=AnnotationType.VRS_MAPPING,
+            kind="outcome",
             variant_id=variant.id,
             disposition=Disposition.PRESENT,
             reason="mapped",
@@ -3737,7 +3747,7 @@ def test_can_delete_own_private_scoreset_with_mapped_variants(
 
     assert response.status_code == 200
     assert not session.scalars(select(MappingRecord).where(MappingRecord.variant_id.in_(variant_ids))).first()
-    assert not session.scalars(select(AnnotationEvent).where(AnnotationEvent.variant_id.in_(variant_ids))).first()
+    assert not session.scalars(select(AnnotationStatus).where(AnnotationStatus.variant_id.in_(variant_ids))).first()
 
 
 def test_cannot_delete_own_published_scoreset(session, data_provider, client, setup_router_db, data_files):
@@ -6628,14 +6638,135 @@ def test_get_lean_variants_failure_mid_stream_never_closes_the_array(app_, clien
             with session.get_bind().connect() as other:
                 other.execute(text("SELECT pg_terminate_backend(:pid)"), {"pid": stream_pid})
 
-    with pytest.raises(OperationalError):
+    # ConnectionDropped has a handler, so once the response has started Starlette re-raises it as a RuntimeError.
+    with (
+        patch("mavedb.lib.middleware.errors.send_slack_error") as slack_error,
+        pytest.raises(RuntimeError, match="response already started") as raised,
+    ):
         _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/variants", on_body)
+
+    assert isinstance(raised.value.__cause__, ConnectionDropped)
+    assert isinstance(slack_error.call_args.kwargs["err"], ConnectionDropped)
 
     body = b"".join(sent)
     assert body.startswith(b"[")
     assert not body.endswith(b"]")
     with pytest.raises(json.JSONDecodeError):
         json.loads(body)
+
+
+_CSV_ROUTE_NAMESPACES = {
+    "scores": (["scores", "scores_custom"], False),
+    "counts": (["counts"], False),
+    "variants/data": (["scores"], True),
+}
+
+
+@pytest.mark.parametrize("path", list(_CSV_ROUTE_NAMESPACES))
+def test_csv_routes_multi_batch_score_set_sends_every_row_as_the_whole_export(client, session, setup_router_db, path):
+    score_set, count = _seed_past_one_lean_batch(client, session)
+    assert count > CSV_BATCH_SIZE
+
+    # Uncompressed: GZipMiddleware sends a multi-chunk body chunked, without a length.
+    response = client.get(f"/api/v1/score-sets/{score_set['urn']}/{path}", headers={"Accept-Encoding": "identity"})
+
+    score_set_db = session.scalars(select(ScoreSetDbModel).where(ScoreSetDbModel.urn == score_set["urn"])).one()
+    namespaces, namespaced = _CSV_ROUTE_NAMESPACES[path]
+    expected = get_score_set_variants_as_csv(session, score_set_db, namespaces, namespaced)
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.text == expected
+    assert int(response.headers["content-length"]) == len(response.content)
+    accessions = [row["accession"] for row in csv.DictReader(io.StringIO(response.text))]
+    assert accessions == [f"{score_set['urn']}#{n}" for n in range(1, count + 1)]
+
+
+def test_get_score_set_scores_csv_multi_batch_score_set_reads_every_row_before_sending(
+    app_, client, session, setup_router_db
+):
+    score_set, count = _seed_past_one_lean_batch(client, session)
+
+    # Whether the query's cursor still had rows to read when each chunk was sent.
+    cursor_open_while_sending = []
+    sent = []
+
+    def on_body(body):
+        sent.append(body)
+        cursor_open_while_sending.append(session.execute(text("SELECT count(*) FROM pg_cursors")).scalar_one() > 0)
+
+    _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/scores", on_body)
+
+    assert cursor_open_while_sending
+    assert not any(cursor_open_while_sending)
+    rows = list(csv.DictReader(io.StringIO(b"".join(sent).decode())))
+    assert len(rows) == count
+
+
+def test_get_score_set_scores_csv_holds_no_transaction_while_sending(app_, client, session, setup_router_db):
+    score_set, count = _seed_past_one_lean_batch(client, session)
+
+    # Backends left idle inside a transaction while each chunk was sent: the state that
+    # idle_in_transaction_session_timeout ends, however slowly the client reads.
+    idle_in_transaction_while_sending = []
+    sent = []
+
+    def on_body(body):
+        sent.append(body)
+        with session.get_bind().connect() as other:
+            idle_in_transaction_while_sending.append(
+                other.execute(
+                    text(
+                        "SELECT count(*) FROM pg_stat_activity"
+                        " WHERE datname = current_database() AND pid <> pg_backend_pid()"
+                        " AND state = 'idle in transaction'"
+                    )
+                ).scalar_one()
+            )
+
+    _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/scores", on_body)
+
+    assert idle_in_transaction_while_sending
+    assert not any(idle_in_transaction_while_sending)
+    rows = list(csv.DictReader(io.StringIO(b"".join(sent).decode())))
+    assert [row["accession"] for row in rows] == [f"{score_set['urn']}#{n}" for n in range(1, count + 1)]
+
+
+def test_get_score_set_scores_csv_releases_the_build_slot_before_sending(
+    app_, client, session, setup_router_db, monkeypatch
+):
+    score_set, _ = _seed_past_one_lean_batch(client, session)
+    slots = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(build_limiter, "_slots", slots)
+    monkeypatch.setattr(build_limiter, "CSV_BUILD_MIN_ROWS", 1)
+
+    # Whether another build could have taken the slot while each chunk was sent.
+    slot_free_while_sending = []
+
+    def on_body(body):
+        free = slots.acquire(blocking=False)
+        if free:
+            slots.release()
+        slot_free_while_sending.append(free)
+
+    _get_streamed(app_, f"/api/v1/score-sets/{score_set['urn']}/scores", on_body)
+
+    assert slot_free_while_sending
+    assert all(slot_free_while_sending)
+
+
+def test_csv_file_response_build_failure_raises_before_responding_and_frees_the_slot(session, monkeypatch):
+    slots = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(build_limiter, "_slots", slots)
+    monkeypatch.setattr(build_limiter, "CSV_BUILD_MIN_ROWS", 1)
+
+    def failing_chunks():
+        yield "accession,score\r\n"
+        raise RuntimeError("the build failed partway")
+
+    with pytest.raises(RuntimeError, match="the build failed partway"):
+        _csv_file_response(session, 2, failing_chunks(), headers={})
+
+    assert slots.acquire(blocking=False)
 
 
 @pytest.mark.parametrize(
@@ -6795,3 +6926,33 @@ def test_official_collections_list_only_readable_collections_and_members(
     assert members(anonymous_view["experiment"]["officialCollections"]) == expected
     assert members(experiment_view["officialCollections"]) == expected
     assert [members(e["officialCollections"]) for e in experiment_list] == [expected]
+
+
+def test_existing_variant_dataframe_is_what_an_upload_of_those_columns_would_have_produced():
+    """Re-uploading one of a score set's files rebuilds the other from its stored variants."""
+    variants = [
+        VariantDbModel(
+            urn="urn:mavedb:00000001-a-1#1",
+            hgvs_nt="c.1A>G",
+            hgvs_pro=None,
+            hgvs_splice=None,
+            data={"score_data": {"score": 0.5, "se": "NA"}, "count_data": {"c_0": 3}},
+        ),
+        VariantDbModel(
+            urn="urn:mavedb:00000001-a-1#2",
+            hgvs_nt="c.2A>G",
+            hgvs_pro="p.Thr2Ala",
+            hgvs_splice=None,
+            data={"score_data": {"score": -1.0}},
+        ),
+    ]
+
+    scores = _existing_variant_dataframe(variants, "scores", ["score", "se"])
+
+    assert list(scores.columns) == ["hgvs_nt", "hgvs_splice", "hgvs_pro", "score", "se"]
+    assert scores["hgvs_nt"].tolist() == ["c.1A>G", "c.2A>G"]
+    assert scores["hgvs_pro"].isna().tolist() == [True, False]
+    assert scores["score"].tolist() == ["0.5", "-1.0"]
+    # Missing and NA-valued cells both come back as NaN, as a parsed upload's would.
+    assert scores["hgvs_splice"].isna().all()
+    assert scores["se"].isna().all()

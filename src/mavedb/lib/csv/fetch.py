@@ -1,70 +1,115 @@
-"""Fetching the rows a CSV export renders — a whole score set, or an explicit set of variants.
+"""The rows a CSV export renders: the variants its scope names, each filled in with the sources its plan reads."""
 
-Which relationships are eager-loaded follows from the requested namespaces, so a caller cannot forget one
-and silently pay for an N+1.
-"""
-
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Union
 
-from sqlalchemy import Select, and_, select
+from sqlalchemy import ColumnElement, Select, func, not_, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from mavedb.lib.csv.namespaces import CLINVAR_DB_NAME
-from mavedb.lib.csv.specs import CsvMappedRow, namespace_spec
-from mavedb.lib.gnomad import GNOMAD_DB_NAME
-from mavedb.models.allele import Allele
-from mavedb.models.clinical_control import ClinvarControl
-from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
-from mavedb.models.gnomad_allele_link import GnomadAlleleLink
-from mavedb.models.gnomad_variant import GnomADVariant
-from mavedb.models.mapping_record import MappingRecord
-from mavedb.models.mapping_record_allele import MappingRecordAllele
-from mavedb.models.projection_group import ProjectionGroup
+from mavedb.lib.csv.columns import CsvPlan
+from mavedb.lib.csv.sources import CsvContext, source_filler
+from mavedb.lib.csv.specs import CsvRow, RowSource
+from mavedb.lib.mave.utils import NULL_VALUES
+from mavedb.lib.permissions.score_calibration import ScoreCalibrationViewer
+from mavedb.lib.validation.constants.general import hgvs_columns
 from mavedb.models.score_set import ScoreSet
 from mavedb.models.variant import Variant
-from mavedb.models.vep_allele_consequence import VepAlleleConsequence
 
 # CSV rows come out in variant-number order (the integer after '#'); id breaks ties stably.
 _VARIANT_NUMBER_ORDER = (Variant.variant_number, Variant.id)
 
+CSV_BATCH_SIZE = 5000
+"""Rows a streamed score set CSV reads, renders and sends at a time. Large enough for efficient fetching, small
+enough that a batch's rows and rendered text stay a few megabytes."""
 
-@dataclass
-class CsvFetchResult:
-    variants: list[Variant]
-    mappings: Optional[list[Optional[CsvMappedRow]]]
-    gnomad_data: Optional[list[Optional[GnomADVariant]]]
-    clinvar_per_variant: Optional[list[Optional[dict[str, Optional[ClinvarControl]]]]]
+_NULL_TOKENS = sorted({value.lower() for value in NULL_VALUES})
+"""``NULL_VALUES`` lowercased for matching in SQL: the tokens ``columns._is_output_null`` writes as NA."""
+
+# Python's str.strip() also strips a few control and Unicode space characters; these are the ones an HGVS
+# string could plausibly carry.
+_PYTHON_STRIP_WHITESPACE = " \t\n\r\x0b\x0c"
+"""The characters ``btrim`` strips to match ``_is_output_null``'s ``str.strip()``."""
 
 
-def _scope_query(
-    query: Select[Any],
+@dataclass(frozen=True)
+class ScoreSetScope:
+    """Every variant of one score set in variant-number order, or one ``start``/``limit`` page of them."""
+
+    score_set_id: int
+    start: Optional[int] = None
+    limit: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class VariantScope:
+    """An explicit set of variants, in the order given."""
+
+    variant_ids: Sequence[int]
+    match_type: Optional[str] = None
+    """How each row relates to the record the caller asked for, reported in the ``relationship`` columns."""
+
+
+CsvScope = Union[ScoreSetScope, VariantScope]
+
+
+def iter_csv_rows(
+    db: Session,
+    plan: CsvPlan,
+    scope: CsvScope,
     *,
-    score_set_id: Optional[int],
-    variant_ids: Optional[Sequence[int]],
-    start: Optional[int] = None,
-    limit: Optional[int] = None,
-) -> Select[Any]:
-    """Narrow *query* to one score set (ordered by variant number, optionally one ``start``/``limit`` page of
-    it) or an explicit variant set."""
-    if score_set_id is None:
-        return query.where(Variant.id.in_(variant_ids or []))
+    as_of: Optional[datetime] = None,
+    viewer: Optional[ScoreCalibrationViewer] = None,
+    batch_size: int = CSV_BATCH_SIZE,
+) -> Iterator[list[CsvRow]]:
+    """The rows of *scope*, each carrying every source *plan* reads, in batches of up to *batch_size*.
 
-    if start is None and limit is None:
-        return query.where(Variant.score_set_id == score_set_id).order_by(*_VARIANT_NUMBER_ORDER)
+    A score set's variants come from a server-side cursor, and each batch's sources are loaded for that batch
+    alone, so memory doesn't grow with the score set. The query runs when the first batch is requested, and the
+    cursor holds ``db``'s transaction open until the last batch is read or the generator is closed. An explicit
+    variant set is one batch.
 
-    # Joining to the page's ids, with no score set filter of its own, leaves the outer query nothing to do
-    # but fetch those rows. Filtered by score set, the planner could serve its ORDER BY by walking the whole
-    # score set in index order and reading every row, skipped ones included (#901).
-    page = _page_variant_ids(score_set_id, start, limit).subquery("page")
-    return query.join(page, page.c.id == Variant.id).order_by(*_VARIANT_NUMBER_ORDER)
+    Args:
+        as_of: reconstruct the mapping-derived sources as they stood at this instant, over the variants'
+            immutable submitted HGVS, scores and counts. Defaults to currently-live rows.
+        viewer: who the calibration interpretations are read for. Omitted, only public calibrations are.
+    """
+    fill = source_filler(CsvContext(db, as_of=as_of, viewer=viewer), plan)
+    match_type = scope.match_type if isinstance(scope, VariantScope) else None
+
+    for variants in _variant_batches(db, plan, scope, batch_size):
+        rows: list[CsvRow] = [{RowSource.VARIANT: variant, RowSource.MATCH_TYPE: match_type} for variant in variants]
+        fill(rows)
+        yield rows
 
 
-def _restore_variant_id_order(rows: list[Any], variant_ids: Sequence[int], key) -> list[Any]:
-    """Postgres does not preserve IN-list order, so restore the caller's ordering by variant id."""
-    position = {variant_id: index for index, variant_id in enumerate(variant_ids)}
-    return sorted(rows, key=lambda row: position.get(key(row), len(position)))
+def _variant_batches(db: Session, plan: CsvPlan, scope: CsvScope, batch_size: int) -> Iterator[Sequence[Variant]]:
+    query = select(Variant)
+    if plan.needs_score_set:
+        query = query.options(
+            selectinload(Variant.score_set).selectinload(ScoreSet.score_calibrations),
+            selectinload(Variant.score_set).selectinload(ScoreSet.target_genes),
+        )
+
+    if isinstance(scope, VariantScope):
+        variants = db.scalars(query.where(Variant.id.in_(scope.variant_ids))).all()
+        # Postgres does not preserve IN-list order.
+        position = {variant_id: index for index, variant_id in enumerate(scope.variant_ids)}
+        yield sorted(variants, key=lambda variant: position[variant.id])
+        return
+
+    if scope.start is None and scope.limit is None:
+        query = query.where(Variant.score_set_id == scope.score_set_id)
+    else:
+        # Joining to the page's ids, with no score set filter of its own, leaves the outer query nothing to do
+        # but fetch those rows. Filtered by score set, the planner could serve its ORDER BY by walking the whole
+        # score set in index order and reading every row, skipped ones included (#901).
+        page = _page_variant_ids(scope.score_set_id, scope.start, scope.limit).subquery("page")
+        query = query.join(page, page.c.id == Variant.id)
+
+    query = query.order_by(*_VARIANT_NUMBER_ORDER)
+    yield from db.scalars(query, execution_options={"yield_per": batch_size}).partitions()
 
 
 def _page_variant_ids(score_set_id: int, start: Optional[int], limit: Optional[int]) -> Select[Any]:
@@ -81,220 +126,25 @@ def _page_variant_ids(score_set_id: int, start: Optional[int], limit: Optional[i
     return query
 
 
-def _substrate_query(
-    *,
-    score_set_id: Optional[int],
-    variant_ids: Optional[Sequence[int]],
-    start: Optional[int],
-    limit: Optional[int],
-    as_of: Optional[datetime],
-) -> Select[Any]:
-    """The base per-variant query: each variant LEFT-joined to its live mapping record, its authoritative
-    (measured) allele (digest / ClinGen id / VEP consequence), and that allele's measured projection group
-    (the mapped HGVS at every level). LEFT joins with ``live_at`` in the ON clause keep unmapped variants
-    (with null mapped fields); a WHERE would collapse them out. The gnomAD/ClinVar dimensions are resolved by
-    separate fetches and stitched on by id.
+def unused_hgvs_columns(db: Session, scope: ScoreSetScope) -> set[str]:
+    """The core HGVS columns that are null on every row of *scope*.
+
+    One aggregate query, so an export knows its header before it renders a row. A value counts as null exactly
+    when the export would write it as NA (``columns._is_output_null``).
     """
-    query = (
-        select(
-            Variant,
-            MappingRecord.id.label("mapping_record_id"),
-            MappingRecord.assay_level,
-            MappingRecord.hgvs_assay_level,
-            Allele.id.label("allele_id"),
-            Allele.vrs_digest,
-            Allele.clingen_allele_id,
-            VepAlleleConsequence.functional_consequence,
-            ProjectionGroup.hgvs_c,
-            ProjectionGroup.hgvs_g,
-            ProjectionGroup.hgvs_p,
-        )
-        .outerjoin(MappingRecord, and_(MappingRecord.variant_id == Variant.id, MappingRecord.live_at(as_of)))
-        .outerjoin(
-            MappingRecordAllele,
-            and_(
-                MappingRecordAllele.mapping_record_id == MappingRecord.id,
-                MappingRecordAllele.is_authoritative.is_(True),
-                MappingRecordAllele.live_at(as_of),
-            ),
-        )
-        .outerjoin(Allele, Allele.id == MappingRecordAllele.allele_id)
-        .outerjoin(
-            VepAlleleConsequence,
-            and_(VepAlleleConsequence.allele_id == Allele.id, VepAlleleConsequence.live_at(as_of)),
-        )
-        .outerjoin(
-            ProjectionGroup,
-            and_(ProjectionGroup.id == MappingRecordAllele.projection_group, ProjectionGroup.live_at(as_of)),
-        )
-    )
-    return _scope_query(query, score_set_id=score_set_id, variant_ids=variant_ids, start=start, limit=limit)
+    hgvs = select(*(getattr(Variant, column) for column in hgvs_columns))
+    if scope.start is None and scope.limit is None:
+        rows = hgvs.where(Variant.score_set_id == scope.score_set_id).subquery()
+    else:
+        page = _page_variant_ids(scope.score_set_id, scope.start, scope.limit).subquery("page")
+        rows = hgvs.join(page, page.c.id == Variant.id).subquery()
+
+    present = db.execute(select(*(func.bool_or(not_(_renders_as_na(rows.c[column]))) for column in hgvs_columns))).one()
+    # bool_or over no rows is NULL: an empty export uses none of them.
+    return {column for column, used in zip(hgvs_columns, present) if not used}
 
 
-def _mapped_row(row: Any) -> CsvMappedRow:
-    """Assemble one variant's :class:`CsvMappedRow` from a substrate-query row: the measured projection
-    group's HGVS at each level plus the assay-level string, VRS id, VEP consequence, and ClinGen id off the
-    authoritative allele."""
-    return CsvMappedRow(
-        hgvs_g=row.hgvs_g,
-        hgvs_c=row.hgvs_c,
-        hgvs_p=row.hgvs_p,
-        hgvs_assay_level=row.hgvs_assay_level,
-        vrs_digest=row.vrs_digest,
-        vep_functional_consequence=row.functional_consequence,
-        clingen_allele_id=row.clingen_allele_id,
-    )
-
-
-def _gnomad_by_allele(db: Session, allele_ids: list[int], *, as_of: Optional[datetime]) -> dict[int, GnomADVariant]:
-    """The live gnomAD frequency record for each of *allele_ids*, keyed by allele id.
-
-    Liveness alone selects the release; there is deliberately no ``db_version`` predicate. The link is
-    allele-keyed and single-live (``uq_gnomad_allele_links_live``), and ingestion supersedes on that key,
-    so a release bump retires the prior link rather than accumulating one per version — whatever is live
-    *is* the release we hold for that allele. Filtering on the currently-served constant on top of that
-    was wrong in two ways:
-
-    - The linker only visits alleles present in the release it ingests, so an allele absent from the new
-      release keeps its prior-release link live. Mixed versions are the steady state, not a transient, and
-      the constant turned every straggler's frequency into a permanent NA.
-    - Under ``as_of`` the constant is *today's* release, so reconstructing a past instant found the
-      then-live link and then discarded it — a silent dropout rather than a reconstruction.
-
-    ``db_name`` is still constrained: that is source identity, not a version axis. The release each row
-    came from is reported in the ``gnomad.gnomad_version`` column, so the output stays self-describing.
-    """
-    if not allele_ids:
-        return {}
-
-    rows = db.execute(
-        select(GnomadAlleleLink.allele_id, GnomADVariant)
-        .join(GnomADVariant, GnomADVariant.id == GnomadAlleleLink.gnomad_variant_id)
-        .where(GnomadAlleleLink.allele_id.in_(allele_ids))
-        .where(GnomadAlleleLink.live_at(as_of))
-        .where(GnomADVariant.db_name == GNOMAD_DB_NAME)
-    )
-    return {allele_id: gnomad_variant for allele_id, gnomad_variant in rows.tuples()}
-
-
-def _clinvar_by_allele(
-    db: Session, allele_ids: list[int], clinvar_namespaces: dict[str, str], *, as_of: Optional[datetime]
-) -> dict[str, dict[int, ClinvarControl]]:
-    """For each requested ClinVar namespace, the live control at that release for each of *allele_ids*
-    (``allele id -> control``). ClinVar links are multi-live (one per release), so each namespace's query
-    is narrowed to its own ``db_version``."""
-    by_namespace: dict[str, dict[int, ClinvarControl]] = {}
-    for ns, db_version in clinvar_namespaces.items():
-        per_allele: dict[int, ClinvarControl] = {}
-        if allele_ids:
-            rows = db.execute(
-                select(ClinvarAlleleLink.allele_id, ClinvarControl)
-                .join(ClinvarControl, ClinvarControl.id == ClinvarAlleleLink.clinvar_control_id)
-                .where(ClinvarAlleleLink.allele_id.in_(allele_ids))
-                .where(ClinvarAlleleLink.live_at(as_of))
-                .where(ClinvarControl.db_name == CLINVAR_DB_NAME, ClinvarControl.db_version == db_version)
-            )
-            per_allele = {allele_id: control for allele_id, control in rows.tuples()}
-
-        by_namespace[ns] = per_allele
-
-    return by_namespace
-
-
-def fetch_variant_csv_data(
-    db: Session,
-    namespaced_columns: dict[str, list[str]],
-    clinvar_namespaces: dict[str, str],
-    *,
-    score_set: Optional[ScoreSet] = None,
-    variant_ids: Optional[Sequence[int]] = None,
-    start: Optional[int] = None,
-    limit: Optional[int] = None,
-    as_of: Optional[datetime] = None,
-) -> CsvFetchResult:
-    """Fetch variant data from the database for CSV generation.
-
-    Args:
-        score_set: every variant in a score set, ordered by URN suffix. Mutually exclusive with
-            *variant_ids*, which returns an explicit set in the order given. Exactly one is required.
-        start: rows of the score set to skip. Not valid with *variant_ids*.
-        limit: the most rows of the score set to return. Not valid with *variant_ids*.
-        as_of: reconstruct the mapping-derived namespaces (reference HGVS, VEP, gnomAD, ClinVar) as they
-            stood at this instant, over the variant's immutable submitted HGVS/scores/counts. Defaults to
-            currently-live rows. The deterministic replacement for the old ``current``-flag pinning: a
-            live mapping record and its authoritative allele link are unique by construction, so there is
-            no race to guard against by pinning specific row ids.
-    """
-    if (score_set is None) == (variant_ids is None):
-        raise ValueError("exactly one of score_set or variant_ids must be provided")
-    if variant_ids is not None and (start is not None or limit is not None):
-        raise ValueError("start and limit page a score set, not an explicit variant set")
-
-    # Driven by the namespaces' own descriptors, so a namespace cannot declare a relationship-backed
-    # column and then quietly not have it loaded.
-    specs = [spec for spec in (namespace_spec(ns) for ns in namespaced_columns) if spec is not None]
-
-    need_mappings = any(spec.needs_mappings for spec in specs)
-    need_gnomad = any(spec.needs_gnomad for spec in specs)
-    need_score_set = any(spec.needs_score_set for spec in specs)
-
-    score_set_id = score_set.id if score_set is not None else None
-    score_set_options = (
-        [
-            selectinload(Variant.score_set).selectinload(ScoreSet.score_calibrations),
-            selectinload(Variant.score_set).selectinload(ScoreSet.target_genes),
-        ]
-        if need_score_set
-        else []
-    )
-
-    if not need_mappings:
-        # Fast path: scores/counts (and bare core/score-set identity) are a straight paginated scan,
-        # untouched by as_of (it only reconstructs the — absent here — mapping-derived namespaces).
-        query = _scope_query(
-            select(Variant), score_set_id=score_set_id, variant_ids=variant_ids, start=start, limit=limit
-        ).options(*score_set_options)
-        result = list(db.scalars(query).all())
-        if variant_ids is not None:
-            result = _restore_variant_id_order(result, variant_ids, key=lambda v: v.id)
-        return CsvFetchResult(result, None, None, None)
-
-    query = _substrate_query(
-        score_set_id=score_set_id, variant_ids=variant_ids, start=start, limit=limit, as_of=as_of
-    ).options(*score_set_options)
-    rows = list(db.execute(query).all())
-    if variant_ids is not None:
-        rows = _restore_variant_id_order(rows, variant_ids, key=lambda row: row.Variant.id)
-
-    # Protein slot: the standalone protein subquery over the whole set, stitched back by record id.
-    # The authoritative allele ids on this page — the join key for the batch gnomAD/ClinVar fetches.
-    allele_ids = [row.allele_id for row in rows if row.allele_id is not None]
-    gnomad_by_allele = _gnomad_by_allele(db, allele_ids, as_of=as_of) if need_gnomad else {}
-    clinvar_by_allele = _clinvar_by_allele(db, allele_ids, clinvar_namespaces, as_of=as_of)
-
-    variants: list[Variant] = []
-    mappings: list[Optional[CsvMappedRow]] = []
-    gnomad_data: Optional[list[Optional[GnomADVariant]]] = [] if need_gnomad else None
-    clinvar_per_variant: Optional[list[Optional[dict[str, Optional[ClinvarControl]]]]] = (
-        [] if clinvar_namespaces else None
-    )
-    for row in rows:
-        variants.append(row.Variant)
-        allele_id = row.allele_id
-        mappings.append(_mapped_row(row) if row.mapping_record_id is not None else None)
-        if gnomad_data is not None:
-            gnomad_data.append(gnomad_by_allele.get(allele_id) if allele_id is not None else None)
-        if clinvar_per_variant is not None:
-            clinvar_per_variant.append(
-                {
-                    ns: (clinvar_by_allele[ns].get(allele_id) if allele_id is not None else None)
-                    for ns in clinvar_namespaces
-                }
-            )
-
-    return CsvFetchResult(
-        variants=variants,
-        mappings=mappings,
-        gnomad_data=gnomad_data,
-        clinvar_per_variant=clinvar_per_variant,
-    )
+def _renders_as_na(column: ColumnElement[Any]) -> ColumnElement[bool]:
+    """Whether the export writes this text column's value as NA, the SQL twin of ``columns._is_output_null``."""
+    # A null renders as the string "None", which is itself a null token.
+    return or_(column.is_(None), func.lower(func.btrim(column, _PYTHON_STRIP_WHITESPACE)).in_(_NULL_TOKENS))

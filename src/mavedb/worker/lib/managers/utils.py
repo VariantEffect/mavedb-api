@@ -14,6 +14,7 @@ import requests.exceptions
 import sqlalchemy.exc
 from arq.constants import default_queue_name
 
+from mavedb.db.errors import MissingGrant, RowSecurityViolation
 from mavedb.lib.types.workflow import JobExecutionOutcome
 from mavedb.models.enums.job_pipeline import DependencyType, FailureCategory, JobStatus
 from mavedb.models.job_run import JobRun
@@ -29,6 +30,10 @@ logger = logging.getLogger(__name__)
 # Order matters: classify_exception() returns on the first isinstance() match, so more
 # specific types must appear before their parents (e.g. requests.Timeout before OSError).
 EXCEPTION_TO_FAILURE_CATEGORY: dict[type[Exception], FailureCategory] = {
+    # Neither should happen to the worker, whose role has every grant and a policy showing it every row,
+    # and a retry won't fix either.
+    RowSecurityViolation: FailureCategory.CONFIGURATION_ERROR,
+    MissingGrant: FailureCategory.CONFIGURATION_ERROR,
     # requests — all inherit from OSError, so these must come first to get precise categories.
     requests.exceptions.Timeout: FailureCategory.TIMEOUT,
     requests.exceptions.ConnectionError: FailureCategory.NETWORK_ERROR,

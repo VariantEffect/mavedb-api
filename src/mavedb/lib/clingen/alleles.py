@@ -5,12 +5,16 @@ scope: all current MappingRecordAllele links (authoritative and RT-derived) for 
 score set.  A single definition here prevents the two jobs from drifting apart.
 """
 
-from typing import Callable, Iterable, NamedTuple, Optional, TypeVar
+from typing import Callable, Iterable, NamedTuple, Optional, TypeVar, cast
 
-from sqlalchemy import select
+from sqlalchemy import CursorResult, select
 from sqlalchemy.orm import Session
 
+from mavedb.lib.annotation_status_manager import AnnotationStatusManager
 from mavedb.models.allele import Allele
+from mavedb.models.annotation_status import CAID_MATCHED_TYPES
+from mavedb.models.clinvar_allele_link import ClinvarAlleleLink
+from mavedb.models.gnomad_allele_link import GnomadAlleleLink
 from mavedb.models.mapping_record import MappingRecord
 from mavedb.models.mapping_record_allele import MappingRecordAllele
 from mavedb.models.variant import Variant
@@ -84,8 +88,8 @@ def group_alleles_for_annotation(
     job-specific payload per allele, keyed by ``allele_id``.
 
     The same allele recurs once per variant that links it, so this dedups those rows down to one
-    entry per allele — the shape every allele-keyed annotation job wants now that annotation events
-    are allele-keyed (one event per allele, never fanned per-variant).
+    entry per allele — the shape every allele-keyed annotation job wants, since their annotation statuses
+    are allele-keyed (one status per allele, never fanned per-variant).
 
     ``payload`` builds the job-specific payload from the first row seen for an allele — the CAID for
     gnomAD/ClinVar, the HGVS for VEP, etc. Returning ``None`` skips the allele entirely (e.g. it
@@ -109,3 +113,18 @@ def group_alleles_for_annotation(
         groups[row.allele_id] = built
 
     return groups
+
+
+def retire_caid_matches(db: Session, annotation_manager: AnnotationStatusManager, allele_id: int) -> tuple[int, int]:
+    """Retire an allele's live gnomAD and ClinVar links and withdraw its statuses matched through its CAID, after
+    the CAID is replaced. Returns how many gnomAD and ClinVar links were retired.
+
+    Without them the allele counts as never checked, so the next gnomAD and ClinVar runs check and link it again
+    under its corrected CAID. The withdrawals take effect on the manager's next flush.
+    """
+    gnomad = cast(CursorResult, db.execute(GnomadAlleleLink.retire_live_where(GnomadAlleleLink.allele_id == allele_id)))
+    clinvar = cast(
+        CursorResult, db.execute(ClinvarAlleleLink.retire_live_where(ClinvarAlleleLink.allele_id == allele_id))
+    )
+    annotation_manager.withdraw(CAID_MATCHED_TYPES, [allele_id])
+    return gnomad.rowcount, clinvar.rowcount

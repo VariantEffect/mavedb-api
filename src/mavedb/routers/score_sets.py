@@ -1,12 +1,13 @@
 import io
 import json
 import logging
+import tempfile
 import time
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from datetime import date, datetime
 from functools import partial
 from itertools import chain
-from typing import Any, List, Literal, Optional, Sequence, TypedDict, Union
+from typing import IO, Any, List, Literal, Optional, Sequence, TypedDict, Union
 
 import numpy as np
 import pandas as pd
@@ -46,7 +47,7 @@ from mavedb.lib.clinical_controls import get_clinical_control_options, get_clini
 from mavedb.lib.collections import readable_official_collections
 from mavedb.lib.contributors import find_or_create_contributor
 from mavedb.lib.csv.build_limiter import csv_build_slot, rows_to_build
-from mavedb.lib.csv.columns import variants_to_csv_rows
+from mavedb.lib.csv.columns import CsvPlan, csv_records
 from mavedb.lib.csv.deprecated_params import (
     DROP_NA_COLUMNS_DESCRIPTION,
     INCLUDE_CUSTOM_COLUMNS_DESCRIPTION,
@@ -54,7 +55,8 @@ from mavedb.lib.csv.deprecated_params import (
     resolve_deprecated_csv_params,
 )
 from mavedb.lib.csv.namespaces import CSV_NAMESPACES_PARAM_DESCRIPTION, CsvNamespaceStr
-from mavedb.lib.csv.score_set import available_score_set_csv_namespaces, get_score_set_variants_as_csv
+from mavedb.lib.csv.score_set import available_score_set_csv_namespaces, stream_score_set_variants_as_csv
+from mavedb.lib.csv.specs import RowSource
 from mavedb.lib.deprecation import MAPPED_VARIANT_SUNSET, deprecation_headers, record_deprecated_usage
 from mavedb.lib.exceptions import MixedTargetError, NCBITaxonomyNotFoundError, NonexistentOrcidUserError
 from mavedb.lib.experiments import enrich_experiment_with_num_score_sets
@@ -138,11 +140,21 @@ from mavedb.view_models.variant_detail import VariantDetail
 TAG_NAME = "Score Sets"
 logger = logging.getLogger(__name__)
 
+_SPOOL_READ_BYTES = 1024 * 1024
+"""Bytes a spooled CSV download reads from its file per chunk sent."""
+
 SCORE_SET_SEARCH_MAX_LIMIT = 100
 
 _LEAN_VARIANT = TypeAdapter(LeanVariant)
 _LEAN_VARIANTS = TypeAdapter(List[LeanVariant])
 SCORE_SET_SEARCH_MAX_PUBLICATION_IDENTIFIERS = 40
+
+
+def _existing_variant_dataframe(variants: Iterable[Variant], namespace: str, columns: list[str]) -> pd.DataFrame:
+    """A score set's existing variants as the dataframe an upload of *namespace*'s columns would have produced."""
+    plan = CsvPlan.from_columns({"core": ["hgvs_nt", "hgvs_splice", "hgvs_pro"], namespace: columns})
+    rows = csv_records(plan, ({RowSource.VARIANT: variant} for variant in variants))
+    return pd.DataFrame(rows).replace("NA", np.NaN)
 
 
 def enqueue_variant_creation(
@@ -161,24 +173,12 @@ def enqueue_variant_creation(
     # create CSV from existing variants on the score set if no new dataframe provided
     existing_scores_df = None
     if new_scores_df is None and item.dataset_columns.get("score_columns"):
-        score_columns = {
-            "core": ["hgvs_nt", "hgvs_splice", "hgvs_pro"],
-            "scores": item.dataset_columns["score_columns"],
-        }
-        existing_scores_df = pd.DataFrame(
-            variants_to_csv_rows(item.variants, columns=score_columns, namespaced=False)
-        ).replace("NA", np.NaN)
+        existing_scores_df = _existing_variant_dataframe(item.variants, "scores", item.dataset_columns["score_columns"])
 
     # create CSV from existing variants on the score set if no new dataframe provided
     existing_counts_df = None
     if new_counts_df is None and item.dataset_columns.get("count_columns"):
-        count_columns = {
-            "core": ["hgvs_nt", "hgvs_splice", "hgvs_pro"],
-            "counts": item.dataset_columns["count_columns"],
-        }
-        existing_counts_df = pd.DataFrame(
-            variants_to_csv_rows(item.variants, columns=count_columns, namespaced=False)
-        ).replace("NA", np.NaN)
+        existing_counts_df = _existing_variant_dataframe(item.variants, "counts", item.dataset_columns["count_columns"])
 
     scores_file_to_upload = existing_scores_df if new_scores_df is None else new_scores_df
     counts_file_to_upload = existing_counts_df if new_counts_df is None else new_counts_df
@@ -1273,25 +1273,25 @@ def get_score_set_variants_csv(
     # Full-table CSV builds legitimately outrun the API's default statement timeout.
     allow_long_statements(db)
 
-    with csv_build_slot(rows_to_build(score_set.num_variants, start, limit)):
-        csv_str = get_score_set_variants_as_csv(
-            db,
-            score_set,
-            namespaces,
-            namespaced=True,
-            start=start,
-            limit=limit,
-            drop_unused_hgvs_columns_flag=drop_unused_hgvs_columns,
-            as_of=as_of,
-            # Asked separately from the score set: a private calibration is readable only by its owner,
-            # investigator contributors, or an admin, whoever can read the score set.
-            viewer=principal.viewer_for(ScoreCalibrationViewer),
-        )
+    chunks = stream_score_set_variants_as_csv(
+        db,
+        score_set,
+        namespaces,
+        namespaced=True,
+        start=start,
+        limit=limit,
+        drop_unused_hgvs_columns_flag=drop_unused_hgvs_columns,
+        as_of=as_of,
+        # Asked separately from the score set: a private calibration is readable only by its owner,
+        # investigator contributors, or an admin, whoever can read the score set.
+        viewer=principal.viewer_for(ScoreCalibrationViewer),
+    )
     # Both: the deprecation notice (when a legacy parameter was used) and the resolved content-time,
     # so a CSV's as-of instant is a visible fact rather than something the caller has to remember.
-    return StreamingResponse(
-        iter([csv_str]),
-        media_type="text/csv",
+    return _csv_file_response(
+        db,
+        rows_to_build(score_set.num_variants, start, limit),
+        chunks,
         headers={
             **deprecated.response_headers,
             "X-As-Of": as_of.isoformat() if as_of is not None else "current",
@@ -1365,11 +1365,17 @@ def get_score_set_scores_csv(
 
     # Both score namespaces: this endpoint has always returned every score column the investigator
     # uploaded, and `scores` alone is now just the required one.
-    with csv_build_slot(rows_to_build(score_set.num_variants, start, limit)):
-        csv_str = get_score_set_variants_as_csv(
-            db, score_set, ["scores", "scores_custom"], False, start, limit, drop_unused_hgvs_columns
-        )
-    return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
+    chunks = stream_score_set_variants_as_csv(
+        db,
+        score_set,
+        ["scores", "scores_custom"],
+        start=start,
+        limit=limit,
+        drop_unused_hgvs_columns_flag=drop_unused_hgvs_columns,
+    )
+    return _csv_file_response(
+        db, rows_to_build(score_set.num_variants, start, limit), chunks, headers=deprecated.response_headers
+    )
 
 
 @router.get(
@@ -1435,11 +1441,47 @@ def get_score_set_counts_csv(
     # Full-table CSV builds legitimately outrun the API's default statement timeout.
     allow_long_statements(db)
 
-    with csv_build_slot(rows_to_build(score_set.num_variants, start, limit)):
-        csv_str = get_score_set_variants_as_csv(
-            db, score_set, ["counts"], False, start, limit, drop_unused_hgvs_columns
-        )
-    return StreamingResponse(iter([csv_str]), media_type="text/csv", headers=deprecated.response_headers)
+    chunks = stream_score_set_variants_as_csv(
+        db, score_set, ["counts"], start=start, limit=limit, drop_unused_hgvs_columns_flag=drop_unused_hgvs_columns
+    )
+    return _csv_file_response(
+        db, rows_to_build(score_set.num_variants, start, limit), chunks, headers=deprecated.response_headers
+    )
+
+
+def _csv_file_response(db: Session, rows: int, chunks: Iterator[str], headers: Mapping[str, str]) -> StreamingResponse:
+    """Build a score set CSV from ``chunks`` into a temporary file under one of this process's CSV build slots,
+    then send the file with its ``Content-Length``.
+
+    The build finishes before this returns, so a failure is an error status rather than a body cut short. The
+    transaction ends with the build and the slot is released before the send, so a slow client holds neither.
+    A client that asks for gzip gets the body chunked without a length, since GZipMiddleware compresses it in
+    pieces; a dropped connection still leaves the chunked body unterminated. Memory stays flat because
+    ``chunks`` arrive a batch at a time; the file is unlinked on creation, so its space comes back when it
+    closes.
+    """
+    spool = tempfile.TemporaryFile()
+    try:
+        with csv_build_slot(rows):
+            for chunk in chunks:
+                spool.write(chunk.encode())
+        # TODO(#1036): Drop once get_db's session ends when the route returns.
+        db.commit()
+    except BaseException:
+        spool.close()
+        raise
+
+    size = spool.tell()
+    spool.seek(0)
+    return StreamingResponse(
+        _send_spooled(spool), media_type="text/csv", headers={**headers, "Content-Length": str(size)}
+    )
+
+
+def _send_spooled(spool: IO[bytes]) -> Iterator[bytes]:
+    with spool:
+        while block := spool.read(_SPOOL_READ_BYTES):
+            yield block
 
 
 def _annotation_stream_record(

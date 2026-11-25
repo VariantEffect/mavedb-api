@@ -43,6 +43,8 @@ __all__ = [
     "variant_annotation_status",
     "annotation_event",
     "annotation_event_view",
+    "annotation_status",
+    "annotation_status_view",
     "variant",
     "variant_translation",
     "vep_allele_consequence",

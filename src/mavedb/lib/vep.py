@@ -80,6 +80,12 @@ async def get_ensembl_release() -> str:
         return await loop.run_in_executor(None, client.software_release)
 
 
+def vep_status_version(ensembl_release: str) -> str:
+    """The version a VEP status was checked at: the Ensembl release and our resolver's rules, which can change
+    without a release. A new value for either is a new version of the check, so its statuses are superseded."""
+    return f"{ensembl_release}+r{RESOLVER_VERSION}"
+
+
 async def resolve_consequences(
     inputs: Sequence[VepInput], *, reference: Optional[ReferenceSequence] = None
 ) -> dict[str, ConsequenceResolution]:
@@ -142,7 +148,7 @@ def link_vep_consequences_to_alleles(
 
     ``resolutions_by_allele_id`` maps each queried allele to the kernel's :class:`ConsequenceResolution`.
     Only ``RESOLVED`` and ``ABSENT`` resolutions belong here — an ``ERRORED`` allele's failure is
-    recorded in the annotation event stream and it is retried, never linked, so passing one is a caller
+    recorded as a failing annotation status and it is retried, never linked, so passing one is a caller
     bug and is ignored defensively. ``source_version`` is the Ensembl release the run resolved against.
     Each allele holds at most one live :class:`VepAlleleConsequence`, handled per allele:
 

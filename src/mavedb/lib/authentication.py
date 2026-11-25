@@ -1,7 +1,7 @@
 import hashlib
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Optional
 
@@ -141,30 +141,49 @@ def hash_access_key(access_key: str) -> str:
 def get_current_user_data_from_api_key(
     db: Session = Depends(deps.get_db), access_token: str = Depends(get_access_token)
 ) -> Optional[UserData]:
-    user = None
-    roles: list[UserRole] = []
+    """Authenticate the caller by API key.
 
-    if access_token is not None:
-        access_key = db.query(AccessKey).filter(AccessKey.key_id == hash_access_key(access_token)).one_or_none()
-        if access_key:
-            user = access_key.user
-            if access_key.role is not None:
-                roles = [access_key.role] if access_key.role is not None else []
+    A key acts with its stored role only while its owner still holds that role, so revoking a role from a user
+    also revokes it from their keys; such a key still authenticates, without the role. Keys of inactive users and
+    expired keys don't authenticate, the same as an unknown key.
+    """
+    if access_token is None:
+        logger.debug(msg="Failed to authenticate user via API key; No key provided.", extra=logging_context())
+        return None
 
-            save_to_logging_context(
-                {
-                    "user": user.id,
-                    "active_roles": [role.name for role in roles],
-                    "available_roles": [role.name for role in user.roles],
-                }
-            )
+    access_key = db.query(AccessKey).filter(AccessKey.key_id == hash_access_key(access_token)).one_or_none()
+    if access_key is None:
+        logger.debug(msg="Failed to authenticate user via API key; Unknown key.", extra=logging_context())
+        return None
 
-    if user is not None:
-        logger.debug(msg="Successfully authenticated API key for user.", extra=logging_context())
-        return UserData(user, roles)
+    user = access_key.user
+    save_to_logging_context({"user": user.id, "access_key": access_key.id})
 
-    logger.debug(msg="Failed to authenticate user via API key; No key provided.", extra=logging_context())
-    return None
+    if not user.is_active:
+        logger.info(msg="Failed to authenticate user via API key; User is inactive.", extra=logging_context())
+        return None
+
+    if access_key.expiration_date is not None and access_key.expiration_date < date.today():
+        logger.info(msg="Failed to authenticate user via API key; Key has expired.", extra=logging_context())
+        return None
+
+    key_role = access_key.role
+    roles: list[UserRole] = [key_role] if key_role is not None and key_role in user.roles else []
+    save_to_logging_context(
+        {
+            "key_role": key_role.name if key_role is not None else None,
+            "available_roles": [role.name for role in user.roles],
+            "active_roles": [role.name for role in roles],
+        }
+    )
+
+    if key_role is not None and not roles:
+        logger.warning(
+            msg="API key's role is no longer held by its owner; Authenticating without it.", extra=logging_context()
+        )
+
+    logger.debug(msg="Successfully authenticated API key for user.", extra=logging_context())
+    return UserData(user, roles)
 
 
 ####################################################################################################

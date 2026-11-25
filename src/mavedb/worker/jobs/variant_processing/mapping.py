@@ -341,7 +341,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             extra=job_manager.logging_context(),
         )
 
-        annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job.id, score_set_id=score_set.id)
+        annotation_manager = AnnotationStatusManager(job_manager.db, job_run_id=job.id)
         for mapped_score in mapped_scores:
             variant_urn = mapped_score.get("mavedb_id")
             failing_variant_urn = variant_urn
@@ -438,7 +438,7 @@ async def map_variants_for_score_set(ctx: dict, job_id: int, job_manager: JobMan
             else:
                 disposition = Disposition.FAILED
 
-            annotation_manager.record_event(
+            annotation_manager.report(
                 AnnotationType.VRS_MAPPING,
                 variant_id=variant.id,
                 disposition=disposition,

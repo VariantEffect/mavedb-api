@@ -23,8 +23,8 @@ Measuring before and expecting zero after is how that is kept honest.
 
 `--repair` renames only: it rewrites `vrs_digest` where the corrected identifier is unused. Where the
 corrected identifier already exists, the row is a duplicate of one that was always right, and merging
-it means repointing five tables (`annotation_events`, `clinvar_allele_links`, `gnomad_allele_links`,
-`mapping_record_alleles`, `vep_allele_consequences`), four of which carry a unique index including
+it means repointing five tables (`annotation_status`, `clinvar_allele_links`, `gnomad_allele_links`,
+`mapping_record_alleles`, `vep_allele_consequences`), each of which carries a unique index including
 `allele_id` and can therefore collide. That is deliberately not automated. A duplicate appearing now
 means a writer got past the ingest guard in `worker/jobs/variant_processing/mapping.py`, and that wants
 investigating rather than papering over.

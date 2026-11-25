@@ -2,12 +2,14 @@
 
 """Tests for Slack notification utilities."""
 
+import json
 from unittest.mock import patch
 
 import pytest
 
 pytest.importorskip("slack_sdk", reason="slack_sdk is required to test Slack notification utilities")
 
+from mavedb.lib.logging.context import logging_context_scope
 from mavedb.lib.slack import _retry_status_text, send_slack_error, send_slack_job_error, send_slack_job_failure
 
 
@@ -26,24 +28,19 @@ class TestSendSlackError:
 
         mock_logger.critical.assert_called_once_with("Failed to send Slack error notification", exc_info=True)
 
-    def test_send_slack_error_calls_send_slack_message(self):
-        """send_slack_error should format and send the error via send_slack_message."""
-        with patch("mavedb.lib.slack.send_slack_message") as mock_send:
-            send_slack_error(ValueError("test error"))
+    def test_send_slack_error_sends_type_without_message(self):
+        """The message can quote row data, so the alert names the type and the logs hold the rest."""
+        with (
+            patch("mavedb.lib.slack.correlation_id_for_context", return_value="corr-1"),
+            patch("mavedb.lib.slack.send_slack_message") as mock_send,
+        ):
+            send_slack_error(ValueError("secret row value"))
 
-        mock_send.assert_called_once()
         sent_text = mock_send.call_args[0][0]
-        assert "ValueError" in sent_text
-        assert "test error" in sent_text
-
-    def test_send_slack_error_with_string_error(self):
-        """send_slack_error should handle non-exception inputs gracefully."""
-        with patch("mavedb.lib.slack.send_slack_message") as mock_send:
-            send_slack_error("plain string error")
-
-        mock_send.assert_called_once()
-        sent_text = mock_send.call_args[0][0]
-        assert "plain string error" in sent_text
+        payload = json.loads(sent_text)
+        assert payload["type"] == "ValueError"
+        assert payload["correlation_id"] == "corr-1"
+        assert "secret row value" not in sent_text
 
 
 @pytest.mark.unit
@@ -195,3 +192,37 @@ class TestSendSlackJobError:
             send_slack_job_error(job_urn="urn:test", job_function="fn", err=ValueError("e"))
 
         mock_logger.critical.assert_called_once_with("Failed to send Slack job error notification", exc_info=True)
+
+    def test_sends_exception_type_without_message(self):
+        with patch("mavedb.lib.slack._send_slack_blocks") as mock_send:
+            send_slack_job_error(job_urn="urn:test", job_function="fn", err=RuntimeError("secret row value"))
+
+        fallback, blocks = mock_send.call_args[0]
+        assert "RuntimeError" in fallback
+        assert "secret row value" not in fallback
+        assert "secret row value" not in str(blocks)
+
+
+@pytest.mark.unit
+class TestSendSlackErrorWorkerIds:
+    def test_send_slack_error_in_job_context_names_job_and_pipeline(self):
+        with (
+            logging_context_scope({"job_run_id": "7", "pipeline_id": "3"}),
+            patch("mavedb.lib.slack.send_slack_message") as mock_send,
+        ):
+            send_slack_error(ValueError("secret row value"))
+
+        payload = json.loads(mock_send.call_args[0][0])
+        assert payload["job_run_id"] == "7"
+        assert payload["pipeline_id"] == "3"
+
+    def test_send_slack_error_job_without_pipeline_omits_pipeline_id(self):
+        with (
+            logging_context_scope({"job_run_id": "7", "pipeline_id": None}),
+            patch("mavedb.lib.slack.send_slack_message") as mock_send,
+        ):
+            send_slack_error(ValueError("secret row value"))
+
+        payload = json.loads(mock_send.call_args[0][0])
+        assert payload["job_run_id"] == "7"
+        assert "pipeline_id" not in payload

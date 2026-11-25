@@ -6,7 +6,7 @@ pytest.importorskip("arq")
 
 from sqlalchemy import select
 
-from mavedb.models.annotation_event import AnnotationEvent
+from mavedb.models.annotation_status import AnnotationStatus
 from mavedb.models.enums.annotation_type import AnnotationType
 from mavedb.models.enums.disposition import Disposition
 from mavedb.models.enums.job_pipeline import JobStatus, PipelineStatus
@@ -60,9 +60,9 @@ class TestE2EPopulateVepForScoreSet:
 
         # Events are allele-keyed; the variant resolves its status through the live link.
         event = session.scalars(
-            select(AnnotationEvent).where(
-                AnnotationEvent.allele_id == allele.id,
-                AnnotationEvent.annotation_type == AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
+            select(AnnotationStatus).where(
+                AnnotationStatus.allele_id == allele.id,
+                AnnotationStatus.annotation_type == AnnotationType.VEP_FUNCTIONAL_CONSEQUENCE,
             )
         ).one()
         assert event.disposition == Disposition.PRESENT

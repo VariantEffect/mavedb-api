@@ -9,35 +9,30 @@ pytest.importorskip("psycopg2")
 
 import asyncclick as click
 
-from mavedb.models.annotation_event import AnnotationEvent
 from mavedb.models.collection import Collection
 from mavedb.models.collection_score_set_association import CollectionScoreSetAssociation
-from mavedb.models.variant import Variant
+from mavedb.models.enums.job_pipeline import JobStatus
+from mavedb.models.job_run import JobRun
 from mavedb.scripts.audit_scope import resolve_scope
 
 
-def _score_set(session, make_score_set, urn, translated_at):
-    """A score set with two variants, each reverse translated at the given instants (None: never)."""
+def _score_set(session, make_score_set, urn, translated_at=None, status=JobStatus.SUCCEEDED):
+    """A score set with a reverse translation job that finished at ``translated_at`` (None: never ran)."""
     score_set = make_score_set()
     score_set.urn = urn
     session.commit()
 
-    for i, at in enumerate(translated_at, start=1):
-        variant = Variant(urn=f"{urn}#{i}", score_set_id=score_set.id, hgvs_nt=f"c.{i}A>G", data={})
-        session.add(variant)
-        session.flush()
-        if at is not None:
-            session.add(
-                AnnotationEvent(
-                    annotation_type="cross_level_translation",
-                    variant_id=variant.id,
-                    score_set_id=score_set.id,
-                    disposition="present",
-                    reason="translated",
-                    created_at=at,
-                )
+    if translated_at is not None:
+        session.add(
+            JobRun(
+                job_type="variant_processing",
+                job_function="reverse_translate_variants_for_score_set",
+                job_params={"score_set_id": score_set.id},
+                status=status,
+                finished_at=translated_at,
             )
-    session.commit()
+        )
+        session.commit()
     return score_set
 
 
@@ -51,18 +46,19 @@ class TestResolveScope:
     def test_returns_none_when_unscoped(self, session):
         assert resolve_scope(session, (), None, None) is None
 
-    def test_translated_since_keeps_only_score_sets_every_variant_of_which_rt_reached(self, session, make_score_set):
-        current = _score_set(session, make_score_set, "urn:mavedb:00000020-a-1", [NEW, NEW])
-        _score_set(session, make_score_set, "urn:mavedb:00000021-a-1", [OLD, OLD])
-        _score_set(session, make_score_set, "urn:mavedb:00000022-a-1", [NEW, OLD])
-        _score_set(session, make_score_set, "urn:mavedb:00000023-a-1", [None, None])
+    def test_translated_since_keeps_only_score_sets_an_rt_job_finished_processing_since(self, session, make_score_set):
+        succeeded = _score_set(session, make_score_set, "urn:mavedb:00000020-a-1", NEW)
+        failed = _score_set(session, make_score_set, "urn:mavedb:00000021-a-1", NEW, status=JobStatus.FAILED)
+        _score_set(session, make_score_set, "urn:mavedb:00000022-a-1", OLD)
+        _score_set(session, make_score_set, "urn:mavedb:00000023-a-1", NEW, status=JobStatus.ERRORED)
+        _score_set(session, make_score_set, "urn:mavedb:00000024-a-1")
 
-        assert resolve_scope(session, (), None, SINCE) == [current.id]
+        assert sorted(resolve_scope(session, (), None, SINCE)) == sorted([succeeded.id, failed.id])
 
     def test_options_intersect(self, session, make_score_set, sample_user):
-        in_collection = _score_set(session, make_score_set, "urn:mavedb:00000024-a-1", [NEW])
-        stale_in_collection = _score_set(session, make_score_set, "urn:mavedb:00000025-a-1", [OLD])
-        _score_set(session, make_score_set, "urn:mavedb:00000026-a-1", [NEW])
+        in_collection = _score_set(session, make_score_set, "urn:mavedb:00000025-a-1", NEW)
+        stale_in_collection = _score_set(session, make_score_set, "urn:mavedb:00000026-a-1", OLD)
+        _score_set(session, make_score_set, "urn:mavedb:00000027-a-1", NEW)
 
         collection = Collection(name="audit", urn="urn:mavedb:collection-audit", created_by_id=sample_user.id)
         session.add(collection)
@@ -79,7 +75,7 @@ class TestResolveScope:
         assert resolve_scope(session, (), collection.urn, SINCE) == [in_collection.id]
 
     def test_rejects_an_unknown_collection_and_an_empty_scope(self, session, make_score_set):
-        _score_set(session, make_score_set, "urn:mavedb:00000027-a-1", [OLD])
+        _score_set(session, make_score_set, "urn:mavedb:00000028-a-1", OLD)
 
         with pytest.raises(click.BadParameter):
             resolve_scope(session, (), "urn:mavedb:collection-missing", None)
